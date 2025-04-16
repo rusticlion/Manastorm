@@ -14,8 +14,10 @@ function UI.drawHelpText(font)
     love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
     
     -- Only show minimal debug controls at the bottom
-    local y = love.graphics.getHeight() - 70
+    local y = love.graphics.getHeight() - 110
     love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 10, y + 50)
+    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 10, y + 70)
+    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 10, y + 90)
     
     -- Draw spellbook buttons for each player
     UI.drawSpellbookButtons()
@@ -47,7 +49,7 @@ end
 -- Draw an individual player's spellbook component
 function UI.drawPlayerSpellbook(playerNum, x, y)
     local screenWidth = love.graphics.getWidth()
-    local width = 200
+    local width = 260  -- Further increased for better spacing
     local height = 50
     local player = (playerNum == 1) and "Ashgar" or "Selene"
     local keyLabel = (playerNum == 1) and "B" or "M"
@@ -73,16 +75,24 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     love.graphics.setColor(0.4, 0.4, 0.5, 0.4)
     love.graphics.line(x + 120, y + 5, x + 120, y + height - 5)
     
-    -- Draw active key indicators as glowing runes on the book
-    local runeX = x + 20
-    local runeY = y + height/2 - 10
+    -- Center everything vertically in pane
+    local centerY = y + height/2
     local runeSize = 14
-    local runeSpacing = 30
+    local groupSpacing = 35
+    
+    -- GROUP 1: SPELL INPUT KEYS
+    -- Add a subtle background for the key group
+    love.graphics.setColor(0.2, 0.2, 0.3, 0.3)
+    love.graphics.rectangle("fill", x + 15, centerY - 20, 110, 40, 5, 5)  -- Rounded corners
+    
+    -- Calculate positions for centered spell input keys
+    local inputStartX = x + 30
+    local inputY = centerY
     
     for i = 1, 3 do
         -- Draw rune background
         love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
-        love.graphics.circle("fill", runeX + (i-1)*runeSpacing, runeY, runeSize)
+        love.graphics.circle("fill", inputStartX + (i-1)*groupSpacing, inputY, runeSize)
         
         if wizard.activeKeys[i] then
             -- Active rune with glow effect
@@ -91,38 +101,157 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
                 local alpha = 0.3 * (4-j) / 3
                 local size = runeSize + j * 2
                 love.graphics.setColor(1, 1, 0.3, alpha)
-                love.graphics.circle("fill", runeX + (i-1)*runeSpacing, runeY, size)
+                love.graphics.circle("fill", inputStartX + (i-1)*groupSpacing, inputY, size)
             end
             
             -- Bright center
             love.graphics.setColor(1, 1, 0.7, 0.9)
-            love.graphics.circle("fill", runeX + (i-1)*runeSpacing, runeY, runeSize * 0.7)
+            love.graphics.circle("fill", inputStartX + (i-1)*groupSpacing, inputY, runeSize * 0.7)
             
-            -- Rune symbol
+            -- Properly centered rune symbol
+            local keyText = keyPrefix[i]
+            local keyTextWidth = love.graphics.getFont():getWidth(keyText)
+            local keyTextHeight = love.graphics.getFont():getHeight()
             love.graphics.setColor(0.2, 0.2, 0.3, 0.9)
-            love.graphics.print(keyPrefix[i], runeX + (i-1)*runeSpacing - 4, runeY - 7)
+            love.graphics.print(keyText, 
+                inputStartX + (i-1)*groupSpacing - keyTextWidth/2, 
+                inputY - keyTextHeight/2)
         else
             -- Inactive rune
             love.graphics.setColor(0.5, 0.5, 0.6, 0.6)
-            love.graphics.circle("line", runeX + (i-1)*runeSpacing, runeY, runeSize)
+            love.graphics.circle("line", inputStartX + (i-1)*groupSpacing, inputY, runeSize)
             
-            -- Inactive symbol
+            -- Properly centered inactive symbol
+            local keyText = keyPrefix[i]
+            local keyTextWidth = love.graphics.getFont():getWidth(keyText)
+            local keyTextHeight = love.graphics.getFont():getHeight()
             love.graphics.setColor(0.6, 0.6, 0.7, 0.6)
-            love.graphics.print(keyPrefix[i], runeX + (i-1)*runeSpacing - 4, runeY - 7)
+            love.graphics.print(keyText, 
+                inputStartX + (i-1)*groupSpacing - keyTextWidth/2, 
+                inputY - keyTextHeight/2)
         end
     end
     
-    -- Draw spellbook open control
-    local openX = x + 135
-    love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
-    love.graphics.print("Open", openX, y + 10)
-    love.graphics.print("Spellbook", openX, y + 25)
+    -- Small "input" label beneath
+    love.graphics.setColor(0.6, 0.6, 0.8, 0.7)
+    local inputLabel = "Input Keys"
+    local inputLabelWidth = love.graphics.getFont():getWidth(inputLabel)
+    love.graphics.print(inputLabel, inputStartX + groupSpacing - inputLabelWidth/2, inputY + runeSize + 8)
     
-    -- Draw key hint
-    love.graphics.setColor(1, 1, 0.4, 0.9)
-    love.graphics.circle("fill", openX + 40, y + 18, 10)
-    love.graphics.setColor(0.2, 0.2, 0.3, 0.9)
-    love.graphics.print(keyLabel, openX + 37, y + 13)
+    -- GROUP 2: CAST BUTTON
+    -- Positioned farther to the right
+    local castX = x + 150
+    local castKey = (playerNum == 1) and "F" or "L"
+    
+    -- Subtle highlighting background
+    love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
+    love.graphics.rectangle("fill", castX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    
+    -- Draw cast button background
+    love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
+    love.graphics.circle("fill", castX, inputY, runeSize)
+    
+    -- Cast button border
+    love.graphics.setColor(0.8, 0.4, 0.1, 0.8)  -- Orange-ish for cast button
+    love.graphics.circle("line", castX, inputY, runeSize)
+    
+    -- Cast button symbol
+    local castTextWidth = love.graphics.getFont():getWidth(castKey)
+    local castTextHeight = love.graphics.getFont():getHeight()
+    love.graphics.setColor(1, 0.8, 0.3, 0.9)
+    love.graphics.print(castKey, 
+        castX - castTextWidth/2, 
+        inputY - castTextHeight/2)
+    
+    -- Small "cast" label beneath
+    love.graphics.setColor(0.8, 0.6, 0.3, 0.8)
+    local castLabel = "Cast"
+    local castLabelWidth = love.graphics.getFont():getWidth(castLabel)
+    love.graphics.print(castLabel, castX - castLabelWidth/2, inputY + runeSize + 8)
+    
+    -- GROUP 3: KEYED SPELL POPUP (appears above the spellbook when a spell is keyed)
+    if wizard.currentKeyedSpell then
+        -- Make the popup exactly match the width of the spellbook
+        local popupWidth = width
+        local popupHeight = 30
+        local popupX = x  -- Align with spellbook
+        local popupY = y - popupHeight - 5  -- Position above the spellbook with small gap
+        
+        -- Get spell name and calculate its width for centering
+        local spellName = wizard.currentKeyedSpell.name
+        local spellNameWidth = love.graphics.getFont():getWidth(spellName)
+        
+        -- Draw popup background with a slight "connected" look
+        -- Use the same color as the spellbook for visual cohesion
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.9)
+        
+        -- Main popup body (rounded rectangle)
+        love.graphics.rectangle("fill", popupX, popupY, popupWidth, popupHeight, 5, 5)
+        
+        -- Connection piece (small triangle pointing down)
+        love.graphics.polygon("fill", 
+            x + width/2 - 8, popupY + popupHeight,  -- Left point
+            x + width/2 + 8, popupY + popupHeight,  -- Right point
+            x + width/2, popupY + popupHeight + 8   -- Bottom point
+        )
+        
+        -- Add a subtle border with the wizard's color
+        love.graphics.setColor(color[1], color[2], color[3], 0.5)
+        love.graphics.rectangle("line", popupX, popupY, popupWidth, popupHeight, 5, 5)
+        
+        -- Subtle gradient for the background (matches the spellbook aesthetic)
+        love.graphics.setColor(0.25, 0.25, 0.35, 0.7)
+        love.graphics.rectangle("fill", popupX, popupY, popupWidth, popupHeight/2, 5, 5)
+        
+        -- Simple glow effect for the text
+        for i = 3, 1, -1 do
+            local alpha = 0.1 * (4-i) / 3
+            local size = i * 2
+            love.graphics.setColor(1, 1, 0.5, alpha)
+            love.graphics.rectangle("fill", 
+                x + width/2 - spellNameWidth/2 - size, 
+                popupY + popupHeight/2 - 7 - size/2, 
+                spellNameWidth + size*2, 
+                14 + size,
+                5, 5
+            )
+        end
+        
+        -- Spell name centered in the popup
+        love.graphics.setColor(1, 1, 0.5, 0.9)
+        love.graphics.print(spellName, 
+            x + width/2 - spellNameWidth/2, 
+            popupY + popupHeight/2 - 7
+        )
+    end
+    
+    -- GROUP 4: SPELLBOOK HELP (bottom-right corner)
+    local helpX = x + width - 20
+    local helpY = y + height - 16
+    
+    -- Draw key hint - smaller
+    local helpSize = 8
+    love.graphics.setColor(0.4, 0.4, 0.6, 0.7)  -- More subdued color
+    love.graphics.circle("fill", helpX, helpY, helpSize)
+    
+    -- Properly centered key symbol - smaller font
+    local smallFont = love.graphics.getFont()  -- We'll use the same font but draw it smaller
+    local keyTextWidth = smallFont:getWidth(keyLabel)
+    local keyTextHeight = smallFont:getHeight()
+    love.graphics.setColor(1, 1, 1, 0.8)
+    love.graphics.print(keyLabel, 
+        helpX - keyTextWidth/4, 
+        helpY - keyTextHeight/4,
+        0, 0.5, 0.5)  -- Scale to 50%
+    
+    -- Small "?" indicator
+    love.graphics.setColor(0.6, 0.6, 0.7, 0.7)
+    local helpLabel = "?"
+    local helpLabelWidth = smallFont:getWidth(helpLabel)
+    love.graphics.print(helpLabel, 
+        helpX - 15 - helpLabelWidth/2, 
+        helpY - smallFont:getHeight()/4,
+        0, 0.7, 0.7)  -- Scale to 70%
     
     -- Highlight when active
     if (playerNum == 1 and UI.spellbookVisible.player1) or 
@@ -152,16 +281,8 @@ function UI.drawSpellInfo(wizards)
         return costText:sub(1, -3)  -- Remove trailing comma and space
     end
     
-    -- Function to display spell casting progress
-    local function formatProgress(slot)
-        return math.floor(slot.progress * 100 / slot.castTime) .. "%"
-    end
-    
     -- Draw the fighting game style health bars
     UI.drawHealthBars(wizards)
-    
-    -- Always show active spells for both wizards (compact view)
-    UI.drawActiveSpells(wizards, formatProgress)
     
     -- Draw spellbook popups if visible
     if UI.spellbookVisible.player1 then
@@ -172,8 +293,8 @@ function UI.drawSpellInfo(wizards)
         UI.drawSpellbookModal(wizards[2], 2, formatCost)
     end
     
-    -- Draw mana pool stats (always visible)
-    UI.drawManaPoolStats(wizards[1].manaPool)
+    -- Spell notification is now handled by the wizard's castSpell function
+    -- No longer drawing active spells list - relying on visual representation
 end
 
 -- Draw dramatic fighting game style health bars
@@ -230,11 +351,9 @@ function UI.drawHealthBars(wizards)
     love.graphics.setColor(1, 1, 1, 0.2 * hilight)
     love.graphics.rectangle("fill", padding, y, barWidth * p1HealthPercent, barHeight/3)
     
-    -- Name plate
-    love.graphics.setColor(0.1, 0.1, 0.2, 0.9)
-    love.graphics.rectangle("fill", padding, y - 20, 120, 20)
-    love.graphics.setColor(1, 0.9, 0.3, 0.9)
-    love.graphics.print(p1.name, padding + 10, y - 17)
+    -- Name printed directly on the health bar
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print(p1.name, padding + 20, y + barHeight/2 - 8, 0, 1.2, 1.2)
     
     -- Health percentage
     love.graphics.setColor(1, 1, 1, 0.9)
@@ -286,70 +405,16 @@ function UI.drawHealthBars(wizards)
     love.graphics.setColor(1, 1, 1, 0.2 * hilight)
     love.graphics.rectangle("fill", p2X + barWidth * (1 - p2HealthPercent), y, barWidth * p2HealthPercent, barHeight/3)
     
-    -- Name plate
-    love.graphics.setColor(0.1, 0.1, 0.2, 0.9)
-    love.graphics.rectangle("fill", p2X + barWidth - 120, y - 20, 120, 20)
-    love.graphics.setColor(1, 0.9, 0.3, 0.9)
-    love.graphics.print(p2.name, p2X + barWidth - 110, y - 17)
+    -- Name printed directly on the health bar
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print(p2.name, p2X + barWidth - 80, y + barHeight/2 - 8, 0, 1.2, 1.2)
     
     -- Health percentage
     love.graphics.setColor(1, 1, 1, 0.9)
     love.graphics.print(math.floor(p2HealthPercent * 100) .. "%", p2X + 10, y + 7)
 end
 
--- Draw active spells for both wizards (always visible)
-function UI.drawActiveSpells(wizards, formatProgress)
-    -- Position the active spells below each wizard's spell slots
-    -- The largest orbit radius is 110 (from wizard.lua drawSpellSlots)
-    -- Adding some padding to position below the slots
-    
-    -- Active spells for Player 1 (Ashgar)
-    local screenHeight = love.graphics.getHeight()
-    local player1Y = screenHeight - 150
-    love.graphics.setColor(wizards[1].color[1]/255, wizards[1].color[2]/255, wizards[1].color[3]/255)
-    love.graphics.print("Active Spells:", wizards[1].x - 50, player1Y)
-    
-    local activeCount = 0
-    for i, slot in ipairs(wizards[1].spellSlots) do
-        if slot.active then
-            love.graphics.print("Slot " .. i .. ": " .. slot.spellType .. " (" .. formatProgress(slot) .. ")", wizards[1].x - 40, player1Y + (activeCount + 1) * 20)
-            activeCount = activeCount + 1
-        end
-    end
-    if activeCount == 0 then
-        love.graphics.setColor(0.6, 0.6, 0.6, 0.7)
-        love.graphics.print("(None)", wizards[1].x - 40, player1Y + 20)
-    end
-    
-    -- Show active effects for Player 1
-    if wizards[1].blockers.projectile > 0 then
-        love.graphics.setColor(0.6, 0.6, 1, 0.8)
-        love.graphics.print("Projectile Block: " .. string.format("%.1fs", wizards[1].blockers.projectile), wizards[1].x - 50, player1Y + (activeCount + 1) * 20 + 10)
-    end
-    
-    -- Active spells for Player 2 (Selene)
-    local player2Y = screenHeight - 150
-    love.graphics.setColor(wizards[2].color[1]/255, wizards[2].color[2]/255, wizards[2].color[3]/255)
-    love.graphics.print("Active Spells:", wizards[2].x - 50, player2Y)
-    
-    activeCount = 0
-    for i, slot in ipairs(wizards[2].spellSlots) do
-        if slot.active then
-            love.graphics.print("Slot " .. i .. ": " .. slot.spellType .. " (" .. formatProgress(slot) .. ")", wizards[2].x - 40, player2Y + (activeCount + 1) * 20)
-            activeCount = activeCount + 1
-        end
-    end
-    if activeCount == 0 then
-        love.graphics.setColor(0.6, 0.6, 0.6, 0.7)
-        love.graphics.print("(None)", wizards[2].x - 40, player2Y + 20)
-    end
-    
-    -- Show active effects for Player 2
-    if wizards[2].blockers.projectile > 0 then
-        love.graphics.setColor(0.6, 0.6, 1, 0.8)
-        love.graphics.print("Projectile Block: " .. string.format("%.1fs", wizards[2].blockers.projectile), wizards[2].x - 50, player2Y + (activeCount + 1) * 20 + 10)
-    end
-end
+-- [Removed drawActiveSpells function - now using visual representation instead]
 
 -- Draw a full spellbook modal for a player
 function UI.drawSpellbookModal(wizard, playerNum, formatCost)
@@ -456,48 +521,5 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     end
 end
 
--- Draw mana pool stats
-function UI.drawManaPoolStats(manaPool)
-    -- Draw mana pool stats
-    love.graphics.setColor(0.9, 0.9, 0.9, 0.8)
-    local poolX = love.graphics.getWidth() / 2 - 50
-    love.graphics.print("Mana Pool:", poolX, 150)
-    
-    -- Count free tokens by type
-    local counts = {fire = 0, force = 0, moon = 0, nature = 0, star = 0}
-    for _, token in ipairs(manaPool.tokens) do
-        if token.state == "FREE" then
-            counts[token.type] = counts[token.type] + 1
-        end
-    end
-    
-    -- Display token counts
-    love.graphics.print("Fire: " .. counts.fire, poolX, 170)
-    love.graphics.print("Force: " .. counts.force, poolX, 185)
-    love.graphics.print("Moon: " .. counts.moon, poolX, 200)
-    love.graphics.print("Nature: " .. counts.nature, poolX, 215)
-    love.graphics.print("Star: " .. counts.star, poolX, 230)
-    
-    -- Count tokens by state
-    local free, channeled, locked = 0, 0, 0
-    for _, token in ipairs(manaPool.tokens) do
-        if token.state == "FREE" then free = free + 1
-        elseif token.state == "CHANNELED" then channeled = channeled + 1
-        elseif token.state == "LOCKED" then locked = locked + 1
-        end
-    end
-    
-    -- Display token counts by state
-    love.graphics.print("Free: " .. free .. ", Channeled: " .. channeled, poolX - 30, 250)
-    
-    -- Display locked tokens with a highlight if any are locked
-    if locked > 0 then
-        love.graphics.setColor(1, 0.5, 0.5, 0.8)
-        love.graphics.print("Locked: " .. locked, poolX - 30, 270)
-    else
-        love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
-        love.graphics.print("Locked: 0", poolX - 30, 270)
-    end
-end
 
 return UI

@@ -11,7 +11,7 @@ local Spells = {}
 Spells.conjurefire = {
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
-    castTime = 1.0,  -- Fast cast time
+    castTime = 2.0,  -- Fast cast time
     cost = {},  -- No mana cost
     effect = function(caster, target)
         -- Create a fire token in the mana pool
@@ -27,7 +27,7 @@ Spells.conjurefire = {
 Spells.firebolt = {
     name = "Firebolt",
     description = "Quick ranged hit, more damage at FAR range",
-    castTime = 2.5,  -- seconds
+    castTime = 5.0,  -- seconds
     spellType = "projectile",  -- Mark as a projectile spell
     cost = {
         {type = "fire", count = 1},
@@ -48,7 +48,7 @@ Spells.firebolt = {
 Spells.meteor = {
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
-    castTime = 4.0,
+    castTime = 8.0,
     cost = {
         {type = "fire", count = 1},
         {type = "force", count = 1},
@@ -68,7 +68,7 @@ Spells.meteor = {
 Spells.combust = {
     name = "Combust Lock",
     description = "Locks opponent mana token, punishes overqueueing",
-    castTime = 3.0,
+    castTime = 6.0,
     cost = {
         {type = "fire", count = 1},
         {type = "force", count = 1}
@@ -90,11 +90,29 @@ Spells.combust = {
     end
 }
 
+Spells.emberlift = {
+    name = "Emberlift",
+    description = "Launches caster into the air and increases range",
+    castTime = 2.5,  -- Short cast time
+    cost = {
+        {type = "fire", count = 1},
+        {type = "force", count = 1}
+    },
+    effect = function(caster, target)
+        return {
+            setElevation = "AERIAL",
+            elevationDuration = 5.0,  -- Sets AERIAL for 5 seconds
+            setPosition = "FAR",      -- Sets range to FAR
+            damage = 0
+        }
+    end
+}
+
 -- Selene's Spells (Moon-focused)
 Spells.conjuremoonlight = {
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
-    castTime = 1.0,  -- Fast cast time
+    castTime = 2.0,  -- Fast cast time
     cost = {},  -- No mana cost
     effect = function(caster, target)
         -- Create a moon token in the mana pool
@@ -110,7 +128,7 @@ Spells.conjuremoonlight = {
 Spells.volatileconjuring = {
     name = "Volatile Conjuring",
     description = "Creates a random mana token",
-    castTime = 0.7,  -- Shorter cast time than the dedicated conjuring spells
+    castTime = 1.4,  -- Shorter cast time than the dedicated conjuring spells
     cost = {},  -- No mana cost
     effect = function(caster, target)
         -- Available token types and their image paths
@@ -142,7 +160,7 @@ Spells.volatileconjuring = {
 Spells.mist = {
     name = "Mist Veil",
     description = "Projectile block, grants AERIAL",
-    castTime = 2.5,
+    castTime = 5.0,
     cost = {
         {type = "moon", count = 1},
         {type = "any", count = 1}
@@ -150,6 +168,7 @@ Spells.mist = {
     effect = function(caster, target)
         return {
             setElevation = "AERIAL",
+            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
             block = "projectile",
             blockDuration = 5.0  -- Block projectiles for 5 seconds
         }
@@ -159,7 +178,7 @@ Spells.mist = {
 Spells.gravity = {
     name = "Gravity Pin",
     description = "Traps AERIAL enemies",
-    castTime = 3.5,
+    castTime = 7.0,
     cost = {
         {type = "moon", count = 1},
         {type = "nature", count = 1}
@@ -178,7 +197,7 @@ Spells.gravity = {
 Spells.eclipse = {
     name = "Eclipse Echo",
     description = "Delays central queued spell",
-    castTime = 3.0,
+    castTime = 6.0,
     cost = {
         {type = "moon", count = 1},
         {type = "force", count = 1}
@@ -186,6 +205,21 @@ Spells.eclipse = {
     effect = function(caster, target)
         return {
             delaySpell = 2  -- Targets spell slot 2 (middle)
+        }
+    end
+}
+
+Spells.fullmoonbeam = {
+    name = "Full Moon Beam",
+    description = "Channels moonlight into a powerful beam",
+    castTime = 7.0,    -- Long cast time
+    cost = {
+        {type = "moon", count = 5}  -- Costs 5 moon mana
+    },
+    effect = function(caster, target)
+        return {
+            damage = 25,     -- Deals 25 damage
+            damageType = "moon"
         }
     end
 }

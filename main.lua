@@ -5,6 +5,7 @@
 local Wizard = require("wizard")
 local ManaPool = require("manapool")
 local UI = require("ui")
+local VFX = require("vfx")
 
 -- Game state (globally accessible)
 game = {
@@ -14,14 +15,32 @@ game = {
     rangeState = "FAR"  -- Initial range state (NEAR or FAR)
 }
 
+-- Define token types and images (globally available for consistency)
+game.tokenTypes = {"fire", "force", "moon", "nature", "star"}
+game.tokenImages = {
+    fire = "assets/sprites/fire-token.png",
+    force = "assets/sprites/force-token.png",
+    moon = "assets/sprites/moon-token.png",
+    nature = "assets/sprites/nature-token.png",
+    star = "assets/sprites/star-token.png"
+}
+
+-- Helper function to add a random token to the mana pool
+function game.addRandomToken()
+    local randomType = game.tokenTypes[math.random(#game.tokenTypes)]
+    game.manaPool:addToken(randomType, game.tokenImages[randomType])
+    return randomType
+end
+
 function love.load()
     -- Set up window
     love.window.setTitle("Manastorm - Wizard Duel")
     love.window.setMode(800, 600)
     
-    -- Use default system font for now (custom font has issues with numbers)
-    -- game.font = love.graphics.newFont("assets/fonts/Lionscript-Regular.ttf", 16)
+    -- Use system font for now
     game.font = love.graphics.newFont(16)  -- Default system font
+    
+    -- Set default font for normal rendering
     love.graphics.setFont(game.font)
     
     -- Create mana pool positioned above the battlefield, but below health bars
@@ -39,14 +58,14 @@ function love.load()
         wizard.gameState = game
     end
     
-    -- Initialize mana pool with tokens (2 of each type for now)
-    for i = 1, 2 do
-        game.manaPool:addToken("fire", "assets/sprites/fire-token.png")
-        game.manaPool:addToken("force", "assets/sprites/force-token.png")
-        game.manaPool:addToken("moon", "assets/sprites/moon-token.png")
-        game.manaPool:addToken("nature", "assets/sprites/nature-token.png")
-        game.manaPool:addToken("star", "assets/sprites/star-token.png")
-    end
+    -- Initialize VFX system
+    game.vfx = VFX.init()
+    
+    -- Initialize mana pool with a single random token to start
+    local tokenType = game.addRandomToken()
+    
+    -- Log which token was added
+    print("Starting the game with a single " .. tokenType .. " token")
 end
 
 function love.update(dt)
@@ -57,6 +76,9 @@ function love.update(dt)
     
     -- Update mana pool
     game.manaPool:update(dt)
+    
+    -- Update VFX system
+    game.vfx.update(dt)
 end
 
 function love.draw()
@@ -74,10 +96,11 @@ function love.draw()
         wizard:draw()
     end
     
-    -- Draw UI
+    -- Draw visual effects layer (between wizards and UI)
+    game.vfx.draw()
+    
+    -- Draw UI (health bars and wizard names are handled in UI.drawSpellInfo)
     love.graphics.setColor(1, 1, 1)
-    love.graphics.print("Ashgar", 100, 50)
-    love.graphics.print("Selene", 650, 50)
     
     -- Draw help text and spell info
     UI.drawHelpText(game.font)
@@ -187,12 +210,10 @@ function love.keypressed(key)
         UI.toggleSpellbook(2)
     end
     
-    -- Debug: Add more tokens with T key
+    -- Debug: Add a single random token with T key
     if key == "t" then
-        game.manaPool:addToken("fire", "assets/sprites/fire-token.png")
-        game.manaPool:addToken("moon", "assets/sprites/moon-token.png")
-        game.manaPool:addToken("force", "assets/sprites/force-token.png")
-        print("Added more tokens to the mana pool")
+        local tokenType = game.addRandomToken()
+        print("Added a " .. tokenType .. " token to the mana pool")
     end
     
     -- Debug: Position/elevation test controls
@@ -224,6 +245,50 @@ function love.keypressed(key)
             game.wizards[2].elevation = "GROUNDED"
         end
         print("Selene elevation toggled to: " .. game.wizards[2].elevation)
+    end
+    
+    -- Debug: Test VFX effects with number keys
+    if key == "1" then
+        -- Test firebolt effect
+        game.vfx.createEffect("firebolt", game.wizards[1].x, game.wizards[1].y, game.wizards[2].x, game.wizards[2].y)
+        print("Testing firebolt VFX")
+    elseif key == "2" then
+        -- Test meteor effect 
+        game.vfx.createEffect("meteor", game.wizards[2].x, game.wizards[2].y - 100, game.wizards[2].x, game.wizards[2].y)
+        print("Testing meteor VFX")
+    elseif key == "3" then
+        -- Test mist veil effect
+        game.vfx.createEffect("mistveil", game.wizards[1].x, game.wizards[1].y)
+        print("Testing mist veil VFX")
+    elseif key == "4" then
+        -- Test emberlift effect
+        game.vfx.createEffect("emberlift", game.wizards[2].x, game.wizards[2].y)
+        print("Testing emberlift VFX") 
+    elseif key == "5" then
+        -- Test full moon beam effect
+        game.vfx.createEffect("fullmoonbeam", game.wizards[2].x, game.wizards[2].y, game.wizards[1].x, game.wizards[1].y)
+        print("Testing full moon beam VFX")
+    elseif key == "6" then
+        -- Test conjure fire effect
+        game.vfx.createEffect("conjurefire", game.wizards[1].x, game.wizards[1].y, nil, nil, {
+            manaPoolX = game.manaPool.x,
+            manaPoolY = game.manaPool.y
+        })
+        print("Testing conjure fire VFX")
+    elseif key == "7" then
+        -- Test conjure moonlight effect
+        game.vfx.createEffect("conjuremoonlight", game.wizards[2].x, game.wizards[2].y, nil, nil, {
+            manaPoolX = game.manaPool.x,
+            manaPoolY = game.manaPool.y
+        })
+        print("Testing conjure moonlight VFX")
+    elseif key == "8" then
+        -- Test volatile conjuring effect
+        game.vfx.createEffect("volatileconjuring", game.wizards[1].x, game.wizards[1].y, nil, nil, {
+            manaPoolX = game.manaPool.x,
+            manaPoolY = game.manaPool.y
+        })
+        print("Testing volatile conjuring VFX")
     end
 end
 
