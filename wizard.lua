@@ -53,8 +53,8 @@ function Wizard.new(name, x, y, color)
             -- Multi-key combinations
             ["12"] = Spells.meteor,
             ["13"] = Spells.combust,
-            ["23"] = Spells.emberlift, -- Added Emberlift spell
-            ["123"] = Spells.meteor   -- Placeholder, could be a new spell
+            ["23"] = Spells.emberlift,     -- Movement spell
+            ["123"] = Spells.forcebarrier  -- New barrier shield blocking projectiles & zones
         }
     elseif name == "Selene" then
         self.spellbook = {
@@ -64,10 +64,10 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.mist,
             
             -- Multi-key combinations
-            ["12"] = Spells.gravity,
+            ["12"] = Spells.moonward,     -- New ward shield blocking projectiles & remotes
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.fullmoonbeam, -- Added Full Moon Beam spell
-            ["123"] = Spells.eclipse  -- Placeholder, could be a new spell
+            ["23"] = Spells.fullmoonbeam, -- Full Moon Beam spell
+            ["123"] = Spells.naturefield  -- New field shield blocking remotes & zones
         }
     end
     
@@ -79,7 +79,13 @@ function Wizard.new(name, x, y, color)
             progress = 0,
             spellType = nil,
             castTime = 0,
-            tokens = {}  -- Will hold channeled mana tokens
+            tokens = {},  -- Will hold channeled mana tokens
+            
+            -- Shield-specific properties
+            isShield = false,
+            defenseType = nil,  -- "barrier", "ward", or "field"
+            shieldStrength = 0, -- How many hits the shield can take
+            blocksAttackTypes = nil  -- Table of attack types this shield blocks
         }
     end
     
@@ -147,29 +153,118 @@ function Wizard:update(dt)
     -- Update spell slots
     for i, slot in ipairs(self.spellSlots) do
         if slot.active then
-            slot.progress = slot.progress + dt
+            -- If the slot is an active shield, just keep it active, and add
+            -- shield pulsing effects if needed
+            if slot.isShield and slot.progress >= slot.castTime then
+                -- For active shields, occasionally add subtle visual effects
+                if math.random() < 0.01 and self.gameState and self.gameState.vfx then
+                    local slotYOffsets = {30, 0, -30}
+                    local slotY = self.y + slotYOffsets[i]
+                    local angle = math.random() * math.pi * 2
+                    local radius = math.random(30, 40)
+                    local sparkleX = self.x + math.cos(angle) * radius
+                    local sparkleY = slotY + math.sin(angle) * radius
+                    
+                    -- Color based on shield type
+                    local effectColor = {0.7, 0.7, 0.7, 0.5}  -- Default gray
+                    if slot.defenseType == "barrier" then
+                        effectColor = {1.0, 1.0, 0.3, 0.5}  -- Yellow for barriers
+                    elseif slot.defenseType == "ward" then
+                        effectColor = {0.3, 0.3, 1.0, 0.5}  -- Blue for wards
+                    elseif slot.defenseType == "field" then
+                        effectColor = {0.3, 1.0, 0.3, 0.5}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                        duration = 0.3,
+                        color = effectColor,
+                        particleCount = 2,
+                        radius = 5
+                    })
+                end
+                
+                -- Continue to next spell slot
+                goto continue_next_slot
+            end
+            
+            -- Check if the spell is frozen (by Eclipse Echo)
+            if slot.frozen then
+                -- Update freeze timer
+                slot.freezeTimer = slot.freezeTimer - dt
+                
+                -- Check if the freeze duration has elapsed
+                if slot.freezeTimer <= 0 then
+                    -- Unfreeze the spell
+                    slot.frozen = false
+                    print(self.name .. "'s spell in slot " .. i .. " is no longer frozen")
+                    
+                    -- Add a visual "unfreeze" effect
+                    if self.gameState and self.gameState.vfx then
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        
+                        self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                            duration = 0.5,
+                            color = {0.7, 0.7, 1.0, 0.6},
+                            particleCount = 10,
+                            radius = 35
+                        })
+                    end
+                else
+                    -- Spell is still frozen, don't increment progress
+                    -- Visual progress arc will appear frozen in place
+                    
+                    -- Add a subtle frozen visual effect if we have VFX
+                    if math.random() < 0.03 and self.gameState and self.gameState.vfx then -- Occasional sparkle
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        local angle = math.random() * math.pi * 2
+                        local radius = math.random(30, 40)
+                        local sparkleX = self.x + math.cos(angle) * radius
+                        local sparkleY = slotY + math.sin(angle) * radius
+                        
+                        self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                            duration = 0.3,
+                            color = {0.6, 0.6, 1.0, 0.5},
+                            particleCount = 3,
+                            radius = 5
+                        })
+                    end
+                end
+            else
+                -- Normal progress update for unfrozen spells
+                slot.progress = slot.progress + dt
+            end
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
+                -- Cast the spell
                 self:castSpell(i)
                 
-                -- Start return animation for tokens
-                if #slot.tokens > 0 then
-                    for _, tokenData in ipairs(slot.tokens) do
-                        -- Trigger animation to return token to the mana pool
-                        self.manaPool:returnToken(tokenData.index)
+                -- For non-shield spells, we return tokens and reset the slot
+                -- For shield spells, castSpell will handle setting up the shield 
+                -- and we won't get here because we'll have the isShield check above
+                if not slot.isShield then
+                    -- Start return animation for tokens
+                    if #slot.tokens > 0 then
+                        for _, tokenData in ipairs(slot.tokens) do
+                            -- Trigger animation to return token to the mana pool
+                            self.manaPool:returnToken(tokenData.index)
+                        end
+                        
+                        -- Clear token list (tokens still exist in the mana pool)
+                        slot.tokens = {}
                     end
                     
-                    -- Clear token list (tokens still exist in the mana pool)
-                    slot.tokens = {}
+                    -- Reset slot
+                    slot.active = false
+                    slot.progress = 0
+                    slot.spellType = nil
+                    slot.castTime = 0
                 end
-                
-                -- Reset slot
-                slot.active = false
-                slot.progress = 0
-                slot.spellType = nil
-                slot.castTime = 0
             end
+            
+            ::continue_next_slot::
         end
     end
 end
@@ -526,19 +621,94 @@ function Wizard:drawSpellSlots()
             -- Calculate progress angle (0 to 2*pi)
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
-            -- Draw progress arc as ellipse, respecting the front/back z-ordering
-            -- First the back half of the progress arc (if it extends that far)
-            if progressAngle > math.pi then
-                love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+            -- Check if it's a shield spell (fully cast)
+            if slot.isShield then
+                -- Draw a full shield arc with color based on defense type
+                local shieldColor
+                local shieldName = ""
+                
+                if slot.defenseType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3}  -- Yellow for barriers
+                    shieldName = "Barrier"
+                elseif slot.defenseType == "ward" then 
+                    shieldColor = {0.3, 0.3, 1.0}  -- Blue for wards
+                    shieldName = "Ward"
+                elseif slot.defenseType == "field" then
+                    shieldColor = {0.3, 1.0, 0.3}  -- Green for fields
+                    shieldName = "Field"
+                else
+                    shieldColor = {0.8, 0.8, 0.8}  -- Grey fallback
+                    shieldName = "Shield"
+                end
+                
+                -- Add pulsing effect for active shields
+                local pulseSize = 2 + math.sin(love.timer.getTime() * 3) * 2
+                
+                -- Draw a slightly larger pulse effect around the orbit
+                for j = 1, 3 do
+                    local extraSize = j * 2
+                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.2 - j*0.05)
+                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + extraSize, 
+                                    radiusY + pulseSize + extraSize, "line")
+                end
+                
+                -- Draw the back half of the shield (reduced alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.4)
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, math.pi * 2, 16)
+                
+                -- Draw the front half of the shield (full alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.pi, 16)
+                
+                -- Draw shield status above the highest slot
+                if i == 3 then
+                    love.graphics.setColor(1, 1, 1, 0.8)
+                    love.graphics.print(shieldName .. " (" .. slot.shieldStrength .. ")", 
+                                       self.x - 35, slotY - radiusY - 15)
+                end
+                
+                -- Draw small shield strength indicator near the slot
+                love.graphics.setColor(1, 1, 1, 0.9)
+                love.graphics.print(tostring(slot.shieldStrength), 
+                                   self.x + radiusX + 5, slotY - 8)
+            
+            -- Check if the spell is frozen by Eclipse Echo
+            elseif slot.frozen then
+                -- Draw frozen indicator - a "stopped" pulse effect around the orbit
+                for j = 1, 3 do
+                    local pulseSize = 2 + j*1.5
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
+                    
+                    -- Draw a slightly larger ellipse to indicate frozen state
+                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                                    radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
+                end
+                
+                -- Draw the progress arc with a blue/icy color for frozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+            else
+                -- Normal progress arc for unfrozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
             
-            -- Then the front half of the progress arc
-            love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-            self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
-            
-            -- Draw spell name above the highest slot
-            if i == 3 then
+            -- Draw spell name above the highest slot (only for non-shield spells)
+            if i == 3 and not slot.isShield then
                 love.graphics.setColor(1, 1, 1, 0.8)
                 love.graphics.print(slot.spellType, self.x - 20, slotY - radiusY - 15)
             end
@@ -988,15 +1158,243 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect
-    local effect = slot.spell.effect(self, target)
+    -- Apply spell effect, passing the spell slot number as an additional parameter
+    local effect = slot.spell.effect(self, target, spellSlot)
+    
+    -- Debug effect details
+    if slot.spellType == "Eclipse Echo" then
+        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+        
+        -- Add visual effect for the delayed spell
+        if effect.delayApplied and self.gameState.vfx then
+            -- Calculate position of the targeted spell slot
+            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+            local slotY = self.y + slotYOffsets[effect.targetSlot]
+            
+            -- Create a clear visual effect to show delay
+            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                duration = 1.2,
+                color = {0.3, 0.3, 0.8, 0.7},
+                particleCount = 20,
+                radius = 50
+            })
+        end
+    end
     
     -- Create visual effect based on spell type
     if self.gameState.vfx then
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
     end
     
-    -- Check for projectile blocking
+    -- Check if it's a shield spell that should persist in the spell slot
+    if slot.spell.isShield or effect.isShield then
+        -- Set the shield properties directly on the slot
+        slot.progress = slot.castTime  -- Mark as fully cast
+        slot.isShield = true
+        slot.defenseType = effect.defenseType or slot.spell.defenseType
+        slot.shieldStrength = effect.shieldStrength or 2  -- Default to 2 hits if not specified
+        
+        -- Store attack types that this shield blocks
+        local blocksAttackTypes = slot.spell.blocksAttackTypes
+        if blocksAttackTypes then
+            slot.blocksAttackTypes = {}
+            for _, attackType in ipairs(blocksAttackTypes) do
+                slot.blocksAttackTypes[attackType] = true
+            end
+        end
+        
+        -- Make sure we keep the spell info for reference
+        slot.spell = slot.spell
+        
+        -- Keep the tokens in the slot (don't return them to the pool)
+        -- Note that the tokens have already been reserved during queueSpell
+        -- So we just need to keep them and not return them
+        
+        print(self.name .. " raised a " .. slot.defenseType .. " shield that blocks " .. 
+              slot.shieldStrength .. " attacks in slot " .. spellSlot)
+        
+        -- Print the attack types this shield blocks
+        local blockedTypes = ""
+        for attackType, _ in pairs(slot.blocksAttackTypes) do
+            blockedTypes = blockedTypes .. attackType .. " "
+        end
+        print("Shield blocks: " .. blockedTypes)
+        
+        -- Create shield effect using VFX system
+        if self.gameState.vfx then
+            local shieldColor
+            if slot.defenseType == "barrier" then
+                shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+            elseif slot.defenseType == "ward" then
+                shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+            elseif slot.defenseType == "field" then
+                shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+            end
+            
+            self.gameState.vfx.createEffect("shield", self.x, self.y, nil, nil, {
+                duration = 1.0,
+                color = shieldColor,
+                shieldType = slot.defenseType
+            })
+        end
+        
+        -- Apply elevation change if the shield spell includes that effect
+        if effect.setElevation then
+            self.elevation = effect.setElevation
+            
+            -- Set duration for elevation change if provided
+            if effect.elevationDuration and effect.setElevation == "AERIAL" then
+                self.elevationTimer = effect.elevationDuration
+                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            else
+                -- No duration specified, treat as permanent until changed by another spell
+                self.elevationTimer = 0
+                print(self.name .. " moved to " .. self.elevation .. " elevation")
+            end
+            
+            -- Create elevation change effect
+            if self.gameState.vfx and effect.setElevation == "AERIAL" then
+                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            end
+        end
+        
+        -- Do not reset the slot - the shield will remain active
+        return
+    end
+    
+    -- Check for shield blocking based on attack type
+    local attackBlocked = false
+    local blockingShieldSlot = nil
+    
+    -- Only check for blocking if this is an offensive spell
+    if slot.spell.attackType then
+        -- The attack type of the current spell
+        local attackType = slot.spell.attackType
+        print("Checking if " .. attackType .. " attack can be blocked by " .. target.name .. "'s shields")
+        
+        -- Check each of the target's spell slots for active shields
+        for i, targetSlot in ipairs(target.spellSlots) do
+            -- Debug print to check shield state
+            if targetSlot.active and targetSlot.isShield then
+                print("Found shield in slot " .. i .. " of type " .. targetSlot.defenseType .. 
+                      " with strength " .. targetSlot.shieldStrength)
+                
+                -- Check if the shield blocks appropriate attack types
+                if targetSlot.blocksAttackTypes then
+                    for blockType, _ in pairs(targetSlot.blocksAttackTypes) do
+                        print("Shield blocks: " .. blockType)
+                    end
+                else
+                    print("Shield does not have blocksAttackTypes defined!")
+                end
+            end
+            
+            if targetSlot.active and targetSlot.isShield and 
+               targetSlot.shieldStrength > 0 and
+               targetSlot.blocksAttackTypes and
+               targetSlot.blocksAttackTypes[attackType] then
+                
+                -- This shield can block this attack type
+                attackBlocked = true
+                blockingShieldSlot = i
+                
+                -- Reduce shield strength
+                targetSlot.shieldStrength = targetSlot.shieldStrength - 1
+                
+                -- Create visual effect for the block
+                target.blockVFX = {
+                    active = true,
+                    timer = 0.5,  -- Duration of the block visual effect
+                    x = target.x,
+                    y = target.y
+                }
+                
+                -- Create block effect using VFX system
+                if self.gameState.vfx then
+                    local shieldColor
+                    if targetSlot.defenseType == "barrier" then
+                        shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+                    elseif targetSlot.defenseType == "ward" then
+                        shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+                    elseif targetSlot.defenseType == "field" then
+                        shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                        duration = 0.5, -- Short block flash
+                        color = shieldColor,
+                        shieldType = targetSlot.defenseType
+                    })
+                end
+                
+                print(target.name .. "'s " .. targetSlot.defenseType .. " shield blocked " .. self.name .. "'s " .. 
+                      attackType .. " attack! (" .. targetSlot.shieldStrength .. " strength remaining)")
+                
+                -- If the shield is depleted, destroy it
+                if targetSlot.shieldStrength <= 0 then
+                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield has been broken!")
+                    
+                    -- Start return animation for tokens
+                    if #targetSlot.tokens > 0 then
+                        for _, tokenData in ipairs(targetSlot.tokens) do
+                            -- Trigger animation to return token to the mana pool
+                            target.manaPool:returnToken(tokenData.index)
+                        end
+                        
+                        -- Clear token list (tokens still exist in the mana pool)
+                        targetSlot.tokens = {}
+                    end
+                    
+                    -- Reset slot
+                    targetSlot.active = false
+                    targetSlot.isShield = false
+                    targetSlot.defenseType = nil
+                    targetSlot.blocksAttackTypes = nil
+                    targetSlot.shieldStrength = 0
+                    targetSlot.progress = 0
+                    targetSlot.spellType = nil
+                    targetSlot.castTime = 0
+                    
+                    -- Create shield break effect
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                            duration = 0.7,
+                            color = {1.0, 0.5, 0.5, 0.8},
+                            particleCount = 15,
+                            radius = 50
+                        })
+                    end
+                end
+                
+                break  -- Stop checking other shields once one has blocked
+            end
+        end
+    end
+    
+    -- If the attack was blocked, don't apply any effects
+    if attackBlocked then
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
+        return  -- Skip applying any effects
+    end
+    
+    -- LEGACY CHECK FOR OLD BLOCKER SYSTEM - Disabled (Now using shield system instead)
+    --[[
     if effect.spellType == "projectile" and target.blockers.projectile > 0 then
         -- Target has an active projectile block
         print(target.name .. " blocked " .. slot.spellType .. " with Mist Veil!")
@@ -1017,11 +1415,29 @@ function Wizard:castSpell(spellSlot)
             })
         end
         
-        -- Don't consume the block, it remains active for its duration
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
         return  -- Skip applying any effects
-    end
+    }
+    --]]
     
-    -- Apply blocking effects (like Mist Veil)
+    -- LEGACY CODE - Apply blocking effects (like old Mist Veil) - Disabled
+    --[[
     if effect.block then
         if effect.block == "projectile" then
             local duration = effect.blockDuration or 2.5  -- Default to 2.5s if not specified
@@ -1034,20 +1450,39 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+    --]]
     
     -- Apply damage
     if effect.damage and effect.damage > 0 then
         target.health = target.health - effect.damage
         if target.health < 0 then target.health = 0 end
-        print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
         
-        -- Create hit effect if not already created by the spell VFX
-        if self.gameState.vfx and not effect.spellType then
-            -- Default impact effect for non-specific damage
-            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
-                duration = 0.5,
-                color = {1.0, 0.3, 0.3, 0.8}
-            })
+        -- Special feedback for time-scaled damage from Full Moon Beam
+        if effect.scaledDamage then
+            print(target.name .. " took " .. effect.damage .. " damage from " .. slot.spellType .. 
+                  " (scaled by cast time) (health: " .. target.health .. ")")
+            
+            -- Create a more dramatic visual effect for scaled damage
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.8,
+                    color = {0.5, 0.5, 1.0, 0.8},
+                    particleCount = 20,
+                    radius = 45
+                })
+            end
+        else
+            -- Regular damage feedback
+            print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
+            
+            -- Create hit effect if not already created by the spell VFX
+            if self.gameState.vfx and not effect.spellType then
+                -- Default impact effect for non-specific damage
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = {1.0, 0.3, 0.3, 0.8}
+                })
+            end
         end
     end
     
@@ -1131,12 +1566,23 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
-    -- Apply spell delay
+    -- Apply spell delay (to target's spell)
     if effect.delaySpell and target.spellSlots[effect.delaySpell] and target.spellSlots[effect.delaySpell].active then
-        -- Add 50% more time to the spell
+        -- Get the target spell slot
         local slot = target.spellSlots[effect.delaySpell]
-        local delayTime = slot.castTime * 0.5
-        slot.castTime = slot.castTime + delayTime
+        
+        -- Calculate how much progress has been made (as a percentage)
+        local progressPercent = slot.progress / slot.castTime
+        
+        -- Add additional time to the spell
+        local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+        local newCastTime = slot.castTime + delayTime
+        
+        -- Update the castTime and adjust the progress proportionally
+        -- This effectively "pushes back" the progress bar
+        slot.castTime = newCastTime
+        slot.progress = progressPercent * slot.castTime
+        
         print("Delayed " .. target.name .. "'s spell in slot " .. effect.delaySpell .. " by " .. delayTime .. " seconds")
         
         -- Create delay effect near the targeted spell slot
@@ -1145,14 +1591,105 @@ function Wizard:castSpell(spellSlot)
             local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
             local slotY = target.y + slotYOffsets[effect.delaySpell]
             
+            -- Create a more distinctive delay visual effect
             self.gameState.vfx.createEffect("impact", target.x, slotY, nil, nil, {
-                duration = 0.7,
+                duration = 0.9,
                 color = {0.3, 0.3, 0.8, 0.7},
                 particleCount = 15,
                 radius = 40
             })
         end
     end
+    
+    -- Apply spell delay (to caster's own spell)
+    if effect.delaySelfSpell then
+        print("DEBUG - Eclipse Echo effect triggered with delaySelfSpell = " .. effect.delaySelfSpell)
+        print("DEBUG - Caster: " .. self.name)
+        print("DEBUG - Spell slots status:")
+        for i, slot in ipairs(self.spellSlots) do
+            print("DEBUG - Slot " .. i .. ": " .. (slot.active and "ACTIVE - " .. (slot.spellType or "unknown") or "INACTIVE"))
+            if slot.active then
+                print("DEBUG - Progress: " .. slot.progress .. " / " .. slot.castTime)
+            end
+        end
+        
+        -- When Eclipse Echo resolves, we need to target the middle spell slot
+        -- Which in Lua is index 2 (1-based indexing)
+        local targetSlotIndex = effect.delaySelfSpell  -- Should be 2 for the middle slot
+        print("DEBUG - Targeting slot index: " .. targetSlotIndex)
+        local targetSlot = self.spellSlots[targetSlotIndex]
+        
+        if targetSlot and targetSlot.active then
+            -- Get the caster's spell slot
+            local slot = targetSlot
+            print("DEBUG - Found active spell in target slot: " .. (slot.spellType or "unknown"))
+            
+            -- Calculate how much progress has been made (as a percentage)
+            local progressPercent = slot.progress / slot.castTime
+            
+            -- Add additional time to the spell
+            local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+            local newCastTime = slot.castTime + delayTime
+            
+            -- Update the castTime and adjust the progress proportionally
+            -- This effectively "pushes back" the progress bar
+            slot.castTime = newCastTime
+            slot.progress = progressPercent * slot.castTime
+            
+            print(self.name .. " delayed their own spell in slot " .. targetSlotIndex .. " by " .. delayTime .. " seconds")
+            
+            -- Create delay effect near the caster's spell slot
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a more distinctive delay visual effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.9,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 15,
+                    radius = 40
+                })
+            end
+        else
+            -- If there's no spell in the target slot, show a "fizzle" effect
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a small fizzle effect to show the spell had no effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.3,
+                    color = {0.3, 0.3, 0.4, 0.4},
+                    particleCount = 5,
+                    radius = 20
+                })
+                
+                print("Eclipse Echo fizzled - no spell in " .. self.name .. "'s middle slot")
+            end
+        end
+    end
+    
+    -- Only reset the spell slot and return tokens for non-shield spells
+    -- This is now handled at the beginning of the function for shield spells
+    -- Start return animation for tokens
+    if #slot.tokens > 0 then
+        for _, tokenData in ipairs(slot.tokens) do
+            -- Trigger animation to return token to the mana pool
+            self.manaPool:returnToken(tokenData.index)
+        end
+        
+        -- Clear token list (tokens still exist in the mana pool)
+        slot.tokens = {}
+    end
+    
+    -- Reset slot
+    slot.active = false
+    slot.progress = 0
+    slot.spellType = nil
+    slot.castTime = 0
 end
 
 return Wizard

@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 08:35:18 CDT 2025
+Generated: Wed Apr 16 12:25:23 CDT 2025
 
 # Source Code
 
@@ -1180,6 +1180,7 @@ Spells.mist = {
     effect = function(caster, target)
         return {
             setElevation = "AERIAL",
+            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
             block = "projectile",
             blockDuration = 5.0  -- Block projectiles for 5 seconds
         }
@@ -1207,30 +1208,70 @@ Spells.gravity = {
 
 Spells.eclipse = {
     name = "Eclipse Echo",
-    description = "Delays central queued spell",
+    description = "Freezes caster's central queued spell for 2 seconds",
     castTime = 6.0,
     cost = {
         {type = "moon", count = 1},
         {type = "force", count = 1}
     },
     effect = function(caster, target)
-        return {
-            delaySpell = 2  -- Targets spell slot 2 (middle)
-        }
+        -- Directly modify the middle spell slot if it's active
+        if caster.spellSlots[2] and caster.spellSlots[2].active then
+            local slot = caster.spellSlots[2]
+            local originalCastTime = slot.castTime
+            local currentProgress = slot.progress
+            
+            -- Instead of adding to the cast time, we're just freezing progress
+            -- The spell's total cast time remains the same, but progress will freeze for 2 seconds
+            
+            -- Add a "frozen" flag and freeze timer
+            slot.frozen = true
+            slot.freezeTimer = 2.0  -- Freeze for 2 seconds
+            
+            print("Eclipse Echo froze " .. caster.name .. "'s spell in slot 2 for 2 seconds")
+            print("Spell will be frozen at " .. currentProgress .. " / " .. originalCastTime .. " for 2 seconds")
+            
+            return {
+                delayApplied = true,
+                targetSlot = 2,
+                delayAmount = 2.0
+            }
+        else
+            print("Eclipse Echo found no spell to delay in slot 2")
+            return {
+                delayApplied = false
+            }
+        end
     end
 }
 
 Spells.fullmoonbeam = {
     name = "Full Moon Beam",
-    description = "Channels moonlight into a powerful beam",
-    castTime = 7.0,    -- Long cast time
+    description = "Channels moonlight into a beam that deals damage equal to its cast time",
+    castTime = 7.0,    -- Base cast time
     cost = {
         {type = "moon", count = 5}  -- Costs 5 moon mana
     },
-    effect = function(caster, target)
+    effect = function(caster, target, spellSlot)
+        -- Find the slot this spell was cast from to get its actual cast time
+        local actualCastTime = 7.0  -- Default/base cast time
+        
+        -- If we know which slot this spell was cast from
+        if spellSlot and caster.spellSlots[spellSlot] then
+            -- Use the actual cast time of the spell which may have been modified
+            actualCastTime = caster.spellSlots[spellSlot].castTime
+        end
+        
+        -- Calculate damage based on cast time (roughly 3.5 damage per second)
+        local damage = math.floor(actualCastTime * 3.5)
+        
+        -- Log the damage calculation
+        print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+        
         return {
-            damage = 25,     -- Deals 25 damage
-            damageType = "moon"
+            damage = damage,     -- Damage scales with cast time
+            damageType = "moon",
+            scaledDamage = true  -- Flag to indicate this used a scaled damage value
         }
     end
 }
@@ -2916,6 +2957,7 @@ function Wizard.new(name, x, y, color)
     -- Wizard state
     self.health = 100
     self.elevation = "GROUNDED"  -- GROUNDED or AERIAL
+    self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     self.blockers = {            -- Spell blocking effects
         projectile = 0           -- Projectile block duration
@@ -2997,6 +3039,25 @@ function Wizard:update(dt)
         end
     end
     
+    -- Update elevation timer
+    if self.elevationTimer > 0 and self.elevation == "AERIAL" then
+        self.elevationTimer = math.max(0, self.elevationTimer - dt)
+        if self.elevationTimer == 0 then
+            self.elevation = "GROUNDED"
+            print(self.name .. " returned to GROUNDED elevation")
+            
+            -- Create landing effect using VFX system
+            if self.gameState and self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", self.x, self.y + 30, nil, nil, {
+                    duration = 0.5,
+                    color = {0.7, 0.7, 0.7, 0.8},
+                    particleCount = 8,
+                    radius = 20
+                })
+            end
+        end
+    end
+    
     -- Update blocker timers
     for blockType, duration in pairs(self.blockers) do
         if duration > 0 then
@@ -3026,7 +3087,54 @@ function Wizard:update(dt)
     -- Update spell slots
     for i, slot in ipairs(self.spellSlots) do
         if slot.active then
-            slot.progress = slot.progress + dt
+            -- Check if the spell is frozen (by Eclipse Echo)
+            if slot.frozen then
+                -- Update freeze timer
+                slot.freezeTimer = slot.freezeTimer - dt
+                
+                -- Check if the freeze duration has elapsed
+                if slot.freezeTimer <= 0 then
+                    -- Unfreeze the spell
+                    slot.frozen = false
+                    print(self.name .. "'s spell in slot " .. i .. " is no longer frozen")
+                    
+                    -- Add a visual "unfreeze" effect
+                    if self.gameState and self.gameState.vfx then
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        
+                        self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                            duration = 0.5,
+                            color = {0.7, 0.7, 1.0, 0.6},
+                            particleCount = 10,
+                            radius = 35
+                        })
+                    end
+                else
+                    -- Spell is still frozen, don't increment progress
+                    -- Visual progress arc will appear frozen in place
+                    
+                    -- Add a subtle frozen visual effect if we have VFX
+                    if math.random() < 0.03 and self.gameState and self.gameState.vfx then -- Occasional sparkle
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        local angle = math.random() * math.pi * 2
+                        local radius = math.random(30, 40)
+                        local sparkleX = self.x + math.cos(angle) * radius
+                        local sparkleY = slotY + math.sin(angle) * radius
+                        
+                        self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                            duration = 0.3,
+                            color = {0.6, 0.6, 1.0, 0.5},
+                            particleCount = 3,
+                            radius = 5
+                        })
+                    end
+                end
+            else
+                -- Normal progress update for unfrozen spells
+                slot.progress = slot.progress + dt
+            end
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
@@ -3107,34 +3215,24 @@ function Wizard:draw()
             love.graphics.circle("fill", self.x + xOffset, cloudY, 10)
             love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
         end
+        
+        -- No visual timer display here - moved to drawStatusEffects function
     end
     
     -- No longer drawing text elevation indicator - using visual representation only
     
-    -- Draw stun indicator if stunned
-    if self.stunTimer > 0 then
-        love.graphics.setColor(1, 1, 0, 0.7 + math.sin(love.timer.getTime() * 8) * 0.3)
-        love.graphics.print("STUNNED", self.x - 30, self.y - 70)
-        love.graphics.setColor(1, 1, 0, 0.5)
-        love.graphics.print(string.format("%.1fs", self.stunTimer), self.x - 10, self.y - 55)
-    end
-    
-    -- Draw blocker indicators
+    -- Draw subtle shield aura for projectile blocker (visual only, no timer)
     if self.blockers.projectile > 0 then
-        -- Mist veil (projectile block) active indicator
-        love.graphics.setColor(0.6, 0.6, 1, 0.6 + math.sin(love.timer.getTime() * 4) * 0.3)
-        love.graphics.print("MIST SHIELD", self.x - 40, self.y - 100)
-        love.graphics.setColor(0.7, 0.7, 1, 0.4)
-        love.graphics.print(string.format("%.1fs", self.blockers.projectile), self.x - 10, self.y - 85)
-        
-        -- Draw a subtle shield aura
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 1, 0.2)
+        love.graphics.setColor(0.5, 0.5, 1, 0.15)
         love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
-        love.graphics.setColor(0.7, 0.7, 1, 0.3)
+        love.graphics.setColor(0.7, 0.7, 1, 0.2)
         love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
     end
+    
+    -- Draw status effects with durations using the new horizontal bar system
+    self:drawStatusEffects()
     
     -- Draw block effect when projectile is blocked
     if self.blockVFX.active then
@@ -3222,6 +3320,144 @@ function Wizard:drawEllipticalArc(x, y, radiusX, radiusY, startAngle, endAngle, 
     love.graphics.line(points)
 end
 
+-- Draw status effects with durations using horizontal bars
+function Wizard:drawStatusEffects()
+    -- Get screen dimensions
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    -- Properties for status effect bars
+    local barWidth = 130
+    local barHeight = 12
+    local barSpacing = 18
+    local barPadding = 15  -- Additional padding between effect bars
+    
+    -- Position status bars above the spellbook area
+    local baseY = screenHeight - 150  -- Higher up from the spellbook
+    local effectCount = 0
+    
+    -- Determine x position based on which wizard this is
+    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    
+    -- Define colors for different effect types
+    local effectColors = {
+        aerial = {0.7, 0.7, 1.0, 0.8},
+        stun = {1.0, 1.0, 0.1, 0.8},
+        shield = {0.5, 0.7, 1.0, 0.8}
+    }
+    
+    -- Draw AERIAL duration if active
+    if self.elevation == "AERIAL" and self.elevationTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress (1.0 to 0.0 as time depletes)
+        local maxDuration = 5.0  -- Assuming 5 seconds is max aerial duration
+        local progress = self.elevationTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 
+                              effectColors.aerial[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 4)))
+        love.graphics.print("AERIAL", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.aerial)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.elevationTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw STUN duration if active
+    if self.stunTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 2.0  -- Assuming 2 seconds is max stun duration
+        local progress = self.stunTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 
+                              effectColors.stun[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 5)))
+        love.graphics.print("STUNNED", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.stun)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.stunTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw SHIELD duration if active
+    if self.blockers.projectile > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 5.0  -- Assuming 5 seconds is max shield duration
+        local progress = self.blockers.projectile / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 
+                              effectColors.shield[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 3)))
+        love.graphics.print("SHIELD", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.shield)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
+                           x + barWidth/2 - 30, y)
+    end
+end
+
 function Wizard:drawSpellSlots()
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
@@ -3277,16 +3513,40 @@ function Wizard:drawSpellSlots()
             -- Calculate progress angle (0 to 2*pi)
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
-            -- Draw progress arc as ellipse, respecting the front/back z-ordering
-            -- First the back half of the progress arc (if it extends that far)
-            if progressAngle > math.pi then
-                love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+            -- Check if the spell is frozen by Eclipse Echo
+            if slot.frozen then
+                -- Draw frozen indicator - a "stopped" pulse effect around the orbit
+                for j = 1, 3 do
+                    local pulseSize = 2 + j*1.5
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
+                    
+                    -- Draw a slightly larger ellipse to indicate frozen state
+                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                                    radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
+                end
+                
+                -- Draw the progress arc with a blue/icy color for frozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+            else
+                -- Normal progress arc for unfrozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
-            
-            -- Then the front half of the progress arc
-            love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-            self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             
             -- Draw spell name above the highest slot
             if i == 3 then
@@ -3511,6 +3771,7 @@ end
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
+    local reservedIndices = {} -- Track which token indices are already reserved
     
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
@@ -3523,16 +3784,24 @@ function Wizard:canPayManaCost(cost)
             -- Modal cost (can be paid with any of the listed types)
             local paid = false
             for _, modalType in ipairs(costType) do
-                -- Try to get tokens of this type
-                for _ = 1, costCount do
-                    local token, index = self.manaPool:findFreeToken(modalType)
-                    if token then
-                        table.insert(tokenReservations, {token = token, index = index})
-                        paid = true
-                        break
+                -- Try to get tokens of this type (that aren't already reserved)
+                local availableTokens = {}
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.type == modalType and token.state == "FREE" and not reservedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
-                if paid then break end
+                
+                if #availableTokens >= costCount then
+                    -- We have enough tokens to pay this cost
+                    for i = 1, costCount do
+                        local tokenData = availableTokens[i]
+                        table.insert(tokenReservations, tokenData)
+                        reservedIndices[tokenData.index] = true -- Mark as reserved
+                    end
+                    paid = true
+                    break
+                end
             end
             
             if not paid then
@@ -3541,46 +3810,50 @@ function Wizard:canPayManaCost(cost)
         elseif costType == "any" then
             -- Generic cost (can be paid with any type)
             for _ = 1, costCount do
-                -- Collect all available token types
-                local availableTypes = {}
-                local availableIndices = {}
+                -- Collect all available token types that aren't already reserved
+                local availableTokens = {}
                 
-                -- Check each mana type and gather available ones
-                for _, tokenType in ipairs({"fire", "force", "moon", "nature", "star"}) do
-                    local token, index = self.manaPool:findFreeToken(tokenType)
-                    if token then
-                        table.insert(availableTypes, tokenType)
-                        table.insert(availableIndices, index)
+                -- Check each token and gather available ones that haven't been reserved yet
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.state == "FREE" and not reservedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
                 
                 -- If there are available tokens, pick one randomly
-                if #availableTypes > 0 then
-                    -- Shuffle the available types for true randomness
-                    for i = #availableTypes, 2, -1 do
+                if #availableTokens > 0 then
+                    -- Shuffle the available tokens for true randomness
+                    for i = #availableTokens, 2, -1 do
                         local j = math.random(i)
-                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
-                        availableIndices[i], availableIndices[j] = availableIndices[j], availableIndices[i]
+                        availableTokens[i], availableTokens[j] = availableTokens[j], availableTokens[i]
                     end
                     
-                    -- Use the first type after shuffling
-                    local randomIndex = availableIndices[1]
-                    local token = self.manaPool.tokens[randomIndex]
-                    
-                    table.insert(tokenReservations, {token = token, index = randomIndex})
+                    -- Use the first token after shuffling
+                    local tokenData = availableTokens[1]
+                    table.insert(tokenReservations, tokenData)
+                    reservedIndices[tokenData.index] = true -- Mark as reserved
                 else
                     return nil
                 end
             end
         else
             -- Specific type cost
-            for _ = 1, costCount do
-                local token, index = self.manaPool:findFreeToken(costType)
-                if token then
-                    table.insert(tokenReservations, {token = token, index = index})
-                else
-                    return nil
+            -- Get all the free tokens of this type first
+            local availableTokens = {}
+            for i, token in ipairs(self.manaPool.tokens) do
+                if token.type == costType and token.state == "FREE" then
+                    table.insert(availableTokens, {token = token, index = i})
                 end
+            end
+            
+            -- Check if we have enough tokens
+            if #availableTokens < costCount then
+                return nil  -- Not enough tokens of this type
+            end
+            
+            -- Add the required number of tokens to our reservations
+            for i = 1, costCount do
+                table.insert(tokenReservations, availableTokens[i])
             end
         end
     end
@@ -3591,6 +3864,7 @@ end
 -- Helper function to check and pay mana costs
 function Wizard:payManaCost(cost)
     local tokens = {}
+    local usedIndices = {} -- Track which token indices are already used
     
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
@@ -3602,16 +3876,26 @@ function Wizard:payManaCost(cost)
             -- Modal cost (can be paid with any of the listed types)
             local paid = false
             for _, modalType in ipairs(costType) do
-                -- Try to get tokens of this type
-                for _ = 1, costCount do
-                    local token, index = self.manaPool:getToken(modalType)
-                    if token then
-                        table.insert(tokens, {token = token, index = index})
-                        paid = true
-                        break
+                -- Collect all available tokens of this type that haven't been used yet
+                local availableTokens = {}
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.type == modalType and token.state == "FREE" and not usedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
-                if paid then break end
+                
+                if #availableTokens >= costCount then
+                    -- We have enough tokens to pay this cost
+                    for i = 1, costCount do
+                        local tokenData = availableTokens[i]
+                        local token = self.manaPool.tokens[tokenData.index]
+                        token.state = "CHANNELED" -- Mark as being used
+                        table.insert(tokens, {token = token, index = tokenData.index})
+                        usedIndices[tokenData.index] = true -- Mark as used
+                    end
+                    paid = true
+                    break
+                end
             end
             
             if not paid then
@@ -3624,39 +3908,30 @@ function Wizard:payManaCost(cost)
         elseif costType == "any" then
             -- Generic cost (can be paid with any type)
             for _ = 1, costCount do
-                -- Collect all available token types
-                local availableTypes = {}
+                -- Collect all available tokens that haven't been used yet
+                local availableTokens = {}
                 
-                -- Check each mana type and gather available ones
-                for _, tokenType in ipairs({"fire", "force", "moon", "nature", "star"}) do
-                    local token, index = self.manaPool:getToken(tokenType)
-                    if token then
-                        -- Found a token, return it to the pool for now
-                        self.manaPool:returnToken(index)
-                        table.insert(availableTypes, tokenType)
+                -- Check each token and gather available ones
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.state == "FREE" and not usedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
                 
                 -- If there are available tokens, pick one randomly
-                if #availableTypes > 0 then
-                    -- Shuffle the available types for true randomness
-                    for i = #availableTypes, 2, -1 do
+                if #availableTokens > 0 then
+                    -- Shuffle the available tokens for true randomness
+                    for i = #availableTokens, 2, -1 do
                         local j = math.random(i)
-                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                        availableTokens[i], availableTokens[j] = availableTokens[j], availableTokens[i]
                     end
                     
-                    -- Use the first type after shuffling
-                    local token, index = self.manaPool:getToken(availableTypes[1])
-                    
-                    if token then
-                        table.insert(tokens, {token = token, index = index})
-                    else
-                        -- Failed to find any token, return tokens to pool
-                        for _, tokenData in ipairs(tokens) do
-                            self.manaPool:returnToken(tokenData.index)
-                        end
-                        return nil
-                    end
+                    -- Use the first token after shuffling
+                    local tokenData = availableTokens[1]
+                    local token = self.manaPool.tokens[tokenData.index]
+                    token.state = "CHANNELED" -- Mark as being used
+                    table.insert(tokens, {token = token, index = tokenData.index})
+                    usedIndices[tokenData.index] = true -- Mark as used
                 else
                     -- No available tokens, return already collected tokens
                     for _, tokenData in ipairs(tokens) do
@@ -3667,17 +3942,29 @@ function Wizard:payManaCost(cost)
             end
         else
             -- Specific type cost
-            for _ = 1, costCount do
-                local token, index = self.manaPool:getToken(costType)
-                if token then
-                    table.insert(tokens, {token = token, index = index})
-                else
-                    -- Failed to find required token, return tokens to pool
-                    for _, tokenData in ipairs(tokens) do
-                        self.manaPool:returnToken(tokenData.index)
-                    end
-                    return nil
+            -- First gather all available tokens of this type
+            local availableTokens = {}
+            for i, token in ipairs(self.manaPool.tokens) do
+                if token.type == costType and token.state == "FREE" then
+                    table.insert(availableTokens, {token = token, index = i})
                 end
+            end
+            
+            -- Check if we have enough tokens
+            if #availableTokens < costCount then
+                -- Failed to find enough tokens, return any collected tokens to pool
+                for _, tokenData in ipairs(tokens) do
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                return nil
+            end
+            
+            -- Get the required number of tokens and mark them as CHANNELED
+            for i = 1, costCount do
+                local tokenData = availableTokens[i]
+                local token = self.manaPool.tokens[tokenData.index]
+                token.state = "CHANNELED"  -- Mark as being used
+                table.insert(tokens, {token = token, index = tokenData.index})
             end
         end
     end
@@ -3712,8 +3999,28 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect
-    local effect = slot.spell.effect(self, target)
+    -- Apply spell effect, passing the spell slot number as an additional parameter
+    local effect = slot.spell.effect(self, target, spellSlot)
+    
+    -- Debug effect details
+    if slot.spellType == "Eclipse Echo" then
+        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+        
+        -- Add visual effect for the delayed spell
+        if effect.delayApplied and self.gameState.vfx then
+            -- Calculate position of the targeted spell slot
+            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+            local slotY = self.y + slotYOffsets[effect.targetSlot]
+            
+            -- Create a clear visual effect to show delay
+            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                duration = 1.2,
+                color = {0.3, 0.3, 0.8, 0.7},
+                particleCount = 20,
+                radius = 50
+            })
+        end
+    end
     
     -- Create visual effect based on spell type
     if self.gameState.vfx then
@@ -3763,15 +4070,33 @@ function Wizard:castSpell(spellSlot)
     if effect.damage and effect.damage > 0 then
         target.health = target.health - effect.damage
         if target.health < 0 then target.health = 0 end
-        print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
         
-        -- Create hit effect if not already created by the spell VFX
-        if self.gameState.vfx and not effect.spellType then
-            -- Default impact effect for non-specific damage
-            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
-                duration = 0.5,
-                color = {1.0, 0.3, 0.3, 0.8}
-            })
+        -- Special feedback for time-scaled damage from Full Moon Beam
+        if effect.scaledDamage then
+            print(target.name .. " took " .. effect.damage .. " damage from " .. slot.spellType .. 
+                  " (scaled by cast time) (health: " .. target.health .. ")")
+            
+            -- Create a more dramatic visual effect for scaled damage
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.8,
+                    color = {0.5, 0.5, 1.0, 0.8},
+                    particleCount = 20,
+                    radius = 45
+                })
+            end
+        else
+            -- Regular damage feedback
+            print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
+            
+            -- Create hit effect if not already created by the spell VFX
+            if self.gameState.vfx and not effect.spellType then
+                -- Default impact effect for non-specific damage
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = {1.0, 0.3, 0.3, 0.8}
+                })
+            end
         end
     end
     
@@ -3786,7 +4111,16 @@ function Wizard:castSpell(spellSlot)
     
     if effect.setElevation then
         self.elevation = effect.setElevation
-        print(self.name .. " moved to " .. self.elevation .. " elevation")
+        
+        -- Set duration for elevation change if provided
+        if effect.elevationDuration and effect.setElevation == "AERIAL" then
+            self.elevationTimer = effect.elevationDuration
+            print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+        else
+            -- No duration specified, treat as permanent until changed by another spell
+            self.elevationTimer = 0
+            print(self.name .. " moved to " .. self.elevation .. " elevation")
+        end
         
         -- Create elevation change effect
         if self.gameState.vfx and effect.setElevation == "AERIAL" then
@@ -3846,12 +4180,23 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
-    -- Apply spell delay
+    -- Apply spell delay (to target's spell)
     if effect.delaySpell and target.spellSlots[effect.delaySpell] and target.spellSlots[effect.delaySpell].active then
-        -- Add 50% more time to the spell
+        -- Get the target spell slot
         local slot = target.spellSlots[effect.delaySpell]
-        local delayTime = slot.castTime * 0.5
-        slot.castTime = slot.castTime + delayTime
+        
+        -- Calculate how much progress has been made (as a percentage)
+        local progressPercent = slot.progress / slot.castTime
+        
+        -- Add additional time to the spell
+        local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+        local newCastTime = slot.castTime + delayTime
+        
+        -- Update the castTime and adjust the progress proportionally
+        -- This effectively "pushes back" the progress bar
+        slot.castTime = newCastTime
+        slot.progress = progressPercent * slot.castTime
+        
         print("Delayed " .. target.name .. "'s spell in slot " .. effect.delaySpell .. " by " .. delayTime .. " seconds")
         
         -- Create delay effect near the targeted spell slot
@@ -3860,12 +4205,84 @@ function Wizard:castSpell(spellSlot)
             local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
             local slotY = target.y + slotYOffsets[effect.delaySpell]
             
+            -- Create a more distinctive delay visual effect
             self.gameState.vfx.createEffect("impact", target.x, slotY, nil, nil, {
-                duration = 0.7,
+                duration = 0.9,
                 color = {0.3, 0.3, 0.8, 0.7},
                 particleCount = 15,
                 radius = 40
             })
+        end
+    end
+    
+    -- Apply spell delay (to caster's own spell)
+    if effect.delaySelfSpell then
+        print("DEBUG - Eclipse Echo effect triggered with delaySelfSpell = " .. effect.delaySelfSpell)
+        print("DEBUG - Caster: " .. self.name)
+        print("DEBUG - Spell slots status:")
+        for i, slot in ipairs(self.spellSlots) do
+            print("DEBUG - Slot " .. i .. ": " .. (slot.active and "ACTIVE - " .. (slot.spellType or "unknown") or "INACTIVE"))
+            if slot.active then
+                print("DEBUG - Progress: " .. slot.progress .. " / " .. slot.castTime)
+            end
+        end
+        
+        -- When Eclipse Echo resolves, we need to target the middle spell slot
+        -- Which in Lua is index 2 (1-based indexing)
+        local targetSlotIndex = effect.delaySelfSpell  -- Should be 2 for the middle slot
+        print("DEBUG - Targeting slot index: " .. targetSlotIndex)
+        local targetSlot = self.spellSlots[targetSlotIndex]
+        
+        if targetSlot and targetSlot.active then
+            -- Get the caster's spell slot
+            local slot = targetSlot
+            print("DEBUG - Found active spell in target slot: " .. (slot.spellType or "unknown"))
+            
+            -- Calculate how much progress has been made (as a percentage)
+            local progressPercent = slot.progress / slot.castTime
+            
+            -- Add additional time to the spell
+            local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+            local newCastTime = slot.castTime + delayTime
+            
+            -- Update the castTime and adjust the progress proportionally
+            -- This effectively "pushes back" the progress bar
+            slot.castTime = newCastTime
+            slot.progress = progressPercent * slot.castTime
+            
+            print(self.name .. " delayed their own spell in slot " .. targetSlotIndex .. " by " .. delayTime .. " seconds")
+            
+            -- Create delay effect near the caster's spell slot
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a more distinctive delay visual effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.9,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 15,
+                    radius = 40
+                })
+            end
+        else
+            -- If there's no spell in the target slot, show a "fizzle" effect
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a small fizzle effect to show the spell had no effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.3,
+                    color = {0.3, 0.3, 0.4, 0.4},
+                    particleCount = 5,
+                    radius = 20
+                })
+                
+                print("Eclipse Echo fizzled - no spell in " .. self.name .. "'s middle slot")
+            end
         end
     end
 end
@@ -4091,7 +4508,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 08:35:18 CDT 2025
+Generated: Wed Apr 16 12:25:23 CDT 2025
 
 # Source Code
 
@@ -5272,6 +5689,7 @@ Spells.mist = {
     effect = function(caster, target)
         return {
             setElevation = "AERIAL",
+            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
             block = "projectile",
             blockDuration = 5.0  -- Block projectiles for 5 seconds
         }
@@ -5299,30 +5717,70 @@ Spells.gravity = {
 
 Spells.eclipse = {
     name = "Eclipse Echo",
-    description = "Delays central queued spell",
+    description = "Freezes caster's central queued spell for 2 seconds",
     castTime = 6.0,
     cost = {
         {type = "moon", count = 1},
         {type = "force", count = 1}
     },
     effect = function(caster, target)
-        return {
-            delaySpell = 2  -- Targets spell slot 2 (middle)
-        }
+        -- Directly modify the middle spell slot if it's active
+        if caster.spellSlots[2] and caster.spellSlots[2].active then
+            local slot = caster.spellSlots[2]
+            local originalCastTime = slot.castTime
+            local currentProgress = slot.progress
+            
+            -- Instead of adding to the cast time, we're just freezing progress
+            -- The spell's total cast time remains the same, but progress will freeze for 2 seconds
+            
+            -- Add a "frozen" flag and freeze timer
+            slot.frozen = true
+            slot.freezeTimer = 2.0  -- Freeze for 2 seconds
+            
+            print("Eclipse Echo froze " .. caster.name .. "'s spell in slot 2 for 2 seconds")
+            print("Spell will be frozen at " .. currentProgress .. " / " .. originalCastTime .. " for 2 seconds")
+            
+            return {
+                delayApplied = true,
+                targetSlot = 2,
+                delayAmount = 2.0
+            }
+        else
+            print("Eclipse Echo found no spell to delay in slot 2")
+            return {
+                delayApplied = false
+            }
+        end
     end
 }
 
 Spells.fullmoonbeam = {
     name = "Full Moon Beam",
-    description = "Channels moonlight into a powerful beam",
-    castTime = 7.0,    -- Long cast time
+    description = "Channels moonlight into a beam that deals damage equal to its cast time",
+    castTime = 7.0,    -- Base cast time
     cost = {
         {type = "moon", count = 5}  -- Costs 5 moon mana
     },
-    effect = function(caster, target)
+    effect = function(caster, target, spellSlot)
+        -- Find the slot this spell was cast from to get its actual cast time
+        local actualCastTime = 7.0  -- Default/base cast time
+        
+        -- If we know which slot this spell was cast from
+        if spellSlot and caster.spellSlots[spellSlot] then
+            -- Use the actual cast time of the spell which may have been modified
+            actualCastTime = caster.spellSlots[spellSlot].castTime
+        end
+        
+        -- Calculate damage based on cast time (roughly 3.5 damage per second)
+        local damage = math.floor(actualCastTime * 3.5)
+        
+        -- Log the damage calculation
+        print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+        
         return {
-            damage = 25,     -- Deals 25 damage
-            damageType = "moon"
+            damage = damage,     -- Damage scales with cast time
+            damageType = "moon",
+            scaledDamage = true  -- Flag to indicate this used a scaled damage value
         }
     end
 }
@@ -7008,6 +7466,7 @@ function Wizard.new(name, x, y, color)
     -- Wizard state
     self.health = 100
     self.elevation = "GROUNDED"  -- GROUNDED or AERIAL
+    self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     self.blockers = {            -- Spell blocking effects
         projectile = 0           -- Projectile block duration
@@ -7089,6 +7548,25 @@ function Wizard:update(dt)
         end
     end
     
+    -- Update elevation timer
+    if self.elevationTimer > 0 and self.elevation == "AERIAL" then
+        self.elevationTimer = math.max(0, self.elevationTimer - dt)
+        if self.elevationTimer == 0 then
+            self.elevation = "GROUNDED"
+            print(self.name .. " returned to GROUNDED elevation")
+            
+            -- Create landing effect using VFX system
+            if self.gameState and self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", self.x, self.y + 30, nil, nil, {
+                    duration = 0.5,
+                    color = {0.7, 0.7, 0.7, 0.8},
+                    particleCount = 8,
+                    radius = 20
+                })
+            end
+        end
+    end
+    
     -- Update blocker timers
     for blockType, duration in pairs(self.blockers) do
         if duration > 0 then
@@ -7118,7 +7596,54 @@ function Wizard:update(dt)
     -- Update spell slots
     for i, slot in ipairs(self.spellSlots) do
         if slot.active then
-            slot.progress = slot.progress + dt
+            -- Check if the spell is frozen (by Eclipse Echo)
+            if slot.frozen then
+                -- Update freeze timer
+                slot.freezeTimer = slot.freezeTimer - dt
+                
+                -- Check if the freeze duration has elapsed
+                if slot.freezeTimer <= 0 then
+                    -- Unfreeze the spell
+                    slot.frozen = false
+                    print(self.name .. "'s spell in slot " .. i .. " is no longer frozen")
+                    
+                    -- Add a visual "unfreeze" effect
+                    if self.gameState and self.gameState.vfx then
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        
+                        self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                            duration = 0.5,
+                            color = {0.7, 0.7, 1.0, 0.6},
+                            particleCount = 10,
+                            radius = 35
+                        })
+                    end
+                else
+                    -- Spell is still frozen, don't increment progress
+                    -- Visual progress arc will appear frozen in place
+                    
+                    -- Add a subtle frozen visual effect if we have VFX
+                    if math.random() < 0.03 and self.gameState and self.gameState.vfx then -- Occasional sparkle
+                        local slotYOffsets = {30, 0, -30}
+                        local slotY = self.y + slotYOffsets[i]
+                        local angle = math.random() * math.pi * 2
+                        local radius = math.random(30, 40)
+                        local sparkleX = self.x + math.cos(angle) * radius
+                        local sparkleY = slotY + math.sin(angle) * radius
+                        
+                        self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                            duration = 0.3,
+                            color = {0.6, 0.6, 1.0, 0.5},
+                            particleCount = 3,
+                            radius = 5
+                        })
+                    end
+                end
+            else
+                -- Normal progress update for unfrozen spells
+                slot.progress = slot.progress + dt
+            end
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
@@ -7199,34 +7724,24 @@ function Wizard:draw()
             love.graphics.circle("fill", self.x + xOffset, cloudY, 10)
             love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
         end
+        
+        -- No visual timer display here - moved to drawStatusEffects function
     end
     
     -- No longer drawing text elevation indicator - using visual representation only
     
-    -- Draw stun indicator if stunned
-    if self.stunTimer > 0 then
-        love.graphics.setColor(1, 1, 0, 0.7 + math.sin(love.timer.getTime() * 8) * 0.3)
-        love.graphics.print("STUNNED", self.x - 30, self.y - 70)
-        love.graphics.setColor(1, 1, 0, 0.5)
-        love.graphics.print(string.format("%.1fs", self.stunTimer), self.x - 10, self.y - 55)
-    end
-    
-    -- Draw blocker indicators
+    -- Draw subtle shield aura for projectile blocker (visual only, no timer)
     if self.blockers.projectile > 0 then
-        -- Mist veil (projectile block) active indicator
-        love.graphics.setColor(0.6, 0.6, 1, 0.6 + math.sin(love.timer.getTime() * 4) * 0.3)
-        love.graphics.print("MIST SHIELD", self.x - 40, self.y - 100)
-        love.graphics.setColor(0.7, 0.7, 1, 0.4)
-        love.graphics.print(string.format("%.1fs", self.blockers.projectile), self.x - 10, self.y - 85)
-        
-        -- Draw a subtle shield aura
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 1, 0.2)
+        love.graphics.setColor(0.5, 0.5, 1, 0.15)
         love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
-        love.graphics.setColor(0.7, 0.7, 1, 0.3)
+        love.graphics.setColor(0.7, 0.7, 1, 0.2)
         love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
     end
+    
+    -- Draw status effects with durations using the new horizontal bar system
+    self:drawStatusEffects()
     
     -- Draw block effect when projectile is blocked
     if self.blockVFX.active then
@@ -7314,6 +7829,144 @@ function Wizard:drawEllipticalArc(x, y, radiusX, radiusY, startAngle, endAngle, 
     love.graphics.line(points)
 end
 
+-- Draw status effects with durations using horizontal bars
+function Wizard:drawStatusEffects()
+    -- Get screen dimensions
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    -- Properties for status effect bars
+    local barWidth = 130
+    local barHeight = 12
+    local barSpacing = 18
+    local barPadding = 15  -- Additional padding between effect bars
+    
+    -- Position status bars above the spellbook area
+    local baseY = screenHeight - 150  -- Higher up from the spellbook
+    local effectCount = 0
+    
+    -- Determine x position based on which wizard this is
+    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    
+    -- Define colors for different effect types
+    local effectColors = {
+        aerial = {0.7, 0.7, 1.0, 0.8},
+        stun = {1.0, 1.0, 0.1, 0.8},
+        shield = {0.5, 0.7, 1.0, 0.8}
+    }
+    
+    -- Draw AERIAL duration if active
+    if self.elevation == "AERIAL" and self.elevationTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress (1.0 to 0.0 as time depletes)
+        local maxDuration = 5.0  -- Assuming 5 seconds is max aerial duration
+        local progress = self.elevationTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 
+                              effectColors.aerial[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 4)))
+        love.graphics.print("AERIAL", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.aerial)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.elevationTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw STUN duration if active
+    if self.stunTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 2.0  -- Assuming 2 seconds is max stun duration
+        local progress = self.stunTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 
+                              effectColors.stun[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 5)))
+        love.graphics.print("STUNNED", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.stun)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.stunTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw SHIELD duration if active
+    if self.blockers.projectile > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 5.0  -- Assuming 5 seconds is max shield duration
+        local progress = self.blockers.projectile / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 
+                              effectColors.shield[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 3)))
+        love.graphics.print("SHIELD", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.shield)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
+                           x + barWidth/2 - 30, y)
+    end
+end
+
 function Wizard:drawSpellSlots()
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
@@ -7369,16 +8022,40 @@ function Wizard:drawSpellSlots()
             -- Calculate progress angle (0 to 2*pi)
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
-            -- Draw progress arc as ellipse, respecting the front/back z-ordering
-            -- First the back half of the progress arc (if it extends that far)
-            if progressAngle > math.pi then
-                love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+            -- Check if the spell is frozen by Eclipse Echo
+            if slot.frozen then
+                -- Draw frozen indicator - a "stopped" pulse effect around the orbit
+                for j = 1, 3 do
+                    local pulseSize = 2 + j*1.5
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
+                    
+                    -- Draw a slightly larger ellipse to indicate frozen state
+                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                                    radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
+                end
+                
+                -- Draw the progress arc with a blue/icy color for frozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+            else
+                -- Normal progress arc for unfrozen spells
+                -- First the back half of the progress arc (if it extends that far)
+                if progressAngle > math.pi then
+                    love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
+                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                end
+                
+                -- Then the front half of the progress arc
+                love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
+                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
-            
-            -- Then the front half of the progress arc
-            love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-            self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             
             -- Draw spell name above the highest slot
             if i == 3 then
@@ -7603,6 +8280,7 @@ end
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
+    local reservedIndices = {} -- Track which token indices are already reserved
     
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
@@ -7615,16 +8293,24 @@ function Wizard:canPayManaCost(cost)
             -- Modal cost (can be paid with any of the listed types)
             local paid = false
             for _, modalType in ipairs(costType) do
-                -- Try to get tokens of this type
-                for _ = 1, costCount do
-                    local token, index = self.manaPool:findFreeToken(modalType)
-                    if token then
-                        table.insert(tokenReservations, {token = token, index = index})
-                        paid = true
-                        break
+                -- Try to get tokens of this type (that aren't already reserved)
+                local availableTokens = {}
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.type == modalType and token.state == "FREE" and not reservedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
-                if paid then break end
+                
+                if #availableTokens >= costCount then
+                    -- We have enough tokens to pay this cost
+                    for i = 1, costCount do
+                        local tokenData = availableTokens[i]
+                        table.insert(tokenReservations, tokenData)
+                        reservedIndices[tokenData.index] = true -- Mark as reserved
+                    end
+                    paid = true
+                    break
+                end
             end
             
             if not paid then
@@ -7633,46 +8319,50 @@ function Wizard:canPayManaCost(cost)
         elseif costType == "any" then
             -- Generic cost (can be paid with any type)
             for _ = 1, costCount do
-                -- Collect all available token types
-                local availableTypes = {}
-                local availableIndices = {}
+                -- Collect all available token types that aren't already reserved
+                local availableTokens = {}
                 
-                -- Check each mana type and gather available ones
-                for _, tokenType in ipairs({"fire", "force", "moon", "nature", "star"}) do
-                    local token, index = self.manaPool:findFreeToken(tokenType)
-                    if token then
-                        table.insert(availableTypes, tokenType)
-                        table.insert(availableIndices, index)
+                -- Check each token and gather available ones that haven't been reserved yet
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.state == "FREE" and not reservedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
                 
                 -- If there are available tokens, pick one randomly
-                if #availableTypes > 0 then
-                    -- Shuffle the available types for true randomness
-                    for i = #availableTypes, 2, -1 do
+                if #availableTokens > 0 then
+                    -- Shuffle the available tokens for true randomness
+                    for i = #availableTokens, 2, -1 do
                         local j = math.random(i)
-                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
-                        availableIndices[i], availableIndices[j] = availableIndices[j], availableIndices[i]
+                        availableTokens[i], availableTokens[j] = availableTokens[j], availableTokens[i]
                     end
                     
-                    -- Use the first type after shuffling
-                    local randomIndex = availableIndices[1]
-                    local token = self.manaPool.tokens[randomIndex]
-                    
-                    table.insert(tokenReservations, {token = token, index = randomIndex})
+                    -- Use the first token after shuffling
+                    local tokenData = availableTokens[1]
+                    table.insert(tokenReservations, tokenData)
+                    reservedIndices[tokenData.index] = true -- Mark as reserved
                 else
                     return nil
                 end
             end
         else
             -- Specific type cost
-            for _ = 1, costCount do
-                local token, index = self.manaPool:findFreeToken(costType)
-                if token then
-                    table.insert(tokenReservations, {token = token, index = index})
-                else
-                    return nil
+            -- Get all the free tokens of this type first
+            local availableTokens = {}
+            for i, token in ipairs(self.manaPool.tokens) do
+                if token.type == costType and token.state == "FREE" then
+                    table.insert(availableTokens, {token = token, index = i})
                 end
+            end
+            
+            -- Check if we have enough tokens
+            if #availableTokens < costCount then
+                return nil  -- Not enough tokens of this type
+            end
+            
+            -- Add the required number of tokens to our reservations
+            for i = 1, costCount do
+                table.insert(tokenReservations, availableTokens[i])
             end
         end
     end
@@ -7683,6 +8373,7 @@ end
 -- Helper function to check and pay mana costs
 function Wizard:payManaCost(cost)
     local tokens = {}
+    local usedIndices = {} -- Track which token indices are already used
     
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
@@ -7694,16 +8385,26 @@ function Wizard:payManaCost(cost)
             -- Modal cost (can be paid with any of the listed types)
             local paid = false
             for _, modalType in ipairs(costType) do
-                -- Try to get tokens of this type
-                for _ = 1, costCount do
-                    local token, index = self.manaPool:getToken(modalType)
-                    if token then
-                        table.insert(tokens, {token = token, index = index})
-                        paid = true
-                        break
+                -- Collect all available tokens of this type that haven't been used yet
+                local availableTokens = {}
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.type == modalType and token.state == "FREE" and not usedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
-                if paid then break end
+                
+                if #availableTokens >= costCount then
+                    -- We have enough tokens to pay this cost
+                    for i = 1, costCount do
+                        local tokenData = availableTokens[i]
+                        local token = self.manaPool.tokens[tokenData.index]
+                        token.state = "CHANNELED" -- Mark as being used
+                        table.insert(tokens, {token = token, index = tokenData.index})
+                        usedIndices[tokenData.index] = true -- Mark as used
+                    end
+                    paid = true
+                    break
+                end
             end
             
             if not paid then
@@ -7716,39 +8417,30 @@ function Wizard:payManaCost(cost)
         elseif costType == "any" then
             -- Generic cost (can be paid with any type)
             for _ = 1, costCount do
-                -- Collect all available token types
-                local availableTypes = {}
+                -- Collect all available tokens that haven't been used yet
+                local availableTokens = {}
                 
-                -- Check each mana type and gather available ones
-                for _, tokenType in ipairs({"fire", "force", "moon", "nature", "star"}) do
-                    local token, index = self.manaPool:getToken(tokenType)
-                    if token then
-                        -- Found a token, return it to the pool for now
-                        self.manaPool:returnToken(index)
-                        table.insert(availableTypes, tokenType)
+                -- Check each token and gather available ones
+                for i, token in ipairs(self.manaPool.tokens) do
+                    if token.state == "FREE" and not usedIndices[i] then
+                        table.insert(availableTokens, {token = token, index = i})
                     end
                 end
                 
                 -- If there are available tokens, pick one randomly
-                if #availableTypes > 0 then
-                    -- Shuffle the available types for true randomness
-                    for i = #availableTypes, 2, -1 do
+                if #availableTokens > 0 then
+                    -- Shuffle the available tokens for true randomness
+                    for i = #availableTokens, 2, -1 do
                         local j = math.random(i)
-                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                        availableTokens[i], availableTokens[j] = availableTokens[j], availableTokens[i]
                     end
                     
-                    -- Use the first type after shuffling
-                    local token, index = self.manaPool:getToken(availableTypes[1])
-                    
-                    if token then
-                        table.insert(tokens, {token = token, index = index})
-                    else
-                        -- Failed to find any token, return tokens to pool
-                        for _, tokenData in ipairs(tokens) do
-                            self.manaPool:returnToken(tokenData.index)
-                        end
-                        return nil
-                    end
+                    -- Use the first token after shuffling
+                    local tokenData = availableTokens[1]
+                    local token = self.manaPool.tokens[tokenData.index]
+                    token.state = "CHANNELED" -- Mark as being used
+                    table.insert(tokens, {token = token, index = tokenData.index})
+                    usedIndices[tokenData.index] = true -- Mark as used
                 else
                     -- No available tokens, return already collected tokens
                     for _, tokenData in ipairs(tokens) do
@@ -7759,17 +8451,29 @@ function Wizard:payManaCost(cost)
             end
         else
             -- Specific type cost
-            for _ = 1, costCount do
-                local token, index = self.manaPool:getToken(costType)
-                if token then
-                    table.insert(tokens, {token = token, index = index})
-                else
-                    -- Failed to find required token, return tokens to pool
-                    for _, tokenData in ipairs(tokens) do
-                        self.manaPool:returnToken(tokenData.index)
-                    end
-                    return nil
+            -- First gather all available tokens of this type
+            local availableTokens = {}
+            for i, token in ipairs(self.manaPool.tokens) do
+                if token.type == costType and token.state == "FREE" then
+                    table.insert(availableTokens, {token = token, index = i})
                 end
+            end
+            
+            -- Check if we have enough tokens
+            if #availableTokens < costCount then
+                -- Failed to find enough tokens, return any collected tokens to pool
+                for _, tokenData in ipairs(tokens) do
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                return nil
+            end
+            
+            -- Get the required number of tokens and mark them as CHANNELED
+            for i = 1, costCount do
+                local tokenData = availableTokens[i]
+                local token = self.manaPool.tokens[tokenData.index]
+                token.state = "CHANNELED"  -- Mark as being used
+                table.insert(tokens, {token = token, index = tokenData.index})
             end
         end
     end
@@ -7804,8 +8508,28 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect
-    local effect = slot.spell.effect(self, target)
+    -- Apply spell effect, passing the spell slot number as an additional parameter
+    local effect = slot.spell.effect(self, target, spellSlot)
+    
+    -- Debug effect details
+    if slot.spellType == "Eclipse Echo" then
+        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+        
+        -- Add visual effect for the delayed spell
+        if effect.delayApplied and self.gameState.vfx then
+            -- Calculate position of the targeted spell slot
+            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+            local slotY = self.y + slotYOffsets[effect.targetSlot]
+            
+            -- Create a clear visual effect to show delay
+            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                duration = 1.2,
+                color = {0.3, 0.3, 0.8, 0.7},
+                particleCount = 20,
+                radius = 50
+            })
+        end
+    end
     
     -- Create visual effect based on spell type
     if self.gameState.vfx then
@@ -7855,15 +8579,33 @@ function Wizard:castSpell(spellSlot)
     if effect.damage and effect.damage > 0 then
         target.health = target.health - effect.damage
         if target.health < 0 then target.health = 0 end
-        print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
         
-        -- Create hit effect if not already created by the spell VFX
-        if self.gameState.vfx and not effect.spellType then
-            -- Default impact effect for non-specific damage
-            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
-                duration = 0.5,
-                color = {1.0, 0.3, 0.3, 0.8}
-            })
+        -- Special feedback for time-scaled damage from Full Moon Beam
+        if effect.scaledDamage then
+            print(target.name .. " took " .. effect.damage .. " damage from " .. slot.spellType .. 
+                  " (scaled by cast time) (health: " .. target.health .. ")")
+            
+            -- Create a more dramatic visual effect for scaled damage
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.8,
+                    color = {0.5, 0.5, 1.0, 0.8},
+                    particleCount = 20,
+                    radius = 45
+                })
+            end
+        else
+            -- Regular damage feedback
+            print(target.name .. " took " .. effect.damage .. " damage (health: " .. target.health .. ")")
+            
+            -- Create hit effect if not already created by the spell VFX
+            if self.gameState.vfx and not effect.spellType then
+                -- Default impact effect for non-specific damage
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = {1.0, 0.3, 0.3, 0.8}
+                })
+            end
         end
     end
     
@@ -7878,7 +8620,16 @@ function Wizard:castSpell(spellSlot)
     
     if effect.setElevation then
         self.elevation = effect.setElevation
-        print(self.name .. " moved to " .. self.elevation .. " elevation")
+        
+        -- Set duration for elevation change if provided
+        if effect.elevationDuration and effect.setElevation == "AERIAL" then
+            self.elevationTimer = effect.elevationDuration
+            print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+        else
+            -- No duration specified, treat as permanent until changed by another spell
+            self.elevationTimer = 0
+            print(self.name .. " moved to " .. self.elevation .. " elevation")
+        end
         
         -- Create elevation change effect
         if self.gameState.vfx and effect.setElevation == "AERIAL" then
@@ -7938,12 +8689,23 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
-    -- Apply spell delay
+    -- Apply spell delay (to target's spell)
     if effect.delaySpell and target.spellSlots[effect.delaySpell] and target.spellSlots[effect.delaySpell].active then
-        -- Add 50% more time to the spell
+        -- Get the target spell slot
         local slot = target.spellSlots[effect.delaySpell]
-        local delayTime = slot.castTime * 0.5
-        slot.castTime = slot.castTime + delayTime
+        
+        -- Calculate how much progress has been made (as a percentage)
+        local progressPercent = slot.progress / slot.castTime
+        
+        -- Add additional time to the spell
+        local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+        local newCastTime = slot.castTime + delayTime
+        
+        -- Update the castTime and adjust the progress proportionally
+        -- This effectively "pushes back" the progress bar
+        slot.castTime = newCastTime
+        slot.progress = progressPercent * slot.castTime
+        
         print("Delayed " .. target.name .. "'s spell in slot " .. effect.delaySpell .. " by " .. delayTime .. " seconds")
         
         -- Create delay effect near the targeted spell slot
@@ -7952,12 +8714,84 @@ function Wizard:castSpell(spellSlot)
             local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
             local slotY = target.y + slotYOffsets[effect.delaySpell]
             
+            -- Create a more distinctive delay visual effect
             self.gameState.vfx.createEffect("impact", target.x, slotY, nil, nil, {
-                duration = 0.7,
+                duration = 0.9,
                 color = {0.3, 0.3, 0.8, 0.7},
                 particleCount = 15,
                 radius = 40
             })
+        end
+    end
+    
+    -- Apply spell delay (to caster's own spell)
+    if effect.delaySelfSpell then
+        print("DEBUG - Eclipse Echo effect triggered with delaySelfSpell = " .. effect.delaySelfSpell)
+        print("DEBUG - Caster: " .. self.name)
+        print("DEBUG - Spell slots status:")
+        for i, slot in ipairs(self.spellSlots) do
+            print("DEBUG - Slot " .. i .. ": " .. (slot.active and "ACTIVE - " .. (slot.spellType or "unknown") or "INACTIVE"))
+            if slot.active then
+                print("DEBUG - Progress: " .. slot.progress .. " / " .. slot.castTime)
+            end
+        end
+        
+        -- When Eclipse Echo resolves, we need to target the middle spell slot
+        -- Which in Lua is index 2 (1-based indexing)
+        local targetSlotIndex = effect.delaySelfSpell  -- Should be 2 for the middle slot
+        print("DEBUG - Targeting slot index: " .. targetSlotIndex)
+        local targetSlot = self.spellSlots[targetSlotIndex]
+        
+        if targetSlot and targetSlot.active then
+            -- Get the caster's spell slot
+            local slot = targetSlot
+            print("DEBUG - Found active spell in target slot: " .. (slot.spellType or "unknown"))
+            
+            -- Calculate how much progress has been made (as a percentage)
+            local progressPercent = slot.progress / slot.castTime
+            
+            -- Add additional time to the spell
+            local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
+            local newCastTime = slot.castTime + delayTime
+            
+            -- Update the castTime and adjust the progress proportionally
+            -- This effectively "pushes back" the progress bar
+            slot.castTime = newCastTime
+            slot.progress = progressPercent * slot.castTime
+            
+            print(self.name .. " delayed their own spell in slot " .. targetSlotIndex .. " by " .. delayTime .. " seconds")
+            
+            -- Create delay effect near the caster's spell slot
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a more distinctive delay visual effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.9,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 15,
+                    radius = 40
+                })
+            end
+        else
+            -- If there's no spell in the target slot, show a "fizzle" effect
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlotIndex]
+                
+                -- Create a small fizzle effect to show the spell had no effect
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 0.3,
+                    color = {0.3, 0.3, 0.4, 0.4},
+                    particleCount = 5,
+                    radius = 20
+                })
+                
+                print("Eclipse Echo fizzled - no spell in " .. self.name .. "'s middle slot")
+            end
         end
     end
 end
