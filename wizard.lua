@@ -1271,23 +1271,37 @@ function Wizard:castSpell(spellSlot)
     -- Apply spell effect using the new keyword-based system
     local effect = SpellsModule.resolveSpellEffect(slot.spell, self, target, spellSlot)
     
-    -- Debug effect details
-    if slot.spellType == "Eclipse Echo" then
-        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+    -- Handle spell freeze effect from the freeze keyword
+    if effect.freezeApplied then
+        local targetSlot = effect.targetSlot or 2  -- Default to middle slot
+        local freezeDuration = effect.freezeDuration or 2.0
         
-        -- Add visual effect for the delayed spell
-        if effect.delayApplied and self.gameState.vfx then
-            -- Calculate position of the targeted spell slot
-            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-            local slotY = self.y + slotYOffsets[effect.targetSlot]
+        -- Check if the target slot exists and is active
+        if self.spellSlots[targetSlot] and self.spellSlots[targetSlot].active then
+            local slot = self.spellSlots[targetSlot]
             
-            -- Create a clear visual effect to show delay
-            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
-                duration = 1.2,
-                color = {0.3, 0.3, 0.8, 0.7},
-                particleCount = 20,
-                radius = 50
-            })
+            -- Add the frozen flag and timer
+            slot.frozen = true
+            slot.freezeTimer = freezeDuration
+            
+            print(slot.spellType .. " in slot " .. targetSlot .. " frozen for " .. freezeDuration .. " seconds")
+            
+            -- Add visual effect for the frozen spell
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlot]
+                
+                -- Create a clear visual effect to show freeze
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 1.2,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 20,
+                    radius = 50
+                })
+            end
+        else
+            print("No active spell found in slot " .. targetSlot .. " to freeze")
         end
     end
     

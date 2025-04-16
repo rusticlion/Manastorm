@@ -166,6 +166,15 @@ local SpellKeywords = {
     zoneMulti = function(params, caster, target, results)
         results.zoneMulti = true
         return results
+    end,
+    
+    -- Special slot effects
+    freeze = function(params, caster, target, results)
+        -- Freeze a spell in place (pause its progress)
+        results.freezeApplied = true
+        results.targetSlot = params.slot or 2  -- Default to middle slot
+        results.freezeDuration = params.duration or 2.0
+        return results
     end
 }
 
@@ -224,7 +233,7 @@ local function resolveSpellEffect(spell, caster, target, slot)
             local processedParams = {}
             for paramKey, paramValue in pairs(params) do
                 if type(paramValue) == "function" then
-                    processedParams[paramKey] = paramValue(caster, target)
+                    processedParams[paramKey] = paramValue(caster, target, slot)
                 else
                     processedParams[paramKey] = paramValue
                 end
@@ -365,164 +374,144 @@ Spells.emberlift = {
 
 -- Selene's Spells (Moon-focused)
 Spells.conjuremoonlight = {
+    id = "conjuremoonlight",
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
-    castTime = 2.0,  -- Fast cast time
+    attackType = "utility",
+    castTime = 2.0,
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Create a moon token in the mana pool
-        caster.manaPool:addToken("moon", "assets/sprites/moon-token.png")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
+    keywords = {
+        conjure = {
+            token = "moon",
+            amount = 1
         }
-    end
+    },
+    vfx = "moon_conjure",
+    blockableBy = {}  -- Unblockable
 }
 
 Spells.volatileconjuring = {
+    id = "volatileconjuring",
     name = "Volatile Conjuring",
     description = "Creates a random mana token",
-    castTime = 1.4,  -- Shorter cast time than the dedicated conjuring spells
+    attackType = "utility",
+    castTime = 1.4,
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Available token types and their image paths
-        local tokenTypes = {
-            {type = "fire", path = "assets/sprites/fire-token.png"},
-            {type = "force", path = "assets/sprites/force-token.png"},
-            {type = "moon", path = "assets/sprites/moon-token.png"},
-            {type = "nature", path = "assets/sprites/nature-token.png"},
-            {type = "star", path = "assets/sprites/star-token.png"}
+    keywords = {
+        conjure = {
+            token = function(caster, target)
+                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+                local randomIndex = math.random(#tokenTypes)
+                local selectedToken = tokenTypes[randomIndex]
+                print(caster.name .. " conjured a random " .. selectedToken .. " token")
+                return selectedToken
+            end,
+            amount = 1
         }
-        
-        -- Select a random token type
-        local randomIndex = math.random(#tokenTypes)
-        local selectedToken = tokenTypes[randomIndex]
-        
-        -- Create the token in the mana pool
-        caster.manaPool:addToken(selectedToken.type, selectedToken.path)
-        
-        -- Display a message about which token was created (optional)
-        print(caster.name .. " conjured a random " .. selectedToken.type .. " token")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
-        }
-    end
+    },
+    vfx = "volatile_conjure",
+    blockableBy = {}  -- Unblockable
 }
 
 Spells.mist = {
+    id = "mist",
     name = "Mist Veil",
     description = "A ward of mist that blocks projectiles and remotes",
+    attackType = "utility",
     castTime = 5.0,
-    isShield = true,
-    defenseType = "ward",
-    blocksAttackTypes = {"projectile", "remote"},
-    cost = {
-        {type = "moon", count = 2}  -- Explicitly define cost as 2 moon
-    },
-    effect = function(caster, target)
-        return {
-            setElevation = "AERIAL",
-            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
-            isShield = true,
-            defenseType = "ward",
-            -- Shield strength is based on token count (handled in castSpell)
+    cost = {"moon", "moon"},
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
+        },
+        elevate = {
+            duration = 4.0
         }
-    end
+    },
+    vfx = "mist_veil",
+    sfx = "mist_shimmer",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 Spells.gravity = {
+    id = "gravity",
     name = "Gravity Pin",
     description = "Traps AERIAL enemies",
+    attackType = "zone",
     castTime = 7.0,
-    attackType = "zone",  -- Area effect attack
-    cost = {
-        {type = "moon", count = 1},
-        {type = "nature", count = 1}
-    },
-    effect = function(caster, target)
-        if target.elevation ~= "AERIAL" then return {damage = 0} end
-        
-        return {
-            damage = 15,
-            setElevation = "GROUNDED",
-            stun = 2.0  -- Stun for 2 seconds
+    cost = {"moon", "nature"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                return target.elevation == "AERIAL" and 15 or 0
+            end,
+            type = "moon",
+            conditional = "target.AERIAL"
+        },
+        ground = true,  -- Set target to GROUNDED
+        stagger = {
+            duration = 2.0  -- Stun for 2 seconds
         }
-    end
+    },
+    vfx = "gravity_pin",
+    sfx = "gravity_slam",
+    blockableBy = {"barrier", "field"}
 }
 
 Spells.eclipse = {
+    id = "eclipse",
     name = "Eclipse Echo",
     description = "Freezes caster's central queued spell for 2 seconds",
+    attackType = "remote",
     castTime = 6.0,
-    attackType = "remote",  -- Direct manipulation of spell effects
-    cost = {
-        {type = "moon", count = 1},
-        {type = "force", count = 1}
+    cost = {"moon", "force"},
+    keywords = {
+        freeze = {
+            slot = 2,  -- Middle spell slot
+            duration = 2.0
+        }
     },
-    effect = function(caster, target)
-        -- Directly modify the middle spell slot if it's active
-        if caster.spellSlots[2] and caster.spellSlots[2].active then
-            local slot = caster.spellSlots[2]
-            local originalCastTime = slot.castTime
-            local currentProgress = slot.progress
-            
-            -- Instead of adding to the cast time, we're just freezing progress
-            -- The spell's total cast time remains the same, but progress will freeze for 2 seconds
-            
-            -- Add a "frozen" flag and freeze timer
-            slot.frozen = true
-            slot.freezeTimer = 2.0  -- Freeze for 2 seconds
-            
-            print("Eclipse Echo froze " .. caster.name .. "'s spell in slot 2 for 2 seconds")
-            print("Spell will be frozen at " .. currentProgress .. " / " .. originalCastTime .. " for 2 seconds")
-            
-            return {
-                delayApplied = true,
-                targetSlot = 2,
-                delayAmount = 2.0
-            }
-        else
-            print("Eclipse Echo found no spell to delay in slot 2")
-            return {
-                delayApplied = false
-            }
-        end
-    end
+    vfx = "eclipse_echo",
+    sfx = "time_stop",
+    blockableBy = {"ward", "field"}
 }
 
 Spells.fullmoonbeam = {
+    id = "fullmoonbeam",
     name = "Full Moon Beam",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
-    castTime = 7.0,    -- Base cast time
-    attackType = "projectile",  -- Beam attack
-    cost = {
-        {type = "moon", count = 5}  -- Costs 5 moon mana
-    },
-    effect = function(caster, target, spellSlot)
-        -- Find the slot this spell was cast from to get its actual cast time
-        local actualCastTime = 7.0  -- Default/base cast time
-        
-        -- If we know which slot this spell was cast from
-        if spellSlot and caster.spellSlots[spellSlot] then
-            -- Use the actual cast time of the spell which may have been modified
-            actualCastTime = caster.spellSlots[spellSlot].castTime
-        end
-        
-        -- Calculate damage based on cast time (roughly 3.5 damage per second)
-        local damage = math.floor(actualCastTime * 3.5)
-        
-        -- Log the damage calculation
-        print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
-        
-        return {
-            damage = damage,     -- Damage scales with cast time
-            damageType = "moon",
-            scaledDamage = true  -- Flag to indicate this used a scaled damage value
+    attackType = "projectile",
+    castTime = 7.0,
+    cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
+    keywords = {
+        damage = {
+            amount = function(caster, target, slot)
+                -- Find the slot this spell was cast from to get its actual cast time
+                local actualCastTime = 7.0  -- Default/base cast time
+                
+                -- If we know which slot this spell was cast from
+                if slot and caster.spellSlots[slot] then
+                    -- Use the actual cast time of the spell which may have been modified
+                    actualCastTime = caster.spellSlots[slot].castTime
+                end
+                
+                -- Calculate damage based on cast time (roughly 3.5 damage per second)
+                local damage = math.floor(actualCastTime * 3.5)
+                
+                -- Log the damage calculation
+                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+                
+                return damage
+            end,
+            type = "moon",
+            scaledDamage = true
         }
-    end
+    },
+    vfx = "moon_beam",
+    sfx = "beam_charge",
+    blockableBy = {"barrier", "ward"}
 }
 
 -- New shield spells
@@ -547,42 +536,41 @@ Spells.forcebarrier = {
 }
 
 Spells.moonward = {
+    id = "moonward",
     name = "Moon Ward",
     description = "A mystical ward that blocks projectiles and remotes",
+    attackType = "utility",
     castTime = 4.5,
-    isShield = true,
-    defenseType = "ward",
-    blocksAttackTypes = {"projectile", "remote"},
-    cost = {
-        {type = "moon", count = 1},
-        {type = "star", count = 1}
-    },
-    effect = function(caster, target)
-        return {
-            isShield = true,
-            defenseType = "ward",
-            -- Shield strength based on token count
+    cost = {"moon", "star"},
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
         }
-    end
+    },
+    vfx = "moon_ward",
+    sfx = "shield_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 Spells.naturefield = {
+    id = "naturefield",
     name = "Nature Field",
     description = "A field of natural energy that blocks remotes and zones",
+    attackType = "utility",
     castTime = 4.0,
-    isShield = true,
-    defenseType = "field",
-    blocksAttackTypes = {"remote", "zone"},
-    cost = {
-        {type = "nature", count = 2}
-    },
-    effect = function(caster, target)
-        return {
-            isShield = true,
-            defenseType = "field",
-            -- Shield strength based on token count
+    cost = {"nature", "nature"},
+    keywords = {
+        block = {
+            type = "field",
+            blocks = {"remote", "zone"},
+            manaLinked = true
         }
-    end
+    },
+    vfx = "nature_field",
+    sfx = "nature_grow",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 -- Prepare the return table with all spells and utility functions
