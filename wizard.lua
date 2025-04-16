@@ -229,53 +229,23 @@ function Wizard:draw()
             love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
         end
         
-        -- Draw elevation timer if it's a temporary effect
-        if self.elevationTimer > 0 then
-            -- Draw "AERIAL" text with timer
-            love.graphics.setColor(0.7, 0.7, 1, 0.6 + math.sin(love.timer.getTime() * 4) * 0.3)
-            love.graphics.print("AERIAL", self.x - 25, self.y - 70)
-            love.graphics.setColor(0.8, 0.8, 1, 0.5)
-            love.graphics.print(string.format("%.1fs", self.elevationTimer), self.x - 10, self.y - 55)
-            
-            -- Draw a subtle countdown ring
-            local progress = self.elevationTimer / 5.0  -- Assuming 5 seconds is max duration
-            progress = math.min(1, progress)  -- Cap at 1.0
-            
-            love.graphics.setColor(0.7, 0.7, 1, 0.2)
-            love.graphics.circle("line", self.x, self.y + yOffset, 45)
-            
-            -- Draw arc showing remaining time
-            love.graphics.setColor(0.7, 0.7, 1, 0.4)
-            self:drawEllipticalArc(self.x, self.y + yOffset, 45, 45, 0, math.pi * 2 * progress, 32)
-        end
+        -- No visual timer display here - moved to drawStatusEffects function
     end
     
     -- No longer drawing text elevation indicator - using visual representation only
     
-    -- Draw stun indicator if stunned
-    if self.stunTimer > 0 then
-        love.graphics.setColor(1, 1, 0, 0.7 + math.sin(love.timer.getTime() * 8) * 0.3)
-        love.graphics.print("STUNNED", self.x - 30, self.y - 70)
-        love.graphics.setColor(1, 1, 0, 0.5)
-        love.graphics.print(string.format("%.1fs", self.stunTimer), self.x - 10, self.y - 55)
-    end
-    
-    -- Draw blocker indicators
+    -- Draw subtle shield aura for projectile blocker (visual only, no timer)
     if self.blockers.projectile > 0 then
-        -- Mist veil (projectile block) active indicator
-        love.graphics.setColor(0.6, 0.6, 1, 0.6 + math.sin(love.timer.getTime() * 4) * 0.3)
-        love.graphics.print("MIST SHIELD", self.x - 40, self.y - 100)
-        love.graphics.setColor(0.7, 0.7, 1, 0.4)
-        love.graphics.print(string.format("%.1fs", self.blockers.projectile), self.x - 10, self.y - 85)
-        
-        -- Draw a subtle shield aura
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 1, 0.2)
+        love.graphics.setColor(0.5, 0.5, 1, 0.15)
         love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
-        love.graphics.setColor(0.7, 0.7, 1, 0.3)
+        love.graphics.setColor(0.7, 0.7, 1, 0.2)
         love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
     end
+    
+    -- Draw status effects with durations using the new horizontal bar system
+    self:drawStatusEffects()
     
     -- Draw block effect when projectile is blocked
     if self.blockVFX.active then
@@ -361,6 +331,144 @@ function Wizard:drawEllipticalArc(x, y, radiusX, radiusY, startAngle, endAngle, 
     
     -- Draw the arc as a line
     love.graphics.line(points)
+end
+
+-- Draw status effects with durations using horizontal bars
+function Wizard:drawStatusEffects()
+    -- Get screen dimensions
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    
+    -- Properties for status effect bars
+    local barWidth = 130
+    local barHeight = 12
+    local barSpacing = 18
+    local barPadding = 15  -- Additional padding between effect bars
+    
+    -- Position status bars above the spellbook area
+    local baseY = screenHeight - 150  -- Higher up from the spellbook
+    local effectCount = 0
+    
+    -- Determine x position based on which wizard this is
+    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    
+    -- Define colors for different effect types
+    local effectColors = {
+        aerial = {0.7, 0.7, 1.0, 0.8},
+        stun = {1.0, 1.0, 0.1, 0.8},
+        shield = {0.5, 0.7, 1.0, 0.8}
+    }
+    
+    -- Draw AERIAL duration if active
+    if self.elevation == "AERIAL" and self.elevationTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress (1.0 to 0.0 as time depletes)
+        local maxDuration = 5.0  -- Assuming 5 seconds is max aerial duration
+        local progress = self.elevationTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 
+                              effectColors.aerial[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 4)))
+        love.graphics.print("AERIAL", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.aerial)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.aerial[1], effectColors.aerial[2], effectColors.aerial[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.elevationTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw STUN duration if active
+    if self.stunTimer > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 2.0  -- Assuming 2 seconds is max stun duration
+        local progress = self.stunTimer / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 
+                              effectColors.stun[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 5)))
+        love.graphics.print("STUNNED", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.stun)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.stun[1], effectColors.stun[2], effectColors.stun[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.stunTimer), 
+                           x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw SHIELD duration if active
+    if self.blockers.projectile > 0 then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = 5.0  -- Assuming 5 seconds is max shield duration
+        local progress = self.blockers.projectile / maxDuration
+        progress = math.min(1.0, progress)  -- Cap at 1.0
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 
+                              effectColors.shield[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 3)))
+        love.graphics.print("SHIELD", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.shield)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time text
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
+                           x + barWidth/2 - 30, y)
+    end
 end
 
 function Wizard:drawSpellSlots()
