@@ -18,8 +18,87 @@ local Spells = {}
 -- sfx: Sound effect identifier (string, optional)
 -- blockableBy: Array of shield types that can block this spell (array, optional)
 
--- Spell resolution functions - these implement keyword functionality
-local SpellKeywords = {
+-- Define a logging function for keyword resolution
+local function logKeywordResolution(spellId, keyword, params, results)
+    local paramString = ""
+    for k, v in pairs(params) do
+        if type(v) == "function" then
+            paramString = paramString .. k .. "=<function>, "
+        else
+            paramString = paramString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    local resultString = ""
+    for k, v in pairs(results) do
+        if k ~= "damage" or results.damage ~= 0 then  -- Skip damage=0 to reduce noise
+            resultString = resultString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    print(string.format("[KEYWORD] %s: %s(%s) -> %s", 
+                         spellId or "unknown", 
+                         keyword, 
+                         paramString:sub(1, -3),  -- Remove trailing comma
+                         resultString:sub(1, -3)))  -- Remove trailing comma
+end
+
+-- Keyword resolution framework
+local KeywordSystem = {}
+
+-- Define keyword categories for organization
+KeywordSystem.categories = {
+    RESOURCE = "Resource Manipulation",
+    DAMAGE = "Damage Effects",
+    TOKEN = "Token Manipulation",
+    TIMING = "Spell Timing",
+    MOVEMENT = "Movement & Position",
+    DEFENSE = "Defense Mechanisms",
+    SPECIAL = "Special Effects",
+    ZONE = "Zone Mechanics"
+}
+
+-- Map keywords to their categories
+KeywordSystem.keywordCategories = {
+    -- Resource Manipulation
+    tokenShift = "RESOURCE",
+    conjure = "RESOURCE",
+    dissipate = "RESOURCE",
+    
+    -- Damage Effects
+    damage = "DAMAGE",
+    
+    -- Token Manipulation
+    lock = "TOKEN",
+    
+    -- Spell Timing
+    delay = "TIMING",
+    accelerate = "TIMING",
+    dispel = "TIMING",
+    disjoint = "TIMING",
+    stagger = "TIMING",
+    freeze = "TIMING",
+    
+    -- Movement & Position
+    elevate = "MOVEMENT",
+    ground = "MOVEMENT",
+    rangeShift = "MOVEMENT",
+    forcePull = "MOVEMENT",
+    
+    -- Defense Mechanisms
+    reflect = "DEFENSE",
+    block = "DEFENSE",
+    
+    -- Special Effects
+    echo = "SPECIAL",
+    
+    -- Zone Mechanics
+    zoneAnchor = "ZONE",
+    zoneMulti = "ZONE"
+}
+
+-- Keyword handlers table - each entry is a function that processes one keyword type
+KeywordSystem.handlers = {
     -- Resource manipulation
     tokenShift = function(params, caster, target, results)
         local tokenType = params.type or "fire"
@@ -249,8 +328,175 @@ local function validateSpell(spell, spellId)
     return true
 end
 
--- Function to resolve spell effects based on keywords
-local function resolveSpellEffect(spell, caster, target, slot)
+-- Debug helper to show all available keywords and their descriptions
+KeywordSystem.getKeywordHelp = function(format)
+    -- Define descriptions for each keyword
+    local descriptions = {
+        -- Resource manipulation
+        tokenShift = "Changes token types in the mana pool",
+        conjure = "Creates new tokens in the mana pool",
+        dissipate = "Removes tokens from the mana pool",
+        
+        -- Damage effects
+        damage = "Deals damage to the opponent",
+        
+        -- Token manipulation
+        lock = "Locks tokens, preventing their use for a duration",
+        
+        -- Spell timing effects
+        delay = "Adds time to opponent's spell cast",
+        accelerate = "Reduces cast time of a spell",
+        dispel = "Cancels a spell and returns mana to the pool",
+        disjoint = "Cancels a spell and destroys its mana",
+        stagger = "Cancels a spell and prevents recasting",
+        
+        -- Movement and position effects
+        elevate = "Sets caster to AERIAL state",
+        ground = "Forces target to GROUNDED state",
+        rangeShift = "Changes range state (NEAR/FAR)",
+        forcePull = "Forces opponent to caster's range",
+        
+        -- Defense mechanisms
+        reflect = "Reflects incoming spells",
+        block = "Creates a shield to block specific attack types",
+        
+        -- Special effects
+        echo = "Recasts the spell after a delay",
+        freeze = "Freezes a spell's progress for a duration",
+        
+        -- Zone mechanics
+        zoneAnchor = "Locks spell to cast-time range; fails if range changes",
+        zoneMulti = "Makes zone affect both NEAR/FAR"
+    }
+    
+    if format == "byCategory" then
+        -- Organize keywords by category
+        local categorizedInfo = {}
+        
+        -- Initialize categories
+        for categoryKey, categoryName in pairs(KeywordSystem.categories) do
+            categorizedInfo[categoryKey] = {
+                name = categoryName,
+                keywords = {}
+            }
+        end
+        
+        -- Sort keywords into categories
+        for keyword in pairs(KeywordSystem.handlers) do
+            local category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            
+            table.insert(categorizedInfo[category].keywords, {
+                name = keyword,
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword)
+            })
+        end
+        
+        return categorizedInfo
+    else
+        -- Default flat format
+        local keywordInfo = {}
+        
+        -- Build a table of keyword info with usage examples
+        for keyword in pairs(KeywordSystem.handlers) do
+            keywordInfo[keyword] = {
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword),
+                category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            }
+        end
+        
+        return keywordInfo
+    end
+end
+
+-- Generate example usage for keywords
+KeywordSystem.getExampleUsage = function(keyword)
+    local examples = {
+        tokenShift = [[
+            tokenShift = {
+                type = "random",  -- or specific type like "fire"
+                amount = 3
+            }
+        ]],
+        
+        conjure = [[
+            conjure = {
+                token = "fire",  -- or "moon", "force", etc.
+                amount = 1
+            }
+        ]],
+        
+        damage = [[
+            damage = {
+                amount = 10,  -- or function(caster, target) return value end
+                type = "fire"
+            }
+        ]],
+        
+        lock = [[
+            lock = {
+                duration = 5.0
+            }
+        ]],
+        
+        elevate = [[
+            elevate = {
+                duration = 4.0
+            }
+        ]],
+        
+        ground = [[
+            ground = true
+        ]],
+        
+        block = [[
+            block = {
+                type = "barrier",  -- or "ward", "field"
+                blocks = {"projectile", "zone"},
+                manaLinked = true
+            }
+        ]]
+    }
+    
+    return examples[keyword] or "No example available"
+end
+
+-- Centralized keyword resolution function
+KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target, slot, results)
+    -- Check if this keyword has a handler
+    if not KeywordSystem.handlers[keyword] then
+        print(string.format("[KEYWORD ERROR] %s: Unknown keyword '%s'", spellId, keyword))
+        return results
+    end
+    
+    -- Process the parameters - evaluate dynamic functions
+    local processedParams = {}
+    for paramKey, paramValue in pairs(params) do
+        if type(paramValue) == "function" then
+            processedParams[paramKey] = paramValue(caster, target, slot)
+        else
+            processedParams[paramKey] = paramValue
+        end
+    end
+    
+    -- Store the original results for logging
+    local resultsBefore = {}
+    for k, v in pairs(results) do
+        resultsBefore[k] = v
+    end
+    
+    -- Process this keyword and get updated results
+    local updatedResults = KeywordSystem.handlers[keyword](processedParams, caster, target, results)
+    
+    -- Log the keyword resolution
+    logKeywordResolution(spellId, keyword, processedParams, updatedResults)
+    
+    return updatedResults
+end
+
+-- Function to resolve all keywords in a spell
+KeywordSystem.resolveSpell = function(spell, caster, target, slot)
     -- Validate spell before attempting to resolve
     validateSpell(spell, spell.id or "unknown")
     
@@ -259,29 +505,19 @@ local function resolveSpellEffect(spell, caster, target, slot)
         spellType = spell.attackType
     }
     
+    print(string.format("[SPELL] Resolving spell: %s (cast by %s)", 
+                         spell.name, caster.name))
+    
     -- Process each keyword in the spell
     if spell.keywords then
         for keyword, params in pairs(spell.keywords) do
-            -- Handle dynamic parameter functions for keywords
-            local processedParams = {}
-            for paramKey, paramValue in pairs(params) do
-                if type(paramValue) == "function" then
-                    processedParams[paramKey] = paramValue(caster, target, slot)
-                else
-                    processedParams[paramKey] = paramValue
-                end
-            end
-            
-            -- Check if this keyword has an implementation
-            if SpellKeywords[keyword] then
-                -- Process this keyword
-                results = SpellKeywords[keyword](processedParams, caster, target, results)
-            end
+            results = KeywordSystem.resolveKeyword(spell.id, keyword, params, caster, target, slot, results)
         end
     end
     
     -- For backward compatibility - delegate to effect function if present
     if spell.effect then
+        print(string.format("[SPELL] %s: Using legacy effect function", spell.id))
         local effectResults = spell.effect(caster, target, slot)
         -- Merge effect results with keyword results
         for k, v in pairs(effectResults) do
@@ -289,7 +525,22 @@ local function resolveSpellEffect(spell, caster, target, slot)
         end
     end
     
+    -- Count number of effects in results
+    local effectCount = 0
+    for _ in pairs(results) do
+        effectCount = effectCount + 1
+    end
+    
+    print(string.format("[SPELL] %s complete: damage=%s, effects=%d", 
+                         spell.id, tostring(results.damage), 
+                         effectCount - 2))  -- -2 for damage and spellType
+    
     return results
+end
+
+-- Legacy resolution function name for backward compatibility
+local function resolveSpellEffect(spell, caster, target, slot)
+    return KeywordSystem.resolveSpell(spell, caster, target, slot)
 end
 
 -- Ashgar's Spells (Fire-focused)
@@ -609,9 +860,11 @@ Spells.naturefield = {
 -- Prepare the return table with all spells and utility functions
 local SpellsModule = {
     spells = Spells,
-    resolveSpellEffect = resolveSpellEffect,
+    resolveSpellEffect = resolveSpellEffect,  -- Legacy function 
+    resolveSpell = KeywordSystem.resolveSpell,  -- New function
     validateSpell = validateSpell,
-    keywords = SpellKeywords
+    keywords = KeywordSystem.handlers,  -- KeywordSystem has replaced SpellKeywords
+    keywordSystem = KeywordSystem  -- Expose the full keyword system
 }
 
 -- Validate all spells at module load time to catch errors early

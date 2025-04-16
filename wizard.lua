@@ -1268,8 +1268,8 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect using the new keyword-based system
-    local effect = SpellsModule.resolveSpellEffect(slot.spell, self, target, spellSlot)
+    -- Apply spell effect using the keyword system
+    local effect = SpellsModule.resolveSpell(slot.spell, self, target, spellSlot)
     
     -- Handle token dissipation from the dissipate keyword
     if effect.dissipate then
