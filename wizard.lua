@@ -1271,6 +1271,19 @@ function Wizard:castSpell(spellSlot)
     -- Apply spell effect using the new keyword-based system
     local effect = SpellsModule.resolveSpellEffect(slot.spell, self, target, spellSlot)
     
+    -- Handle token dissipation from the dissipate keyword
+    if effect.dissipate then
+        local tokenType = effect.dissipateType or "any"
+        local amount = effect.dissipateAmount or 1
+        local tokensDestroyed = effect.tokensDestroyed or 0
+        
+        if tokensDestroyed > 0 then
+            print("Destroyed " .. tokensDestroyed .. " " .. tokenType .. " tokens")
+        else
+            print("No matching " .. tokenType .. " tokens found to destroy")
+        end
+    end
+    
     -- Handle spell freeze effect from the freeze keyword
     if effect.freezeApplied then
         local targetSlot = effect.targetSlot or 2  -- Default to middle slot

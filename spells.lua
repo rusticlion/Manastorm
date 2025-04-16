@@ -54,9 +54,42 @@ local SpellKeywords = {
     dissipate = function(params, caster, target, results)
         local tokenType = params.token or "any"
         local amount = params.amount or 1
+        local targetWizard = params.target == "caster" and caster or target
         
-        -- Logic to remove tokens would go here
-        -- This would need a helper in manaPool to find and remove tokens
+        -- Find and remove tokens from the target's mana pool
+        results.dissipate = true
+        results.dissipateType = tokenType
+        results.dissipateAmount = amount
+        results.dissipateTarget = targetWizard
+        
+        -- Keep track of how many tokens were successfully found to remove
+        local tokensFound = 0
+        
+        -- Logic to find and mark tokens for removal
+        for i, token in ipairs(targetWizard.manaPool.tokens) do
+            if token.state == "FREE" and (tokenType == "any" or token.type == tokenType) then
+                -- Mark token for destruction
+                token.state = "DESTROYED"
+                tokensFound = tokensFound + 1
+                
+                -- Add a destruction effect
+                if targetWizard.gameState.vfx then
+                    targetWizard.gameState.vfx.createEffect("token_destroy", token.x, token.y, nil, nil, {
+                        duration = 0.5,
+                        color = {0.8, 0.3, 0.3, 0.7},
+                        particleCount = 5,
+                        radius = 15
+                    })
+                end
+                
+                -- Stop once we've marked enough tokens
+                if tokensFound >= amount then
+                    break
+                end
+            end
+        end
+        
+        results.tokensDestroyed = tokensFound
         
         return results
     end,
@@ -586,7 +619,9 @@ for spellId, spell in pairs(Spells) do
     validateSpell(spell, spellId)
 end
 
--- Add a new spell using the new schema to test the system
+-- Add new spells using the keyword system
+
+-- Utility spell that changes tokens
 Spells.stormMeld = {
     id = "stormmeld",
     name = "Storm Meld",
@@ -610,6 +645,112 @@ Spells.stormMeld = {
     vfx = "storm_meld",
     sfx = "elemental_fusion",
     blockableBy = {}  -- Utility spells can't be blocked
+}
+
+-- Offensive spell with multiple effects
+Spells.cosmicRift = {
+    id = "cosmicrift",
+    name = "Cosmic Rift",
+    description = "Opens a rift that damages opponents and disrupts spellcasting",
+    attackType = "zone",
+    castTime = 5.5,
+    cost = {"star", "star", "force"},
+    keywords = {
+        damage = {
+            amount = 12,
+            type = "star"
+        },
+        delay = {
+            slot = 1,  -- Target opponent's first spell slot
+            duration = 2.0
+        },
+        zoneMulti = true  -- Affects both NEAR and FAR
+    },
+    vfx = "cosmic_rift",
+    sfx = "space_tear",
+    blockableBy = {"barrier", "field"}
+}
+
+-- Movement spell with multiple effects
+Spells.blazingAscent = {
+    id = "blazingascent",
+    name = "Blazing Ascent",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    attackType = "projectile",
+    castTime = 3.0,
+    cost = {"fire", "fire", "force"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- More damage if already AERIAL (harder to cast while falling)
+                return caster.elevation == "AERIAL" and 15 or 10
+            end,
+            type = "fire"
+        },
+        elevate = {
+            duration = 6.0
+        },
+        dissipate = {
+            token = "nature",
+            amount = 1
+        }
+    },
+    vfx = "blazing_ascent",
+    sfx = "fire_whoosh",
+    blockableBy = {"barrier", "ward"}
+}
+
+-- Complex positional spell
+Spells.lunarTides = {
+    id = "lunartides",
+    name = "Lunar Tides",
+    description = "Manipulates the battle flow based on range and elevation",
+    attackType = "zone",
+    castTime = 7.0,
+    cost = {"moon", "moon", "force", "star"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- Damage based on position
+                local baseDamage = 8
+                
+                -- If opponent is AERIAL, deal more damage
+                if target.elevation == "AERIAL" then
+                    baseDamage = baseDamage + 4
+                end
+                
+                -- If in NEAR range, deal more damage
+                if caster.gameState.rangeState == "NEAR" then
+                    baseDamage = baseDamage + 3
+                end
+                
+                return baseDamage
+            end,
+            type = "moon"
+        },
+        rangeShift = {
+            -- Position changes based on current state
+            position = function(caster, target)
+                -- Toggle position
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end
+        },
+        lock = {
+            -- Lock duration increases if target has multiple active spells
+            duration = function(caster, target)
+                local activeSlots = 0
+                for _, slot in ipairs(target.spellSlots) do
+                    if slot.active then
+                        activeSlots = activeSlots + 1
+                    end
+                end
+                return 3.0 + (activeSlots * 1.0)  -- Base 3 seconds + 1 per active slot
+            end
+        }
+    },
+    vfx = "lunar_tide",
+    sfx = "tide_rush",
+    blockableBy = {"field"}
 }
 
 return SpellsModule
