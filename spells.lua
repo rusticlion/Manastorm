@@ -58,6 +58,57 @@ KeywordSystem.categories = {
     ZONE = "Zone Mechanics"
 }
 
+-- Define targeting modes for keywords and spells
+KeywordSystem.targetTypes = {
+    SELF = "self",           -- The caster
+    ENEMY = "enemy",         -- The opponent
+    POOL_SELF = "pool_self", -- Caster's mana pool
+    POOL_ENEMY = "pool_enemy", -- Opponent's mana pool
+    SLOT_SELF = "slot_self", -- Caster's spell slots
+    SLOT_ENEMY = "slot_enemy", -- Opponent's spell slots
+    GLOBAL = "global",       -- Affects the entire game state
+    NONE = "none"            -- No specific target (utility spells)
+}
+
+-- Map keywords to their default target type
+KeywordSystem.keywordTargets = {
+    -- Resource manipulation (mostly affect mana pools)
+    tokenShift = "POOL_SELF",  -- Default affects own pool
+    conjure = "POOL_SELF",
+    dissipate = "POOL_ENEMY",  -- Default removes opponent's tokens
+    
+    -- Damage (always targets enemy)
+    damage = "ENEMY",
+    
+    -- Token manipulation
+    lock = "POOL_ENEMY",
+    
+    -- Spell timing effects
+    delay = "SLOT_ENEMY",
+    accelerate = "SLOT_SELF",
+    dispel = "SLOT_ENEMY", 
+    disjoint = "SLOT_ENEMY",
+    stagger = "SLOT_ENEMY",
+    freeze = "SLOT_ENEMY", 
+    
+    -- Movement and position effects
+    elevate = "SELF",
+    ground = "ENEMY",
+    rangeShift = "SELF", 
+    forcePull = "ENEMY",
+    
+    -- Defense mechanisms
+    reflect = "SELF",
+    block = "SELF",
+    
+    -- Special effects
+    echo = "SLOT_SELF",
+    
+    -- Zone mechanics
+    zoneAnchor = "SELF",
+    zoneMulti = "SELF"
+}
+
 -- Map keywords to their categories
 KeywordSystem.keywordCategories = {
     -- Resource Manipulation
@@ -495,47 +546,148 @@ KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target
     return updatedResults
 end
 
--- Function to resolve all keywords in a spell
-KeywordSystem.resolveSpell = function(spell, caster, target, slot)
+-- Function to get the appropriate target based on target type
+KeywordSystem.resolveTarget = function(targetType, caster, opponent, spellSlot)
+    local targetMap = {
+        [KeywordSystem.targetTypes.SELF] = caster,
+        [KeywordSystem.targetTypes.ENEMY] = opponent,
+        [KeywordSystem.targetTypes.POOL_SELF] = caster.manaPool,
+        [KeywordSystem.targetTypes.POOL_ENEMY] = opponent.manaPool,
+        [KeywordSystem.targetTypes.SLOT_SELF] = caster.spellSlots[spellSlot] or caster.spellSlots,
+        [KeywordSystem.targetTypes.SLOT_ENEMY] = opponent.spellSlots,
+        [KeywordSystem.targetTypes.GLOBAL] = caster.gameState,
+        [KeywordSystem.targetTypes.NONE] = nil
+    }
+    
+    return targetMap[targetType]
+end
+
+-- Enhanced spell resolution function with targeting support
+KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, options)
+    options = options or {}
+    local debug = options.debug or false
+    
     -- Validate spell before attempting to resolve
     validateSpell(spell, spell.id or "unknown")
     
     local results = {
         damage = 0,
-        spellType = spell.attackType
+        spellType = spell.attackType,
+        targetingInfo = {}  -- Store targeting information for post-processing
     }
     
-    print(string.format("[SPELL] Resolving spell: %s (cast by %s)", 
+    if debug then
+        print(string.format("[SPELL] Resolving spell: %s (cast by %s)", 
                          spell.name, caster.name))
+    end
     
     -- Process each keyword in the spell
     if spell.keywords then
         for keyword, params in pairs(spell.keywords) do
-            results = KeywordSystem.resolveKeyword(spell.id, keyword, params, caster, target, slot, results)
+            -- Determine targeting for this keyword
+            local targetType = params.target or KeywordSystem.keywordTargets[keyword]
+            local target = KeywordSystem.resolveTarget(targetType, caster, opponent, spellSlot)
+            
+            -- Store targeting info for debugging and post-processing
+            results.targetingInfo[keyword] = {
+                targetType = targetType,
+                target = target and target.name or "unknown"
+            }
+            
+            -- Add targeting info to the log if in debug mode
+            if debug then
+                print(string.format("[TARGETING] Keyword %s targeting %s", 
+                                 keyword, targetType))
+            end
+            
+            -- Process the keyword with the correct target
+            results = KeywordSystem.resolveKeyword(spell.id, keyword, params, caster, target, spellSlot, results)
         end
     end
     
     -- For backward compatibility - delegate to effect function if present
     if spell.effect then
-        print(string.format("[SPELL] %s: Using legacy effect function", spell.id))
-        local effectResults = spell.effect(caster, target, slot)
+        if debug then
+            print(string.format("[SPELL] %s: Using legacy effect function", spell.id))
+        end
+        
+        local effectResults = spell.effect(caster, opponent, spellSlot)
         -- Merge effect results with keyword results
         for k, v in pairs(effectResults) do
             results[k] = v
         end
     end
     
-    -- Count number of effects in results
+    -- Count number of effects in results (excluding utility fields)
     local effectCount = 0
-    for _ in pairs(results) do
-        effectCount = effectCount + 1
+    for k, _ in pairs(results) do
+        -- Don't count utility fields or zero damage
+        if k ~= "damage" or results.damage ~= 0 then
+            if k ~= "spellType" and k ~= "targetingInfo" then
+                effectCount = effectCount + 1
+            end
+        end
     end
     
-    print(string.format("[SPELL] %s complete: damage=%s, effects=%d", 
-                         spell.id, tostring(results.damage), 
-                         effectCount - 2))  -- -2 for damage and spellType
+    if debug then
+        print(string.format("[SPELL] %s complete: damage=%s, effects=%d", 
+                            spell.id, tostring(results.damage), effectCount))
+    end
     
     return results
+end
+
+-- Convenience function to resolve a spell against a specific target
+KeywordSystem.castSpell = function(spell, caster, options)
+    options = options or {}
+    local gameState = caster.gameState
+    local spellSlot = options.spellSlot or 1
+    local debugMode = options.debug or false
+    
+    -- Find default opponent if not specified
+    local opponent = options.opponent
+    if not opponent and gameState and gameState.wizards then
+        for _, wizard in ipairs(gameState.wizards) do
+            if wizard ~= caster then
+                opponent = wizard
+                break
+            end
+        end
+    end
+    
+    if not opponent then
+        print("[ERROR] No opponent found for spell: " .. spell.name)
+        return nil
+    end
+    
+    -- Call the resolve function with appropriate targets
+    return KeywordSystem.resolveSpell(spell, caster, opponent, spellSlot, { debug = debugMode })
+end
+
+-- Function to register a new keyword handler
+KeywordSystem.registerKeyword = function(keyword, handler, options)
+    options = options or {}
+    
+    -- Check if this keyword already exists
+    if KeywordSystem.handlers[keyword] then
+        print(string.format("[WARNING] Overwriting existing keyword handler: %s", keyword))
+    end
+    
+    -- Register the handler function
+    KeywordSystem.handlers[keyword] = handler
+    
+    -- Register category
+    local category = options.category or "SPECIAL"
+    KeywordSystem.keywordCategories[keyword] = category
+    
+    -- Register default target type
+    local targetType = options.targetType or KeywordSystem.targetTypes.SELF
+    KeywordSystem.keywordTargets[keyword] = targetType
+    
+    print(string.format("[KEYWORD] Registered new keyword: %s (category: %s, target: %s)",
+                      keyword, category, targetType))
+    
+    return true
 end
 
 -- Legacy resolution function name for backward compatibility
@@ -862,9 +1014,12 @@ local SpellsModule = {
     spells = Spells,
     resolveSpellEffect = resolveSpellEffect,  -- Legacy function 
     resolveSpell = KeywordSystem.resolveSpell,  -- New function
+    castSpell = KeywordSystem.castSpell,       -- Convenient casting function
     validateSpell = validateSpell,
-    keywords = KeywordSystem.handlers,  -- KeywordSystem has replaced SpellKeywords
-    keywordSystem = KeywordSystem  -- Expose the full keyword system
+    keywords = KeywordSystem.handlers,         -- Keyword handlers
+    registerKeyword = KeywordSystem.registerKeyword,  -- Register new keywords
+    keywordTargets = KeywordSystem.targetTypes,  -- Targeting types
+    keywordSystem = KeywordSystem               -- Full system access 
 }
 
 -- Validate all spells at module load time to catch errors early
@@ -953,6 +1108,93 @@ Spells.blazingAscent = {
     blockableBy = {"barrier", "ward"}
 }
 
+-- Complex multi-target spell using the new targeting system
+Spells.arcaneReversal = {
+    id = "arcanereversal",
+    name = "Arcane Reversal",
+    description = "A complex spell that manipulates mana, movement, and timing simultaneously",
+    attackType = "remote",
+    castTime = 6.0,
+    cost = {"moon", "star", "force", "force"},
+    keywords = {
+        -- Apply damage to enemy
+        damage = {
+            amount = function(caster, target)
+                -- More damage if enemy has active shields
+                local shieldCount = 0
+                for _, slot in ipairs(target.spellSlots) do
+                    if slot.active and slot.isShield then
+                        shieldCount = shieldCount + 1
+                    end
+                end
+                return 8 + (shieldCount * 4)  -- 8 base + 4 per shield
+            end,
+            type = "star",
+            target = "ENEMY"  -- Explicit targeting
+        },
+        
+        -- Move self to opposite range
+        rangeShift = {
+            position = function(caster, target)
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end,
+            target = "SELF"
+        },
+        
+        -- Lock opponent's mana tokens
+        lock = {
+            duration = 4.0,
+            target = "POOL_ENEMY" 
+        },
+        
+        -- Add tokens to own pool
+        conjure = {
+            token = function(caster, target)
+                -- Create a token of the type that's most common in opponent's pool
+                local tokenCounts = {
+                    fire = 0,
+                    force = 0,
+                    moon = 0,
+                    nature = 0,
+                    star = 0
+                }
+                
+                -- Count opponent's token types
+                for _, token in ipairs(target.tokens or {}) do
+                    if token.state == "FREE" then
+                        tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+                    end
+                end
+                
+                -- Find the most common type
+                local maxCount = 0
+                local mostCommonType = "force"  -- Default
+                
+                for tokenType, count in pairs(tokenCounts) do
+                    if count > maxCount then
+                        maxCount = count
+                        mostCommonType = tokenType
+                    end
+                end
+                
+                return mostCommonType
+            end,
+            amount = 1,
+            target = "POOL_SELF"
+        },
+        
+        -- Accelerate own next spell
+        accelerate = {
+            amount = 2.0,
+            slot = 1,  -- First slot
+            target = "SLOT_SELF"
+        }
+    },
+    vfx = "arcane_reversal",
+    sfx = "time_shift",
+    blockableBy = {"ward", "field"}
+}
+
 -- Complex positional spell
 Spells.lunarTides = {
     id = "lunartides",
@@ -979,14 +1221,16 @@ Spells.lunarTides = {
                 
                 return baseDamage
             end,
-            type = "moon"
+            type = "moon",
+            target = "ENEMY"  -- Explicit targeting
         },
         rangeShift = {
             -- Position changes based on current state
             position = function(caster, target)
                 -- Toggle position
                 return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
-            end
+            end,
+            target = "SELF"  -- Affects caster
         },
         lock = {
             -- Lock duration increases if target has multiple active spells
@@ -998,7 +1242,8 @@ Spells.lunarTides = {
                     end
                 end
                 return 3.0 + (activeSlots * 1.0)  -- Base 3 seconds + 1 per active slot
-            end
+            end,
+            target = "POOL_ENEMY"  -- Affects opponent's mana pool
         }
     },
     vfx = "lunar_tide",

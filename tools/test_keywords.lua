@@ -69,14 +69,33 @@ end
 local function testSpell(spell)
     print("\n====== Testing spell: " .. spell.name .. " ======")
     
-    -- Process the spell
-    local results = Spells.resolveSpell(spell, caster, opponent, 1)
+    -- Process the spell using the new targeting-aware system
+    local results = Spells.keywordSystem.castSpell(
+        spell, 
+        caster, 
+        {
+            opponent = opponent,
+            spellSlot = 1,
+            debug = true
+        }
+    )
     
     -- Show detailed results
     print("\nSpell results:")
     for k, v in pairs(results) do
         if k ~= "damage" or v ~= 0 then
-            print("  " .. k .. ": " .. tostring(v))
+            if k ~= "targetingInfo" then  -- Handle targeting info separately
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    
+    -- Display targeting info
+    if results.targetingInfo then
+        print("\nTargeting information:")
+        for keyword, info in pairs(results.targetingInfo) do
+            print(string.format("  %s -> %s (%s)", 
+                keyword, info.targetType, info.target))
         end
     end
     
