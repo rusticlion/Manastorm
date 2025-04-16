@@ -3,8 +3,9 @@
 local Wizard = {}
 Wizard.__index = Wizard
 
--- Load spells
-local Spells = require("spells")
+-- Load spells module with the new keyword system
+local SpellsModule = require("spells")
+local Spells = SpellsModule.spells  -- For backwards compatibility
 
 function Wizard.new(name, x, y, color)
     local self = setmetatable({}, Wizard)
@@ -987,6 +988,11 @@ function Wizard:queueSpell(spell)
                 self.spellSlots[i].spell = spell
                 self.spellSlots[i].tokens = tokens
                 
+                -- Set attackType if present in the new schema
+                if spell.attackType then
+                    self.spellSlots[i].attackType = spell.attackType
+                end
+                
                 print(self.name .. " queued " .. spell.name .. " in slot " .. i .. " (cast time: " .. spell.castTime .. "s)")
                 return true
             else
@@ -1007,11 +1013,24 @@ function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
+    -- Early exit if cost is empty
+    if #cost == 0 then return {} end
+    
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -1075,7 +1094,7 @@ function Wizard:canPayManaCost(cost)
             -- Get all the free tokens of this type first
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not reservedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -1087,7 +1106,9 @@ function Wizard:canPayManaCost(cost)
             
             -- Add the required number of tokens to our reservations
             for i = 1, costCount do
-                table.insert(tokenReservations, availableTokens[i])
+                local tokenData = availableTokens[i]
+                table.insert(tokenReservations, tokenData)
+                reservedIndices[tokenData.index] = true -- Mark as reserved
             end
         end
     end
@@ -1100,10 +1121,23 @@ function Wizard:payManaCost(cost)
     local tokens = {}
     local usedIndices = {} -- Track which token indices are already used
     
+    -- Early exit if cost is empty
+    if #cost == 0 then return {} end
+    
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -1179,7 +1213,7 @@ function Wizard:payManaCost(cost)
             -- First gather all available tokens of this type
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not usedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -1199,6 +1233,7 @@ function Wizard:payManaCost(cost)
                 local token = self.manaPool.tokens[tokenData.index]
                 token.state = "CHANNELED"  -- Mark as being used
                 table.insert(tokens, {token = token, index = tokenData.index})
+                usedIndices[tokenData.index] = true -- Mark as used
             end
         end
     end
@@ -1233,8 +1268,8 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect, passing the spell slot number as an additional parameter
-    local effect = slot.spell.effect(self, target, spellSlot)
+    -- Apply spell effect using the new keyword-based system
+    local effect = SpellsModule.resolveSpellEffect(slot.spell, self, target, spellSlot)
     
     -- Debug effect details
     if slot.spellType == "Eclipse Echo" then
@@ -1267,6 +1302,13 @@ function Wizard:castSpell(spellSlot)
         slot.progress = slot.castTime  -- Mark as fully cast
         slot.isShield = true
         slot.defenseType = effect.defenseType or slot.spell.defenseType
+        
+        -- If the shield has blockTypes defined in the effect (through the 'block' keyword)
+        if effect.blockTypes then
+            slot.blocksAttackTypes = effect.blockTypes
+        elseif slot.spell.blocksAttackTypes then
+            slot.blocksAttackTypes = slot.spell.blocksAttackTypes
+        end
         
         -- Set shield strength based on number of tokens in the shield
         slot.shieldStrength = #slot.tokens
@@ -1353,9 +1395,9 @@ function Wizard:castSpell(spellSlot)
     local blockingShieldSlot = nil
     
     -- Only check for blocking if this is an offensive spell
-    if slot.spell.attackType then
-        -- The attack type of the current spell
-        local attackType = slot.spell.attackType
+    if slot.spell.attackType or slot.attackType then
+        -- The attack type of the current spell (check both old and new schema)
+        local attackType = slot.spell.attackType or slot.attackType
         print("Checking if " .. attackType .. " attack can be blocked by " .. target.name .. "'s shields")
         
         -- Check each of the target's spell slots for active shields
@@ -1375,10 +1417,23 @@ function Wizard:castSpell(spellSlot)
                 end
             end
             
+            -- Check if this shield can block this attack type
+            local canBlock = false
+            if targetSlot.blocksAttackTypes then
+                -- Old format - table with attackType as keys
+                canBlock = targetSlot.blocksAttackTypes[attackType]
+            elseif targetSlot.blockTypes then
+                -- New format - array of attack types
+                for _, blockType in ipairs(targetSlot.blockTypes) do
+                    if blockType == attackType then
+                        canBlock = true
+                        break
+                    end
+                end
+            end
+            
             if targetSlot.active and targetSlot.isShield and 
-               targetSlot.shieldStrength > 0 and
-               targetSlot.blocksAttackTypes and
-               targetSlot.blocksAttackTypes[attackType] then
+               targetSlot.shieldStrength > 0 and canBlock then
                 
                 -- This shield can block this attack type
                 attackBlocked = true
