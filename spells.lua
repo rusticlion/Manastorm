@@ -316,7 +316,7 @@ local function validateSpell(spell, spellId)
     if spell.keywords then
         assert(type(spell.keywords) == "table", "Spell " .. spellId .. " keywords must be a table")
         for keyword, _ in pairs(spell.keywords) do
-            assert(SpellKeywords[keyword], "Spell " .. spellId .. " has unimplemented keyword: " .. keyword)
+            assert(KeywordSystem.handlers[keyword], "Spell " .. spellId .. " has unimplemented keyword: " .. keyword)
         end
     end
     
