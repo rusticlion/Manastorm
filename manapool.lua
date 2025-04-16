@@ -95,12 +95,16 @@ function ManaPool:addToken(tokenType, imagePath)
         
         -- Depth/z-order variation
         zOrder = math.random(),  -- Used for layering tokens
+        
+        -- We've intentionally removed token repulsion to return to clean orbital motion
     }
     
     token.originalSpeed = token.orbitSpeed
     
     table.insert(self.tokens, token)
 end
+
+-- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
     -- Update token positions and states
@@ -263,7 +267,18 @@ function ManaPool:update(dt)
                                        anglePerToken * (token.tokenIndex - 1)
                     
                     -- Calculate position using elliptical projection
-                    local x3 = wizard.x + math.cos(tokenAngle) * radiusX
+                    -- Apply the NEAR/FAR offset to the target position
+                    local xOffset = 0
+                    local isNear = wizard.gameState and wizard.gameState.rangeState == "NEAR"
+                    
+                    -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
+                    if wizard.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
                     local y3 = slotY + math.sin(tokenAngle) * radiusY
                     
                     -- Control points for bezier (creating an arc)
@@ -351,6 +366,7 @@ function ManaPool:update(dt)
                     local valence = self.valences[token.valenceIndex]
                     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
                     token.originalSpeed = token.orbitSpeed
+                    -- No repulsion forces needed (system removed)
                 end
             end
             
@@ -737,6 +753,8 @@ function ManaPool:finalizeTokenReturn(token)
     -- Size and z-order variation
     token.scale = 0.85 + math.random() * 0.3
     token.zOrder = math.random()
+    
+    -- No repulsion forces to reset (removed system)
     
     -- Clear animation flags
     token.returning = false

@@ -48,9 +48,9 @@ function love.load()
     local screenHeight = love.graphics.getHeight()
     game.manaPool = ManaPool.new(screenWidth/2, 120)  -- Positioned between health bars and wizards
     
-    -- Create wizards
-    game.wizards[1] = Wizard.new("Ashgar", 200, 300, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 300, {100, 100, 255})
+    -- Create wizards - moved lower on screen to allow more room for aerial movement
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
+    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do

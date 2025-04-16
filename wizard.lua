@@ -326,9 +326,9 @@ function Wizard:draw()
     local yOffset = 0
     local xOffset = 0
     
-    -- Vertical adjustment for AERIAL state
+    -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if self.elevation == "AERIAL" then
-        yOffset = -30  -- Lift the wizard up when AERIAL
+        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
     end
     
     -- Horizontal adjustment for NEAR/FAR state
@@ -384,7 +384,7 @@ function Wizard:draw()
         -- Draw cloud-like puffs, applying the xOffset
         for i = 1, 3 do
             local cloudXOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
-            local cloudY = self.y + yOffset + 25 + math.sin(love.timer.getTime() + i) * 3
+            local cloudY = self.y + yOffset + 40 + math.sin(love.timer.getTime() + i) * 3
             love.graphics.circle("fill", self.x + xOffset - 15 + cloudXOffset, cloudY, 8)
             love.graphics.circle("fill", self.x + xOffset + cloudXOffset, cloudY, 10)
             love.graphics.circle("fill", self.x + xOffset + 15 + cloudXOffset, cloudY, 8)
@@ -418,7 +418,7 @@ function Wizard:draw()
         love.graphics.setColor(1, 1, 1, progress)
         love.graphics.circle("line", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y - 120)
+        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y + 70)
     end
     
     -- Health bars will now be drawn in the UI system for a more dramatic fighting game style
@@ -643,11 +643,10 @@ end
 function Wizard:drawSpellSlots()
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
-    local slotYOffsets = {30, 0, -30}  -- From bottom to top
-    
-    -- Get position offsets from draw function
+    -- Get position offsets from draw function to apply the same offsets as the wizard
     local xOffset = self.currentXOffset or 0
     local yOffset = self.currentYOffset or 0
+    local slotYOffsets = {30, 0, -30}  -- From bottom to top
     
     -- Horizontal and vertical radii for each elliptical path
     local horizontalRadii = {80, 70, 60}   -- Wider at the bottom, narrower at the top
@@ -801,7 +800,7 @@ function Wizard:drawSpellSlots()
                         local normalizedAngle = tokenAngle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then
                             -- Calculate 3D position with elliptical projection
-                            token.x = self.x + math.cos(tokenAngle) * radiusX
+                            token.x = slotX + math.cos(tokenAngle) * radiusX
                             token.y = slotY + math.sin(tokenAngle) * radiusY
                             token.zOrder = 1  -- In front of the wizard
                             
@@ -1219,7 +1218,7 @@ function Wizard:castSpell(spellSlot)
         text = self.name .. " cast " .. slot.spellType,
         timer = 2.0,  -- Show for 2 seconds
         x = self.x,
-        y = self.y - 120,
+        y = self.y + 70, -- Moved below the wizard instead of above
         color = {self.color[1]/255, self.color[2]/255, self.color[3]/255, 1.0}
     }
     
