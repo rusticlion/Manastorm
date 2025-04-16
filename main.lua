@@ -102,12 +102,22 @@ function love.draw()
     -- Draw UI (health bars and wizard names are handled in UI.drawSpellInfo)
     love.graphics.setColor(1, 1, 1)
     
-    -- Draw help text and spell info
-    UI.drawHelpText(game.font)
+    -- Always draw spellbook components
+    UI.drawSpellbookButtons()
+    
+    -- Draw spell info (health bars, etc.)
     UI.drawSpellInfo(game.wizards)
     
-    -- Debug info
-    love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    -- Debug info only when debug key is pressed
+    if love.keyboard.isDown("`") then
+        UI.drawHelpText(game.font)
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    else
+        -- Always show a small hint about the debug key
+        love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
+        love.graphics.print("Press ` for debug controls", 10, love.graphics.getHeight() - 20)
+    end
 end
 
 -- Function to draw the range indicator for NEAR/FAR states
@@ -116,63 +126,59 @@ function drawRangeIndicator()
     local screenHeight = love.graphics.getHeight()
     local centerX = screenWidth / 2
     
-    -- Start range indicator well below the mana pool
-    local startY = 200
+    -- Only draw a subtle central line, without the text indicators
+    -- The wizard positions themselves will communicate NEAR/FAR state
     
-    -- Draw a line or barrier to indicate NEAR/FAR state
+    -- Different visual style based on range state
     if game.rangeState == "NEAR" then
-        -- Draw a more prominent barrier for NEAR state
-        love.graphics.setColor(0.6, 0.6, 0.8, 0.4)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- For NEAR state, draw a more vibrant, energetic line
+        love.graphics.setColor(0.5, 0.5, 0.9, 0.4)
         
-        -- Add a more noticeable glow/pulse
-        for i = 1, 7 do
-            local alpha = 0.15 - (i * 0.018)
-            local width = i * 5
-            love.graphics.setColor(0.6, 0.6, 0.8, alpha)
-            love.graphics.setLineWidth(width)
-            love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- Draw main line
+        love.graphics.setLineWidth(1.5)
+        love.graphics.line(centerX, 200, centerX, screenHeight - 100)
+        
+        -- Add a subtle energetic glow/pulse
+        for i = 1, 5 do
+            local pulseWidth = 3 + math.sin(love.timer.getTime() * 2.5) * 2
+            local alpha = 0.12 - (i * 0.02)
+            love.graphics.setColor(0.5, 0.5, 0.9, alpha)
+            love.graphics.setLineWidth(pulseWidth * i)
+            love.graphics.line(centerX, 200, centerX, screenHeight - 100)
         end
         love.graphics.setLineWidth(1)
-        
-        -- Add "NEAR" text indicator below mana pool
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.8)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 0.8, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 25, startY - 23, 50, 20)
-        love.graphics.setColor(0.9, 0.9, 1, 0.9)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
     else
-        -- For FAR state, draw a more substantial, distant barrier
-        -- Distortion effect to simulate distance
-        for i = 1, 12 do
-            local wobble = math.sin(love.timer.getTime() * 2 + i * 0.3) * 3
-            local y1 = startY + (i * 5) + wobble
-            local y2 = screenHeight - 100 - (i * 5) + wobble
-            local alpha = 0.15 - (i * 0.009)
-            love.graphics.setColor(0.4, 0.4, 0.7, alpha)
-            love.graphics.line(centerX + i * 3, y1, centerX + i * 3, y2)
-            love.graphics.line(centerX - i * 3, y1, centerX - i * 3, y2)
+        -- For FAR state, draw a more distant, faded line
+        love.graphics.setColor(0.3, 0.3, 0.7, 0.3)
+        
+        -- Draw main line with slight wave effect
+        local segments = 12
+        local segmentHeight = (screenHeight - 300) / segments
+        local points = {}
+        
+        for i = 0, segments do
+            local y = 200 + i * segmentHeight
+            local wobble = math.sin(love.timer.getTime() + i * 0.3) * 1.5
+            table.insert(points, centerX + wobble)
+            table.insert(points, y)
         end
         
-        -- Main line
-        love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        love.graphics.setLineWidth(1)
+        love.graphics.line(points)
         
-        -- Add "FAR" text indicator below mana pool
-        love.graphics.setColor(0.5, 0.5, 0.8, 0.8)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.3, 0.3, 0.6, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 20, startY - 23, 40, 20)
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.9)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
+        -- Add very subtle horizontal distortion lines
+        for i = 1, 5 do
+            local y = 200 + (i * (screenHeight - 300) / 6)
+            local width = 15 + math.sin(love.timer.getTime() * 0.7 + i) * 5
+            local alpha = 0.05
+            love.graphics.setColor(0.3, 0.3, 0.7, alpha)
+            love.graphics.setLineWidth(0.5)
+            love.graphics.line(centerX - width, y, centerX + width, y)
+        end
     end
+    
+    -- Reset line width
+    love.graphics.setLineWidth(1)
 end
 
 function love.keypressed(key)

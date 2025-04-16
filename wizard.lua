@@ -156,13 +156,65 @@ function Wizard:update(dt)
             -- If the slot is an active shield, just keep it active, and add
             -- shield pulsing effects if needed
             if slot.isShield and slot.progress >= slot.castTime then
-                -- For active shields, occasionally add subtle visual effects
+                -- For active shields, make tokens orbit their slots
+                -- Calculate positions for all tokens in this shield
+                local slotYOffsets = {30, 0, -30}
+                local slotY = self.y + slotYOffsets[i]
+                -- Define orbit radii for each slot (same values used in drawSpellSlots)
+                local horizontalRadii = {80, 70, 60}  -- Wider at the bottom, narrower at the top  
+                local verticalRadii = {20, 25, 30}    -- Flatter at the bottom, rounder at the top
+                local radiusX = horizontalRadii[i]
+                local radiusY = verticalRadii[i]
+                
+                -- Move all tokens in a slow orbit
+                if #slot.tokens > 0 then
+                    -- Make tokens orbit slowly
+                    local baseAngle = love.timer.getTime() * 0.3  -- Slow steady rotation
+                    local tokenCount = #slot.tokens
+                    
+                    for j, tokenData in ipairs(slot.tokens) do
+                        local token = tokenData.token
+                        -- Position tokens evenly around the orbit
+                        local anglePerToken = math.pi * 2 / tokenCount
+                        local tokenAngle = baseAngle + anglePerToken * (j - 1)
+                        
+                        -- Calculate 3D position with elliptical projection
+                        -- Apply NEAR/FAR positioning offset for tokens as well
+                        local xOffset = 0
+                        local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                        
+                        -- Push wizards closer to center in NEAR mode, further in FAR mode
+                        if self.name == "Ashgar" then -- Player 1 (left side)
+                            xOffset = isNear and 60 or 0 -- Move right when NEAR
+                        else -- Player 2 (right side)
+                            xOffset = isNear and -60 or 0 -- Move left when NEAR
+                        end
+                        
+                        token.x = self.x + xOffset + math.cos(tokenAngle) * radiusX
+                        token.y = slotY + math.sin(tokenAngle) * radiusY
+                        
+                        -- Update token rotation angle too (spin on its axis)
+                        token.rotAngle = token.rotAngle + 0.01  -- Slow spin
+                    end
+                end
+                
+                -- Occasionally add subtle visual effects
                 if math.random() < 0.01 and self.gameState and self.gameState.vfx then
-                    local slotYOffsets = {30, 0, -30}
-                    local slotY = self.y + slotYOffsets[i]
                     local angle = math.random() * math.pi * 2
                     local radius = math.random(30, 40)
-                    local sparkleX = self.x + math.cos(angle) * radius
+                    
+                    -- Apply NEAR/FAR offset to sparkle effects as well
+                    local xOffset = 0
+                    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                    
+                    -- Push wizards closer to center in NEAR mode, further in FAR mode
+                    if self.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local sparkleX = self.x + xOffset + math.cos(angle) * radius
                     local sparkleY = slotY + math.sin(angle) * radius
                     
                     -- Color based on shield type
@@ -270,10 +322,24 @@ function Wizard:update(dt)
 end
 
 function Wizard:draw()
-    -- Calculate position adjustments based on elevation
+    -- Calculate position adjustments based on elevation and range state
     local yOffset = 0
+    local xOffset = 0
+    
+    -- Vertical adjustment for AERIAL state
     if self.elevation == "AERIAL" then
         yOffset = -30  -- Lift the wizard up when AERIAL
+    end
+    
+    -- Horizontal adjustment for NEAR/FAR state
+    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+    local centerX = love.graphics.getWidth() / 2
+    
+    -- Push wizards closer to center in NEAR mode, further in FAR mode
+    if self.name == "Ashgar" then -- Player 1 (left side)
+        xOffset = isNear and 60 or 0 -- Move right when NEAR
+    else -- Player 2 (right side)
+        xOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
     -- Set color and draw wizard
@@ -287,12 +353,12 @@ function Wizard:draw()
     
     -- Draw elevation effect (GROUNDED or AERIAL)
     if self.elevation == "GROUNDED" then
-        -- Draw ground indicator below wizard
+        -- Draw ground indicator below wizard, applying the x offset
         love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
-        love.graphics.ellipse("fill", self.x, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
+        love.graphics.ellipse("fill", self.x + xOffset, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
     end
     
-    -- Draw the wizard with appropriate elevation
+    -- Draw the wizard with appropriate elevation and position
     love.graphics.setColor(1, 1, 1)
     
     -- Flip Selene's sprite horizontally if she's player 2
@@ -304,7 +370,7 @@ function Wizard:draw()
     
     love.graphics.draw(
         self.sprite, 
-        self.x, self.y + yOffset,  -- Apply elevation offset
+        self.x + xOffset, self.y + yOffset,  -- Apply both offsets
         0,  -- Rotation
         scaleX, self.scale,  -- Scale x, Scale y (negative x scale for Selene)
         self.sprite:getWidth()/2, self.sprite:getHeight()/2  -- Origin at center
@@ -315,13 +381,13 @@ function Wizard:draw()
         -- Draw aerial effect (clouds, wind lines, etc.)
         love.graphics.setColor(0.8, 0.8, 1, 0.3)
         
-        -- Draw cloud-like puffs
+        -- Draw cloud-like puffs, applying the xOffset
         for i = 1, 3 do
-            local xOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
+            local cloudXOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
             local cloudY = self.y + yOffset + 25 + math.sin(love.timer.getTime() + i) * 3
-            love.graphics.circle("fill", self.x - 15 + xOffset, cloudY, 8)
-            love.graphics.circle("fill", self.x + xOffset, cloudY, 10)
-            love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
+            love.graphics.circle("fill", self.x + xOffset - 15 + cloudXOffset, cloudY, 8)
+            love.graphics.circle("fill", self.x + xOffset + cloudXOffset, cloudY, 10)
+            love.graphics.circle("fill", self.x + xOffset + 15 + cloudXOffset, cloudY, 8)
         end
         
         -- No visual timer display here - moved to drawStatusEffects function
@@ -334,9 +400,9 @@ function Wizard:draw()
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
         love.graphics.setColor(0.5, 0.5, 1, 0.15)
-        love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("fill", self.x + xOffset, self.y, shieldRadius + pulseAmount)
         love.graphics.setColor(0.7, 0.7, 1, 0.2)
-        love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("line", self.x + xOffset, self.y, shieldRadius + pulseAmount)
     end
     
     -- Draw status effects with durations using the new horizontal bar system
@@ -348,11 +414,11 @@ function Wizard:draw()
         local progress = self.blockVFX.timer / 0.5  -- Normalize to 0-1
         local size = 80 * (1 - progress)
         love.graphics.setColor(0.7, 0.7, 1, progress * 0.8)
-        love.graphics.circle("fill", self.x, self.y, size)
+        love.graphics.circle("fill", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.circle("line", self.x, self.y, size)
+        love.graphics.circle("line", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.print("BLOCKED!", self.x - 30, self.y - 120)
+        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y - 120)
     end
     
     -- Health bars will now be drawn in the UI system for a more dramatic fighting game style
@@ -367,15 +433,19 @@ function Wizard:draw()
         love.graphics.setColor(color[1], color[2], color[3], alpha)
         
         -- Draw with a subtle rise effect
-        local yOffset = 10 * (1 - alpha)  -- Rise up as it fades
+        local notifYOffset = 10 * (1 - alpha)  -- Rise up as it fades
         love.graphics.print(self.spellCastNotification.text, 
-                           self.spellCastNotification.x - 60, 
-                           self.spellCastNotification.y - yOffset, 
+                           self.spellCastNotification.x + xOffset - 60, 
+                           self.spellCastNotification.y - notifYOffset, 
                            0, -- rotation
                            1.5, 1.5) -- scale
     end
     
     -- We'll remove the key indicators from here as they'll be drawn in the UI's spellbook component
+    
+    -- Save current xOffset and yOffset for other drawing functions
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
     
     -- Draw spell slots (orbits)
     self:drawSpellSlots()
@@ -434,6 +504,10 @@ function Wizard:drawStatusEffects()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
+    -- Get position offsets from draw function
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
+    
     -- Properties for status effect bars
     local barWidth = 130
     local barHeight = 12
@@ -444,8 +518,8 @@ function Wizard:drawStatusEffects()
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is
-    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
+    local x = (self.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
     
     -- Define colors for different effect types
     local effectColors = {
@@ -571,18 +645,24 @@ function Wizard:drawSpellSlots()
     -- Position the slots at legs, midsection, and head levels
     local slotYOffsets = {30, 0, -30}  -- From bottom to top
     
+    -- Get position offsets from draw function
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
+    
     -- Horizontal and vertical radii for each elliptical path
     local horizontalRadii = {80, 70, 60}   -- Wider at the bottom, narrower at the top
     local verticalRadii = {20, 25, 30}     -- Flatter at the bottom, rounder at the top
     
     for i, slot in ipairs(self.spellSlots) do
-        -- Position parameters for each slot
-        local slotY = self.y + slotYOffsets[i]
+        -- Position parameters for each slot, applying both offsets
+        local slotY = self.y + slotYOffsets[i] + yOffset
+        local slotX = self.x + xOffset
         local radiusX = horizontalRadii[i]
         local radiusY = verticalRadii[i]
         
         -- Draw tokens that should appear "behind" the character first
-        if slot.active and #slot.tokens > 0 then
+        -- Skip drawing here for shields as those are handled in update
+        if slot.active and #slot.tokens > 0 and not slot.isShield then
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
             for j, tokenData in ipairs(slot.tokens) do
@@ -596,7 +676,7 @@ function Wizard:drawSpellSlots()
                     local normalizedAngle = tokenAngle % (math.pi * 2)
                     if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
                         -- Calculate 3D position with elliptical projection
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         token.zOrder = 0  -- Behind the wizard
                         
@@ -648,29 +728,23 @@ function Wizard:drawSpellSlots()
                 for j = 1, 3 do
                     local extraSize = j * 2
                     love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.2 - j*0.05)
-                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + extraSize, 
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + extraSize, 
                                     radiusY + pulseSize + extraSize, "line")
                 end
                 
                 -- Draw the back half of the shield (reduced alpha)
                 love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.4)
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, math.pi * 2, 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 16)
                 
                 -- Draw the front half of the shield (full alpha)
                 love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.pi, 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 16)
                 
-                -- Draw shield status above the highest slot
+                -- Draw shield name (without numeric indicator) above the highest slot
                 if i == 3 then
                     love.graphics.setColor(1, 1, 1, 0.8)
-                    love.graphics.print(shieldName .. " (" .. slot.shieldStrength .. ")", 
-                                       self.x - 35, slotY - radiusY - 15)
+                    love.graphics.print(shieldName, slotX - 25, slotY - radiusY - 15)
                 end
-                
-                -- Draw small shield strength indicator near the slot
-                love.graphics.setColor(1, 1, 1, 0.9)
-                love.graphics.print(tostring(slot.shieldStrength), 
-                                   self.x + radiusX + 5, slotY - 8)
             
             -- Check if the spell is frozen by Eclipse Echo
             elseif slot.frozen then
@@ -680,7 +754,7 @@ function Wizard:drawSpellSlots()
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
                     
                     -- Draw a slightly larger ellipse to indicate frozen state
-                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
                                     radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
                 end
                 
@@ -688,33 +762,34 @@ function Wizard:drawSpellSlots()
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             else
                 -- Normal progress arc for unfrozen spells
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
             
             -- Draw spell name above the highest slot (only for non-shield spells)
             if i == 3 and not slot.isShield then
                 love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.print(slot.spellType, self.x - 20, slotY - radiusY - 15)
+                love.graphics.print(slot.spellType, slotX - 20, slotY - radiusY - 15)
             end
             
             -- Draw tokens that should appear "in front" of the character
-            if #slot.tokens > 0 then
+            -- Skip drawing here for shields as those are handled in update
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -745,7 +820,8 @@ function Wizard:drawSpellSlots()
             end
         else
             -- For inactive slots, only update token positions without drawing orbits
-            if #slot.tokens > 0 then
+            -- Skip drawing inactive tokens for shield slots - we shouldn't have this case anyway
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -755,7 +831,7 @@ function Wizard:drawSpellSlots()
                         local tokenAngle = anglePerToken * (j - 1)
                         
                         -- Calculate position based on angle
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         
                         -- Set z-order based on position
@@ -1192,7 +1268,18 @@ function Wizard:castSpell(spellSlot)
         slot.progress = slot.castTime  -- Mark as fully cast
         slot.isShield = true
         slot.defenseType = effect.defenseType or slot.spell.defenseType
-        slot.shieldStrength = effect.shieldStrength or 2  -- Default to 2 hits if not specified
+        
+        -- Set shield strength based on number of tokens in the shield
+        slot.shieldStrength = #slot.tokens
+        
+        -- Slow down token orbiting speed for shield tokens
+        for _, tokenData in ipairs(slot.tokens) do
+            local token = tokenData.token
+            -- Set token to "SHIELDING" state (similar to CHANNELED but slower)
+            token.state = "SHIELDING"
+            -- Slow down the rotation speed for shield tokens
+            token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
+        end
         
         -- Store attack types that this shield blocks
         local blocksAttackTypes = slot.spell.blocksAttackTypes
@@ -1210,8 +1297,8 @@ function Wizard:castSpell(spellSlot)
         -- Note that the tokens have already been reserved during queueSpell
         -- So we just need to keep them and not return them
         
-        print(self.name .. " raised a " .. slot.defenseType .. " shield that blocks " .. 
-              slot.shieldStrength .. " attacks in slot " .. spellSlot)
+        print(self.name .. " raised a " .. slot.defenseType .. " shield with " .. 
+              slot.shieldStrength .. " tokens in slot " .. spellSlot)
         
         -- Print the attack types this shield blocks
         local blockedTypes = ""
@@ -1298,9 +1385,6 @@ function Wizard:castSpell(spellSlot)
                 attackBlocked = true
                 blockingShieldSlot = i
                 
-                -- Reduce shield strength
-                targetSlot.shieldStrength = targetSlot.shieldStrength - 1
-                
                 -- Create visual effect for the block
                 target.blockVFX = {
                     active = true,
@@ -1327,23 +1411,29 @@ function Wizard:castSpell(spellSlot)
                     })
                 end
                 
-                print(target.name .. "'s " .. targetSlot.defenseType .. " shield blocked " .. self.name .. "'s " .. 
-                      attackType .. " attack! (" .. targetSlot.shieldStrength .. " strength remaining)")
-                
-                -- If the shield is depleted, destroy it
-                if targetSlot.shieldStrength <= 0 then
-                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield has been broken!")
+                -- Return one token back to the mana pool (use the last token in the list)
+                if #targetSlot.tokens > 0 then
+                    -- Get the last token
+                    local lastTokenIndex = #targetSlot.tokens
+                    local tokenData = targetSlot.tokens[lastTokenIndex]
                     
-                    -- Start return animation for tokens
-                    if #targetSlot.tokens > 0 then
-                        for _, tokenData in ipairs(targetSlot.tokens) do
-                            -- Trigger animation to return token to the mana pool
-                            target.manaPool:returnToken(tokenData.index)
-                        end
-                        
-                        -- Clear token list (tokens still exist in the mana pool)
-                        targetSlot.tokens = {}
-                    end
+                    -- Trigger animation to return this token to the mana pool
+                    target.manaPool:returnToken(tokenData.index)
+                    
+                    -- Remove this token from the slot's token list
+                    table.remove(targetSlot.tokens, lastTokenIndex)
+                    
+                    -- Update shield strength based on remaining tokens
+                    targetSlot.shieldStrength = #targetSlot.tokens
+                    
+                    -- Print the blocked attack message
+                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield blocked " .. self.name .. "'s " .. 
+                          attackType .. " attack! (" .. targetSlot.shieldStrength .. " tokens remaining)")
+                end
+                
+                -- If the shield is depleted (no tokens left), destroy it
+                if #targetSlot.tokens <= 0 then
+                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield has been broken!")
                     
                     -- Reset slot
                     targetSlot.active = false

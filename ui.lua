@@ -11,16 +11,28 @@ UI.spellbookVisible = {
 function UI.drawHelpText(font)
     -- Set font and color
     love.graphics.setFont(font)
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
     
-    -- Only show minimal debug controls at the bottom
-    local y = love.graphics.getHeight() - 110
-    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 10, y + 50)
-    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 10, y + 70)
-    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 10, y + 90)
+    -- Draw a semi-transparent background for the debug panel
+    love.graphics.setColor(0.1, 0.1, 0.2, 0.7)
+    local panelWidth = 600
+    local y = love.graphics.getHeight() - 130
+    love.graphics.rectangle("fill", 5, y + 30, panelWidth, 95, 5, 5)
     
-    -- Draw spellbook buttons for each player
-    UI.drawSpellbookButtons()
+    -- Draw a border
+    love.graphics.setColor(0.3, 0.3, 0.5, 0.8)
+    love.graphics.rectangle("line", 5, y + 30, panelWidth, 95, 5, 5)
+    
+    -- Draw header
+    love.graphics.setColor(1, 1, 0.7, 0.9)
+    love.graphics.print("DEBUG MODE", 15, y + 35)
+    
+    -- Show debug controls with brighter text
+    love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 15, y + 55)
+    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 15, y + 75)
+    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 15, y + 95)
+    
+    -- No longer calling UI.drawSpellbookButtons() here as it's now handled in the main loop
 end
 
 -- Toggle spellbook visibility for a player

@@ -175,7 +175,7 @@ Spells.mist = {
             elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
             isShield = true,
             defenseType = "ward",
-            shieldStrength = 2  -- Shield lasts for 2 hits
+            -- Shield strength is based on token count (handled in castSpell)
         }
     end
 }
@@ -288,7 +288,7 @@ Spells.forcebarrier = {
         return {
             isShield = true,
             defenseType = "barrier",
-            shieldStrength = 2  -- Shield blocks 2 attacks
+            -- Shield strength based on token count
         }
     end
 }
@@ -308,7 +308,7 @@ Spells.moonward = {
         return {
             isShield = true,
             defenseType = "ward",
-            shieldStrength = 2  -- Shield blocks 2 attacks
+            -- Shield strength based on token count
         }
     end
 }
@@ -327,7 +327,7 @@ Spells.naturefield = {
         return {
             isShield = true,
             defenseType = "field",
-            shieldStrength = 2  -- Shield blocks 2 attacks
+            -- Shield strength based on token count
         }
     end
 }

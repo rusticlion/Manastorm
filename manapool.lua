@@ -56,7 +56,7 @@ function ManaPool:addToken(tokenType, imagePath)
         image = love.graphics.newImage(imagePath),
         x = x + variationX,
         y = y + variationY,
-        state = "FREE",  -- FREE, CHANNELED, LOCKED, DESTROYED
+        state = "FREE",  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
         lockDuration = 0, -- Duration for how long a token remains locked
         
         -- Valence-based orbit properties
@@ -226,8 +226,8 @@ function ManaPool:update(dt)
             if math.random() < 0.002 then  -- Small chance to reverse rotation
                 token.rotSpeed = -token.rotSpeed
             end
-        elseif token.state == "CHANNELED" then
-            -- For channeled tokens, animate movement to/from their spell slot
+        elseif token.state == "CHANNELED" or token.state == "SHIELDING" then
+            -- For channeled or shielding tokens, animate movement to/from their spell slot
             
             if token.animTime < token.animDuration then
                 -- Token is still being animated to the spell slot
@@ -368,20 +368,8 @@ function ManaPool:update(dt)
 end
 
 function ManaPool:draw()
-    -- Draw pool background with a subtle gradient effect for elliptical shape
-    love.graphics.setColor(0.15, 0.15, 0.25, 0.2)
-    
-    -- Draw the elliptical mana pool area with a glow effect
-    self:drawEllipse(self.x, self.y, self.radiusX, self.radiusY, "fill")
-    
-    -- Draw valence rings subtly
-    for _, valence in ipairs(self.valences) do
-        local alpha = 0.07  -- Very subtle
-        love.graphics.setColor(0.5, 0.5, 0.7, alpha)
-        
-        -- Draw elliptical valence path
-        self:drawEllipse(self.x, self.y, valence.radiusX, valence.radiusY, "line")
-    end
+    -- No longer drawing the pool background or valence rings
+    -- The pool is now completely invisible, defined only by the positions of the tokens
     
     -- Sort tokens by z-order for better layering
     local sortedTokens = {}
@@ -397,40 +385,66 @@ function ManaPool:draw()
     for _, tokenData in ipairs(sortedTokens) do
         local token = tokenData.token
         
-        -- Draw a glow around the token based on its type
-        local glowSize = 10
-        local glowIntensity = 0.4  -- Slightly stronger glow
+        -- Draw a larger, more vibrant glow around the token based on its type
+        local glowSize = 15 -- Larger glow radius
+        local glowIntensity = 0.6  -- Stronger glow intensity
         
-        -- Increase glow for tokens in transition (newly returned to pool)
-        if token.state == "FREE" and token.inTransition then
-            -- Stronger glow that fades over the transition period
-            local transitionBoost = 0.4 + 0.6 * (1 - token.transitionTime / token.transitionDuration)
-            glowSize = glowSize * (1 + transitionBoost * 0.5)
-            glowIntensity = glowIntensity + transitionBoost * 0.4
+        -- Multiple glow layers for more visual interest
+        for layer = 1, 2 do
+            local layerSize = glowSize * (1.2 - layer * 0.3)
+            local layerIntensity = glowIntensity * (layer == 1 and 0.4 or 0.8)
+            
+            -- Increase glow for tokens in transition (newly returned to pool)
+            if token.state == "FREE" and token.inTransition then
+                -- Stronger glow that fades over the transition period
+                local transitionBoost = 0.6 + 0.8 * (1 - token.transitionTime / token.transitionDuration)
+                layerSize = layerSize * (1 + transitionBoost * 0.5)
+                layerIntensity = layerIntensity + transitionBoost * 0.5
+            end
+            
+            -- Set glow color based on token type with improved contrast and vibrancy
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.3, 0.1, layerIntensity)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 0.9, 0.3, layerIntensity)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.4, 0.4, 1, layerIntensity)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.2, 0.9, 0.1, layerIntensity)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.8, 0.2, layerIntensity)
+            end
+            
+            -- Draw glow with pulsation
+            local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
+            
+            -- Enhanced pulsation for transitioning tokens
+            if token.state == "FREE" and token.inTransition then
+                pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
+            end
+            
+            love.graphics.circle("fill", token.x, token.y, layerSize * pulseAmount * token.scale)
         end
         
-        -- Set glow color based on token type with improved contrast
-        if token.type == "fire" then
-            love.graphics.setColor(1, 0.3, 0.1, glowIntensity)
-        elseif token.type == "force" then
-            love.graphics.setColor(1, 1, 0.5, glowIntensity)
-        elseif token.type == "moon" then
-            love.graphics.setColor(0.5, 0.5, 1, glowIntensity)
-        elseif token.type == "nature" then
-            love.graphics.setColor(0.3, 0.9, 0.1, glowIntensity)
-        elseif token.type == "star" then
-            love.graphics.setColor(1, 1, 0.2, glowIntensity)
+        -- Draw a small outer ring for better definition
+        if token.state == "FREE" then
+            local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
+            
+            -- Set ring color based on token type
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.5, 0.2, ringAlpha)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 1, 0.4, ringAlpha)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.6, 0.6, 1, ringAlpha)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.3, 1, 0.2, ringAlpha)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.9, 0.3, ringAlpha)
+            end
+            
+            love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
-        
-        -- Draw glow with pulsation
-        local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
-        
-        -- Enhanced pulsation for transitioning tokens
-        if token.state == "FREE" and token.inTransition then
-            pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
-        end
-        
-        love.graphics.circle("fill", token.x, token.y, glowSize * pulseAmount * token.scale)
         
         -- Draw token image based on state
         if token.state == "FREE" then
@@ -445,6 +459,17 @@ function ManaPool:draw()
         elseif token.state == "CHANNELED" then
             -- Channeled tokens are fully visible
             love.graphics.setColor(1, 1, 1, 1)
+        elseif token.state == "SHIELDING" then
+            -- Shielding tokens have a slight colored tint based on their type
+            if token.type == "force" then
+                love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
+            elseif token.type == "moon" or token.type == "star" then
+                love.graphics.setColor(0.8, 0.8, 1, 1)  -- Blue tint for moon/star (ward)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.8, 1, 0.8, 1)  -- Green tint for nature (field)
+            else
+                love.graphics.setColor(1, 1, 1, 1)  -- Default
+            end
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
@@ -459,6 +484,66 @@ function ManaPool:draw()
             token.scale, token.scale,  -- Use token-specific scale
             token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
         )
+        
+        -- Draw shield effect for shielding tokens
+        if token.state == "SHIELDING" then
+            -- Get token color based on its mana type
+            local tokenColor = {1, 1, 1, 0.3}  -- Default white
+            
+            -- Match color to the token type
+            if token.type == "fire" then
+                tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
+            elseif token.type == "force" then
+                tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
+            elseif token.type == "moon" then
+                tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
+            elseif token.type == "star" then
+                tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
+            elseif token.type == "nature" then
+                tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
+            end
+            
+            -- Draw a subtle shield aura with slight pulsation
+            local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
+            love.graphics.setColor(tokenColor)
+            love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Draw shield border
+            love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+            love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Add a small defensive shield symbol inside the circle
+            -- Determine symbol shape by defense type if available
+            if token.wizardOwner and token.spellSlot then
+                local slot = token.wizardOwner.spellSlots[token.spellSlot]
+                if slot and slot.defenseType then
+                    love.graphics.setColor(1, 1, 1, 0.7)
+                    if slot.defenseType == "barrier" then
+                        -- Draw a small hexagon (shield shape) for barriers
+                        local shieldSize = 6 * token.scale
+                        local points = {}
+                        for i = 1, 6 do
+                            local angle = (i - 1) * math.pi / 3
+                            table.insert(points, token.x + math.cos(angle) * shieldSize)
+                            table.insert(points, token.y + math.sin(angle) * shieldSize)
+                        end
+                        love.graphics.polygon("line", points)
+                    elseif slot.defenseType == "ward" then
+                        -- Draw a small circle (ward shape)
+                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
+                    elseif slot.defenseType == "field" then
+                        -- Draw a small diamond (field shape)
+                        local fieldSize = 7 * token.scale
+                        love.graphics.polygon("line", 
+                            token.x, token.y - fieldSize,
+                            token.x + fieldSize, token.y,
+                            token.x, token.y + fieldSize,
+                            token.x - fieldSize, token.y
+                        )
+                    end
+                end
+            end
+        end
         
         -- Draw lock overlay for locked tokens
         if token.state == "LOCKED" then
@@ -493,9 +578,7 @@ function ManaPool:draw()
         end
     end
     
-    -- Outer border with subtle glow
-    love.graphics.setColor(0.5, 0.5, 0.8, 0.2 + 0.1 * math.sin(love.timer.getTime() * 0.5))
-    self:drawEllipse(self.x, self.y, self.radiusX + 2, self.radiusY + 2, "line")
+    -- No border - the pool is now completely invisible
 end
 
 -- Helper function to draw an ellipse
