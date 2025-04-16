@@ -282,14 +282,34 @@ function UI.drawSpellInfo(wizards)
             return "Free"
         end
         
+        -- Handle both old and new cost formats
         local costText = ""
-        for _, component in ipairs(cost) do
-            local typeText = component.type
-            if type(typeText) == "table" then
-                typeText = table.concat(typeText, "/")
+        local tokenCounts = {}  -- For new array-style format
+        
+        -- Check if this is the new array-style format (simple array of strings)
+        local isNewFormat = type(cost[1]) == "string"
+        
+        if isNewFormat then
+            -- Count each token type
+            for _, tokenType in ipairs(cost) do
+                tokenCounts[tokenType] = (tokenCounts[tokenType] or 0) + 1
             end
-            costText = costText .. component.count .. " " .. typeText .. ", "
+            
+            -- Format the counts
+            for tokenType, count in pairs(tokenCounts) do
+                costText = costText .. count .. " " .. tokenType .. ", "
+            end
+        else
+            -- Old format with type and count properties
+            for _, component in ipairs(cost) do
+                local typeText = component.type
+                if type(typeText) == "table" then
+                    typeText = table.concat(typeText, "/")
+                end
+                costText = costText .. component.count .. " " .. typeText .. ", "
+            end
         end
+        
         return costText:sub(1, -3)  -- Remove trailing comma and space
     end
     
