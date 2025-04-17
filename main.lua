@@ -6,6 +6,8 @@ local Wizard = require("wizard")
 local ManaPool = require("manapool")
 local UI = require("ui")
 local VFX = require("vfx")
+local Keywords = require("keywords")
+local SpellCompiler = require("spellCompiler")
 
 -- Game state (globally accessible)
 game = {
@@ -16,7 +18,9 @@ game = {
     gameOver = false,
     winner = nil,
     winScreenTimer = 0,
-    winScreenDuration = 5  -- How long to show the win screen before auto-reset
+    winScreenDuration = 5,  -- How long to show the win screen before auto-reset
+    keywords = Keywords,
+    spellCompiler = SpellCompiler
 }
 
 -- Define token types and images (globally available for consistency)
@@ -463,6 +467,9 @@ function love.keypressed(key)
     elseif key == "f" then
         -- Cast key for Player 1
         game.wizards[1]:castKeyedSpell()
+    elseif key == "g" then
+        -- Free key for Player 1
+        game.wizards[1]:freeAllSpells()
     elseif key == "b" then
         -- Toggle spellbook for Player 1
         UI.toggleSpellbook(1)
@@ -478,6 +485,9 @@ function love.keypressed(key)
     elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
+    elseif key == "h" then
+        -- Free key for Player 2
+        game.wizards[2]:freeAllSpells()
     elseif key == "m" then
         -- Toggle spellbook for Player 2
         UI.toggleSpellbook(2)

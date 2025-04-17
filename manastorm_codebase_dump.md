@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 19:26:28 CDT 2025
+Generated: Thu Apr 17 10:50:57 CDT 2025
 
 # Source Code
 
@@ -687,6 +687,9 @@ function love.keypressed(key)
     elseif key == "f" then
         -- Cast key for Player 1
         game.wizards[1]:castKeyedSpell()
+    elseif key == "g" then
+        -- Free key for Player 1
+        game.wizards[1]:freeAllSpells()
     elseif key == "b" then
         -- Toggle spellbook for Player 1
         UI.toggleSpellbook(1)
@@ -702,6 +705,9 @@ function love.keypressed(key)
     elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
+    elseif key == "h" then
+        -- Free key for Player 2
+        game.wizards[2]:freeAllSpells()
     elseif key == "m" then
         -- Toggle spellbook for Player 2
         UI.toggleSpellbook(2)
@@ -955,6 +961,60 @@ end
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
+    -- Check for destroyed tokens and remove them from the list
+    for i = #self.tokens, 1, -1 do
+        local token = self.tokens[i]
+        if token.state == "DESTROYED" then
+            -- Create an explosion/dissolution visual effect if we haven't already
+            if not token.dissolving then
+                token.dissolving = true
+                token.dissolveTime = 0
+                token.dissolveMaxTime = 0.8  -- Dissolution animation duration
+                token.dissolveScale = token.scale or 1.0
+                token.initialX = token.x
+                token.initialY = token.y
+                
+                -- Create visual particle effects at the token's position
+                if token.exploding ~= true then  -- Prevent duplicate explosion effects
+                    token.exploding = true
+                    
+                    -- Get token color based on its type
+                    local color = {1, 0.6, 0.2, 0.8}  -- Default orange
+                    if token.type == "fire" then
+                        color = {1, 0.3, 0.1, 0.8}
+                    elseif token.type == "force" then
+                        color = {1, 0.9, 0.3, 0.8}
+                    elseif token.type == "moon" then
+                        color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
+                    elseif token.type == "nature" then
+                        color = {0.2, 0.9, 0.1, 0.8}
+                    elseif token.type == "star" then
+                        color = {1, 0.8, 0.2, 0.8}
+                    end
+                    
+                    -- Create destruction visual effect
+                    if token.gameState and token.gameState.vfx then
+                        -- Use game state VFX system if available
+                        token.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.7,
+                            color = color,
+                            particleCount = 15,
+                            radius = 30
+                        })
+                    end
+                end
+            else
+                -- Update dissolution animation
+                token.dissolveTime = token.dissolveTime + dt
+                
+                -- When dissolution is complete, remove the token
+                if token.dissolveTime >= token.dissolveMaxTime then
+                    table.remove(self.tokens, i)
+                end
+            end
+        end
+    end
+    
     -- Update token positions and states
     for _, token in ipairs(self.tokens) do
         -- Update token position based on state
@@ -1337,17 +1397,69 @@ function ManaPool:draw()
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
+        elseif token.state == "DESTROYED" then
+            -- Dissolving tokens fade out
+            if token.dissolving then
+                -- Calculate progress of the dissolve animation
+                local progress = token.dissolveTime / token.dissolveMaxTime
+                
+                -- Fade out by decreasing alpha
+                local alpha = (1 - progress) * 0.8
+                
+                -- Get token color based on its type for the fade effect
+                if token.type == "fire" then
+                    love.graphics.setColor(1, 0.3, 0.1, alpha)
+                elseif token.type == "force" then
+                    love.graphics.setColor(1, 0.9, 0.3, alpha)
+                elseif token.type == "moon" then
+                    love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
+                elseif token.type == "nature" then
+                    love.graphics.setColor(0.2, 0.9, 0.1, alpha)
+                elseif token.type == "star" then
+                    love.graphics.setColor(1, 0.8, 0.2, alpha)
+                else
+                    love.graphics.setColor(1, 1, 1, alpha)
+                end
+            else
+                -- Skip drawing if not dissolving
+                goto continue
+            end
         end
         
         -- Draw the token with dynamic scaling
-        love.graphics.draw(
-            token.image, 
-            token.x, 
-            token.y, 
-            token.rotAngle,  -- Use the rotation angle
-            token.scale, token.scale,  -- Use token-specific scale
-            token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
-        )
+        if token.state == "DESTROYED" and token.dissolving then
+            -- For dissolving tokens, add special effects
+            local progress = token.dissolveTime / token.dissolveMaxTime
+            
+            -- Expand and fade out
+            local scaleFactor = token.dissolveScale * (1 + progress * 0.5)
+            local rotationSpeed = token.rotSpeed or 1.0
+            
+            -- Speed up rotation as it dissolves
+            token.rotAngle = token.rotAngle + rotationSpeed * 5 * progress
+            
+            -- Draw at original position with expanding effect
+            love.graphics.draw(
+                token.image, 
+                token.initialX, 
+                token.initialY, 
+                token.rotAngle,
+                scaleFactor * (1 - progress * 0.7), scaleFactor * (1 - progress * 0.7),
+                token.image:getWidth()/2, token.image:getHeight()/2
+            )
+        else
+            -- Normal tokens
+            love.graphics.draw(
+                token.image, 
+                token.x, 
+                token.y, 
+                token.rotAngle,  -- Use the rotation angle
+                token.scale, token.scale,  -- Use token-specific scale
+                token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
+            )
+        end
+        
+        ::continue::
         
         -- Draw shield effect for shielding tokens
         if token.state == "SHIELDING" then
@@ -1943,11 +2055,38 @@ KeywordSystem.handlers = {
     elevate = function(params, caster, target, results)
         results.setElevation = "AERIAL"
         results.elevationDuration = params.duration or 5.0
+        -- Store the target that should receive this effect
+        results.elevationTarget = params.target or "SELF" -- Default to SELF
+        -- Store the visual effect to use
+        results.elevationVfx = params.vfx or "emberlift"
         return results
     end,
     
     ground = function(params, caster, target, results)
-        results.setElevation = "GROUNDED"
+        -- Check if there's a conditional function
+        if params.conditional and type(params.conditional) == "function" then
+            -- Only apply grounding if the condition is met
+            if params.conditional(caster, target) then
+                results.setElevation = "GROUNDED"
+                -- Store the target that should receive this effect
+                results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+                
+                -- Add visual effect if specified in params
+                if params.vfx and target and caster.gameState and caster.gameState.vfx then
+                    caster.gameState.vfx.createEffect(params.vfx, target.x, target.y, nil, nil)
+                end
+                
+                -- Print debug message indicating grounding
+                if target and target.name and caster and caster.name then
+                    print(target.name .. " was forced to GROUNDED by " .. caster.name .. "'s spell")
+                end
+            end
+        else
+            -- No condition, apply grounding unconditionally
+            results.setElevation = "GROUNDED"
+            results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+        end
+        
         return results
     end,
     
@@ -2985,7 +3124,9 @@ Spells.emberlift = {
     cost = {"fire", "force"},
     keywords = {
         elevate = {
-            duration = 5.0
+            duration = 5.0,
+            target = "SELF",
+            vfx = "emberlift"
         },
         rangeShift = {
             position = "FAR"
@@ -3081,6 +3222,57 @@ Spells.mist = {
     blockableBy = {}  -- Utility spell, can't be blocked
 }
 
+Spells.tidalforce = {
+    id = "tidalforce",
+    name = "Tidal Force",
+    description = "Chip damage, forces AERIAL enemies out of the air",
+    attackType = "remote",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = "moon"
+        },
+        ground = {
+            -- Only apply grounding if the target is AERIAL
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end,
+            target = "ENEMY", -- Explicitly specify the enemy as the target
+            vfx = "tidal_force_ground" -- Specify the visual effect to use
+        }
+    },
+    vfx = "tidal_force",
+    sfx = "tidal_wave",
+    blockableBy = {"ward", "field"}
+}
+
+Spells.lunardisjunction = {
+    id = "lunardisjunction",
+    name = "Lunar Disjunction",
+    description = "Counterspell, cancels an opponent's spell and destroys its mana",
+    attackType = "projectile",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        disjoint = {
+            -- Target the opponent's slot corresponding to the slot this spell was cast from
+            slot = function(caster, target, slot) 
+                return slot 
+            end,
+            target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
+        }
+        -- Note: Destroying the mana used to cast *this* spell (Lunar Disjunction)
+        -- is not handled by standard keywords. 'disjoint' above handles destroying
+        -- the mana of the *target* spell. Self-destruction might require a custom
+        -- handler or engine-level support.
+    },
+    vfx = "lunardisjunction",
+    sfx = "lunardisjunction_sound",
+    blockableBy = {"barrier", "ward"} -- Disjunction is a projectile
+}
+
 Spells.gravity = {
     id = "gravity",
     name = "Gravity Pin",
@@ -3099,7 +3291,13 @@ Spells.gravity = {
             type = "moon",
             conditional = "target.AERIAL"
         },
-        ground = true,  -- Set target to GROUNDED
+        ground = {
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end,
+            target = "ENEMY",
+            vfx = "gravity_pin_ground"
+        },  -- Set target to GROUNDED if AERIAL
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
         }
@@ -3445,6 +3643,30 @@ Spells.cosmicRift = {
     vfx = "cosmic_rift",
     sfx = "space_tear",
     blockableBy = {"barrier", "field"}
+}
+
+-- Create a new spell that launches opponents into the air
+Spells.forceBlast = {
+    id = "forceblast",
+    name = "Force Blast",
+    description = "Unleashes a blast of force that launches opponents into the air",
+    attackType = "remote",
+    castTime = 4.0,
+    cost = {"force", "force"},
+    keywords = {
+        damage = {
+            amount = 8,
+            type = "force"
+        },
+        elevate = {
+            duration = 3.0,         -- Lasts for 3 seconds
+            target = "ENEMY",       -- Targets the opponent
+            vfx = "force_blast_up"  -- Custom VFX for the effect
+        }
+    },
+    vfx = "force_blast",
+    sfx = "force_wind",
+    blockableBy = {"ward", "field"}
 }
 
 -- Movement spell with multiple effects
@@ -3911,11 +4133,11 @@ function UI.drawSpellbookButtons()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    -- Draw Player 1's spellbook (Ashgar - left side)
-    UI.drawPlayerSpellbook(1, 100, screenHeight - 70)
+    -- Draw Player 1's spellbook (Ashgar - pinned to left side)
+    UI.drawPlayerSpellbook(1, 0, screenHeight - 70)
     
-    -- Draw Player 2's spellbook (Selene - right side)
-    UI.drawPlayerSpellbook(2, screenWidth - 300, screenHeight - 70)
+    -- Draw Player 2's spellbook (Selene - pinned to right side)
+    UI.drawPlayerSpellbook(2, screenWidth - 260, screenHeight - 70)
 end
 
 -- Draw an individual player's spellbook component
@@ -4010,11 +4232,14 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local inputLabelWidth = love.graphics.getFont():getWidth(inputLabel)
     love.graphics.print(inputLabel, inputStartX + groupSpacing - inputLabelWidth/2, inputY + runeSize + 8)
     
-    -- GROUP 2: CAST BUTTON
-    -- Positioned farther to the right
-    local castX = x + 150
+    -- GROUP 2: CAST BUTTON & FREE BUTTON
+    -- Calculate positions for both buttons
+    local castX = x + 140
+    local freeX = x + 190
     local castKey = (playerNum == 1) and "F" or "J"
+    local freeKey = (playerNum == 1) and "G" or "H"
     
+    -- CAST BUTTON
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
     love.graphics.rectangle("fill", castX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
@@ -4041,13 +4266,40 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local castLabelWidth = love.graphics.getFont():getWidth(castLabel)
     love.graphics.print(castLabel, castX - castLabelWidth/2, inputY + runeSize + 8)
     
+    -- FREE BUTTON
+    -- Subtle highlighting background
+    love.graphics.setColor(0.1, 0.3, 0.3, 0.3)
+    love.graphics.rectangle("fill", freeX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    
+    -- Draw free button background
+    love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
+    love.graphics.circle("fill", freeX, inputY, runeSize)
+    
+    -- Free button border
+    love.graphics.setColor(0.2, 0.6, 0.8, 0.8)  -- Blue-ish for free button
+    love.graphics.circle("line", freeX, inputY, runeSize)
+    
+    -- Free button symbol
+    local freeTextWidth = love.graphics.getFont():getWidth(freeKey)
+    local freeTextHeight = love.graphics.getFont():getHeight()
+    love.graphics.setColor(0.5, 0.8, 1.0, 0.9)
+    love.graphics.print(freeKey, 
+        freeX - freeTextWidth/2, 
+        inputY - freeTextHeight/2)
+    
+    -- Small "free" label beneath
+    love.graphics.setColor(0.5, 0.7, 0.9, 0.8)
+    local freeLabel = "Free"
+    local freeLabelWidth = love.graphics.getFont():getWidth(freeLabel)
+    love.graphics.print(freeLabel, freeX - freeLabelWidth/2, inputY + runeSize + 8)
+    
     -- GROUP 3: KEYED SPELL POPUP (appears above the spellbook when a spell is keyed)
     if wizard.currentKeyedSpell then
         -- Make the popup exactly match the width of the spellbook
         local popupWidth = width
         local popupHeight = 30
         local popupX = x  -- Align with spellbook
-        local popupY = y - popupHeight - 5  -- Position above the spellbook with small gap
+        local popupY = y - popupHeight - 10  -- Position above the spellbook with slightly larger gap
         
         -- Get spell name and calculate its width for centering
         local spellName = wizard.currentKeyedSpell.name
@@ -4316,11 +4568,11 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     -- Determine position based on player number
     local modalX, modalTitle, keyPrefix
     if playerNum == 1 then
-        modalX = 50
+        modalX = 0  -- Pinned to left edge
         modalTitle = "Ashgar's Spellbook"
         keyPrefix = {"Q", "W", "E", "Q+W", "Q+E", "W+E", "Q+W+E"}
     else
-        modalX = screenWidth - 450
+        modalX = screenWidth - 400  -- Pinned to right edge
         modalTitle = "Selene's Spellbook"
         keyPrefix = {"I", "O", "P", "I+O", "I+P", "O+P", "I+O+P"}
     end
@@ -4345,23 +4597,25 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     
     -- Controls help section at the top of the modal
     love.graphics.setColor(0.2, 0.2, 0.4, 0.8)
-    love.graphics.rectangle("fill", modalX + 10, 90, 380, 80)
+    love.graphics.rectangle("fill", modalX + 10, 90, 380, 100)
     love.graphics.setColor(1, 1, 1, 0.9)
     
     if playerNum == 1 then
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("Q/W/E: Key different spell inputs", modalX + 30, 115)
         love.graphics.print("F: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("G: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 175)
     else
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("I/O/P: Key different spell inputs", modalX + 30, 115)
-        love.graphics.print("L: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("J: Cast the currently keyed spell", modalX + 30, 135)
+        love.graphics.print("H: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 175)
     end
     
     -- Spells section
-    local y = 180
+    local y = 200
     
     -- Single key spells heading
     love.graphics.setColor(1, 1, 0.7, 0.9)
@@ -4459,6 +4713,54 @@ function VFX.init()
             radius = 30,
             sound = nil  -- No default sound
         },
+        
+        -- Tidal Force Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        tidal_force_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            radius = 80,
+            sound = "tidal_wave"
+        },
+        
+        -- Gravity Pin Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        gravity_pin_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            radius = 70,
+            sound = "gravity_slam"
+        },
+        
+        force_blast = {
+            type = "impact",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.5,
+            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            radius = 90,
+            sound = "force_wind"
+        },
+        
+        -- Free Mana - special effect when freeing all spells
+        free_mana = {
+            type = "aura",
+            duration = 1.2,
+            particleCount = 40,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            radius = 100,
+            pulseRate = 4,
+            sound = "release"
+        },
 
         -- Firebolt effect
         firebolt = {
@@ -4510,6 +4812,18 @@ function VFX.init()
             sound = "whoosh"
         },
         
+        -- Force Blast Up effect (for forcing opponents up to AERIAL)
+        force_blast_up = {
+            type = "vertical",
+            duration = 1.5,
+            particleCount = 35,
+            startScale = 0.4,
+            endScale = 0.2,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            height = 120,
+            sound = "force_wind"
+        },
+        
         -- Full Moon Beam effect
         fullmoonbeam = {
             type = "beam",
@@ -4521,6 +4835,44 @@ function VFX.init()
             color = {0.8, 0.8, 1.0, 0.9},
             pulseRate = 3,
             sound = "moonbeam"
+        },
+        
+        -- Tidal Force effect
+        tidal_force = {
+            type = "projectile",
+            duration = 1.2,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            trailLength = 15,
+            impactSize = 1.6,
+            sound = "tidal_wave"
+        },
+        
+        -- Lunar Disjunction effect
+        lunardisjunction = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.3,
+            endScale = 0.6,
+            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            trailLength = 10,
+            impactSize = 1.8,  -- Bigger impact
+            sound = "lunar_disrupt"
+        },
+        
+        -- Disjoint effect (for cancelling opponent's spell)
+        disjoint_cancel = {
+            type = "impact",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            radius = 70,
+            sound = "lunar_disrupt"
         },
         
         -- Conjure Fire effect
@@ -5545,6 +5897,12 @@ function VFX.createSpellEffect(spell, caster, target)
         return VFX.createEffect("emberlift", sourceX, sourceY, nil, nil)
     elseif spellName == "fullmoonbeam" then
         return VFX.createEffect("fullmoonbeam", sourceX, sourceY - 20, targetX, targetY - 20)
+    elseif spellName == "tidalforce" then
+        return VFX.createEffect("tidal_force", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "lunardisjunction" then
+        return VFX.createEffect("lunardisjunction", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "forceblast" then
+        return VFX.createEffect("force_blast", sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
         if spell.spellType == "projectile" then
@@ -5656,7 +6014,7 @@ function Wizard.new(name, x, y, color)
             -- Multi-key combinations
             ["12"] = Spells.tidalforce,     -- Chip damage Remote spell that forces out of AERIAL
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.combust, -- 
+            ["23"] = Spells.lunardisjunction, -- 
             ["123"] = Spells.fullmoonbeam -- Full Moon Beam spell
         }
     end
@@ -6818,6 +7176,65 @@ function Wizard:queueSpell(spell)
     return false
 end
 
+-- Free all active spells and return their mana to the pool
+function Wizard:freeAllSpells()
+    print(self.name .. " is freeing all active spells")
+    
+    -- Iterate through all spell slots
+    for i, slot in ipairs(self.spellSlots) do
+        if slot.active then
+            -- Return tokens to the mana pool
+            if #slot.tokens > 0 then
+                for _, tokenData in ipairs(slot.tokens) do
+                    -- Trigger animation to return token to the mana pool
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                
+                -- Clear token list (tokens still exist in the mana pool)
+                slot.tokens = {}
+            end
+            
+            -- Reset slot properties
+            slot.active = false
+            slot.progress = 0
+            slot.spellType = nil
+            slot.castTime = 0
+            slot.spell = nil
+            
+            -- Reset shield-specific properties if applicable
+            if slot.isShield then
+                slot.isShield = false
+                slot.defenseType = nil
+                slot.blocksAttackTypes = nil
+                slot.shieldStrength = 0
+            end
+            
+            -- Reset any frozen state
+            if slot.frozen then
+                slot.frozen = false
+                slot.freezeTimer = 0
+            end
+            
+            print("Freed spell in slot " .. i)
+        end
+    end
+    
+    -- Create visual effect for all spells being canceled
+    if self.gameState and self.gameState.vfx then
+        self.gameState.vfx.createEffect("free_mana", self.x, self.y, nil, nil)
+    end
+    
+    -- Reset active key inputs
+    for i = 1, 3 do
+        self.activeKeys[i] = false
+    end
+    
+    -- Clear keyed spell
+    self.currentKeyedSpell = nil
+    
+    return true
+end
+
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
@@ -7283,6 +7700,70 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
+    -- Handle disjoint effect (spell cancellation with mana destruction)
+    if effect.disjoint then
+        local targetSlot = effect.targetSlot or 0
+        
+        -- If targetSlot is 0, find the first active slot
+        if targetSlot == 0 then
+            for i, slot in ipairs(target.spellSlots) do
+                if slot.active then
+                    targetSlot = i
+                    break
+                end
+            end
+        end
+        
+        -- Check if the target slot exists and is active
+        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
+            local slot = target.spellSlots[targetSlot]
+            
+            -- Store data for feedback
+            local spellName = slot.spellType or "spell"
+            local tokenCount = #slot.tokens
+            
+            -- Destroy the mana tokens instead of returning them to the pool
+            for _, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                if token then
+                    -- Mark the token as destroyed
+                    token.state = "DESTROYED"
+                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
+                    
+                    -- Create immediate destruction VFX
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.5,
+                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
+                            particleCount = 10,
+                            radius = 20
+                        })
+                    end
+                end
+            end
+            
+            -- Cancel the spell, emptying the slot
+            slot.active = false
+            slot.progress = 0
+            slot.tokens = {}
+            
+            -- Create visual effect at the spell slot position
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = target.y + slotYOffsets[targetSlot]
+                
+                -- Create a visual effect for the disjunction
+                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
+            end
+            
+            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
+                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
+        else
+            print("No active spell found in slot " .. targetSlot .. " to disjoint")
+        end
+    end
+    
     -- Create visual effect based on spell type
     if self.gameState.vfx then
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
@@ -7368,21 +7849,52 @@ function Wizard:castSpell(spellSlot)
         
         -- Apply elevation change if the shield spell includes that effect
         if effect.setElevation then
-            self.elevation = effect.setElevation
+            -- Determine the target for elevation changes based on keyword settings
+            local elevationTarget
+            
+            -- Explicit targeting from keyword resolution
+            if effect.elevationTarget then
+                if effect.elevationTarget == "SELF" then
+                    elevationTarget = self
+                elseif effect.elevationTarget == "ENEMY" then
+                    elevationTarget = target
+                else
+                    -- Default to self if target specification is invalid
+                    elevationTarget = self
+                    print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+                end
+            else
+                -- Legacy behavior if no explicit target (for backward compatibility)
+                elevationTarget = effect.setElevation == "GROUNDED" and target or self
+            end
+            
+            -- Record if this is changing from AERIAL (for VFX)
+            local wasAerial = elevationTarget.elevation == "AERIAL"
+            
+            -- Apply the elevation change
+            elevationTarget.elevation = effect.setElevation
             
             -- Set duration for elevation change if provided
             if effect.elevationDuration and effect.setElevation == "AERIAL" then
-                self.elevationTimer = effect.elevationDuration
-                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+                elevationTarget.elevationTimer = effect.elevationDuration
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
             else
                 -- No duration specified, treat as permanent until changed by another spell
-                self.elevationTimer = 0
-                print(self.name .. " moved to " .. self.elevation .. " elevation")
+                elevationTarget.elevationTimer = 0
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
             end
             
-            -- Create elevation change effect
-            if self.gameState.vfx and effect.setElevation == "AERIAL" then
-                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            -- Create appropriate visual effect for elevation change
+            if self.gameState.vfx then
+                if effect.setElevation == "AERIAL" then
+                    -- Effect for rising into the air (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "emberlift"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+                elseif effect.setElevation == "GROUNDED" and wasAerial then
+                    -- Effect for forcing down to the ground (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "tidal_force_ground"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+                end
             end
         end
         
@@ -7712,21 +8224,52 @@ function Wizard:castSpell(spellSlot)
     end
     
     if effect.setElevation then
-        self.elevation = effect.setElevation
+        -- Determine the target for elevation changes based on keyword settings
+        local elevationTarget
+        
+        -- Explicit targeting from keyword resolution
+        if effect.elevationTarget then
+            if effect.elevationTarget == "SELF" then
+                elevationTarget = self
+            elseif effect.elevationTarget == "ENEMY" then
+                elevationTarget = target
+            else
+                -- Default to self if target specification is invalid
+                elevationTarget = self
+                print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+            end
+        else
+            -- Legacy behavior if no explicit target (for backward compatibility)
+            elevationTarget = effect.setElevation == "GROUNDED" and target or self
+        end
+        
+        -- Record if this is changing from AERIAL (for VFX)
+        local wasAerial = elevationTarget.elevation == "AERIAL"
+        
+        -- Apply the elevation change
+        elevationTarget.elevation = effect.setElevation
         
         -- Set duration for elevation change if provided
         if effect.elevationDuration and effect.setElevation == "AERIAL" then
-            self.elevationTimer = effect.elevationDuration
-            print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            elevationTarget.elevationTimer = effect.elevationDuration
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
         else
             -- No duration specified, treat as permanent until changed by another spell
-            self.elevationTimer = 0
-            print(self.name .. " moved to " .. self.elevation .. " elevation")
+            elevationTarget.elevationTimer = 0
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
         end
         
-        -- Create elevation change effect
-        if self.gameState.vfx and effect.setElevation == "AERIAL" then
-            self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+        -- Create appropriate visual effect for elevation change
+        if self.gameState.vfx then
+            if effect.setElevation == "AERIAL" then
+                -- Effect for rising into the air (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "emberlift"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+            elseif effect.setElevation == "GROUNDED" and wasAerial then
+                -- Effect for forcing down to the ground (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "tidal_force_ground"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+            end
         end
     end
     
@@ -8129,7 +8672,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 19:26:28 CDT 2025
+Generated: Thu Apr 17 10:50:57 CDT 2025
 
 # Source Code
 
@@ -8817,6 +9360,9 @@ function love.keypressed(key)
     elseif key == "f" then
         -- Cast key for Player 1
         game.wizards[1]:castKeyedSpell()
+    elseif key == "g" then
+        -- Free key for Player 1
+        game.wizards[1]:freeAllSpells()
     elseif key == "b" then
         -- Toggle spellbook for Player 1
         UI.toggleSpellbook(1)
@@ -8832,6 +9378,9 @@ function love.keypressed(key)
     elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
+    elseif key == "h" then
+        -- Free key for Player 2
+        game.wizards[2]:freeAllSpells()
     elseif key == "m" then
         -- Toggle spellbook for Player 2
         UI.toggleSpellbook(2)
@@ -9085,6 +9634,60 @@ end
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
+    -- Check for destroyed tokens and remove them from the list
+    for i = #self.tokens, 1, -1 do
+        local token = self.tokens[i]
+        if token.state == "DESTROYED" then
+            -- Create an explosion/dissolution visual effect if we haven't already
+            if not token.dissolving then
+                token.dissolving = true
+                token.dissolveTime = 0
+                token.dissolveMaxTime = 0.8  -- Dissolution animation duration
+                token.dissolveScale = token.scale or 1.0
+                token.initialX = token.x
+                token.initialY = token.y
+                
+                -- Create visual particle effects at the token's position
+                if token.exploding ~= true then  -- Prevent duplicate explosion effects
+                    token.exploding = true
+                    
+                    -- Get token color based on its type
+                    local color = {1, 0.6, 0.2, 0.8}  -- Default orange
+                    if token.type == "fire" then
+                        color = {1, 0.3, 0.1, 0.8}
+                    elseif token.type == "force" then
+                        color = {1, 0.9, 0.3, 0.8}
+                    elseif token.type == "moon" then
+                        color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
+                    elseif token.type == "nature" then
+                        color = {0.2, 0.9, 0.1, 0.8}
+                    elseif token.type == "star" then
+                        color = {1, 0.8, 0.2, 0.8}
+                    end
+                    
+                    -- Create destruction visual effect
+                    if token.gameState and token.gameState.vfx then
+                        -- Use game state VFX system if available
+                        token.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.7,
+                            color = color,
+                            particleCount = 15,
+                            radius = 30
+                        })
+                    end
+                end
+            else
+                -- Update dissolution animation
+                token.dissolveTime = token.dissolveTime + dt
+                
+                -- When dissolution is complete, remove the token
+                if token.dissolveTime >= token.dissolveMaxTime then
+                    table.remove(self.tokens, i)
+                end
+            end
+        end
+    end
+    
     -- Update token positions and states
     for _, token in ipairs(self.tokens) do
         -- Update token position based on state
@@ -9467,17 +10070,69 @@ function ManaPool:draw()
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
+        elseif token.state == "DESTROYED" then
+            -- Dissolving tokens fade out
+            if token.dissolving then
+                -- Calculate progress of the dissolve animation
+                local progress = token.dissolveTime / token.dissolveMaxTime
+                
+                -- Fade out by decreasing alpha
+                local alpha = (1 - progress) * 0.8
+                
+                -- Get token color based on its type for the fade effect
+                if token.type == "fire" then
+                    love.graphics.setColor(1, 0.3, 0.1, alpha)
+                elseif token.type == "force" then
+                    love.graphics.setColor(1, 0.9, 0.3, alpha)
+                elseif token.type == "moon" then
+                    love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
+                elseif token.type == "nature" then
+                    love.graphics.setColor(0.2, 0.9, 0.1, alpha)
+                elseif token.type == "star" then
+                    love.graphics.setColor(1, 0.8, 0.2, alpha)
+                else
+                    love.graphics.setColor(1, 1, 1, alpha)
+                end
+            else
+                -- Skip drawing if not dissolving
+                goto continue
+            end
         end
         
         -- Draw the token with dynamic scaling
-        love.graphics.draw(
-            token.image, 
-            token.x, 
-            token.y, 
-            token.rotAngle,  -- Use the rotation angle
-            token.scale, token.scale,  -- Use token-specific scale
-            token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
-        )
+        if token.state == "DESTROYED" and token.dissolving then
+            -- For dissolving tokens, add special effects
+            local progress = token.dissolveTime / token.dissolveMaxTime
+            
+            -- Expand and fade out
+            local scaleFactor = token.dissolveScale * (1 + progress * 0.5)
+            local rotationSpeed = token.rotSpeed or 1.0
+            
+            -- Speed up rotation as it dissolves
+            token.rotAngle = token.rotAngle + rotationSpeed * 5 * progress
+            
+            -- Draw at original position with expanding effect
+            love.graphics.draw(
+                token.image, 
+                token.initialX, 
+                token.initialY, 
+                token.rotAngle,
+                scaleFactor * (1 - progress * 0.7), scaleFactor * (1 - progress * 0.7),
+                token.image:getWidth()/2, token.image:getHeight()/2
+            )
+        else
+            -- Normal tokens
+            love.graphics.draw(
+                token.image, 
+                token.x, 
+                token.y, 
+                token.rotAngle,  -- Use the rotation angle
+                token.scale, token.scale,  -- Use token-specific scale
+                token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
+            )
+        end
+        
+        ::continue::
         
         -- Draw shield effect for shielding tokens
         if token.state == "SHIELDING" then
@@ -10073,11 +10728,38 @@ KeywordSystem.handlers = {
     elevate = function(params, caster, target, results)
         results.setElevation = "AERIAL"
         results.elevationDuration = params.duration or 5.0
+        -- Store the target that should receive this effect
+        results.elevationTarget = params.target or "SELF" -- Default to SELF
+        -- Store the visual effect to use
+        results.elevationVfx = params.vfx or "emberlift"
         return results
     end,
     
     ground = function(params, caster, target, results)
-        results.setElevation = "GROUNDED"
+        -- Check if there's a conditional function
+        if params.conditional and type(params.conditional) == "function" then
+            -- Only apply grounding if the condition is met
+            if params.conditional(caster, target) then
+                results.setElevation = "GROUNDED"
+                -- Store the target that should receive this effect
+                results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+                
+                -- Add visual effect if specified in params
+                if params.vfx and target and caster.gameState and caster.gameState.vfx then
+                    caster.gameState.vfx.createEffect(params.vfx, target.x, target.y, nil, nil)
+                end
+                
+                -- Print debug message indicating grounding
+                if target and target.name and caster and caster.name then
+                    print(target.name .. " was forced to GROUNDED by " .. caster.name .. "'s spell")
+                end
+            end
+        else
+            -- No condition, apply grounding unconditionally
+            results.setElevation = "GROUNDED"
+            results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+        end
+        
         return results
     end,
     
@@ -11115,7 +11797,9 @@ Spells.emberlift = {
     cost = {"fire", "force"},
     keywords = {
         elevate = {
-            duration = 5.0
+            duration = 5.0,
+            target = "SELF",
+            vfx = "emberlift"
         },
         rangeShift = {
             position = "FAR"
@@ -11211,6 +11895,57 @@ Spells.mist = {
     blockableBy = {}  -- Utility spell, can't be blocked
 }
 
+Spells.tidalforce = {
+    id = "tidalforce",
+    name = "Tidal Force",
+    description = "Chip damage, forces AERIAL enemies out of the air",
+    attackType = "remote",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = "moon"
+        },
+        ground = {
+            -- Only apply grounding if the target is AERIAL
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end,
+            target = "ENEMY", -- Explicitly specify the enemy as the target
+            vfx = "tidal_force_ground" -- Specify the visual effect to use
+        }
+    },
+    vfx = "tidal_force",
+    sfx = "tidal_wave",
+    blockableBy = {"ward", "field"}
+}
+
+Spells.lunardisjunction = {
+    id = "lunardisjunction",
+    name = "Lunar Disjunction",
+    description = "Counterspell, cancels an opponent's spell and destroys its mana",
+    attackType = "projectile",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        disjoint = {
+            -- Target the opponent's slot corresponding to the slot this spell was cast from
+            slot = function(caster, target, slot) 
+                return slot 
+            end,
+            target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
+        }
+        -- Note: Destroying the mana used to cast *this* spell (Lunar Disjunction)
+        -- is not handled by standard keywords. 'disjoint' above handles destroying
+        -- the mana of the *target* spell. Self-destruction might require a custom
+        -- handler or engine-level support.
+    },
+    vfx = "lunardisjunction",
+    sfx = "lunardisjunction_sound",
+    blockableBy = {"barrier", "ward"} -- Disjunction is a projectile
+}
+
 Spells.gravity = {
     id = "gravity",
     name = "Gravity Pin",
@@ -11229,7 +11964,13 @@ Spells.gravity = {
             type = "moon",
             conditional = "target.AERIAL"
         },
-        ground = true,  -- Set target to GROUNDED
+        ground = {
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end,
+            target = "ENEMY",
+            vfx = "gravity_pin_ground"
+        },  -- Set target to GROUNDED if AERIAL
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
         }
@@ -11575,6 +12316,30 @@ Spells.cosmicRift = {
     vfx = "cosmic_rift",
     sfx = "space_tear",
     blockableBy = {"barrier", "field"}
+}
+
+-- Create a new spell that launches opponents into the air
+Spells.forceBlast = {
+    id = "forceblast",
+    name = "Force Blast",
+    description = "Unleashes a blast of force that launches opponents into the air",
+    attackType = "remote",
+    castTime = 4.0,
+    cost = {"force", "force"},
+    keywords = {
+        damage = {
+            amount = 8,
+            type = "force"
+        },
+        elevate = {
+            duration = 3.0,         -- Lasts for 3 seconds
+            target = "ENEMY",       -- Targets the opponent
+            vfx = "force_blast_up"  -- Custom VFX for the effect
+        }
+    },
+    vfx = "force_blast",
+    sfx = "force_wind",
+    blockableBy = {"ward", "field"}
 }
 
 -- Movement spell with multiple effects
@@ -12041,11 +12806,11 @@ function UI.drawSpellbookButtons()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    -- Draw Player 1's spellbook (Ashgar - left side)
-    UI.drawPlayerSpellbook(1, 100, screenHeight - 70)
+    -- Draw Player 1's spellbook (Ashgar - pinned to left side)
+    UI.drawPlayerSpellbook(1, 0, screenHeight - 70)
     
-    -- Draw Player 2's spellbook (Selene - right side)
-    UI.drawPlayerSpellbook(2, screenWidth - 300, screenHeight - 70)
+    -- Draw Player 2's spellbook (Selene - pinned to right side)
+    UI.drawPlayerSpellbook(2, screenWidth - 260, screenHeight - 70)
 end
 
 -- Draw an individual player's spellbook component
@@ -12140,11 +12905,14 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local inputLabelWidth = love.graphics.getFont():getWidth(inputLabel)
     love.graphics.print(inputLabel, inputStartX + groupSpacing - inputLabelWidth/2, inputY + runeSize + 8)
     
-    -- GROUP 2: CAST BUTTON
-    -- Positioned farther to the right
-    local castX = x + 150
+    -- GROUP 2: CAST BUTTON & FREE BUTTON
+    -- Calculate positions for both buttons
+    local castX = x + 140
+    local freeX = x + 190
     local castKey = (playerNum == 1) and "F" or "J"
+    local freeKey = (playerNum == 1) and "G" or "H"
     
+    -- CAST BUTTON
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
     love.graphics.rectangle("fill", castX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
@@ -12171,13 +12939,40 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local castLabelWidth = love.graphics.getFont():getWidth(castLabel)
     love.graphics.print(castLabel, castX - castLabelWidth/2, inputY + runeSize + 8)
     
+    -- FREE BUTTON
+    -- Subtle highlighting background
+    love.graphics.setColor(0.1, 0.3, 0.3, 0.3)
+    love.graphics.rectangle("fill", freeX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    
+    -- Draw free button background
+    love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
+    love.graphics.circle("fill", freeX, inputY, runeSize)
+    
+    -- Free button border
+    love.graphics.setColor(0.2, 0.6, 0.8, 0.8)  -- Blue-ish for free button
+    love.graphics.circle("line", freeX, inputY, runeSize)
+    
+    -- Free button symbol
+    local freeTextWidth = love.graphics.getFont():getWidth(freeKey)
+    local freeTextHeight = love.graphics.getFont():getHeight()
+    love.graphics.setColor(0.5, 0.8, 1.0, 0.9)
+    love.graphics.print(freeKey, 
+        freeX - freeTextWidth/2, 
+        inputY - freeTextHeight/2)
+    
+    -- Small "free" label beneath
+    love.graphics.setColor(0.5, 0.7, 0.9, 0.8)
+    local freeLabel = "Free"
+    local freeLabelWidth = love.graphics.getFont():getWidth(freeLabel)
+    love.graphics.print(freeLabel, freeX - freeLabelWidth/2, inputY + runeSize + 8)
+    
     -- GROUP 3: KEYED SPELL POPUP (appears above the spellbook when a spell is keyed)
     if wizard.currentKeyedSpell then
         -- Make the popup exactly match the width of the spellbook
         local popupWidth = width
         local popupHeight = 30
         local popupX = x  -- Align with spellbook
-        local popupY = y - popupHeight - 5  -- Position above the spellbook with small gap
+        local popupY = y - popupHeight - 10  -- Position above the spellbook with slightly larger gap
         
         -- Get spell name and calculate its width for centering
         local spellName = wizard.currentKeyedSpell.name
@@ -12446,11 +13241,11 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     -- Determine position based on player number
     local modalX, modalTitle, keyPrefix
     if playerNum == 1 then
-        modalX = 50
+        modalX = 0  -- Pinned to left edge
         modalTitle = "Ashgar's Spellbook"
         keyPrefix = {"Q", "W", "E", "Q+W", "Q+E", "W+E", "Q+W+E"}
     else
-        modalX = screenWidth - 450
+        modalX = screenWidth - 400  -- Pinned to right edge
         modalTitle = "Selene's Spellbook"
         keyPrefix = {"I", "O", "P", "I+O", "I+P", "O+P", "I+O+P"}
     end
@@ -12475,23 +13270,25 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     
     -- Controls help section at the top of the modal
     love.graphics.setColor(0.2, 0.2, 0.4, 0.8)
-    love.graphics.rectangle("fill", modalX + 10, 90, 380, 80)
+    love.graphics.rectangle("fill", modalX + 10, 90, 380, 100)
     love.graphics.setColor(1, 1, 1, 0.9)
     
     if playerNum == 1 then
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("Q/W/E: Key different spell inputs", modalX + 30, 115)
         love.graphics.print("F: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("G: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 175)
     else
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("I/O/P: Key different spell inputs", modalX + 30, 115)
-        love.graphics.print("L: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("J: Cast the currently keyed spell", modalX + 30, 135)
+        love.graphics.print("H: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 175)
     end
     
     -- Spells section
-    local y = 180
+    local y = 200
     
     -- Single key spells heading
     love.graphics.setColor(1, 1, 0.7, 0.9)
@@ -12589,6 +13386,54 @@ function VFX.init()
             radius = 30,
             sound = nil  -- No default sound
         },
+        
+        -- Tidal Force Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        tidal_force_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            radius = 80,
+            sound = "tidal_wave"
+        },
+        
+        -- Gravity Pin Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        gravity_pin_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            radius = 70,
+            sound = "gravity_slam"
+        },
+        
+        force_blast = {
+            type = "impact",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.5,
+            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            radius = 90,
+            sound = "force_wind"
+        },
+        
+        -- Free Mana - special effect when freeing all spells
+        free_mana = {
+            type = "aura",
+            duration = 1.2,
+            particleCount = 40,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            radius = 100,
+            pulseRate = 4,
+            sound = "release"
+        },
 
         -- Firebolt effect
         firebolt = {
@@ -12640,6 +13485,18 @@ function VFX.init()
             sound = "whoosh"
         },
         
+        -- Force Blast Up effect (for forcing opponents up to AERIAL)
+        force_blast_up = {
+            type = "vertical",
+            duration = 1.5,
+            particleCount = 35,
+            startScale = 0.4,
+            endScale = 0.2,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            height = 120,
+            sound = "force_wind"
+        },
+        
         -- Full Moon Beam effect
         fullmoonbeam = {
             type = "beam",
@@ -12651,6 +13508,44 @@ function VFX.init()
             color = {0.8, 0.8, 1.0, 0.9},
             pulseRate = 3,
             sound = "moonbeam"
+        },
+        
+        -- Tidal Force effect
+        tidal_force = {
+            type = "projectile",
+            duration = 1.2,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            trailLength = 15,
+            impactSize = 1.6,
+            sound = "tidal_wave"
+        },
+        
+        -- Lunar Disjunction effect
+        lunardisjunction = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.3,
+            endScale = 0.6,
+            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            trailLength = 10,
+            impactSize = 1.8,  -- Bigger impact
+            sound = "lunar_disrupt"
+        },
+        
+        -- Disjoint effect (for cancelling opponent's spell)
+        disjoint_cancel = {
+            type = "impact",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            radius = 70,
+            sound = "lunar_disrupt"
         },
         
         -- Conjure Fire effect
@@ -13675,6 +14570,12 @@ function VFX.createSpellEffect(spell, caster, target)
         return VFX.createEffect("emberlift", sourceX, sourceY, nil, nil)
     elseif spellName == "fullmoonbeam" then
         return VFX.createEffect("fullmoonbeam", sourceX, sourceY - 20, targetX, targetY - 20)
+    elseif spellName == "tidalforce" then
+        return VFX.createEffect("tidal_force", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "lunardisjunction" then
+        return VFX.createEffect("lunardisjunction", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "forceblast" then
+        return VFX.createEffect("force_blast", sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
         if spell.spellType == "projectile" then
@@ -13786,7 +14687,7 @@ function Wizard.new(name, x, y, color)
             -- Multi-key combinations
             ["12"] = Spells.tidalforce,     -- Chip damage Remote spell that forces out of AERIAL
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.combust, -- 
+            ["23"] = Spells.lunardisjunction, -- 
             ["123"] = Spells.fullmoonbeam -- Full Moon Beam spell
         }
     end
@@ -14948,6 +15849,65 @@ function Wizard:queueSpell(spell)
     return false
 end
 
+-- Free all active spells and return their mana to the pool
+function Wizard:freeAllSpells()
+    print(self.name .. " is freeing all active spells")
+    
+    -- Iterate through all spell slots
+    for i, slot in ipairs(self.spellSlots) do
+        if slot.active then
+            -- Return tokens to the mana pool
+            if #slot.tokens > 0 then
+                for _, tokenData in ipairs(slot.tokens) do
+                    -- Trigger animation to return token to the mana pool
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                
+                -- Clear token list (tokens still exist in the mana pool)
+                slot.tokens = {}
+            end
+            
+            -- Reset slot properties
+            slot.active = false
+            slot.progress = 0
+            slot.spellType = nil
+            slot.castTime = 0
+            slot.spell = nil
+            
+            -- Reset shield-specific properties if applicable
+            if slot.isShield then
+                slot.isShield = false
+                slot.defenseType = nil
+                slot.blocksAttackTypes = nil
+                slot.shieldStrength = 0
+            end
+            
+            -- Reset any frozen state
+            if slot.frozen then
+                slot.frozen = false
+                slot.freezeTimer = 0
+            end
+            
+            print("Freed spell in slot " .. i)
+        end
+    end
+    
+    -- Create visual effect for all spells being canceled
+    if self.gameState and self.gameState.vfx then
+        self.gameState.vfx.createEffect("free_mana", self.x, self.y, nil, nil)
+    end
+    
+    -- Reset active key inputs
+    for i = 1, 3 do
+        self.activeKeys[i] = false
+    end
+    
+    -- Clear keyed spell
+    self.currentKeyedSpell = nil
+    
+    return true
+end
+
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
@@ -15413,6 +16373,70 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
+    -- Handle disjoint effect (spell cancellation with mana destruction)
+    if effect.disjoint then
+        local targetSlot = effect.targetSlot or 0
+        
+        -- If targetSlot is 0, find the first active slot
+        if targetSlot == 0 then
+            for i, slot in ipairs(target.spellSlots) do
+                if slot.active then
+                    targetSlot = i
+                    break
+                end
+            end
+        end
+        
+        -- Check if the target slot exists and is active
+        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
+            local slot = target.spellSlots[targetSlot]
+            
+            -- Store data for feedback
+            local spellName = slot.spellType or "spell"
+            local tokenCount = #slot.tokens
+            
+            -- Destroy the mana tokens instead of returning them to the pool
+            for _, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                if token then
+                    -- Mark the token as destroyed
+                    token.state = "DESTROYED"
+                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
+                    
+                    -- Create immediate destruction VFX
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.5,
+                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
+                            particleCount = 10,
+                            radius = 20
+                        })
+                    end
+                end
+            end
+            
+            -- Cancel the spell, emptying the slot
+            slot.active = false
+            slot.progress = 0
+            slot.tokens = {}
+            
+            -- Create visual effect at the spell slot position
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = target.y + slotYOffsets[targetSlot]
+                
+                -- Create a visual effect for the disjunction
+                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
+            end
+            
+            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
+                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
+        else
+            print("No active spell found in slot " .. targetSlot .. " to disjoint")
+        end
+    end
+    
     -- Create visual effect based on spell type
     if self.gameState.vfx then
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
@@ -15498,21 +16522,52 @@ function Wizard:castSpell(spellSlot)
         
         -- Apply elevation change if the shield spell includes that effect
         if effect.setElevation then
-            self.elevation = effect.setElevation
+            -- Determine the target for elevation changes based on keyword settings
+            local elevationTarget
+            
+            -- Explicit targeting from keyword resolution
+            if effect.elevationTarget then
+                if effect.elevationTarget == "SELF" then
+                    elevationTarget = self
+                elseif effect.elevationTarget == "ENEMY" then
+                    elevationTarget = target
+                else
+                    -- Default to self if target specification is invalid
+                    elevationTarget = self
+                    print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+                end
+            else
+                -- Legacy behavior if no explicit target (for backward compatibility)
+                elevationTarget = effect.setElevation == "GROUNDED" and target or self
+            end
+            
+            -- Record if this is changing from AERIAL (for VFX)
+            local wasAerial = elevationTarget.elevation == "AERIAL"
+            
+            -- Apply the elevation change
+            elevationTarget.elevation = effect.setElevation
             
             -- Set duration for elevation change if provided
             if effect.elevationDuration and effect.setElevation == "AERIAL" then
-                self.elevationTimer = effect.elevationDuration
-                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+                elevationTarget.elevationTimer = effect.elevationDuration
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
             else
                 -- No duration specified, treat as permanent until changed by another spell
-                self.elevationTimer = 0
-                print(self.name .. " moved to " .. self.elevation .. " elevation")
+                elevationTarget.elevationTimer = 0
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
             end
             
-            -- Create elevation change effect
-            if self.gameState.vfx and effect.setElevation == "AERIAL" then
-                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            -- Create appropriate visual effect for elevation change
+            if self.gameState.vfx then
+                if effect.setElevation == "AERIAL" then
+                    -- Effect for rising into the air (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "emberlift"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+                elseif effect.setElevation == "GROUNDED" and wasAerial then
+                    -- Effect for forcing down to the ground (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "tidal_force_ground"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+                end
             end
         end
         
@@ -15842,21 +16897,52 @@ function Wizard:castSpell(spellSlot)
     end
     
     if effect.setElevation then
-        self.elevation = effect.setElevation
+        -- Determine the target for elevation changes based on keyword settings
+        local elevationTarget
+        
+        -- Explicit targeting from keyword resolution
+        if effect.elevationTarget then
+            if effect.elevationTarget == "SELF" then
+                elevationTarget = self
+            elseif effect.elevationTarget == "ENEMY" then
+                elevationTarget = target
+            else
+                -- Default to self if target specification is invalid
+                elevationTarget = self
+                print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+            end
+        else
+            -- Legacy behavior if no explicit target (for backward compatibility)
+            elevationTarget = effect.setElevation == "GROUNDED" and target or self
+        end
+        
+        -- Record if this is changing from AERIAL (for VFX)
+        local wasAerial = elevationTarget.elevation == "AERIAL"
+        
+        -- Apply the elevation change
+        elevationTarget.elevation = effect.setElevation
         
         -- Set duration for elevation change if provided
         if effect.elevationDuration and effect.setElevation == "AERIAL" then
-            self.elevationTimer = effect.elevationDuration
-            print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            elevationTarget.elevationTimer = effect.elevationDuration
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
         else
             -- No duration specified, treat as permanent until changed by another spell
-            self.elevationTimer = 0
-            print(self.name .. " moved to " .. self.elevation .. " elevation")
+            elevationTarget.elevationTimer = 0
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
         end
         
-        -- Create elevation change effect
-        if self.gameState.vfx and effect.setElevation == "AERIAL" then
-            self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+        -- Create appropriate visual effect for elevation change
+        if self.gameState.vfx then
+            if effect.setElevation == "AERIAL" then
+                -- Effect for rising into the air (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "emberlift"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+            elseif effect.setElevation == "GROUNDED" and wasAerial then
+                -- Effect for forcing down to the ground (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "tidal_force_ground"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
+            end
         end
     end
     

@@ -326,6 +326,10 @@ KeywordSystem.handlers = {
     elevate = function(params, caster, target, results)
         results.setElevation = "AERIAL"
         results.elevationDuration = params.duration or 5.0
+        -- Store the target that should receive this effect
+        results.elevationTarget = params.target or "SELF" -- Default to SELF
+        -- Store the visual effect to use
+        results.elevationVfx = params.vfx or "emberlift"
         return results
     end,
     
@@ -335,10 +339,12 @@ KeywordSystem.handlers = {
             -- Only apply grounding if the condition is met
             if params.conditional(caster, target) then
                 results.setElevation = "GROUNDED"
+                -- Store the target that should receive this effect
+                results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
                 
-                -- Add visual effect if specified
-                if target and caster.gameState and caster.gameState.vfx then
-                    caster.gameState.vfx.createEffect("tidal_force_ground", target.x, target.y, nil, nil)
+                -- Add visual effect if specified in params
+                if params.vfx and target and caster.gameState and caster.gameState.vfx then
+                    caster.gameState.vfx.createEffect(params.vfx, target.x, target.y, nil, nil)
                 end
                 
                 -- Print debug message indicating grounding
@@ -349,6 +355,7 @@ KeywordSystem.handlers = {
         else
             -- No condition, apply grounding unconditionally
             results.setElevation = "GROUNDED"
+            results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
         end
         
         return results
@@ -1388,7 +1395,9 @@ Spells.emberlift = {
     cost = {"fire", "force"},
     keywords = {
         elevate = {
-            duration = 5.0
+            duration = 5.0,
+            target = "SELF",
+            vfx = "emberlift"
         },
         rangeShift = {
             position = "FAR"
@@ -1500,7 +1509,9 @@ Spells.tidalforce = {
             -- Only apply grounding if the target is AERIAL
             conditional = function(caster, target)
                 return target and target.elevation == "AERIAL"
-            end
+            end,
+            target = "ENEMY", -- Explicitly specify the enemy as the target
+            vfx = "tidal_force_ground" -- Specify the visual effect to use
         }
     },
     vfx = "tidal_force",
@@ -1520,8 +1531,8 @@ Spells.lunardisjunction = {
             -- Target the opponent's slot corresponding to the slot this spell was cast from
             slot = function(caster, target, slot) 
                 return slot 
-            end
-            -- Note: Default target for 'disjoint' is SLOT_ENEMY, which is correct.
+            end,
+            target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
         }
         -- Note: Destroying the mana used to cast *this* spell (Lunar Disjunction)
         -- is not handled by standard keywords. 'disjoint' above handles destroying
@@ -1554,7 +1565,9 @@ Spells.gravity = {
         ground = {
             conditional = function(caster, target)
                 return target and target.elevation == "AERIAL"
-            end
+            end,
+            target = "ENEMY",
+            vfx = "gravity_pin_ground"
         },  -- Set target to GROUNDED if AERIAL
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
@@ -1901,6 +1914,30 @@ Spells.cosmicRift = {
     vfx = "cosmic_rift",
     sfx = "space_tear",
     blockableBy = {"barrier", "field"}
+}
+
+-- Create a new spell that launches opponents into the air
+Spells.forceBlast = {
+    id = "forceblast",
+    name = "Force Blast",
+    description = "Unleashes a blast of force that launches opponents into the air",
+    attackType = "remote",
+    castTime = 4.0,
+    cost = {"force", "force"},
+    keywords = {
+        damage = {
+            amount = 8,
+            type = "force"
+        },
+        elevate = {
+            duration = 3.0,         -- Lasts for 3 seconds
+            target = "ENEMY",       -- Targets the opponent
+            vfx = "force_blast_up"  -- Custom VFX for the effect
+        }
+    },
+    vfx = "force_blast",
+    sfx = "force_wind",
+    blockableBy = {"ward", "field"}
 }
 
 -- Movement spell with multiple effects

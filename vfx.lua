@@ -51,6 +51,42 @@ function VFX.init()
             radius = 80,
             sound = "tidal_wave"
         },
+        
+        -- Gravity Pin Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        gravity_pin_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            radius = 70,
+            sound = "gravity_slam"
+        },
+        
+        force_blast = {
+            type = "impact",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.5,
+            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            radius = 90,
+            sound = "force_wind"
+        },
+        
+        -- Free Mana - special effect when freeing all spells
+        free_mana = {
+            type = "aura",
+            duration = 1.2,
+            particleCount = 40,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            radius = 100,
+            pulseRate = 4,
+            sound = "release"
+        },
 
         -- Firebolt effect
         firebolt = {
@@ -102,6 +138,18 @@ function VFX.init()
             sound = "whoosh"
         },
         
+        -- Force Blast Up effect (for forcing opponents up to AERIAL)
+        force_blast_up = {
+            type = "vertical",
+            duration = 1.5,
+            particleCount = 35,
+            startScale = 0.4,
+            endScale = 0.2,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            height = 120,
+            sound = "force_wind"
+        },
+        
         -- Full Moon Beam effect
         fullmoonbeam = {
             type = "beam",
@@ -137,7 +185,19 @@ function VFX.init()
             endScale = 0.6,
             color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
             trailLength = 10,
-            impactSize = 1.5,
+            impactSize = 1.8,  -- Bigger impact
+            sound = "lunar_disrupt"
+        },
+        
+        -- Disjoint effect (for cancelling opponent's spell)
+        disjoint_cancel = {
+            type = "impact",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.6,
+            endScale = 1.0,
+            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            radius = 70,
             sound = "lunar_disrupt"
         },
         
@@ -1167,6 +1227,8 @@ function VFX.createSpellEffect(spell, caster, target)
         return VFX.createEffect("tidal_force", sourceX, sourceY - 15, targetX, targetY - 15)
     elseif spellName == "lunardisjunction" then
         return VFX.createEffect("lunardisjunction", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "forceblast" then
+        return VFX.createEffect("force_blast", sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
         if spell.spellType == "projectile" then

@@ -51,11 +51,11 @@ function UI.drawSpellbookButtons()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
-    -- Draw Player 1's spellbook (Ashgar - left side)
-    UI.drawPlayerSpellbook(1, 100, screenHeight - 70)
+    -- Draw Player 1's spellbook (Ashgar - pinned to left side)
+    UI.drawPlayerSpellbook(1, 0, screenHeight - 70)
     
-    -- Draw Player 2's spellbook (Selene - right side)
-    UI.drawPlayerSpellbook(2, screenWidth - 300, screenHeight - 70)
+    -- Draw Player 2's spellbook (Selene - pinned to right side)
+    UI.drawPlayerSpellbook(2, screenWidth - 260, screenHeight - 70)
 end
 
 -- Draw an individual player's spellbook component
@@ -150,11 +150,14 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local inputLabelWidth = love.graphics.getFont():getWidth(inputLabel)
     love.graphics.print(inputLabel, inputStartX + groupSpacing - inputLabelWidth/2, inputY + runeSize + 8)
     
-    -- GROUP 2: CAST BUTTON
-    -- Positioned farther to the right
-    local castX = x + 150
+    -- GROUP 2: CAST BUTTON & FREE BUTTON
+    -- Calculate positions for both buttons
+    local castX = x + 140
+    local freeX = x + 190
     local castKey = (playerNum == 1) and "F" or "J"
+    local freeKey = (playerNum == 1) and "G" or "H"
     
+    -- CAST BUTTON
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
     love.graphics.rectangle("fill", castX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
@@ -181,13 +184,40 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     local castLabelWidth = love.graphics.getFont():getWidth(castLabel)
     love.graphics.print(castLabel, castX - castLabelWidth/2, inputY + runeSize + 8)
     
+    -- FREE BUTTON
+    -- Subtle highlighting background
+    love.graphics.setColor(0.1, 0.3, 0.3, 0.3)
+    love.graphics.rectangle("fill", freeX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    
+    -- Draw free button background
+    love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
+    love.graphics.circle("fill", freeX, inputY, runeSize)
+    
+    -- Free button border
+    love.graphics.setColor(0.2, 0.6, 0.8, 0.8)  -- Blue-ish for free button
+    love.graphics.circle("line", freeX, inputY, runeSize)
+    
+    -- Free button symbol
+    local freeTextWidth = love.graphics.getFont():getWidth(freeKey)
+    local freeTextHeight = love.graphics.getFont():getHeight()
+    love.graphics.setColor(0.5, 0.8, 1.0, 0.9)
+    love.graphics.print(freeKey, 
+        freeX - freeTextWidth/2, 
+        inputY - freeTextHeight/2)
+    
+    -- Small "free" label beneath
+    love.graphics.setColor(0.5, 0.7, 0.9, 0.8)
+    local freeLabel = "Free"
+    local freeLabelWidth = love.graphics.getFont():getWidth(freeLabel)
+    love.graphics.print(freeLabel, freeX - freeLabelWidth/2, inputY + runeSize + 8)
+    
     -- GROUP 3: KEYED SPELL POPUP (appears above the spellbook when a spell is keyed)
     if wizard.currentKeyedSpell then
         -- Make the popup exactly match the width of the spellbook
         local popupWidth = width
         local popupHeight = 30
         local popupX = x  -- Align with spellbook
-        local popupY = y - popupHeight - 5  -- Position above the spellbook with small gap
+        local popupY = y - popupHeight - 10  -- Position above the spellbook with slightly larger gap
         
         -- Get spell name and calculate its width for centering
         local spellName = wizard.currentKeyedSpell.name
@@ -456,11 +486,11 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     -- Determine position based on player number
     local modalX, modalTitle, keyPrefix
     if playerNum == 1 then
-        modalX = 50
+        modalX = 0  -- Pinned to left edge
         modalTitle = "Ashgar's Spellbook"
         keyPrefix = {"Q", "W", "E", "Q+W", "Q+E", "W+E", "Q+W+E"}
     else
-        modalX = screenWidth - 450
+        modalX = screenWidth - 400  -- Pinned to right edge
         modalTitle = "Selene's Spellbook"
         keyPrefix = {"I", "O", "P", "I+O", "I+P", "O+P", "I+O+P"}
     end
@@ -485,23 +515,25 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     
     -- Controls help section at the top of the modal
     love.graphics.setColor(0.2, 0.2, 0.4, 0.8)
-    love.graphics.rectangle("fill", modalX + 10, 90, 380, 80)
+    love.graphics.rectangle("fill", modalX + 10, 90, 380, 100)
     love.graphics.setColor(1, 1, 1, 0.9)
     
     if playerNum == 1 then
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("Q/W/E: Key different spell inputs", modalX + 30, 115)
         love.graphics.print("F: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("G: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 175)
     else
         love.graphics.print("Controls:", modalX + 20, 95)
         love.graphics.print("I/O/P: Key different spell inputs", modalX + 30, 115)
-        love.graphics.print("L: Cast the currently keyed spell", modalX + 30, 135)
-        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 155)
+        love.graphics.print("J: Cast the currently keyed spell", modalX + 30, 135)
+        love.graphics.print("H: Free all active spells and return mana", modalX + 30, 155)
+        love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 175)
     end
     
     -- Spells section
-    local y = 180
+    local y = 200
     
     -- Single key spells heading
     love.graphics.setColor(1, 1, 0.7, 0.9)

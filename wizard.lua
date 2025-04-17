@@ -1241,6 +1241,65 @@ function Wizard:queueSpell(spell)
     return false
 end
 
+-- Free all active spells and return their mana to the pool
+function Wizard:freeAllSpells()
+    print(self.name .. " is freeing all active spells")
+    
+    -- Iterate through all spell slots
+    for i, slot in ipairs(self.spellSlots) do
+        if slot.active then
+            -- Return tokens to the mana pool
+            if #slot.tokens > 0 then
+                for _, tokenData in ipairs(slot.tokens) do
+                    -- Trigger animation to return token to the mana pool
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                
+                -- Clear token list (tokens still exist in the mana pool)
+                slot.tokens = {}
+            end
+            
+            -- Reset slot properties
+            slot.active = false
+            slot.progress = 0
+            slot.spellType = nil
+            slot.castTime = 0
+            slot.spell = nil
+            
+            -- Reset shield-specific properties if applicable
+            if slot.isShield then
+                slot.isShield = false
+                slot.defenseType = nil
+                slot.blocksAttackTypes = nil
+                slot.shieldStrength = 0
+            end
+            
+            -- Reset any frozen state
+            if slot.frozen then
+                slot.frozen = false
+                slot.freezeTimer = 0
+            end
+            
+            print("Freed spell in slot " .. i)
+        end
+    end
+    
+    -- Create visual effect for all spells being canceled
+    if self.gameState and self.gameState.vfx then
+        self.gameState.vfx.createEffect("free_mana", self.x, self.y, nil, nil)
+    end
+    
+    -- Reset active key inputs
+    for i = 1, 3 do
+        self.activeKeys[i] = false
+    end
+    
+    -- Clear keyed spell
+    self.currentKeyedSpell = nil
+    
+    return true
+end
+
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
@@ -1706,6 +1765,70 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
+    -- Handle disjoint effect (spell cancellation with mana destruction)
+    if effect.disjoint then
+        local targetSlot = effect.targetSlot or 0
+        
+        -- If targetSlot is 0, find the first active slot
+        if targetSlot == 0 then
+            for i, slot in ipairs(target.spellSlots) do
+                if slot.active then
+                    targetSlot = i
+                    break
+                end
+            end
+        end
+        
+        -- Check if the target slot exists and is active
+        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
+            local slot = target.spellSlots[targetSlot]
+            
+            -- Store data for feedback
+            local spellName = slot.spellType or "spell"
+            local tokenCount = #slot.tokens
+            
+            -- Destroy the mana tokens instead of returning them to the pool
+            for _, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                if token then
+                    -- Mark the token as destroyed
+                    token.state = "DESTROYED"
+                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
+                    
+                    -- Create immediate destruction VFX
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.5,
+                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
+                            particleCount = 10,
+                            radius = 20
+                        })
+                    end
+                end
+            end
+            
+            -- Cancel the spell, emptying the slot
+            slot.active = false
+            slot.progress = 0
+            slot.tokens = {}
+            
+            -- Create visual effect at the spell slot position
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = target.y + slotYOffsets[targetSlot]
+                
+                -- Create a visual effect for the disjunction
+                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
+            end
+            
+            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
+                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
+        else
+            print("No active spell found in slot " .. targetSlot .. " to disjoint")
+        end
+    end
+    
     -- Create visual effect based on spell type
     if self.gameState.vfx then
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
@@ -1791,9 +1914,26 @@ function Wizard:castSpell(spellSlot)
         
         -- Apply elevation change if the shield spell includes that effect
         if effect.setElevation then
-            -- Determine the target for elevation changes
-            -- The 'ground' keyword targets the opponent, while 'elevate' targets self
-            local elevationTarget = effect.setElevation == "GROUNDED" and target or self
+            -- Determine the target for elevation changes based on keyword settings
+            local elevationTarget
+            
+            -- Explicit targeting from keyword resolution
+            if effect.elevationTarget then
+                if effect.elevationTarget == "SELF" then
+                    elevationTarget = self
+                elseif effect.elevationTarget == "ENEMY" then
+                    elevationTarget = target
+                else
+                    -- Default to self if target specification is invalid
+                    elevationTarget = self
+                    print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+                end
+            else
+                -- Legacy behavior if no explicit target (for backward compatibility)
+                elevationTarget = effect.setElevation == "GROUNDED" and target or self
+            end
+            
+            -- Record if this is changing from AERIAL (for VFX)
             local wasAerial = elevationTarget.elevation == "AERIAL"
             
             -- Apply the elevation change
@@ -1812,11 +1952,13 @@ function Wizard:castSpell(spellSlot)
             -- Create appropriate visual effect for elevation change
             if self.gameState.vfx then
                 if effect.setElevation == "AERIAL" then
-                    -- Effect for rising into the air
-                    self.gameState.vfx.createEffect("emberlift", elevationTarget.x, elevationTarget.y, nil, nil)
+                    -- Effect for rising into the air (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "emberlift"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
                 elseif effect.setElevation == "GROUNDED" and wasAerial then
-                    -- Effect for forcing opponent down to the ground
-                    self.gameState.vfx.createEffect("tidal_force_ground", elevationTarget.x, elevationTarget.y, nil, nil)
+                    -- Effect for forcing down to the ground (use specified VFX or default)
+                    local vfxName = effect.elevationVfx or "tidal_force_ground"
+                    self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
                 end
             end
         end
@@ -2147,9 +2289,26 @@ function Wizard:castSpell(spellSlot)
     end
     
     if effect.setElevation then
-        -- Determine the target for elevation changes
-        -- The 'ground' keyword targets the opponent, while 'elevate' targets self
-        local elevationTarget = effect.setElevation == "GROUNDED" and target or self
+        -- Determine the target for elevation changes based on keyword settings
+        local elevationTarget
+        
+        -- Explicit targeting from keyword resolution
+        if effect.elevationTarget then
+            if effect.elevationTarget == "SELF" then
+                elevationTarget = self
+            elseif effect.elevationTarget == "ENEMY" then
+                elevationTarget = target
+            else
+                -- Default to self if target specification is invalid
+                elevationTarget = self
+                print("Warning: Unknown elevation target type: " .. tostring(effect.elevationTarget))
+            end
+        else
+            -- Legacy behavior if no explicit target (for backward compatibility)
+            elevationTarget = effect.setElevation == "GROUNDED" and target or self
+        end
+        
+        -- Record if this is changing from AERIAL (for VFX)
         local wasAerial = elevationTarget.elevation == "AERIAL"
         
         -- Apply the elevation change
@@ -2168,11 +2327,13 @@ function Wizard:castSpell(spellSlot)
         -- Create appropriate visual effect for elevation change
         if self.gameState.vfx then
             if effect.setElevation == "AERIAL" then
-                -- Effect for rising into the air
-                self.gameState.vfx.createEffect("emberlift", elevationTarget.x, elevationTarget.y, nil, nil)
+                -- Effect for rising into the air (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "emberlift"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
             elseif effect.setElevation == "GROUNDED" and wasAerial then
-                -- Effect for forcing opponent down to the ground
-                self.gameState.vfx.createEffect("tidal_force_ground", elevationTarget.x, elevationTarget.y, nil, nil)
+                -- Effect for forcing down to the ground (use specified VFX or default)
+                local vfxName = effect.elevationVfx or "tidal_force_ground"
+                self.gameState.vfx.createEffect(vfxName, elevationTarget.x, elevationTarget.y, nil, nil)
             end
         end
     end

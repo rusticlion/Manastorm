@@ -113,6 +113,60 @@ end
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
+    -- Check for destroyed tokens and remove them from the list
+    for i = #self.tokens, 1, -1 do
+        local token = self.tokens[i]
+        if token.state == "DESTROYED" then
+            -- Create an explosion/dissolution visual effect if we haven't already
+            if not token.dissolving then
+                token.dissolving = true
+                token.dissolveTime = 0
+                token.dissolveMaxTime = 0.8  -- Dissolution animation duration
+                token.dissolveScale = token.scale or 1.0
+                token.initialX = token.x
+                token.initialY = token.y
+                
+                -- Create visual particle effects at the token's position
+                if token.exploding ~= true then  -- Prevent duplicate explosion effects
+                    token.exploding = true
+                    
+                    -- Get token color based on its type
+                    local color = {1, 0.6, 0.2, 0.8}  -- Default orange
+                    if token.type == "fire" then
+                        color = {1, 0.3, 0.1, 0.8}
+                    elseif token.type == "force" then
+                        color = {1, 0.9, 0.3, 0.8}
+                    elseif token.type == "moon" then
+                        color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
+                    elseif token.type == "nature" then
+                        color = {0.2, 0.9, 0.1, 0.8}
+                    elseif token.type == "star" then
+                        color = {1, 0.8, 0.2, 0.8}
+                    end
+                    
+                    -- Create destruction visual effect
+                    if token.gameState and token.gameState.vfx then
+                        -- Use game state VFX system if available
+                        token.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
+                            duration = 0.7,
+                            color = color,
+                            particleCount = 15,
+                            radius = 30
+                        })
+                    end
+                end
+            else
+                -- Update dissolution animation
+                token.dissolveTime = token.dissolveTime + dt
+                
+                -- When dissolution is complete, remove the token
+                if token.dissolveTime >= token.dissolveMaxTime then
+                    table.remove(self.tokens, i)
+                end
+            end
+        end
+    end
+    
     -- Update token positions and states
     for _, token in ipairs(self.tokens) do
         -- Update token position based on state
@@ -495,17 +549,69 @@ function ManaPool:draw()
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
+        elseif token.state == "DESTROYED" then
+            -- Dissolving tokens fade out
+            if token.dissolving then
+                -- Calculate progress of the dissolve animation
+                local progress = token.dissolveTime / token.dissolveMaxTime
+                
+                -- Fade out by decreasing alpha
+                local alpha = (1 - progress) * 0.8
+                
+                -- Get token color based on its type for the fade effect
+                if token.type == "fire" then
+                    love.graphics.setColor(1, 0.3, 0.1, alpha)
+                elseif token.type == "force" then
+                    love.graphics.setColor(1, 0.9, 0.3, alpha)
+                elseif token.type == "moon" then
+                    love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
+                elseif token.type == "nature" then
+                    love.graphics.setColor(0.2, 0.9, 0.1, alpha)
+                elseif token.type == "star" then
+                    love.graphics.setColor(1, 0.8, 0.2, alpha)
+                else
+                    love.graphics.setColor(1, 1, 1, alpha)
+                end
+            else
+                -- Skip drawing if not dissolving
+                goto continue
+            end
         end
         
         -- Draw the token with dynamic scaling
-        love.graphics.draw(
-            token.image, 
-            token.x, 
-            token.y, 
-            token.rotAngle,  -- Use the rotation angle
-            token.scale, token.scale,  -- Use token-specific scale
-            token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
-        )
+        if token.state == "DESTROYED" and token.dissolving then
+            -- For dissolving tokens, add special effects
+            local progress = token.dissolveTime / token.dissolveMaxTime
+            
+            -- Expand and fade out
+            local scaleFactor = token.dissolveScale * (1 + progress * 0.5)
+            local rotationSpeed = token.rotSpeed or 1.0
+            
+            -- Speed up rotation as it dissolves
+            token.rotAngle = token.rotAngle + rotationSpeed * 5 * progress
+            
+            -- Draw at original position with expanding effect
+            love.graphics.draw(
+                token.image, 
+                token.initialX, 
+                token.initialY, 
+                token.rotAngle,
+                scaleFactor * (1 - progress * 0.7), scaleFactor * (1 - progress * 0.7),
+                token.image:getWidth()/2, token.image:getHeight()/2
+            )
+        else
+            -- Normal tokens
+            love.graphics.draw(
+                token.image, 
+                token.x, 
+                token.y, 
+                token.rotAngle,  -- Use the rotation angle
+                token.scale, token.scale,  -- Use token-specific scale
+                token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
+            )
+        end
+        
+        ::continue::
         
         -- Draw shield effect for shielding tokens
         if token.state == "SHIELDING" then
