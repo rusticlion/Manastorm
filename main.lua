@@ -8,6 +8,14 @@ local UI = require("ui")
 local VFX = require("vfx")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
+local SpellsModule = require("spells")
+
+-- Resolution settings
+local baseWidth = 800    -- Base design resolution width
+local baseHeight = 600   -- Base design resolution height
+local scale = 1          -- Current scaling factor
+local offsetX = 0        -- Horizontal offset for pillarboxing
+local offsetY = 0        -- Vertical offset for letterboxing
 
 -- Game state (globally accessible)
 game = {
@@ -20,7 +28,13 @@ game = {
     winScreenTimer = 0,
     winScreenDuration = 5,  -- How long to show the win screen before auto-reset
     keywords = Keywords,
-    spellCompiler = SpellCompiler
+    spellCompiler = SpellCompiler,
+    -- Resolution properties
+    baseWidth = baseWidth,
+    baseHeight = baseHeight,
+    scale = scale,
+    offsetX = offsetX,
+    offsetY = offsetY
 }
 
 -- Define token types and images (globally available for consistency)
@@ -40,10 +54,52 @@ function game.addRandomToken()
     return randomType
 end
 
+-- Calculate the appropriate scaling for the current window size
+function calculateScaling()
+    local windowWidth, windowHeight = love.graphics.getDimensions()
+    
+    -- Calculate possible scales (use integer scaling for pixel art crispness)
+    local scaleX = math.floor(windowWidth / baseWidth)
+    local scaleY = math.floor(windowHeight / baseHeight)
+    
+    -- Use the smaller scale to fit the screen
+    scale = math.max(1, math.min(scaleX, scaleY))
+    
+    -- Calculate offsets for centering (letterbox/pillarbox)
+    offsetX = math.floor((windowWidth - baseWidth * scale) / 2)
+    offsetY = math.floor((windowHeight - baseHeight * scale) / 2)
+    
+    -- Update global references
+    game.scale = scale
+    game.offsetX = offsetX
+    game.offsetY = offsetY
+    
+    print("Window resized: " .. windowWidth .. "x" .. windowHeight .. " (scale: " .. scale .. ")")
+end
+
+-- Handle window resize events
+function love.resize(width, height)
+    calculateScaling()
+end
+
+-- Set up pixel art-friendly scaling
+function configurePixelArtRendering()
+    -- Disable texture filtering for crisp pixel art
+    love.graphics.setDefaultFilter("nearest", "nearest", 1)
+    
+    -- Use integer scaling when possible
+    love.graphics.setLineStyle("rough")
+end
+
 function love.load()
     -- Set up window
     love.window.setTitle("Manastorm - Wizard Duel")
-    love.window.setMode(800, 600)
+    
+    -- Configure pixel art rendering
+    configurePixelArtRendering()
+    
+    -- Calculate initial scaling
+    calculateScaling()
     
     -- Use system font for now
     game.font = love.graphics.newFont(16)  -- Default system font
@@ -52,9 +108,7 @@ function love.load()
     love.graphics.setFont(game.font)
     
     -- Create mana pool positioned above the battlefield, but below health bars
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
-    game.manaPool = ManaPool.new(screenWidth/2, 120)  -- Positioned between health bars and wizards
+    game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
     game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
@@ -68,6 +122,29 @@ function love.load()
     
     -- Initialize VFX system
     game.vfx = VFX.init()
+    
+    -- Precompile all spells for better performance
+    print("Precompiling all spells...")
+    
+    -- Create a compiledSpells table and do the compilation ourselves
+    game.compiledSpells = {}
+    
+    -- Get all spells from the SpellsModule
+    local allSpells = SpellsModule.spells
+    
+    -- Compile each spell
+    for id, spell in pairs(allSpells) do
+        game.compiledSpells[id] = game.spellCompiler.compileSpell(spell, game.keywords)
+        print("Compiled spell: " .. spell.name)
+    end
+    
+    -- Count compiled spells
+    local count = 0
+    for _ in pairs(game.compiledSpells) do
+        count = count + 1
+    end
+    
+    print("Precompiled " .. count .. " spells")
     
     -- Create custom shield spells just for hotkeys
     -- These are complete, independent spell definitions
@@ -114,6 +191,12 @@ function love.load()
         sfx = "crystal_ring",
         blockableBy = {}
     }
+    
+    -- Compile custom spells too
+    for id, spell in pairs(game.customSpells) do
+        game.compiledSpells[id] = game.spellCompiler.compileSpell(spell, game.keywords)
+        print("Compiled custom spell: " .. spell.name)
+    end
     
     -- Initialize mana pool with a single random token to start
     local tokenType = game.addRandomToken()
@@ -175,7 +258,37 @@ function resetGame()
     -- Clear mana pool and add a single token to start
     game.manaPool:clear()
     local tokenType = game.addRandomToken()
+    
+    -- Reset health display animation state
+    for i = 1, 2 do
+        local display = UI.healthDisplay["player" .. i]
+        display.currentHealth = 100
+        display.targetHealth = 100
+        display.pendingDamage = 0
+        display.lastDamageTime = 0
+    end
+    
     print("Game reset! Starting with a single " .. tokenType .. " token")
+end
+
+-- Handle keybindings for window size adjustments
+function love.keypressed(key, scancode, isrepeat)
+    -- Scale adjustments
+    if love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then
+        if key == "1" then
+            love.window.setMode(baseWidth, baseHeight)
+            calculateScaling()
+        elseif key == "2" then
+            love.window.setMode(baseWidth * 2, baseHeight * 2)
+            calculateScaling()
+        elseif key == "3" then
+            love.window.setMode(baseWidth * 3, baseHeight * 3)
+            calculateScaling()
+        elseif key == "f" then
+            love.window.setFullscreen(not love.window.getFullscreen())
+            calculateScaling()
+        end
+    end
 end
 
 function love.update(dt)
@@ -242,11 +355,24 @@ function love.update(dt)
     
     -- Update VFX system
     game.vfx.update(dt)
+    
+    -- Update animated health displays
+    UI.updateHealthDisplays(dt, game.wizards)
 end
 
 function love.draw()
-    -- Clear screen
-    love.graphics.clear(20/255, 20/255, 40/255)
+    -- Clear entire screen to black first (for letterboxing/pillarboxing)
+    love.graphics.clear(0, 0, 0, 1)
+    
+    -- Setup scaling transform
+    love.graphics.push()
+    love.graphics.translate(offsetX, offsetY)
+    love.graphics.scale(scale, scale)
+    
+    -- Clear game area with game background color
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+    love.graphics.setColor(1, 1, 1, 1) -- Reset color
     
     -- Draw range state indicator (NEAR/FAR)
     drawRangeIndicator()
@@ -281,17 +407,62 @@ function love.draw()
         UI.drawHelpText(game.font)
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+        
+        -- Show scaling info in debug mode
+        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 30)
     else
         -- Always show a small hint about the debug key
         love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
-        love.graphics.print("Press ` for debug controls", 10, love.graphics.getHeight() - 20)
+        love.graphics.print("Press ` for debug controls", 10, baseHeight - 20)
     end
+    
+    -- End scaling transform
+    love.graphics.pop()
+    
+    -- Draw letterbox/pillarbox borders if needed
+    if offsetX > 0 or offsetY > 0 then
+        love.graphics.setColor(0, 0, 0)
+        -- Top letterbox
+        if offsetY > 0 then
+            love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), offsetY)
+            love.graphics.rectangle("fill", 0, love.graphics.getHeight() - offsetY, love.graphics.getWidth(), offsetY)
+        end
+        -- Left/right pillarbox
+        if offsetX > 0 then
+            love.graphics.rectangle("fill", 0, 0, offsetX, love.graphics.getHeight())
+            love.graphics.rectangle("fill", love.graphics.getWidth() - offsetX, 0, offsetX, love.graphics.getHeight())
+        end
+    end
+end
+
+-- Helper function to convert real screen coordinates to virtual (scaled) coordinates
+function screenToGameCoords(x, y)
+    if not x or not y then return nil, nil end
+    
+    -- Adjust for offset and scale
+    local virtualX = (x - offsetX) / scale
+    local virtualY = (y - offsetY) / scale
+    
+    -- Check if the point is outside the game area
+    if virtualX < 0 or virtualX > baseWidth or virtualY < 0 or virtualY > baseHeight then
+        return nil, nil  -- Out of bounds
+    end
+    
+    return virtualX, virtualY
+end
+
+-- Override love.mouse.getPosition for seamless integration
+local original_getPosition = love.mouse.getPosition
+love.mouse.getPosition = function()
+    local rx, ry = original_getPosition()
+    local vx, vy = screenToGameCoords(rx, ry)
+    return vx or 0, vy or 0
 end
 
 -- Draw the win screen
 function drawWinScreen()
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
     local winner = game.wizards[game.winner]
     
     -- Fade in effect

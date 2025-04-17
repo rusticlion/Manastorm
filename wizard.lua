@@ -7,6 +7,221 @@ Wizard.__index = Wizard
 local SpellsModule = require("spells")
 local Spells = SpellsModule.spells  -- For backwards compatibility
 
+-- We'll use game.compiledSpells instead of a local compiled spells table
+
+-- Create a shield function to replace the one from SpellsModule.keywordSystem
+local function createShield(wizard, spellSlot, blockParams)
+    -- Check that the slot is valid
+    if not wizard.spellSlots[spellSlot] then
+        print("[SHIELD ERROR] Invalid spell slot for shield creation: " .. tostring(spellSlot))
+        return { shieldCreated = false }
+    end
+    
+    local slot = wizard.spellSlots[spellSlot]
+    
+    -- Set shield parameters - simplified to use token count as the only source of truth
+    slot.isShield = true
+    slot.defenseType = blockParams.type or "barrier"
+    
+    -- Store the original spell completion
+    slot.active = true
+    slot.progress = slot.castTime -- Mark as fully cast
+    
+    -- Set which attack types this shield blocks
+    slot.blocksAttackTypes = {}
+    local blockTypes = blockParams.blocks or {"projectile"}
+    for _, attackType in ipairs(blockTypes) do
+        slot.blocksAttackTypes[attackType] = true
+    end
+    
+    -- Also store as array for compatibility
+    slot.blockTypes = blockTypes
+    
+    -- ALL shields are mana-linked (consume tokens when hit) - simplified model
+    
+    -- Set reflection capability
+    slot.reflect = blockParams.reflect or false
+    
+    -- No longer tracking shield strength separately - token count is the source of truth
+    
+    -- Slow down token orbiting speed for shield tokens if they exist
+    for _, tokenData in ipairs(slot.tokens) do
+        local token = tokenData.token
+        if token then
+            -- Set token to "SHIELDING" state
+            token.state = "SHIELDING"
+            -- Add specific shield type info to the token for visual effects
+            token.shieldType = slot.defenseType
+            -- Slow down the rotation speed for shield tokens
+            if token.orbitSpeed then
+                token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
+            end
+        end
+    end
+    
+    -- Shield visual effect color based on type
+    local shieldColor = {0.8, 0.8, 0.8}  -- Default gray
+    if slot.defenseType == "barrier" then
+        shieldColor = {1.0, 1.0, 0.3}    -- Yellow for barriers
+    elseif slot.defenseType == "ward" then
+        shieldColor = {0.3, 0.3, 1.0}    -- Blue for wards
+    elseif slot.defenseType == "field" then
+        shieldColor = {0.3, 1.0, 0.3}    -- Green for fields
+    end
+    
+    -- Create shield effect using VFX system if available
+    if wizard.gameState and wizard.gameState.vfx then
+        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+            duration = 1.0,
+            color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
+            shieldType = slot.defenseType
+        })
+    end
+    
+    -- Print debug info - simplified to only show token count
+    print(string.format("[SHIELD] %s created a %s shield in slot %d with %d tokens",
+        wizard.name or "Unknown wizard",
+        slot.defenseType,
+        spellSlot,
+        #slot.tokens))
+    
+    -- Return result for further processing - simplified for token-based shields only
+    return {
+        shieldCreated = true,
+        defenseType = slot.defenseType,
+        blockTypes = blockParams.blocks
+    }
+end
+
+-- Function to check if a spell can be blocked by a shield
+local function checkShieldBlock(spell, attackType, defender, attacker)
+    -- Default response - not blockable
+    local result = {
+        blockable = false,
+        blockType = nil,
+        blockingShield = nil,
+        blockingSlot = nil,
+        manaLinked = nil,
+        processBlockEffect = false
+    }
+    
+    -- Early exit cases
+    if not defender or not spell or not attackType then
+        print("[SHIELD DEBUG] checkShieldBlock early exit - missing parameter")
+        return result
+    end
+    
+    -- Utility spells can't be blocked
+    if attackType == "utility" then
+        print("[SHIELD DEBUG] checkShieldBlock early exit - utility spell can't be blocked")
+        return result
+    end
+    
+    print("[SHIELD DEBUG] Checking if " .. attackType .. " spell can be blocked by " .. defender.name .. "'s shields")
+    
+    -- Check each of the defender's spell slots for active shields
+    for i, slot in ipairs(defender.spellSlots) do
+        -- Skip inactive slots or non-shield slots
+        if not slot.active or not slot.isShield then
+            goto continue
+        end
+        
+        -- Check if this shield has tokens remaining (token count is the source of truth for shield strength)
+        if #slot.tokens <= 0 then
+            goto continue
+        end
+        
+        -- Verify this shield can block this attack type
+        local canBlock = false
+        
+        -- Check blocksAttackTypes or blockTypes properties
+        if slot.blocksAttackTypes and slot.blocksAttackTypes[attackType] then
+            canBlock = true
+        elseif slot.blockTypes then
+            -- Iterate through blockTypes array to find a match
+            for _, blockType in ipairs(slot.blockTypes) do
+                if blockType == attackType then
+                    canBlock = true
+                    break
+                end
+            end
+        end
+        
+        -- If we found a shield that can block this attack
+        if canBlock then
+            result.blockable = true
+            result.blockType = slot.defenseType
+            result.blockingShield = slot
+            result.blockingSlot = i
+            -- All shields are mana-linked by default
+            result.manaLinked = true
+            
+            -- Handle mana consumption for the block
+            if #slot.tokens > 0 then
+                result.processBlockEffect = true
+                
+                -- Get amount of hits based on the spell's shield breaker power (if any)
+                local shieldBreakPower = spell.shieldBreaker or 1
+                
+                -- Determine how many tokens to consume (up to shield breaker power or tokens available)
+                local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
+                result.tokensToConsume = tokensToConsume
+                
+                -- No need to track shield strength separately anymore
+                -- Token consumption is handled by removing tokens directly
+                
+                -- Check if this will destroy the shield (when all tokens are consumed)
+                if tokensToConsume >= #slot.tokens then
+                    result.destroyShield = true
+                end
+            end
+            
+            -- Return after finding the first blocking shield
+            return result
+        end
+        
+        ::continue::
+    end
+    
+    -- If we get here, no shield can block this spell
+    return result
+end
+
+-- Get a compiled spell by ID, compile on demand if not already compiled
+local function getCompiledSpell(spellId, wizard)
+    -- Make sure we have a game reference
+    if not wizard or not wizard.gameState then
+        print("Error: No wizard or gameState to get compiled spell")
+        return nil
+    end
+    
+    local gameState = wizard.gameState
+    
+    -- Try to get from game's compiled spells
+    if gameState.compiledSpells and gameState.compiledSpells[spellId] then
+        return gameState.compiledSpells[spellId]
+    end
+    
+    -- If not found, try to compile on demand
+    if Spells[spellId] and gameState.spellCompiler and gameState.keywords then
+        -- Make sure compiledSpells exists
+        if not gameState.compiledSpells then
+            gameState.compiledSpells = {}
+        end
+        
+        -- Compile the spell and store it
+        gameState.compiledSpells[spellId] = gameState.spellCompiler.compileSpell(
+            Spells[spellId], 
+            gameState.keywords
+        )
+        print("Compiled spell on demand: " .. spellId)
+        return gameState.compiledSpells[spellId]
+    else
+        print("Error: Could not compile spell with ID: " .. spellId)
+        return nil
+    end
+end
+
 function Wizard.new(name, x, y, color)
     local self = setmetatable({}, Wizard)
     
@@ -20,9 +235,6 @@ function Wizard.new(name, x, y, color)
     self.elevation = "GROUNDED"  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
-    self.blockers = {            -- Spell blocking effects
-        projectile = 0           -- Projectile block duration
-    }
     
     -- Status effects
     self.statusEffects = {
@@ -204,16 +416,6 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update blocker timers
-    for blockType, duration in pairs(self.blockers) do
-        if duration > 0 then
-            self.blockers[blockType] = math.max(0, duration - dt)
-            if self.blockers[blockType] == 0 then
-                print(self.name .. "'s " .. blockType .. " block has expired")
-            end
-        end
-    end
-    
     -- Update block VFX
     if self.blockVFX.active then
         self.blockVFX.timer = self.blockVFX.timer - dt
@@ -368,10 +570,16 @@ function Wizard:update(dt)
             else
                 -- Normal progress update for unfrozen spells
                 slot.progress = slot.progress + dt
+                
+                -- Shield state is now managed directly in the castSpell function
+                -- and tokens remain as CHANNELED until the shield is activated
             end
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
+                -- Shield state is now handled in the castSpell function via the 
+                -- block keyword's shieldParams and the createShield function
+                
                 -- Cast the spell
                 self:castSpell(i)
                 
@@ -481,16 +689,6 @@ function Wizard:draw()
     
     -- No longer drawing text elevation indicator - using visual representation only
     
-    -- Draw subtle shield aura for projectile blocker (visual only, no timer)
-    if self.blockers.projectile > 0 then
-        local shieldRadius = 60
-        local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 1, 0.15)
-        love.graphics.circle("fill", self.x + xOffset, self.y, shieldRadius + pulseAmount)
-        love.graphics.setColor(0.7, 0.7, 1, 0.2)
-        love.graphics.circle("line", self.x + xOffset, self.y, shieldRadius + pulseAmount)
-    end
-    
     -- Draw status effects with durations using the new horizontal bar system
     self:drawStatusEffects()
     
@@ -511,7 +709,124 @@ function Wizard:draw()
     
     -- Keyed spell display has been moved to the UI spellbook component
     
-    -- Draw spell cast notification (temporary until proper VFX)
+    -- Handle shield block and token consumption
+function Wizard:handleShieldBlock(slotIndex, blockedSpell)
+    -- Get the shield slot
+    local slot = self.spellSlots[slotIndex]
+    
+    -- Check if slot exists and is a valid shield
+    if not slot or not slot.isShield then
+        print("[SHIELD ERROR] Invalid shield slot: " .. tostring(slotIndex))
+        return false
+    end
+    
+    -- Check if shield has tokens
+    if #slot.tokens <= 0 then
+        print("[SHIELD ERROR] Shield has no tokens to consume")
+        return false
+    end
+    
+    -- Determine how many tokens to consume
+    local tokensToConsume = 1 -- Default: consume 1 token per hit
+    
+    -- Shield breaker spells can consume more tokens
+    if blockedSpell.shieldBreaker and blockedSpell.shieldBreaker > 1 then
+        tokensToConsume = math.min(blockedSpell.shieldBreaker, #slot.tokens)
+        print(string.format("[SHIELD BREAKER] Shield breaker consuming up to %d tokens", tokensToConsume))
+    end
+    
+    -- Debug output to track token removal
+    print(string.format("[SHIELD DEBUG] Before token removal: Shield has %d tokens", #slot.tokens))
+    print(string.format("[SHIELD DEBUG] Will remove %d token(s)", tokensToConsume))
+    
+    -- Only consume tokens up to the number we have
+    tokensToConsume = math.min(tokensToConsume, #slot.tokens)
+    
+    -- Return tokens back to the mana pool - ONE AT A TIME
+    for i = 1, tokensToConsume do
+        if #slot.tokens > 0 then
+            -- Get the last token
+            local lastTokenIndex = #slot.tokens
+            local tokenData = slot.tokens[lastTokenIndex]
+            
+            print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
+                tokenData.index, i, tokensToConsume))
+            
+            -- Important: We DO NOT directly set the token state here
+            -- Instead, let the manaPool:returnToken method handle the state transition properly
+            
+            -- First check token state for debugging
+            if tokenData.token then
+                print(string.format("[SHIELD DEBUG] Token %d current state: %s", 
+                    tokenData.index, tokenData.token.state or "unknown"))
+            else
+                print("[SHIELD WARNING] Token has no token data object")
+            end
+            
+            -- Trigger animation to return this token to the mana pool
+            -- The manaPool:returnToken handles all state changes properly
+            if self.manaPool then
+                print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
+                self.manaPool:returnToken(tokenData.index)
+            else
+                print("[SHIELD ERROR] Could not return token - mana pool not found")
+            end
+            
+            -- Remove this token from the slot's token list
+            table.remove(slot.tokens, lastTokenIndex)
+            print(string.format("[SHIELD DEBUG] Token %d removed from shield token list (%d tokens remaining)", 
+                tokenData.index, #slot.tokens))
+        else
+            print("[SHIELD ERROR] Tried to consume token but shield has no more tokens!")
+            break -- Stop trying to consume tokens if there are none left
+        end
+    end
+    
+    print("[SHIELD DEBUG] After token removal: Shield has " .. #slot.tokens .. " tokens left")
+    
+    -- Create token release VFX
+    if self.gameState and self.gameState.vfx then
+        self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+            duration = 0.5,
+            color = {0.8, 0.8, 0.2, 0.7},
+            particleCount = 8,
+            radius = 30
+        })
+    end
+    
+    -- Check if the shield is depleted (no tokens left)
+    if #slot.tokens <= 0 then
+        print(string.format("[SHIELD BREAK] %s's %s shield has been broken!", 
+            self.name, slot.defenseType))
+        
+        -- Reset slot completely to avoid half-broken shield state
+        print("[SHIELD DEBUG] Resetting slot " .. slotIndex .. " to empty state")
+        slot.active = false
+        slot.isShield = false
+        slot.defenseType = nil
+        slot.blocksAttackTypes = nil
+        slot.blockTypes = nil  -- Clear block types array too
+        slot.progress = 0
+        slot.spellType = nil
+        slot.spell = nil  -- Clear spell reference too
+        slot.castTime = 0
+        slot.tokens = {}  -- Ensure it's empty
+        
+        -- Create shield break effect
+        if self.gameState and self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.7,
+                color = {1.0, 0.5, 0.5, 0.8},
+                particleCount = 15,
+                radius = 50
+            })
+        end
+    end
+    
+    return true
+end
+
+-- Draw spell cast notification (temporary until proper VFX)
     if self.spellCastNotification then
         -- Fade out towards the end
         local alpha = math.min(1.0, self.spellCastNotification.timer)
@@ -689,42 +1004,7 @@ function Wizard:drawStatusEffects()
                            x + barWidth/2 - 30, y)
     end
     
-    -- Draw SHIELD duration if active
-    if self.blockers.projectile > 0 then
-        effectCount = effectCount + 1
-        local y = baseY - (effectCount * (barHeight + barPadding))
-        
-        -- Calculate progress
-        local maxDuration = 5.0  -- Assuming 5 seconds is max shield duration
-        local progress = self.blockers.projectile / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
-        -- Background frame for the entire effect
-        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
-        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
-        
-        -- Draw label
-        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 
-                              effectColors.shield[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 3)))
-        love.graphics.print("SHIELD", x - barWidth/2, y - barHeight - 5)
-        
-        -- Draw background bar
-        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
-        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
-        
-        -- Draw progress bar
-        love.graphics.setColor(effectColors.shield)
-        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
-        
-        -- Draw border
-        love.graphics.setColor(effectColors.shield[1], effectColors.shield[2], effectColors.shield[3], 0.5)
-        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
-        
-        -- Draw time text
-        love.graphics.setColor(1, 1, 1, 0.9)
-        love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
-                           x + barWidth/2 - 30, y)
-    end
+    -- Shield display is now handled by the new shield system via shield slots
     
     -- Draw BURN duration if active
     if self.statusEffects.burn.active then
@@ -1143,6 +1423,19 @@ function Wizard:queueSpell(spell)
         return false
     end
     
+    -- Get the compiled spell if available
+    local spellToUse = spell
+    if spell.id and not spell.executeAll then
+        -- This is an original spell definition, not a compiled one - get the compiled version
+        local compiledSpell = getCompiledSpell(spell.id, self)
+        if compiledSpell then
+            spellToUse = compiledSpell
+            print("Using compiled spell for queue: " .. spellToUse.id)
+        else
+            print("Warning: Using original spell definition - could not get compiled version of " .. spell.id)
+        end
+    end
+    
     -- Find the innermost available spell slot
     print("DEBUG: Checking for available spell slots...")
     for i = 1, #self.spellSlots do
@@ -1208,37 +1501,106 @@ function Wizard:queueSpell(spell)
                 -- Successfully paid the cost, queue the spell
                 self.spellSlots[i].active = true
                 self.spellSlots[i].progress = 0
-                self.spellSlots[i].spellType = spell.name
+                self.spellSlots[i].spellType = spellToUse.name
                 
                 -- Use dynamic cast time if available, otherwise use static cast time
-                if spell.getCastTime and type(spell.getCastTime) == "function" then
-                    self.spellSlots[i].castTime = spell.getCastTime(self)
+                if spellToUse.getCastTime and type(spellToUse.getCastTime) == "function" then
+                    self.spellSlots[i].castTime = spellToUse.getCastTime(self)
                     print(self.name .. " is using dynamic cast time: " .. self.spellSlots[i].castTime .. "s")
                 else
-                    self.spellSlots[i].castTime = spell.castTime
+                    self.spellSlots[i].castTime = spellToUse.castTime
                 end
                 
-                self.spellSlots[i].spell = spell
+                self.spellSlots[i].spell = spellToUse
                 self.spellSlots[i].tokens = tokens
                 
-                -- Set attackType if present in the new schema
-                if spell.attackType then
-                    self.spellSlots[i].attackType = spell.attackType
+                -- Check if this is a shield spell and mark it accordingly
+                if spellToUse.isShield or (spellToUse.keywords and spellToUse.keywords.block) then
+                    print("SHIELD SPELL DETECTED during queue: " .. spellToUse.name)
+                    -- Flag that this will become a shield when cast
+                    self.spellSlots[i].willBecomeShield = true
+                    
+                    -- DO NOT mark tokens as SHIELDING yet - let them orbit normally during casting
+                    -- Only mark them as SHIELDING after the spell is fully cast
+                    
+                    -- Mark this in the compiled spell if not already marked
+                    if not spellToUse.isShield then
+                        spellToUse.isShield = true
+                    end
                 end
                 
-                print(self.name .. " queued " .. spell.name .. " in slot " .. i .. " (cast time: " .. spell.castTime .. "s)")
+                -- Set attackType if present in the new schema
+                if spellToUse.attackType then
+                    self.spellSlots[i].attackType = spellToUse.attackType
+                end
+                
+                print(self.name .. " queued " .. spellToUse.name .. " in slot " .. i .. " (cast time: " .. spellToUse.castTime .. "s)")
                 return true
             else
                 -- Couldn't pay the cost
-                print(self.name .. " tried to queue " .. spell.name .. " but couldn't pay the mana cost")
+                print(self.name .. " tried to queue " .. spellToUse.name .. " but couldn't pay the mana cost")
                 return false
             end
         end
     end
     
     -- No available slots
-    print(self.name .. " tried to queue " .. spell.name .. " but all slots are full")
+    print(self.name .. " tried to queue " .. spellToUse.name .. " but all slots are full")
     return false
+end
+
+-- Helper function to create a shield from spell params
+local function createShield(wizard, spellSlot, shieldParams)
+    local slot = wizard.spellSlots[spellSlot]
+    
+    -- Set basic shield properties
+    slot.isShield = true
+    slot.defenseType = shieldParams.defenseType or "barrier"
+    
+    -- Set up blocksAttackTypes if not already set
+    slot.blockTypes = shieldParams.blocksAttackTypes or {"projectile"}
+    slot.blocksAttackTypes = {}
+    for _, attackType in ipairs(slot.blockTypes) do
+        slot.blocksAttackTypes[attackType] = true
+    end
+    
+    -- Handle reflect property
+    slot.reflect = shieldParams.reflect or false
+    
+    -- Mark tokens as SHIELDING
+    for _, tokenData in ipairs(slot.tokens) do
+        if tokenData.token then
+            tokenData.token.state = "SHIELDING"
+            -- Add specific shield type info to the token for visual effects
+            tokenData.token.shieldType = slot.defenseType
+        end
+    end
+    
+    -- Mark the shield as fully cast
+    slot.progress = slot.castTime
+    
+    -- Create shield activated visual effect
+    if wizard.gameState and wizard.gameState.vfx then
+        local shieldColor
+        if slot.defenseType == "barrier" then
+            shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+        elseif slot.defenseType == "ward" then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+        elseif slot.defenseType == "field" then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+        else
+            shieldColor = {0.8, 0.8, 0.8, 0.7}  -- Default gray
+        end
+        
+        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+            duration = 0.7,
+            color = shieldColor,
+            shieldType = slot.defenseType
+        })
+    end
+    
+    print(string.format("[SHIELD] %s activated a %s shield with %d tokens", 
+        wizard.name, slot.defenseType, #slot.tokens))
 end
 
 -- Free all active spells and return their mana to the pool
@@ -1602,19 +1964,132 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect using the enhanced keyword system with targeting
-    local effect = SpellsModule.keywordSystem.castSpell(
-        slot.spell,
-        self,
-        {
-            opponent = target,
-            spellSlot = spellSlot,
-            debug = false  -- Set to true for detailed logging
-        }
-    )
+    -- Get the spell (either compiled or original)
+    local spellToUse = slot.spell
     
-    -- Early exit if the spell was blocked (handled by the resolution process)
+    -- Convert to compiled spell if needed
+    if spellToUse.id and not spellToUse.executeAll then
+        -- This is an original spell, not a compiled one - get the compiled version
+        local compiledSpell = getCompiledSpell(spellToUse.id, self)
+        if compiledSpell then
+            spellToUse = compiledSpell
+            -- Store the compiled spell back in the slot for future use
+            slot.spell = compiledSpell
+            print("Using compiled spell: " .. spellToUse.id)
+        else
+            print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
+        end
+    end
+    
+    -- Get attack type for shield checking
+    local attackType = spellToUse.attackType or "projectile"
+    
+    -- Check if the spell can be blocked by any of the target's shields
+    -- This now happens BEFORE spell execution per ticket PROG-20
+    local blockInfo = checkShieldBlock(spellToUse, attackType, target, self)
+    
+    -- If blockable, handle block effects and exit early
+    if blockInfo.blockable then
+        print(string.format("[SHIELD] %s's %s was blocked by %s's %s shield!", 
+            self.name, spellToUse.name, target.name, blockInfo.blockType or "unknown"))
+        
+        local effect = {
+            blocked = true,
+            blockType = blockInfo.blockType
+        }
+        
+        -- Add VFX for shield block
+        -- Create spell impact effect on the caster to show the spell being blocked
+        if self.gameState.vfx then
+            -- Shield color based on type
+            local shieldColor = {0.8, 0.8, 0.8, 0.7}  -- Default gray
+            if blockInfo.blockType == "barrier" then
+                shieldColor = {1.0, 1.0, 0.3, 0.7}    -- Yellow for barriers
+            elseif blockInfo.blockType == "ward" then
+                shieldColor = {0.3, 0.3, 1.0, 0.7}    -- Blue for wards
+            elseif blockInfo.blockType == "field" then 
+                shieldColor = {0.3, 1.0, 0.3, 0.7}    -- Green for fields
+            end
+            
+            -- Create visual effect on the target to show the block
+            self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                duration = 0.5,
+                color = shieldColor,
+                shieldType = blockInfo.blockType
+            })
+            
+            -- Create spell impact effect on the caster
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.8, 0.2, 0.2, 0.5},
+                particleCount = 5,
+                radius = 15
+            })
+        end
+        
+        -- Use the new centralized handleShieldBlock method to handle token consumption
+        target:handleShieldBlock(blockInfo.blockingSlot, spellToUse)
+        
+        -- Return tokens from our spell slot
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            -- Clear token list
+            slot.tokens = {}
+        end
+        
+        -- Reset our slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
+        -- Skip further execution and return the effect
+        return effect
+    end
+    
+    -- Execute spell behavior using the compiled spell if available
+    local effect = {}
+    if spellToUse.executeAll then
+        -- Use the compiled spell's executeAll method
+        effect = spellToUse.executeAll(self, target, {}, spellSlot)
+        print("Executed compiled spell: " .. spellToUse.name)
+    else
+        -- Fall back to the legacy keyword system for compatibility
+        effect = SpellsModule.keywordSystem.castSpell(
+            slot.spell,
+            self,
+            {
+                opponent = target,
+                spellSlot = spellSlot,
+                debug = false  -- Set to true for detailed logging
+            }
+        )
+        print("Executed spell via legacy system: " .. spellToUse.name)
+    end
+    
+    -- Check if this is a shield spell with shieldParams from the block keyword
+    if effect.shieldParams and effect.shieldParams.createShield then
+        print("[SHIELD] Creating shield from shieldParams")
+        
+        -- Call createShield function with the parameters
+        createShield(self, spellSlot, effect.shieldParams)
+        
+        -- Return early - don't reset the slot or return tokens
+        return
+    end
+    
+    -- Handle block effects from the block keyword within the spell execution
+    -- This covers cases where the block is performed within the spell execution
+    -- rather than by our shield detection system above
     if effect.blocked then
+        -- Our preemptive shield check should have caught this, but
+        -- handle it gracefully anyway for backward compatibility
+        
+        print("Note: Spell was blocked during execution (legacy block logic)")
+        
         local shieldBreakPower = effect.shieldBreakPower or 1
         local shieldDestroyed = effect.shieldDestroyed or false
         
@@ -1769,8 +2244,17 @@ function Wizard:castSpell(spellSlot)
     if effect.disjoint then
         local targetSlot = effect.targetSlot or 0
         
-        -- If targetSlot is 0, find the first active slot
-        if targetSlot == 0 then
+        -- Handle the case where targetSlot is a function (from the compiled spell)
+        if type(targetSlot) == "function" then
+            -- Call the function with proper parameters
+            local slot_func_result = targetSlot(self, target, spellSlot)
+            -- Convert the result to a number (in case it returns a string)
+            targetSlot = tonumber(slot_func_result) or 0
+            print("Disjoint slot function returned: " .. targetSlot)
+        end
+        
+        -- If targetSlot is 0 or invalid, find the first active slot
+        if targetSlot == 0 or type(targetSlot) ~= "number" then
             for i, slot in ipairs(target.spellSlots) do
                 if slot.active then
                     targetSlot = i
@@ -1778,6 +2262,9 @@ function Wizard:castSpell(spellSlot)
                 end
             end
         end
+        
+        -- Ensure targetSlot is a valid number before comparison
+        targetSlot = tonumber(targetSlot) or 0
         
         -- Check if the target slot exists and is active
         if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
@@ -1835,7 +2322,10 @@ function Wizard:castSpell(spellSlot)
     end
     
     -- Check if it's a shield spell that should persist in the spell slot
-    if slot.spell.isShield or effect.isShield then
+    if slot.spell.isShield or effect.isShield or isShieldSpell then
+        -- Mark this as a shield spell (for the end of the function)
+        isShieldSpell = true
+        
         -- Mark the progress as completed
         slot.progress = slot.castTime  -- Mark as fully cast
         
@@ -1895,25 +2385,27 @@ function Wizard:castSpell(spellSlot)
             local blockParams = {
                 type = defenseType,
                 blocks = blocks,
-                manaLinked = manaLinked,
-                reflect = reflect,
-                hitPoints = hitPoints -- Use existing shield strength if specified
+                reflect = reflect
+                -- manaLinked and hitPoints no longer needed - token count is source of truth
             }
             
             print("DEBUG: Shield parameters:")
             print("DEBUG: - Type: " .. defenseType)
-            print("DEBUG: - Mana linked: " .. tostring(manaLinked))
             print("DEBUG: - Reflect: " .. tostring(reflect))
-            if hitPoints then
-                print("DEBUG: - Hit points: " .. hitPoints)
-            end
+            print("DEBUG: - Tokens: " .. #slot.tokens .. " (token count is shield strength)")
             
             -- Call the shield creation function - this centralizes all shield setup logic
-            SpellsModule.keywordSystem.createShield(self, spellSlot, blockParams)
+            createShield(self, spellSlot, blockParams)
         end
         
+        -- Force the isShield flag to be true for any shield spells
+        -- This ensures tokens stay attached to the shield
+        slot.isShield = true
+        
         -- Apply elevation change if the shield spell includes that effect
-        if effect.setElevation then
+        -- This handles both explicit elevation effects and those from the elevate keyword
+        -- For Mist Veil, ensure elevate keyword is properly recognized
+        if effect.setElevation or (effect.elevate and effect.elevate.active) or (slot.spell.keywords and slot.spell.keywords.elevate) then
             -- Determine the target for elevation changes based on keyword settings
             local elevationTarget
             
@@ -1937,12 +2429,30 @@ function Wizard:castSpell(spellSlot)
             local wasAerial = elevationTarget.elevation == "AERIAL"
             
             -- Apply the elevation change
-            elevationTarget.elevation = effect.setElevation
+            local newElevation
+            if effect.setElevation then
+                newElevation = effect.setElevation
+            elseif effect.elevate and effect.elevate.active then
+                newElevation = "AERIAL"
+            else
+                newElevation = "AERIAL" -- Default to AERIAL if we got here without a specific elevation
+            end
+            
+            elevationTarget.elevation = newElevation
             
             -- Set duration for elevation change if provided
-            if effect.elevationDuration and effect.setElevation == "AERIAL" then
-                elevationTarget.elevationTimer = effect.elevationDuration
-                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            local elevationDuration
+            if effect.elevationDuration then
+                elevationDuration = effect.elevationDuration
+            elseif effect.elevate and effect.elevate.duration then
+                elevationDuration = effect.elevate.duration
+            elseif slot.spell.keywords and slot.spell.keywords.elevate and slot.spell.keywords.elevate.duration then
+                elevationDuration = slot.spell.keywords.elevate.duration
+            end
+            
+            if elevationDuration and elevationTarget.elevation == "AERIAL" then
+                elevationTarget.elevationTimer = elevationDuration
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. elevationDuration .. " seconds")
             else
                 -- No duration specified, treat as permanent until changed by another spell
                 elevationTarget.elevationTimer = 0
@@ -1977,12 +2487,29 @@ function Wizard:castSpell(spellSlot)
         local attackType = slot.spell.attackType or slot.attackType
         print("Checking if " .. attackType .. " attack can be blocked by " .. target.name .. "'s shields")
         
+        -- Add detailed shield debugging
+        print("[SHIELD DEBUG] Shield check details:")
+        print("[SHIELD DEBUG] - Spell: " .. (slot.spellType or "Unknown") .. " (Type: " .. attackType .. ")")
+        print("[SHIELD DEBUG] - Target: " .. target.name)
+        
+        -- Count total shields
+        local shieldCount = 0
+        for i, targetSlot in ipairs(target.spellSlots) do
+            if targetSlot.active and targetSlot.isShield then
+                shieldCount = shieldCount + 1
+            end
+        end
+        print("[SHIELD DEBUG] - Found " .. shieldCount .. " active shields")
+        
         -- Check each of the target's spell slots for active shields
         for i, targetSlot in ipairs(target.spellSlots) do
             -- Debug print to check shield state
             if targetSlot.active and targetSlot.isShield then
-                print("Found shield in slot " .. i .. " of type " .. targetSlot.defenseType .. 
-                      " with strength " .. targetSlot.shieldStrength)
+                -- Use token count as the source of truth for shield strength
+                local defenseType = targetSlot.defenseType or "unknown"
+                
+                print("Found shield in slot " .. i .. " of type " .. defenseType .. 
+                      " with " .. #targetSlot.tokens .. " tokens")
                 
                 -- Check if the shield blocks appropriate attack types
                 if targetSlot.blocksAttackTypes then
@@ -1996,25 +2523,53 @@ function Wizard:castSpell(spellSlot)
             
             -- Check if this shield can block this attack type
             local canBlock = false
-            if targetSlot.blocksAttackTypes then
-                -- Old format - table with attackType as keys
-                canBlock = targetSlot.blocksAttackTypes[attackType]
-            elseif targetSlot.blockTypes then
-                -- New format - array of attack types
-                for _, blockType in ipairs(targetSlot.blockTypes) do
-                    if blockType == attackType then
-                        canBlock = true
-                        break
-                    end
-                end
-            end
             
-            if targetSlot.active and targetSlot.isShield and 
-               targetSlot.shieldStrength > 0 and canBlock then
+            print("[SHIELD DEBUG] Checking if shield in slot " .. i .. " can block " .. attackType)
+            
+            -- Only process active shields with tokens
+            if targetSlot.active and targetSlot.isShield and #targetSlot.tokens > 0 then
+                -- Continue with detailed shield checks
+                
+                if targetSlot.blocksAttackTypes then
+                    -- Old format - table with attackType as keys
+                    canBlock = targetSlot.blocksAttackTypes[attackType]
+                    print("[SHIELD DEBUG] - blocksAttackTypes check: " .. (canBlock and "YES" or "NO"))
+                    
+                    -- Additional debugging for blocksAttackTypes
+                    print("[SHIELD DEBUG] - blocksAttackTypes contents:")
+                    for blockType, value in pairs(targetSlot.blocksAttackTypes) do
+                        print("[SHIELD DEBUG]   * " .. blockType .. ": " .. tostring(value))
+                    end
+                elseif targetSlot.blockTypes then
+                    -- New format - array of attack types
+                    print("[SHIELD DEBUG] - Checking blockTypes array")
+                    for _, blockType in ipairs(targetSlot.blockTypes) do
+                        print("[SHIELD DEBUG]   * " .. blockType)
+                        if blockType == attackType then
+                            canBlock = true
+                            break
+                        end
+                    end
+                    print("[SHIELD DEBUG] - blockTypes check: " .. (canBlock and "YES" or "NO"))
+                else
+                    print("[SHIELD DEBUG] - No block types defined!")
+                end
+            
+            -- Complete debugging about the shield state
+            print("[SHIELD DEBUG] Final check for slot " .. i .. ":")
+            print("[SHIELD DEBUG] - Active: " .. (targetSlot.active and "YES" or "NO"))
+            print("[SHIELD DEBUG] - Is Shield: " .. (targetSlot.isShield and "YES" or "NO"))
+            print("[SHIELD DEBUG] - Tokens: " .. #targetSlot.tokens)
+            print("[SHIELD DEBUG] - Can Block: " .. (canBlock and "YES" or "NO"))
+            
+            if targetSlot.active and targetSlot.isShield and
+               #targetSlot.tokens > 0 and canBlock then
                 
                 -- This shield can block this attack type
                 attackBlocked = true
                 blockingShieldSlot = i
+                
+                print("[SHIELD DEBUG] ATTACK BLOCKED by shield in slot " .. i)
                 
                 -- Create visual effect for the block
                 target.blockVFX = {
@@ -2051,75 +2606,134 @@ function Wizard:castSpell(spellSlot)
                         self.name, slot.spellType, shieldBreakPower))
                 end
                 
-                -- Check if this is a mana-linked shield (consumes tokens when blocking)
-                -- Default to true (backward compatibility)
-                local manaLinked = targetSlot.manaLinked
-                if manaLinked == nil then
-                    manaLinked = true
+                -- All shields consume ONE token when blocking (always just 1 token per hit)
+                -- Never consume more than one token per hit for regular attacks
+                local tokensToConsume = 1
+                
+                -- Shield breaker spells can consume more tokens
+                if slot.spell.shieldBreaker and slot.spell.shieldBreaker > 1 then
+                    tokensToConsume = math.min(slot.spell.shieldBreaker, #targetSlot.tokens)
+                    print(string.format("[SHIELD BREAKER] Shield breaker consuming up to %d tokens", tokensToConsume))
                 end
                 
-                if manaLinked then
-                    -- Apply shield-break effect and leak tokens
-                    local tokensToReturn = math.min(shieldBreakPower, #targetSlot.tokens)
-                    
-                    -- Return tokens back to the mana pool
-                    for i = 1, tokensToReturn do
-                        if #targetSlot.tokens > 0 then
-                            -- Get the last token
-                            local lastTokenIndex = #targetSlot.tokens
-                            local tokenData = targetSlot.tokens[lastTokenIndex]
-                            
-                            -- Trigger animation to return this token to the mana pool
+                -- Debug output to track token removal
+                print(string.format("[SHIELD DEBUG] Before token removal: Shield has %d tokens", #targetSlot.tokens))
+                print(string.format("[SHIELD DEBUG] Will remove %d token(s)", tokensToConsume))
+                
+                -- Only consume tokens up to the number we have
+                tokensToConsume = math.min(tokensToConsume, #targetSlot.tokens)
+                
+                -- Return tokens back to the mana pool - ONE AT A TIME
+                for i = 1, tokensToConsume do
+                    if #targetSlot.tokens > 0 then
+                        -- Get the last token
+                        local lastTokenIndex = #targetSlot.tokens
+                        local tokenData = targetSlot.tokens[lastTokenIndex]
+                        
+                        print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
+                            tokenData.index, i, tokensToConsume))
+                        
+                        -- First make sure token state is updated
+                        if tokenData.token then
+                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
+                                tokenData.index, tokenData.token.state or "unknown"))
+                            tokenData.token.state = "FREE"
+                        else
+                            print("[SHIELD WARNING] Token has no token data object")
+                        end
+                        
+                        -- Trigger animation to return this token to the mana pool
+                        if target and target.manaPool then
+                            print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
                             target.manaPool:returnToken(tokenData.index)
-                            
-                            -- Remove this token from the slot's token list
-                            table.remove(targetSlot.tokens, lastTokenIndex)
+                        else
+                            print("[SHIELD ERROR] Could not return token - mana pool not found")
+                        end
+                        
+                        -- Remove this token from the slot's token list
+                        table.remove(targetSlot.tokens, lastTokenIndex)
+                        print(string.format("[SHIELD DEBUG] Token %d removed from shield token list (%d tokens remaining)", 
+                            tokenData.index, #targetSlot.tokens))
+                    else
+                        print("[SHIELD ERROR] Tried to consume token but shield has no more tokens!")
+                        break -- Stop trying to consume tokens if there are none left
+                    end
+                end
+                
+                print("[SHIELD DEBUG] After token removal: Shield has " .. #targetSlot.tokens .. " tokens left")
+                
+                -- Print the blocked attack message with token info
+                if tokensToConsume > 1 then
+                    print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked %d tokens! (%d tokens remaining)",
+                        target.name, targetSlot.defenseType, self.name, attackType, tokensToConsume, #targetSlot.tokens))
+                else
+                    print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked one token! (%d tokens remaining)",
+                        target.name, targetSlot.defenseType, self.name, attackType, #targetSlot.tokens))
+                end
+                
+                -- If the shield is depleted (no tokens left)
+                local shieldDepleted = false
+                
+                -- Simple check based on actual token count (token count is the source of truth)
+                -- All shields are mana-linked and use tokens for strength
+                shieldDepleted = (#targetSlot.tokens <= 0)
+                print("[SHIELD DEBUG] Is shield depleted? " .. (shieldDepleted and "YES" or "NO") .. " (" .. #targetSlot.tokens .. " tokens left)")
+                
+                -- Double-check token state to ensure shield is properly detected as depleted
+                -- A shield is ONLY depleted when ALL tokens have been removed
+                if #targetSlot.tokens == 0 then
+                    -- Shield is now completely depleted (no tokens left)
+                    print("[SHIELD DEBUG] Shield is now depleted - all tokens consumed")
+                    shieldDepleted = true
+                end
+                
+                if shieldDepleted then
+                    print(string.format("[BLOCK] %s's %s shield has been broken!", target.name, targetSlot.defenseType))
+                    print("[SHIELD DEBUG] Destroying shield in slot " .. i)
+                    
+                    -- Return any remaining tokens (for partially consumed shields)
+                    print("[SHIELD DEBUG] Shield has " .. #targetSlot.tokens .. " remaining tokens to return")
+                    
+                    -- Important: Create a copy of the tokens table, as we'll be modifying it while iterating
+                    local tokensToReturn = {}
+                    for i, tokenData in ipairs(targetSlot.tokens) do
+                        tokensToReturn[i] = tokenData
+                    end
+                    
+                    -- Process each token
+                    for _, tokenData in ipairs(tokensToReturn) do
+                        print(string.format("[SHIELD DEBUG] Returning token %d to pool during shield destruction", tokenData.index))
+                        
+                        -- Make sure token state is FREE
+                        if tokenData.token then
+                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
+                                tokenData.index, tokenData.token.state or "unknown"))
+                            tokenData.token.state = "FREE"
+                        end
+                        
+                        -- Return to mana pool
+                        if target and target.manaPool then
+                            target.manaPool:returnToken(tokenData.index)
+                        else
+                            print("[SHIELD ERROR] Could not return token - mana pool not found")
                         end
                     end
                     
-                    -- Update shield strength based on remaining tokens
-                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    -- Explicitly clear the tokens array
+                    targetSlot.tokens = {}
                     
-                    -- Print the blocked attack message with mana leak info
-                    if shieldBreakPower > 1 then
-                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked %d mana! (%d strength remaining)",
-                            target.name, targetSlot.defenseType, self.name, attackType, tokensToReturn, targetSlot.shieldStrength))
-                    else
-                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked one mana! (%d strength remaining)",
-                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
-                    end
-                else
-                    -- For non-mana linked shields, just decrease the shield strength
-                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
-                    
-                    -- Print blocked message without mana leak info
-                    if shieldBreakPower > 1 then
-                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (-%d strength, %d remaining)",
-                            target.name, targetSlot.defenseType, self.name, attackType, shieldBreakPower, targetSlot.shieldStrength))
-                    else
-                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (%d strength remaining)",
-                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
-                    end
-                end
-                
-                -- If the shield is depleted (no strength left), destroy it
-                if targetSlot.shieldStrength <= 0 then
-                    print(string.format("[BLOCK] %s's %s shield has been broken!", target.name, targetSlot.defenseType))
-                    
-                    -- Return any remaining tokens (for partially consumed shields)
-                    for _, tokenData in ipairs(targetSlot.tokens) do
-                        target.manaPool:returnToken(tokenData.index)
-                    end
-                    
-                    -- Reset slot
+                    -- Reset slot completely to avoid half-broken shield state
+                    print("[SHIELD DEBUG] Resetting slot " .. i .. " to empty state")
                     targetSlot.active = false
                     targetSlot.isShield = false
                     targetSlot.defenseType = nil
                     targetSlot.blocksAttackTypes = nil
-                    targetSlot.shieldStrength = 0
+                    targetSlot.blockTypes = nil  -- Clear block types array too
                     targetSlot.progress = 0
                     targetSlot.spellType = nil
+                    targetSlot.spell = nil  -- Clear spell reference too
                     targetSlot.castTime = 0
+                    targetSlot.tokens = {}  -- Already cleared above, but ensure it's empty
                     
                     -- Create shield break effect
                     if self.gameState.vfx then
@@ -2159,8 +2773,10 @@ function Wizard:castSpell(spellSlot)
                     end
                 end
                 
-                break  -- Stop checking other shields once one has blocked
-            end
+                    -- We found a shield that blocked this attack, so stop checking other shields
+                    break
+                end -- End of if targetSlot.active and canBlock check
+            end -- End of if targetSlot.active check
         end
     end
     
@@ -2186,64 +2802,8 @@ function Wizard:castSpell(spellSlot)
         return  -- Skip applying any effects
     end
     
-    -- LEGACY CHECK FOR OLD BLOCKER SYSTEM - Disabled (Now using shield system instead)
-    --[[
-    if effect.spellType == "projectile" and target.blockers.projectile > 0 then
-        -- Target has an active projectile block
-        print(target.name .. " blocked " .. slot.spellType .. " with Mist Veil!")
-        
-        -- Create a visual effect for the block
-        target.blockVFX = {
-            active = true,
-            timer = 0.5,  -- Duration of the block visual effect
-            x = target.x,
-            y = target.y
-        }
-        
-        -- Create block effect using VFX system
-        if self.gameState.vfx then
-            self.gameState.vfx.createEffect("mistveil", target.x, target.y, nil, nil, {
-                duration = 0.5, -- Short block flash
-                color = {0.7, 0.7, 1.0, 1.0}
-            })
-        end
-        
-        -- Start return animation for tokens
-        if #slot.tokens > 0 then
-            for _, tokenData in ipairs(slot.tokens) do
-                -- Trigger animation to return token to the mana pool
-                self.manaPool:returnToken(tokenData.index)
-            end
-            
-            -- Clear token list (tokens still exist in the mana pool)
-            slot.tokens = {}
-        end
-        
-        -- Reset slot
-        slot.active = false
-        slot.progress = 0
-        slot.spellType = nil
-        slot.castTime = 0
-        
-        return  -- Skip applying any effects
-    }
-    --]]
-    
-    -- LEGACY CODE - Apply blocking effects (like old Mist Veil) - Disabled
-    --[[
-    if effect.block then
-        if effect.block == "projectile" then
-            local duration = effect.blockDuration or 2.5  -- Default to 2.5s if not specified
-            self.blockers.projectile = duration
-            print(self.name .. " activated projectile blocking for " .. duration .. " seconds")
-            
-            -- Create aura effect using VFX system
-            if self.gameState.vfx then
-                self.gameState.vfx.createEffect("mistveil", self.x, self.y, nil, nil)
-            end
-        end
-    end
-    --]]
+    -- The old blocker system has been completely removed
+    -- Shield functionality is now handled through the shield keyword system
     
     -- Apply damage
     if effect.damage and effect.damage > 0 then
@@ -2497,23 +3057,68 @@ function Wizard:castSpell(spellSlot)
     end
     
     -- Only reset the spell slot and return tokens for non-shield spells
-    -- This is now handled at the beginning of the function for shield spells
-    -- Start return animation for tokens
-    if #slot.tokens > 0 then
-        for _, tokenData in ipairs(slot.tokens) do
-            -- Trigger animation to return token to the mana pool
-            self.manaPool:returnToken(tokenData.index)
-        end
+    -- For shield spells, keep tokens in the slot for mana-linking
+    
+    -- CRITICAL CHECK: For Mist Veil spell, it must be treated as a shield
+    if slot.spellType == "Mist Veil" or slot.spell.id == "mist" then
+        -- Force shield behavior for Mist Veil
+        slot.isShield = true
+        isShieldSpell = true
+        effect.isShield = true
         
-        -- Clear token list (tokens still exist in the mana pool)
-        slot.tokens = {}
+        -- Force tokens to SHIELDING state
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                tokenData.token.state = "SHIELDING"
+            end
+        end
+        print("DEBUG: SPECIAL CASE - Enforcing Mist Veil shield behavior")
     end
     
-    -- Reset slot
-    slot.active = false
-    slot.progress = 0
-    slot.spellType = nil
-    slot.castTime = 0
+    if not isShieldSpell and not slot.isShield and not effect.isShield then
+        print("DEBUG: Returning tokens to mana pool - not a shield spell")
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            -- Check one more time that no tokens are marked as SHIELDING
+            local hasShieldingTokens = false
+            for _, tokenData in ipairs(slot.tokens) do
+                if tokenData.token and tokenData.token.state == "SHIELDING" then
+                    hasShieldingTokens = true
+                    break
+                end
+            end
+            
+            if not hasShieldingTokens then
+                -- Safe to return tokens
+                for _, tokenData in ipairs(slot.tokens) do
+                    -- Trigger animation to return token to the mana pool
+                    self.manaPool:returnToken(tokenData.index)
+                end
+                
+                -- Clear token list (tokens still exist in the mana pool)
+                slot.tokens = {}
+            else
+                print("DEBUG: Found SHIELDING tokens, preventing token return")
+            end
+        end
+        
+        -- Reset slot only if it's not a shield
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+    else
+        print("DEBUG: Shield spell - keeping tokens in slot for mana-linking")
+        -- For shield spells, the slot remains active and tokens remain in orbit
+        -- Make sure slot is marked as a shield
+        slot.isShield = true
+        -- Mark tokens as SHIELDING again just to be sure
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                tokenData.token.state = "SHIELDING"
+            end
+        end
+    end
 end
 
 return Wizard

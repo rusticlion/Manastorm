@@ -8,6 +8,26 @@ UI.spellbookVisible = {
     player2 = false
 }
 
+-- Delayed health damage display state
+UI.healthDisplay = {
+    player1 = {
+        currentHealth = 100,        -- Current display health (smoothly animated)
+        targetHealth = 100,         -- Actual health to animate towards
+        pendingDamage = 0,          -- Damage that's pending animation (yellow bar)
+        lastDamageTime = 0,         -- Time when last damage was taken
+        pendingDrainDelay = 0.5,    -- Delay before yellow bar starts draining
+        drainRate = 30              -- How fast the yellow bar drains (health points per second)
+    },
+    player2 = {
+        currentHealth = 100,
+        targetHealth = 100,
+        pendingDamage = 0,
+        lastDamageTime = 0,
+        pendingDrainDelay = 0.5,
+        drainRate = 30
+    }
+}
+
 function UI.drawHelpText(font)
     -- Set font and color
     love.graphics.setFont(font)
@@ -55,13 +75,13 @@ function UI.drawSpellbookButtons()
     UI.drawPlayerSpellbook(1, 0, screenHeight - 70)
     
     -- Draw Player 2's spellbook (Selene - pinned to right side)
-    UI.drawPlayerSpellbook(2, screenWidth - 260, screenHeight - 70)
+    UI.drawPlayerSpellbook(2, screenWidth - 250, screenHeight - 70)
 end
 
 -- Draw an individual player's spellbook component
 function UI.drawPlayerSpellbook(playerNum, x, y)
     local screenWidth = love.graphics.getWidth()
-    local width = 260  -- Further increased for better spacing
+    local width = 250  -- Balanced width
     local height = 50
     local player = (playerNum == 1) and "Ashgar" or "Selene"
     local keyLabel = (playerNum == 1) and "B" or "M"
@@ -90,15 +110,15 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     -- Center everything vertically in pane
     local centerY = y + height/2
     local runeSize = 14
-    local groupSpacing = 35
+    local groupSpacing = 35  -- Original spacing between keys
     
     -- GROUP 1: SPELL INPUT KEYS
     -- Add a subtle background for the key group
     love.graphics.setColor(0.2, 0.2, 0.3, 0.3)
-    love.graphics.rectangle("fill", x + 15, centerY - 20, 110, 40, 5, 5)  -- Rounded corners
+    love.graphics.rectangle("fill", x + 15, centerY - 20, 95, 40, 5, 5)  -- Maintain original padding for keys
     
     -- Calculate positions for centered spell input keys
-    local inputStartX = x + 30
+    local inputStartX = x + 30  -- Original position for better centering
     local inputY = centerY
     
     for i = 1, 3 do
@@ -144,23 +164,27 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
         end
     end
     
-    -- Small "input" label beneath
-    love.graphics.setColor(0.6, 0.6, 0.8, 0.7)
-    local inputLabel = "Input Keys"
-    local inputLabelWidth = love.graphics.getFont():getWidth(inputLabel)
-    love.graphics.print(inputLabel, inputStartX + groupSpacing - inputLabelWidth/2, inputY + runeSize + 8)
+    -- Removed "Input Keys" label for cleaner UI
     
     -- GROUP 2: CAST BUTTON & FREE BUTTON
-    -- Calculate positions for both buttons
-    local castX = x + 140
-    local freeX = x + 190
+    -- Create a shared container/background for both action buttons - more compact
+    local actionSectionWidth = 90
+    local actionX = x + 125
+    
+    -- Draw a shared background container for both action buttons
+    love.graphics.setColor(0.18, 0.18, 0.25, 0.5)
+    love.graphics.rectangle("fill", actionX, centerY - 18, actionSectionWidth, 36, 5, 5)  -- More compact
+    
+    -- Calculate positions for both buttons with tighter spacing
+    local castX = actionX + actionSectionWidth/3 - 5
+    local freeX = actionX + actionSectionWidth*2/3 + 5
     local castKey = (playerNum == 1) and "F" or "J"
     local freeKey = (playerNum == 1) and "G" or "H"
     
     -- CAST BUTTON
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
-    love.graphics.rectangle("fill", castX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    love.graphics.rectangle("fill", castX - 17, centerY - 16, 34, 32, 5, 5)  -- More compact
     
     -- Draw cast button background
     love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
@@ -178,16 +202,12 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
         castX - castTextWidth/2, 
         inputY - castTextHeight/2)
     
-    -- Small "cast" label beneath
-    love.graphics.setColor(0.8, 0.6, 0.3, 0.8)
-    local castLabel = "Cast"
-    local castLabelWidth = love.graphics.getFont():getWidth(castLabel)
-    love.graphics.print(castLabel, castX - castLabelWidth/2, inputY + runeSize + 8)
+    -- Removed "Cast" label for cleaner UI
     
     -- FREE BUTTON
     -- Subtle highlighting background
     love.graphics.setColor(0.1, 0.3, 0.3, 0.3)
-    love.graphics.rectangle("fill", freeX - 20, centerY - 20, 40, 40, 5, 5)  -- Rounded corners
+    love.graphics.rectangle("fill", freeX - 17, centerY - 16, 34, 32, 5, 5)  -- More compact
     
     -- Draw free button background
     love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
@@ -205,11 +225,7 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
         freeX - freeTextWidth/2, 
         inputY - freeTextHeight/2)
     
-    -- Small "free" label beneath
-    love.graphics.setColor(0.5, 0.7, 0.9, 0.8)
-    local freeLabel = "Free"
-    local freeLabelWidth = love.graphics.getFont():getWidth(freeLabel)
-    love.graphics.print(freeLabel, freeX - freeLabelWidth/2, inputY + runeSize + 8)
+    -- Removed "Free" label for cleaner UI
     
     -- GROUP 3: KEYED SPELL POPUP (appears above the spellbook when a spell is keyed)
     if wizard.currentKeyedSpell then
@@ -267,33 +283,34 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
         )
     end
     
-    -- GROUP 4: SPELLBOOK HELP (bottom-right corner)
-    local helpX = x + width - 20
-    local helpY = y + height - 16
+    -- GROUP 4: SPELLBOOK HELP (bottom-right corner) - more compact design
+    local helpX = x + width - 15
+    local helpY = y + height - 10
     
-    -- Draw key hint - smaller
-    local helpSize = 8
-    love.graphics.setColor(0.4, 0.4, 0.6, 0.7)  -- More subdued color
+    -- Draw key hint - make it slightly bigger
+    local helpSize = 8  -- Increased size
+    love.graphics.setColor(0.4, 0.4, 0.6, 0.5)
     love.graphics.circle("fill", helpX, helpY, helpSize)
     
-    -- Properly centered key symbol - smaller font
-    local smallFont = love.graphics.getFont()  -- We'll use the same font but draw it smaller
+    -- Properly centered key symbol - BIGGER
+    local smallFont = love.graphics.getFont()
     local keyTextWidth = smallFont:getWidth(keyLabel)
     local keyTextHeight = smallFont:getHeight()
-    love.graphics.setColor(1, 1, 1, 0.8)
+    love.graphics.setColor(1, 1, 1, 0.9)
     love.graphics.print(keyLabel, 
-        helpX - keyTextWidth/4, 
-        helpY - keyTextHeight/4,
-        0, 0.5, 0.5)  -- Scale to 50%
+        helpX - keyTextWidth/3, 
+        helpY - keyTextHeight/3,
+        0, 0.7, 0.7)  -- Significantly larger
     
-    -- Small "?" indicator
-    love.graphics.setColor(0.6, 0.6, 0.7, 0.7)
+    -- LARGER "?" indicator placed HIGHER above the button
+    love.graphics.setColor(0.7, 0.7, 0.8, 0.8)  -- Brighter
     local helpLabel = "?"
     local helpLabelWidth = smallFont:getWidth(helpLabel)
+    -- Position the ? significantly higher up
     love.graphics.print(helpLabel, 
-        helpX - 15 - helpLabelWidth/2, 
-        helpY - smallFont:getHeight()/4,
-        0, 0.7, 0.7)  -- Scale to 70%
+        helpX - helpLabelWidth/3, 
+        helpY - helpSize - smallFont:getHeight() - 2,  -- Position much higher above the button
+        0, 0.7, 0.7)  -- Make it larger
     
     -- Highlight when active
     if (playerNum == 1 and UI.spellbookVisible.player1) or 
@@ -362,14 +379,19 @@ end
 -- Draw dramatic fighting game style health bars
 function UI.drawHealthBars(wizards)
     local screenWidth = love.graphics.getWidth()
-    local barHeight = 30
-    local barWidth = 300
-    local padding = 40
-    local y = 20
+    local barHeight = 40
+    local centerGap = 60 -- Space between bars in the center
+    local barWidth = (screenWidth - centerGap) / 2
+    local padding = 0 -- No padding from screen edges
+    local y = 5
     
     -- Player 1 (Ashgar) health bar (left side, right-to-left depletion)
     local p1 = wizards[1]
-    local p1HealthPercent = p1.health / 100
+    local display1 = UI.healthDisplay.player1
+    
+    -- Get the animated health percentage (from the delayed damage system)
+    local p1HealthPercent = display1.currentHealth / 100
+    local p1PendingDamagePercent = display1.pendingDamage / 100
     
     -- Background and border
     love.graphics.setColor(0.15, 0.15, 0.15, 0.8)
@@ -383,28 +405,67 @@ function UI.drawHealthBars(wizards)
         {1.0, 0.3, 0.1}   -- Brighter highlight
     }
     
-    -- Draw gradient health bar 
+    -- Calculate the total visible health (current + pending)
+    local totalVisibleHealth = p1HealthPercent
+    
+    -- Draw gradient health bar for current health (excluding pending damage part)
     for i = 0, barWidth * p1HealthPercent, 1 do
         local gradientPos = i / (barWidth * p1HealthPercent)
         local r = ashgarGradient[1][1] + (ashgarGradient[2][1] - ashgarGradient[1][1]) * gradientPos
         local g = ashgarGradient[1][2] + (ashgarGradient[2][2] - ashgarGradient[1][2]) * gradientPos
         local b = ashgarGradient[1][3] + (ashgarGradient[2][3] - ashgarGradient[1][3]) * gradientPos
         love.graphics.setColor(r, g, b, 0.9)
-        love.graphics.line(padding + i, y + 5, padding + i, y + barHeight - 5)
+        love.graphics.line(padding + i, y + 2, padding + i, y + barHeight - 2)
     end
     
-    -- Add segmented health bar sections
+    -- Add a single halfway marker at 50% health, anchored to the bottom
     love.graphics.setColor(0.2, 0.2, 0.2, 0.5)
-    for i = 1, 9 do
-        local x = padding + (barWidth / 10) * i
-        love.graphics.line(x, y, x, y + barHeight)
-    end
+    local halfwayX = padding + (barWidth / 2)
+    local markerHeight = barHeight / 2  -- The marker extends halfway up the bar
+    love.graphics.line(halfwayX, y + barHeight - markerHeight, halfwayX, y + barHeight)
+    
+    -- Get actual health from the wizard for comparison
+    local p1ActualHealthPercent = p1.health / 100
     
     -- Health lost "after damage" effect (fading darker region)
-    local damageAmount = 1.0 - p1HealthPercent
-    if damageAmount > 0 then
+    -- This is displayed UNDER everything else, so draw it first
+    local permanentDamageAmount = 1.0 - p1ActualHealthPercent
+    if permanentDamageAmount > 0 then
         love.graphics.setColor(0.5, 0.1, 0.1, 0.3)
-        love.graphics.rectangle("fill", padding + barWidth * p1HealthPercent, y, barWidth * damageAmount, barHeight)
+        love.graphics.rectangle("fill", 
+            padding + barWidth * p1ActualHealthPercent, 
+            y, 
+            barWidth * permanentDamageAmount, 
+            barHeight)
+    end
+    
+    -- Pending damage effect (yellow bar segment)
+    -- This shows the section of health that will drain away
+    if p1PendingDamagePercent > 0 then
+        -- Calculate where the pending damage begins and ends
+        local pendingStart = p1HealthPercent  -- Where current health ends
+        local pendingEnd = math.min(p1HealthPercent + p1PendingDamagePercent, p1ActualHealthPercent)
+        local pendingWidth = pendingEnd - pendingStart
+        
+        -- Only draw if there's actual width to display
+        if pendingWidth > 0 then
+            -- Draw yellow segment for pending damage (as it's actually depleting)
+            love.graphics.setColor(1.0, 0.9, 0.2, 0.8)
+            
+            -- Draw the pending section as yellow bars to match the health bar style
+            for i = 0, barWidth * pendingWidth, 1 do
+                local x = padding + barWidth * pendingStart + i
+                love.graphics.line(x, y + 2, x, y + barHeight - 2)
+            end
+            
+            -- Add some shading effects to the pending damage zone
+            love.graphics.setColor(1.0, 1.0, 0.5, 0.2)
+            love.graphics.rectangle("fill", 
+                padding + barWidth * pendingStart, 
+                y, 
+                barWidth * pendingWidth, 
+                barHeight/3)
+        end
     end
     
     -- Gleaming highlight
@@ -417,15 +478,21 @@ function UI.drawHealthBars(wizards)
     love.graphics.setColor(1, 1, 1, 0.9)
     love.graphics.print(p1.name, padding + 20, y + barHeight/2 - 8, 0, 1.2, 1.2)
     
-    -- Health percentage
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.print(math.floor(p1HealthPercent * 100) .. "%", padding + barWidth - 40, y + 7)
+    -- Health percentage only in debug mode
+    if love.keyboard.isDown("`") then
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(math.floor(p1HealthPercent * 100) .. "%", padding + barWidth - 40, y + 7)
+    end
     
     
     -- Player 2 (Selene) health bar (right side, left-to-right depletion)
     local p2 = wizards[2]
-    local p2HealthPercent = p2.health / 100
-    local p2X = screenWidth - padding - barWidth
+    local display2 = UI.healthDisplay.player2
+    
+    -- Get the animated health percentage (from the delayed damage system)
+    local p2HealthPercent = display2.currentHealth / 100
+    local p2PendingDamagePercent = display2.pendingDamage / 100
+    local p2X = screenWidth - barWidth
     
     -- Background and border
     love.graphics.setColor(0.15, 0.15, 0.15, 0.8)
@@ -439,6 +506,9 @@ function UI.drawHealthBars(wizards)
         {0.2, 0.5, 1.0}   -- Brighter highlight
     }
     
+    -- Calculate the total visible health
+    local totalVisibleHealth = p2HealthPercent
+    
     -- Draw gradient health bar (left-to-right depletion)
     for i = 0, barWidth * p2HealthPercent, 1 do
         local gradientPos = i / (barWidth * p2HealthPercent)
@@ -446,21 +516,53 @@ function UI.drawHealthBars(wizards)
         local g = seleneGradient[1][2] + (seleneGradient[2][2] - seleneGradient[1][2]) * gradientPos
         local b = seleneGradient[1][3] + (seleneGradient[2][3] - seleneGradient[1][3]) * gradientPos
         love.graphics.setColor(r, g, b, 0.9)
-        love.graphics.line(p2X + barWidth - i, y + 5, p2X + barWidth - i, y + barHeight - 5)
+        love.graphics.line(p2X + barWidth - i, y + 2, p2X + barWidth - i, y + barHeight - 2)
     end
     
-    -- Add segmented health bar sections
+    -- Add a single halfway marker at 50% health, anchored to the bottom
     love.graphics.setColor(0.2, 0.2, 0.2, 0.5)
-    for i = 1, 9 do
-        local x = p2X + (barWidth / 10) * i
-        love.graphics.line(x, y, x, y + barHeight)
-    end
+    local halfwayX = p2X + (barWidth / 2)
+    local markerHeight = barHeight / 2  -- The marker extends halfway up the bar
+    love.graphics.line(halfwayX, y + barHeight - markerHeight, halfwayX, y + barHeight)
+    
+    -- Get actual health from the wizard for comparison
+    local p2ActualHealthPercent = p2.health / 100
     
     -- Health lost "after damage" effect (fading darker region)
-    local damageAmount = 1.0 - p2HealthPercent
-    if damageAmount > 0 then
+    -- This is displayed UNDER everything else, so draw it first
+    local permanentDamageAmount = 1.0 - p2ActualHealthPercent
+    if permanentDamageAmount > 0 then
         love.graphics.setColor(0.1, 0.1, 0.5, 0.3)
-        love.graphics.rectangle("fill", p2X, y, barWidth * damageAmount, barHeight)
+        love.graphics.rectangle("fill", p2X, y, barWidth * permanentDamageAmount, barHeight)
+    end
+    
+    -- Pending damage effect (yellow bar segment)
+    if p2PendingDamagePercent > 0 then
+        -- Calculate where the pending damage begins and ends
+        -- For player 2, the bar fills from right to left
+        local pendingStart = 1.0 - p2HealthPercent  -- Where current health ends (from left)
+        local pendingEnd = math.min(pendingStart + p2PendingDamagePercent, 1.0 - p2ActualHealthPercent)
+        local pendingWidth = pendingEnd - pendingStart
+        
+        -- Only draw if there's actual width to display
+        if pendingWidth > 0 then
+            -- Draw yellow segment for pending damage (as it's actually depleting)
+            love.graphics.setColor(1.0, 0.9, 0.2, 0.8)
+            
+            -- Draw the pending section as yellow bars to match the health bar style
+            for i = 0, barWidth * pendingWidth, 1 do
+                local x = p2X + barWidth * pendingStart + i
+                love.graphics.line(x, y + 2, x, y + barHeight - 2)
+            end
+            
+            -- Add some shading effects to the pending damage zone
+            love.graphics.setColor(1.0, 1.0, 0.5, 0.2)
+            love.graphics.rectangle("fill", 
+                p2X + barWidth * pendingStart, 
+                y, 
+                barWidth * pendingWidth, 
+                barHeight/3)
+        end
     end
     
     -- Gleaming highlight
@@ -471,14 +573,64 @@ function UI.drawHealthBars(wizards)
     love.graphics.setColor(1, 1, 1, 0.9)
     love.graphics.print(p2.name, p2X + barWidth - 80, y + barHeight/2 - 8, 0, 1.2, 1.2)
     
-    -- Health percentage
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.print(math.floor(p2HealthPercent * 100) .. "%", p2X + 10, y + 7)
+    -- Health percentage only in debug mode
+    if love.keyboard.isDown("`") then
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(math.floor(p2HealthPercent * 100) .. "%", p2X + 10, y + 7)
+    end
 end
 
 -- [Removed drawActiveSpells function - now using visual representation instead]
 
 -- Draw a full spellbook modal for a player
+-- Update the health display animation
+function UI.updateHealthDisplays(dt, wizards)
+    local currentTime = love.timer.getTime()
+    
+    for i, wizard in ipairs(wizards) do
+        local display = UI.healthDisplay["player" .. i]
+        local actualHealth = wizard.health
+        
+        -- If actual health is different from our target, register new damage
+        if actualHealth < display.targetHealth then
+            -- Calculate how much new damage was taken
+            local newDamage = display.targetHealth - actualHealth
+            
+            -- Add to pending damage
+            display.pendingDamage = display.pendingDamage + newDamage
+            
+            -- Update target health to match actual health
+            display.targetHealth = actualHealth
+            
+            -- Reset the damage timer to restart the delay
+            display.lastDamageTime = currentTime
+        end
+        
+        -- Check if we should start draining the pending damage
+        if display.pendingDamage > 0 and (currentTime - display.lastDamageTime) > display.pendingDrainDelay then
+            -- Calculate how much to drain based on time passed
+            local drainAmount = display.drainRate * dt
+            
+            -- Don't drain more than what's pending
+            drainAmount = math.min(drainAmount, display.pendingDamage)
+            
+            -- Reduce pending damage and update current health
+            display.pendingDamage = display.pendingDamage - drainAmount
+            display.currentHealth = display.currentHealth - drainAmount
+            
+            -- Ensure we don't go below target health
+            if display.currentHealth < display.targetHealth then
+                display.currentHealth = display.targetHealth
+                display.pendingDamage = 0
+            end
+            
+            -- Debug output to help track the animation
+            -- print(string.format("Player %d: Health %.1f, Pending %.1f, Target %.1f", 
+            --     i, display.currentHealth, display.pendingDamage, display.targetHealth))
+        end
+    end
+end
+
 function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()

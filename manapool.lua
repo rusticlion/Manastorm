@@ -395,7 +395,8 @@ function ManaPool:update(dt)
                 
                 -- Check if animation is complete
                 if token.animTime >= token.animDuration then
-                    -- Finalize the return
+                    -- Token has reached the pool - finalize its return and perform state transition
+                    print(string.format("[MANAPOOL] Token return animation completed, finalizing state"))
                     self:finalizeTokenReturn(token)
                 end
             end
@@ -744,13 +745,34 @@ function ManaPool:findFreeToken(tokenType)
 end
 
 function ManaPool:getToken(tokenType)
-    -- Find a free token of the specified type
+    -- Find a free token of the specified type that's not in transition
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.state == "FREE" then
-            token.state = "CHANNELED"  -- Mark as being used
+        if token.type == tokenType and token.state == "FREE" and
+           not token.returning and not token.inTransition then
+            -- Mark as being used
+            token.state = "CHANNELED"  
+            print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling", i, token.type))
             return token, i  -- Return token and its index
         end
     end
+    
+    -- Second pass - try with less strict requirements if nothing was found
+    for i, token in ipairs(self.tokens) do
+        if token.type == tokenType and token.state == "FREE" then
+            if token.returning then
+                print("[MANAPOOL] WARNING: Using token in return animation - visual glitches may occur")
+            elseif token.inTransition then
+                print("[MANAPOOL] WARNING: Using token in transition state - visual glitches may occur")
+            end
+            token.state = "CHANNELED"
+            print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling (fallback)", i, token.type))
+            -- Cancel any return animation
+            token.returning = false
+            token.inTransition = false
+            return token, i
+        end
+    end
+    
     return nil  -- No token available
 end
 
@@ -758,6 +780,29 @@ function ManaPool:returnToken(tokenIndex)
     -- Return a token to the pool
     if self.tokens[tokenIndex] then
         local token = self.tokens[tokenIndex]
+        
+        -- Validate the token state and ownership before return
+        if token.returning then
+            print("[MANAPOOL] WARNING: Token " .. tokenIndex .. " is already being returned - ignoring duplicate return")
+            return
+        end
+        
+        -- Clear any wizard ownership immediately to prevent double-tracking
+        token.wizardOwner = nil
+        token.spellSlot = nil
+        
+        -- Ensure token is in a valid state - convert any state to valid transition state
+        local originalState = token.state
+        if token.state == "SHIELDING" or token.state == "CHANNELED" then
+            print("[MANAPOOL] Token " .. tokenIndex .. " transitioning from " .. 
+                 (token.state or "nil") .. " to return animation")
+            
+            -- We don't set state = FREE here yet - we let the animation complete first
+            -- This prevents tokens from being reused in the middle of an animation
+        elseif token.state ~= "FREE" then
+            print("[MANAPOOL] WARNING: Returning token " .. tokenIndex .. " from unexpected state: " .. 
+                 (token.state or "nil"))
+        end
         
         -- Store current position as start position for return animation
         token.startX = token.x
@@ -784,10 +829,9 @@ function ManaPool:returnToken(tokenIndex)
         token.animTime = 0
         token.animDuration = 0.5 -- Half second return animation
         token.returning = true   -- Flag that this token is returning to the pool
+        token.originalState = originalState  -- Remember what state it was in before return
         
-        -- When token finishes return animation, it will become FREE in update method
-        
-        -- Set direction and speed based on the valence
+        -- Set direction and speed based on the valence for when it becomes FREE
         local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
         token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
         token.originalSpeed = token.orbitSpeed
@@ -799,13 +843,32 @@ function ManaPool:returnToken(tokenIndex)
         token.inValenceTransition = false
         token.valenceTransitionTime = 0
         token.valenceTransitionDuration = 0.8
+        
+        print("[MANAPOOL] Token " .. tokenIndex .. " (" .. token.type .. ") returning animation started")
+    else
+        print("[MANAPOOL] WARNING: Attempted to return invalid token index: " .. tokenIndex)
     end
 end
 
 -- Called by update method when a token finishes its return animation
 function ManaPool:finalizeTokenReturn(token)
-    -- Set token state to FREE
+    -- Clear all references to the spell it was used in
+    token.wizardOwner = nil
+    token.spellSlot = nil
+    token.tokenIndex = nil
+    
+    -- Record the original state for debugging
+    local originalState = token.state
+    
+    -- ALWAYS set to FREE state when a token returns to the pool
     token.state = "FREE"
+    
+    -- Log state change with details
+    if originalState ~= "FREE" then
+        print(string.format("[MANAPOOL] Token state changed: %s -> FREE (was %s before return animation)", 
+              originalState or "nil", token.originalState or "unknown"))
+    end
+    token.originalState = nil -- Clean up
     
     -- Use the final position from the animation as the starting point
     local currentX = token.x
@@ -866,13 +929,10 @@ function ManaPool:finalizeTokenReturn(token)
     token.scale = 0.85 + math.random() * 0.3
     token.zOrder = math.random()
     
-    -- No repulsion forces to reset (removed system)
-    
-    -- Clear animation flags
+    -- Clear animation flags and any spell-related ownership
     token.returning = false
-    token.wizardOwner = nil
     
-    print("A " .. token.type .. " token has returned to the mana pool")
+    print("[MANAPOOL] Token (" .. token.type .. ") has fully returned to the pool and is FREE")
 end
 
 return ManaPool
