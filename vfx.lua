@@ -28,6 +28,30 @@ function VFX.init()
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- General impact effect (used for many spell interactions)
+        impact = {
+            type = "impact",
+            duration = 0.5,  -- Half second by default
+            particleCount = 15,
+            startScale = 0.8,
+            endScale = 0.2,
+            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            radius = 30,
+            sound = nil  -- No default sound
+        },
+        
+        -- Tidal Force Ground effect - for forcing opponents down from AERIAL to GROUNDED
+        tidal_force_ground = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            radius = 80,
+            sound = "tidal_wave"
+        },
+
         -- Firebolt effect
         firebolt = {
             type = "projectile",
@@ -91,6 +115,32 @@ function VFX.init()
             sound = "moonbeam"
         },
         
+        -- Tidal Force effect
+        tidal_force = {
+            type = "projectile",
+            duration = 1.2,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            trailLength = 15,
+            impactSize = 1.6,
+            sound = "tidal_wave"
+        },
+        
+        -- Lunar Disjunction effect
+        lunardisjunction = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.3,
+            endScale = 0.6,
+            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            trailLength = 10,
+            impactSize = 1.5,
+            sound = "lunar_disrupt"
+        },
+        
         -- Conjure Fire effect
         conjurefire = {
             type = "conjure",
@@ -128,6 +178,19 @@ function VFX.init()
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
+        },
+        
+        -- Shield effect (used for barrier, ward, and field shield activation)
+        shield = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            radius = 60,
+            pulseRate = 3,
+            sound = "shield"
         }
     }
     
@@ -137,7 +200,9 @@ function VFX.init()
         meteor = nil,
         mist = nil,
         whoosh = nil,
-        moonbeam = nil
+        moonbeam = nil,
+        conjure = nil,
+        shield = nil
     }
     
     return VFX
@@ -1098,6 +1163,10 @@ function VFX.createSpellEffect(spell, caster, target)
         return VFX.createEffect("emberlift", sourceX, sourceY, nil, nil)
     elseif spellName == "fullmoonbeam" then
         return VFX.createEffect("fullmoonbeam", sourceX, sourceY - 20, targetX, targetY - 20)
+    elseif spellName == "tidalforce" then
+        return VFX.createEffect("tidal_force", sourceX, sourceY - 15, targetX, targetY - 15)
+    elseif spellName == "lunardisjunction" then
+        return VFX.createEffect("lunardisjunction", sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
         if spell.spellType == "projectile" then

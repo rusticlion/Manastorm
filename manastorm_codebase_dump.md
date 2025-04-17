@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 12:25:23 CDT 2025
+Generated: Wed Apr 16 19:26:28 CDT 2025
 
 # Source Code
 
@@ -23,6 +23,203 @@ function love.conf(t)
     t.modules.physics = false
 end```
 
+## ./docs/keywords.lua
+```lua
+-- Keywords Documentation Generator
+-- This file helps maintain up-to-date documentation for the keyword system
+
+local Spells = require("spells")
+
+local DocGenerator = {}
+
+-- Function to get the default target type description for a keyword
+local function getTargetTypeDescription(keyword)
+    local targetType = Spells.keywordSystem.keywordTargets[keyword]
+    local descriptions = {
+        self = "Affects the caster",
+        enemy = "Affects the opponent",
+        pool_self = "Affects the caster's mana pool",
+        pool_enemy = "Affects the opponent's mana pool",
+        slot_self = "Affects the caster's spell slots",
+        slot_enemy = "Affects the opponent's spell slots",
+        global = "Affects the game state",
+        none = "No specific target"
+    }
+    
+    return descriptions[targetType] or "Unknown target type"
+end
+
+-- Generate markdown documentation for all available keywords
+function DocGenerator.generateMarkdown()
+    local output = "# Manastorm Spell Keyword Reference\n\n"
+    output = output .. "This document provides a reference for all available keywords in the Manastorm spell system.\n\n"
+    
+    -- Get keyword info organized by category
+    local keywordsByCategory = Spells.keywordSystem.getKeywordHelp("byCategory")
+    
+    -- Table of contents
+    output = output .. "## Contents\n\n"
+    for categoryKey, category in pairs(keywordsByCategory) do
+        output = output .. "- [" .. category.name .. "](#" .. string.lower(category.name:gsub("%s+", "-")) .. ")\n"
+    end
+    output = output .. "\n\n"
+    
+    -- Generate sections for each category
+    for categoryKey, category in pairs(keywordsByCategory) do
+        output = output .. "## " .. category.name .. "\n\n"
+        
+        for _, keyword in ipairs(category.keywords) do
+            output = output .. "### " .. keyword.name .. "\n\n"
+            output = output .. keyword.description .. "\n\n"
+            output = output .. "**Default targeting:** " .. getTargetTypeDescription(keyword.name) .. "\n\n"
+            output = output .. "**Example usage:**\n\n"
+            output = output .. "```lua\n" .. keyword.example .. "\n```\n\n"
+            
+            -- Add targeting example if appropriate
+            if Spells.keywordSystem.keywordTargets[keyword.name] then
+                output = output .. "**Custom targeting example:**\n\n"
+                output = output .. "```lua\n" .. keyword.name .. " = {\n"
+                output = output .. "    -- Parameters as above\n"
+                output = output .. "    target = \"" .. Spells.keywordSystem.keywordTargets[keyword.name] .. "\"  -- Default target\n"
+                output = output .. "    -- You can override with any of: \"self\", \"enemy\", \"pool_self\", \"pool_enemy\", \"slot_self\", \"slot_enemy\", \"global\", \"none\"\n"
+                output = output .. "}\n```\n\n"
+            end
+        end
+    end
+    
+    -- Add a section with sample spells
+    output = output .. "## Sample Spells\n\n"
+    output = output .. "These examples show how to combine multiple keywords to create complex spell effects.\n\n"
+    
+    -- Targeting section
+    output = output .. "### About Targeting\n\n"
+    output = output .. "Each keyword has a default target (shown in the keyword documentation). You can override this by specifying a `target` parameter in the keyword configuration.\n\n"
+    output = output .. "Available target types:\n\n"
+    output = output .. "| Target Type | Description |\n"
+    output = output .. "|------------|-------------|\n"
+    output = output .. "| `self` | Affects the caster |\n"
+    output = output .. "| `enemy` | Affects the opponent |\n"
+    output = output .. "| `pool_self` | Affects the caster's mana pool |\n"
+    output = output .. "| `pool_enemy` | Affects the opponent's mana pool |\n"
+    output = output .. "| `slot_self` | Affects the caster's spell slots |\n"
+    output = output .. "| `slot_enemy` | Affects the opponent's spell slots |\n"
+    output = output .. "| `global` | Affects the game state |\n"
+    output = output .. "| `none` | No specific target |\n\n"
+    
+    -- Multi-target spell example
+    output = output .. "### Arcane Reversal (Multi-Target Example)\n\n"
+    output = output .. "```lua\nSpells.arcaneReversal = {\n"
+    output = output .. "    id = \"arcanereversal\",\n"
+    output = output .. "    name = \"Arcane Reversal\",\n"
+    output = output .. "    description = \"A complex spell that manipulates mana, movement, and timing simultaneously\",\n"
+    output = output .. "    attackType = \"remote\",\n"
+    output = output .. "    castTime = 6.0,\n"
+    output = output .. "    cost = {\"moon\", \"star\", \"force\", \"force\"},\n"
+    output = output .. "    keywords = {\n"
+    output = output .. "        -- Apply damage to enemy\n"
+    output = output .. "        damage = {\n"
+    output = output .. "            amount = function(caster, target)\n"
+    output = output .. "                -- More damage if enemy has active shields\n"
+    output = output .. "                local shieldCount = 0\n"
+    output = output .. "                for _, slot in ipairs(target.spellSlots) do\n"
+    output = output .. "                    if slot.active and slot.isShield then\n"
+    output = output .. "                        shieldCount = shieldCount + 1\n"
+    output = output .. "                    end\n"
+    output = output .. "                end\n"
+    output = output .. "                return 8 + (shieldCount * 4)  -- 8 base + 4 per shield\n"
+    output = output .. "            end,\n"
+    output = output .. "            type = \"star\",\n"
+    output = output .. "            target = \"ENEMY\"  -- Explicit targeting\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Move self to opposite range\n"
+    output = output .. "        rangeShift = {\n"
+    output = output .. "            position = function(caster, target)\n"
+    output = output .. "                return caster.gameState.rangeState == \"NEAR\" and \"FAR\" or \"NEAR\"\n"
+    output = output .. "            end,\n"
+    output = output .. "            target = \"SELF\"  -- Different target from damage\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Lock opponent's mana tokens\n"
+    output = output .. "        lock = {\n"
+    output = output .. "            duration = 4.0,\n"
+    output = output .. "            target = \"POOL_ENEMY\"  -- Target opponent's pool\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Add tokens to own pool\n"
+    output = output .. "        conjure = {\n"
+    output = output .. "            token = \"force\",\n"
+    output = output .. "            amount = 1,\n"
+    output = output .. "            target = \"POOL_SELF\"  -- Target own pool\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Accelerate own next spell\n"
+    output = output .. "        accelerate = {\n"
+    output = output .. "            amount = 2.0,\n"
+    output = output .. "            slot = 1,  -- First slot\n"
+    output = output .. "            target = \"SLOT_SELF\"  -- Target own slot\n"
+    output = output .. "        }\n"
+    output = output .. "    },\n"
+    output = output .. "    vfx = \"arcane_reversal\",\n"
+    output = output .. "    blockableBy = {\"ward\", \"field\"}\n"
+    output = output .. "}\n```\n\n"
+    
+    -- Fireball example
+    output = output .. "### Fireball\n\n"
+    output = output .. "```lua\nSpells.fireball = {\n"
+    output = output .. "    id = \"fireball\",\n"
+    output = output .. "    name = \"Fireball\",\n"
+    output = output .. "    description = \"Launches a ball of fire that deals heavy damage\",\n"
+    output = output .. "    attackType = \"projectile\",\n"
+    output = output .. "    castTime = 4.0,\n"
+    output = output .. "    cost = {\"fire\", \"fire\", \"force\"},\n"
+    output = output .. "    keywords = {\n"
+    output = output .. "        damage = {\n"
+    output = output .. "            amount = function(caster, target)\n"
+    output = output .. "                -- More damage at FAR range\n"
+    output = output .. "                return caster.gameState.rangeState == \"FAR\" and 18 or 12\n"
+    output = output .. "            end,\n"
+    output = output .. "            type = \"fire\"\n"
+    output = output .. "            -- No target specified, uses default: ENEMY\n"
+    output = output .. "        },\n"
+    output = output .. "        -- Add AOE effect if cast from AERIAL\n"
+    output = output .. "        zoneMulti = function(caster, target)\n"
+    output = output .. "            return caster.elevation == \"AERIAL\"\n"
+    output = output .. "        end\n"
+    output = output .. "    },\n"
+    output = output .. "    vfx = \"fireball\",\n"
+    output = output .. "    sfx = \"explosion\",\n"
+    output = output .. "    blockableBy = {\"barrier\"}\n"
+    output = output .. "}\n```\n\n"
+    
+    return output
+end
+
+-- Generate a documentation file
+function DocGenerator.writeDocumentation(outputPath)
+    outputPath = outputPath or "/Users/russell/Manastorm/docs/KEYWORDS.md"
+    
+    local markdown = DocGenerator.generateMarkdown()
+    
+    local file = io.open(outputPath, "w")
+    if file then
+        file:write(markdown)
+        file:close()
+        print("Keyword documentation written to: " .. outputPath)
+        return true
+    else
+        print("Error: Could not open file for writing: " .. outputPath)
+        return false
+    end
+end
+
+-- Execute documentation generation if this file is run directly
+if not ... then
+    DocGenerator.writeDocumentation()
+end
+
+return DocGenerator```
+
 ## ./main.lua
 ```lua
 -- Manastorm - Wizard Duel Game
@@ -39,7 +236,11 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
-    rangeState = "FAR"  -- Initial range state (NEAR or FAR)
+    rangeState = "FAR",  -- Initial range state (NEAR or FAR)
+    gameOver = false,
+    winner = nil,
+    winScreenTimer = 0,
+    winScreenDuration = 5  -- How long to show the win screen before auto-reset
 }
 
 -- Define token types and images (globally available for consistency)
@@ -75,9 +276,9 @@ function love.load()
     local screenHeight = love.graphics.getHeight()
     game.manaPool = ManaPool.new(screenWidth/2, 120)  -- Positioned between health bars and wizards
     
-    -- Create wizards
-    game.wizards[1] = Wizard.new("Ashgar", 200, 300, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 300, {100, 100, 255})
+    -- Create wizards - moved lower on screen to allow more room for aerial movement
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
+    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -88,6 +289,52 @@ function love.load()
     -- Initialize VFX system
     game.vfx = VFX.init()
     
+    -- Create custom shield spells just for hotkeys
+    -- These are complete, independent spell definitions
+    game.customSpells = {}
+    
+    -- Define Moon Ward with minimal dependencies
+    game.customSpells.moonWard = {
+        id = "customMoonWard",
+        name = "Moon Ward",
+        description = "A mystical ward that blocks projectiles and remotes",
+        attackType = "utility",
+        castTime = 4.5,
+        cost = {"moon", "moon"},
+        keywords = {
+            block = {
+                type = "ward",
+                blocks = {"projectile", "remote"},
+                manaLinked = true
+            }
+        },
+        vfx = "moon_ward",
+        sfx = "shield_up",
+        blockableBy = {}
+    }
+    
+    -- Define Mirror Shield with minimal dependencies
+    game.customSpells.mirrorShield = {
+        id = "customMirrorShield",
+        name = "Mirror Shield",
+        description = "A reflective barrier that returns damage to attackers",
+        attackType = "utility",
+        castTime = 5.0,
+        cost = {"moon", "moon", "star"},
+        keywords = {
+            block = {
+                type = "barrier",
+                blocks = {"projectile", "zone"},
+                manaLinked = false,
+                reflect = true,
+                hitPoints = 3
+            }
+        },
+        vfx = "mirror_shield",
+        sfx = "crystal_ring",
+        blockableBy = {}
+    }
+    
     -- Initialize mana pool with a single random token to start
     local tokenType = game.addRandomToken()
     
@@ -95,7 +342,116 @@ function love.load()
     print("Starting the game with a single " .. tokenType .. " token")
 end
 
+-- Reset the game
+function resetGame()
+    -- Reset game state
+    game.gameOver = false
+    game.winner = nil
+    game.winScreenTimer = 0
+    
+    -- Reset wizards
+    for _, wizard in ipairs(game.wizards) do
+        wizard.health = 100
+        wizard.elevation = "GROUNDED"
+        wizard.elevationTimer = 0
+        wizard.stunTimer = 0
+        
+        -- Reset spell slots
+        for i = 1, 3 do
+            wizard.spellSlots[i] = {
+                active = false,
+                progress = 0,
+                spellType = nil,
+                castTime = 0,
+                tokens = {},
+                isShield = false,
+                defenseType = nil,
+                shieldStrength = 0,
+                blocksAttackTypes = nil
+            }
+        end
+        
+        -- Reset status effects
+        wizard.statusEffects.burn.active = false
+        wizard.statusEffects.burn.duration = 0
+        wizard.statusEffects.burn.tickDamage = 0
+        wizard.statusEffects.burn.tickInterval = 1.0
+        wizard.statusEffects.burn.elapsed = 0
+        wizard.statusEffects.burn.totalTime = 0
+        
+        -- Reset blockers
+        for blockType in pairs(wizard.blockers) do
+            wizard.blockers[blockType] = 0
+        end
+        
+        -- Reset spell keying
+        wizard.activeKeys = {[1] = false, [2] = false, [3] = false}
+        wizard.currentKeyedSpell = nil
+    end
+    
+    -- Reset range state
+    game.rangeState = "FAR"
+    
+    -- Clear mana pool and add a single token to start
+    game.manaPool:clear()
+    local tokenType = game.addRandomToken()
+    print("Game reset! Starting with a single " .. tokenType .. " token")
+end
+
 function love.update(dt)
+    -- Check for win condition before updates
+    if game.gameOver then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+        
+        -- Auto-reset after duration
+        if game.winScreenTimer >= game.winScreenDuration then
+            resetGame()
+        end
+        
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+        return
+    end
+    
+    -- Check if any wizard's health has reached zero
+    for i, wizard in ipairs(game.wizards) do
+        if wizard.health <= 0 then
+            game.gameOver = true
+            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+            game.winScreenTimer = 0
+            
+            -- Create victory VFX around the winner
+            local winner = game.wizards[game.winner]
+            for j = 1, 15 do
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(40, 100)
+                local x = winner.x + math.cos(angle) * distance
+                local y = winner.y + math.sin(angle) * distance
+                
+                -- Determine winner's color for effects
+                local color
+                if game.winner == 1 then -- Ashgar
+                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                else -- Selene
+                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                end
+                
+                -- Create sparkle effect with delay
+                game.vfx.createEffect("impact", x, y, nil, nil, {
+                    duration = 0.8 + math.random() * 0.5,
+                    color = color,
+                    particleCount = 5,
+                    radius = 15,
+                    delay = j * 0.1
+                })
+            end
+            
+            print(winner.name .. " wins!")
+            break
+        end
+    end
+    
     -- Update wizards
     for _, wizard in ipairs(game.wizards) do
         wizard:update(dt)
@@ -129,12 +485,118 @@ function love.draw()
     -- Draw UI (health bars and wizard names are handled in UI.drawSpellInfo)
     love.graphics.setColor(1, 1, 1)
     
-    -- Draw help text and spell info
-    UI.drawHelpText(game.font)
+    -- Always draw spellbook components
+    UI.drawSpellbookButtons()
+    
+    -- Draw spell info (health bars, etc.)
     UI.drawSpellInfo(game.wizards)
     
-    -- Debug info
-    love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    -- Draw win screen if game is over
+    if game.gameOver and game.winner then
+        drawWinScreen()
+    end
+    
+    -- Debug info only when debug key is pressed
+    if love.keyboard.isDown("`") then
+        UI.drawHelpText(game.font)
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    else
+        -- Always show a small hint about the debug key
+        love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
+        love.graphics.print("Press ` for debug controls", 10, love.graphics.getHeight() - 20)
+    end
+end
+
+-- Draw the win screen
+function drawWinScreen()
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    local winner = game.wizards[game.winner]
+    
+    -- Fade in effect
+    local fadeProgress = math.min(game.winScreenTimer / 0.5, 1.0)
+    
+    -- Draw semi-transparent overlay
+    love.graphics.setColor(0, 0, 0, 0.7 * fadeProgress)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Determine winner's color scheme
+    local winnerColor
+    if game.winner == 1 then -- Ashgar
+        winnerColor = {1.0, 0.4, 0.2} -- Fire-like
+    else -- Selene
+        winnerColor = {0.4, 0.4, 1.0} -- Moon-like
+    end
+    
+    -- Calculate animation progress for text
+    local textProgress = math.min(math.max(game.winScreenTimer - 0.5, 0) / 0.5, 1.0)
+    local textScale = 1 + (1 - textProgress) * 3 -- Text starts larger and shrinks to normal size
+    local textY = screenHeight / 2 - 100
+    
+    -- Draw winner text with animated scale
+    love.graphics.setColor(winnerColor[1], winnerColor[2], winnerColor[3], textProgress)
+    
+    -- Main victory text
+    local victoryText = winner.name .. " WINS!"
+    local victoryTextWidth = game.font:getWidth(victoryText) * textScale * 3
+    love.graphics.print(
+        victoryText, 
+        screenWidth / 2 - victoryTextWidth / 2, 
+        textY,
+        0, -- rotation
+        textScale * 3, -- scale X
+        textScale * 3  -- scale Y
+    )
+    
+    -- Only show restart instructions after initial animation
+    if game.winScreenTimer > 1.0 then
+        -- Calculate pulse effect
+        local pulse = 0.7 + 0.3 * math.sin(game.winScreenTimer * 4)
+        
+        -- Draw restart instruction with pulse effect
+        local restartText = "Press [SPACE] to play again"
+        local restartTextWidth = game.font:getWidth(restartText) * 1.5
+        
+        love.graphics.setColor(1, 1, 1, pulse)
+        love.graphics.print(
+            restartText,
+            screenWidth / 2 - restartTextWidth / 2,
+            textY + 150,
+            0, -- rotation
+            1.5, -- scale X
+            1.5  -- scale Y
+        )
+        
+        -- Show auto-restart countdown
+        local remainingTime = math.ceil(game.winScreenDuration - game.winScreenTimer)
+        local countdownText = "Auto-restart in " .. remainingTime .. "..."
+        local countdownTextWidth = game.font:getWidth(countdownText)
+        
+        love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
+        love.graphics.print(
+            countdownText,
+            screenWidth / 2 - countdownTextWidth / 2,
+            textY + 200
+        )
+    end
+    
+    -- Draw some victory effect particles
+    for i = 1, 3 do
+        if math.random() < 0.3 then
+            local x = math.random(screenWidth)
+            local y = math.random(screenHeight)
+            local size = math.random(10, 30)
+            
+            love.graphics.setColor(
+                winnerColor[1], 
+                winnerColor[2], 
+                winnerColor[3], 
+                math.random() * 0.3
+            )
+            love.graphics.circle("fill", x, y, size)
+        end
+    end
 end
 
 -- Function to draw the range indicator for NEAR/FAR states
@@ -143,66 +605,74 @@ function drawRangeIndicator()
     local screenHeight = love.graphics.getHeight()
     local centerX = screenWidth / 2
     
-    -- Start range indicator well below the mana pool
-    local startY = 200
+    -- Only draw a subtle central line, without the text indicators
+    -- The wizard positions themselves will communicate NEAR/FAR state
     
-    -- Draw a line or barrier to indicate NEAR/FAR state
+    -- Different visual style based on range state
     if game.rangeState == "NEAR" then
-        -- Draw a more prominent barrier for NEAR state
-        love.graphics.setColor(0.6, 0.6, 0.8, 0.4)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- For NEAR state, draw a more vibrant, energetic line
+        love.graphics.setColor(0.5, 0.5, 0.9, 0.4)
         
-        -- Add a more noticeable glow/pulse
-        for i = 1, 7 do
-            local alpha = 0.15 - (i * 0.018)
-            local width = i * 5
-            love.graphics.setColor(0.6, 0.6, 0.8, alpha)
-            love.graphics.setLineWidth(width)
-            love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- Draw main line
+        love.graphics.setLineWidth(1.5)
+        love.graphics.line(centerX, 200, centerX, screenHeight - 100)
+        
+        -- Add a subtle energetic glow/pulse
+        for i = 1, 5 do
+            local pulseWidth = 3 + math.sin(love.timer.getTime() * 2.5) * 2
+            local alpha = 0.12 - (i * 0.02)
+            love.graphics.setColor(0.5, 0.5, 0.9, alpha)
+            love.graphics.setLineWidth(pulseWidth * i)
+            love.graphics.line(centerX, 200, centerX, screenHeight - 100)
         end
         love.graphics.setLineWidth(1)
-        
-        -- Add "NEAR" text indicator below mana pool
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.8)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 0.8, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 25, startY - 23, 50, 20)
-        love.graphics.setColor(0.9, 0.9, 1, 0.9)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
     else
-        -- For FAR state, draw a more substantial, distant barrier
-        -- Distortion effect to simulate distance
-        for i = 1, 12 do
-            local wobble = math.sin(love.timer.getTime() * 2 + i * 0.3) * 3
-            local y1 = startY + (i * 5) + wobble
-            local y2 = screenHeight - 100 - (i * 5) + wobble
-            local alpha = 0.15 - (i * 0.009)
-            love.graphics.setColor(0.4, 0.4, 0.7, alpha)
-            love.graphics.line(centerX + i * 3, y1, centerX + i * 3, y2)
-            love.graphics.line(centerX - i * 3, y1, centerX - i * 3, y2)
+        -- For FAR state, draw a more distant, faded line
+        love.graphics.setColor(0.3, 0.3, 0.7, 0.3)
+        
+        -- Draw main line with slight wave effect
+        local segments = 12
+        local segmentHeight = (screenHeight - 300) / segments
+        local points = {}
+        
+        for i = 0, segments do
+            local y = 200 + i * segmentHeight
+            local wobble = math.sin(love.timer.getTime() + i * 0.3) * 1.5
+            table.insert(points, centerX + wobble)
+            table.insert(points, y)
         end
         
-        -- Main line
-        love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        love.graphics.setLineWidth(1)
+        love.graphics.line(points)
         
-        -- Add "FAR" text indicator below mana pool
-        love.graphics.setColor(0.5, 0.5, 0.8, 0.8)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.3, 0.3, 0.6, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 20, startY - 23, 40, 20)
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.9)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
+        -- Add very subtle horizontal distortion lines
+        for i = 1, 5 do
+            local y = 200 + (i * (screenHeight - 300) / 6)
+            local width = 15 + math.sin(love.timer.getTime() * 0.7 + i) * 5
+            local alpha = 0.05
+            love.graphics.setColor(0.3, 0.3, 0.7, alpha)
+            love.graphics.setLineWidth(0.5)
+            love.graphics.line(centerX - width, y, centerX + width, y)
+        end
     end
+    
+    -- Reset line width
+    love.graphics.setLineWidth(1)
 end
 
 function love.keypressed(key)
+    -- Debug all key presses to isolate input issues
+    print("DEBUG: Key pressed: '" .. key .. "'")
+    
+    -- Check for game over state first
+    if game.gameOver then
+        -- Reset game on space bar press during game over
+        if key == "space" then
+            resetGame()
+        end
+        return
+    end
+    
     if key == "escape" then
         love.event.quit()
     end
@@ -229,7 +699,7 @@ function love.keypressed(key)
         game.wizards[2]:keySpell(2, true)
     elseif key == "p" then
         game.wizards[2]:keySpell(3, true)
-    elseif key == "l" then
+    elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
     elseif key == "m" then
@@ -241,6 +711,34 @@ function love.keypressed(key)
     if key == "t" then
         local tokenType = game.addRandomToken()
         print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Debug: Add specific tokens for testing shield spells
+    if key == "z" then
+        local tokenType = "moon"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "x" then
+        local tokenType = "star"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "c" then
+        local tokenType = "force"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Direct keys for casting shield spells, bypassing keying and issue in cast key "l"
+    if key == "1" then
+        -- Force cast Moon Ward for Selene
+        print("DEBUG: Directly casting Moon Ward for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.moonWard)
+        print("DEBUG: Moon Ward cast result: " .. tostring(result))
+    elseif key == "2" then
+        -- Force cast Mirror Shield for Selene
+        print("DEBUG: Directly casting Mirror Shield for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.mirrorShield)
+        print("DEBUG: Mirror Shield cast result: " .. tostring(result))
     end
     
     -- Debug: Position/elevation test controls
@@ -375,6 +873,12 @@ function ManaPool.new(x, y)
     return self
 end
 
+-- Clear all tokens from the mana pool
+function ManaPool:clear()
+    self.tokens = {}
+    self.reservedTokens = {}
+end
+
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)
@@ -400,7 +904,7 @@ function ManaPool:addToken(tokenType, imagePath)
         image = love.graphics.newImage(imagePath),
         x = x + variationX,
         y = y + variationY,
-        state = "FREE",  -- FREE, CHANNELED, LOCKED, DESTROYED
+        state = "FREE",  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
         lockDuration = 0, -- Duration for how long a token remains locked
         
         -- Valence-based orbit properties
@@ -439,12 +943,16 @@ function ManaPool:addToken(tokenType, imagePath)
         
         -- Depth/z-order variation
         zOrder = math.random(),  -- Used for layering tokens
+        
+        -- We've intentionally removed token repulsion to return to clean orbital motion
     }
     
     token.originalSpeed = token.orbitSpeed
     
     table.insert(self.tokens, token)
 end
+
+-- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
     -- Update token positions and states
@@ -570,8 +1078,8 @@ function ManaPool:update(dt)
             if math.random() < 0.002 then  -- Small chance to reverse rotation
                 token.rotSpeed = -token.rotSpeed
             end
-        elseif token.state == "CHANNELED" then
-            -- For channeled tokens, animate movement to/from their spell slot
+        elseif token.state == "CHANNELED" or token.state == "SHIELDING" then
+            -- For channeled or shielding tokens, animate movement to/from their spell slot
             
             if token.animTime < token.animDuration then
                 -- Token is still being animated to the spell slot
@@ -607,7 +1115,18 @@ function ManaPool:update(dt)
                                        anglePerToken * (token.tokenIndex - 1)
                     
                     -- Calculate position using elliptical projection
-                    local x3 = wizard.x + math.cos(tokenAngle) * radiusX
+                    -- Apply the NEAR/FAR offset to the target position
+                    local xOffset = 0
+                    local isNear = wizard.gameState and wizard.gameState.rangeState == "NEAR"
+                    
+                    -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
+                    if wizard.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
                     local y3 = slotY + math.sin(tokenAngle) * radiusY
                     
                     -- Control points for bezier (creating an arc)
@@ -695,6 +1214,7 @@ function ManaPool:update(dt)
                     local valence = self.valences[token.valenceIndex]
                     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
                     token.originalSpeed = token.orbitSpeed
+                    -- No repulsion forces needed (system removed)
                 end
             end
             
@@ -712,20 +1232,8 @@ function ManaPool:update(dt)
 end
 
 function ManaPool:draw()
-    -- Draw pool background with a subtle gradient effect for elliptical shape
-    love.graphics.setColor(0.15, 0.15, 0.25, 0.2)
-    
-    -- Draw the elliptical mana pool area with a glow effect
-    self:drawEllipse(self.x, self.y, self.radiusX, self.radiusY, "fill")
-    
-    -- Draw valence rings subtly
-    for _, valence in ipairs(self.valences) do
-        local alpha = 0.07  -- Very subtle
-        love.graphics.setColor(0.5, 0.5, 0.7, alpha)
-        
-        -- Draw elliptical valence path
-        self:drawEllipse(self.x, self.y, valence.radiusX, valence.radiusY, "line")
-    end
+    -- No longer drawing the pool background or valence rings
+    -- The pool is now completely invisible, defined only by the positions of the tokens
     
     -- Sort tokens by z-order for better layering
     local sortedTokens = {}
@@ -741,40 +1249,66 @@ function ManaPool:draw()
     for _, tokenData in ipairs(sortedTokens) do
         local token = tokenData.token
         
-        -- Draw a glow around the token based on its type
-        local glowSize = 10
-        local glowIntensity = 0.4  -- Slightly stronger glow
+        -- Draw a larger, more vibrant glow around the token based on its type
+        local glowSize = 15 -- Larger glow radius
+        local glowIntensity = 0.6  -- Stronger glow intensity
         
-        -- Increase glow for tokens in transition (newly returned to pool)
-        if token.state == "FREE" and token.inTransition then
-            -- Stronger glow that fades over the transition period
-            local transitionBoost = 0.4 + 0.6 * (1 - token.transitionTime / token.transitionDuration)
-            glowSize = glowSize * (1 + transitionBoost * 0.5)
-            glowIntensity = glowIntensity + transitionBoost * 0.4
+        -- Multiple glow layers for more visual interest
+        for layer = 1, 2 do
+            local layerSize = glowSize * (1.2 - layer * 0.3)
+            local layerIntensity = glowIntensity * (layer == 1 and 0.4 or 0.8)
+            
+            -- Increase glow for tokens in transition (newly returned to pool)
+            if token.state == "FREE" and token.inTransition then
+                -- Stronger glow that fades over the transition period
+                local transitionBoost = 0.6 + 0.8 * (1 - token.transitionTime / token.transitionDuration)
+                layerSize = layerSize * (1 + transitionBoost * 0.5)
+                layerIntensity = layerIntensity + transitionBoost * 0.5
+            end
+            
+            -- Set glow color based on token type with improved contrast and vibrancy
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.3, 0.1, layerIntensity)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 0.9, 0.3, layerIntensity)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.4, 0.4, 1, layerIntensity)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.2, 0.9, 0.1, layerIntensity)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.8, 0.2, layerIntensity)
+            end
+            
+            -- Draw glow with pulsation
+            local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
+            
+            -- Enhanced pulsation for transitioning tokens
+            if token.state == "FREE" and token.inTransition then
+                pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
+            end
+            
+            love.graphics.circle("fill", token.x, token.y, layerSize * pulseAmount * token.scale)
         end
         
-        -- Set glow color based on token type with improved contrast
-        if token.type == "fire" then
-            love.graphics.setColor(1, 0.3, 0.1, glowIntensity)
-        elseif token.type == "force" then
-            love.graphics.setColor(1, 1, 0.5, glowIntensity)
-        elseif token.type == "moon" then
-            love.graphics.setColor(0.5, 0.5, 1, glowIntensity)
-        elseif token.type == "nature" then
-            love.graphics.setColor(0.3, 0.9, 0.1, glowIntensity)
-        elseif token.type == "star" then
-            love.graphics.setColor(1, 1, 0.2, glowIntensity)
+        -- Draw a small outer ring for better definition
+        if token.state == "FREE" then
+            local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
+            
+            -- Set ring color based on token type
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.5, 0.2, ringAlpha)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 1, 0.4, ringAlpha)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.6, 0.6, 1, ringAlpha)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.3, 1, 0.2, ringAlpha)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.9, 0.3, ringAlpha)
+            end
+            
+            love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
-        
-        -- Draw glow with pulsation
-        local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
-        
-        -- Enhanced pulsation for transitioning tokens
-        if token.state == "FREE" and token.inTransition then
-            pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
-        end
-        
-        love.graphics.circle("fill", token.x, token.y, glowSize * pulseAmount * token.scale)
         
         -- Draw token image based on state
         if token.state == "FREE" then
@@ -789,6 +1323,17 @@ function ManaPool:draw()
         elseif token.state == "CHANNELED" then
             -- Channeled tokens are fully visible
             love.graphics.setColor(1, 1, 1, 1)
+        elseif token.state == "SHIELDING" then
+            -- Shielding tokens have a slight colored tint based on their type
+            if token.type == "force" then
+                love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
+            elseif token.type == "moon" or token.type == "star" then
+                love.graphics.setColor(0.8, 0.8, 1, 1)  -- Blue tint for moon/star (ward)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.8, 1, 0.8, 1)  -- Green tint for nature (field)
+            else
+                love.graphics.setColor(1, 1, 1, 1)  -- Default
+            end
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
@@ -803,6 +1348,66 @@ function ManaPool:draw()
             token.scale, token.scale,  -- Use token-specific scale
             token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
         )
+        
+        -- Draw shield effect for shielding tokens
+        if token.state == "SHIELDING" then
+            -- Get token color based on its mana type
+            local tokenColor = {1, 1, 1, 0.3}  -- Default white
+            
+            -- Match color to the token type
+            if token.type == "fire" then
+                tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
+            elseif token.type == "force" then
+                tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
+            elseif token.type == "moon" then
+                tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
+            elseif token.type == "star" then
+                tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
+            elseif token.type == "nature" then
+                tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
+            end
+            
+            -- Draw a subtle shield aura with slight pulsation
+            local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
+            love.graphics.setColor(tokenColor)
+            love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Draw shield border
+            love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+            love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Add a small defensive shield symbol inside the circle
+            -- Determine symbol shape by defense type if available
+            if token.wizardOwner and token.spellSlot then
+                local slot = token.wizardOwner.spellSlots[token.spellSlot]
+                if slot and slot.defenseType then
+                    love.graphics.setColor(1, 1, 1, 0.7)
+                    if slot.defenseType == "barrier" then
+                        -- Draw a small hexagon (shield shape) for barriers
+                        local shieldSize = 6 * token.scale
+                        local points = {}
+                        for i = 1, 6 do
+                            local angle = (i - 1) * math.pi / 3
+                            table.insert(points, token.x + math.cos(angle) * shieldSize)
+                            table.insert(points, token.y + math.sin(angle) * shieldSize)
+                        end
+                        love.graphics.polygon("line", points)
+                    elseif slot.defenseType == "ward" then
+                        -- Draw a small circle (ward shape)
+                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
+                    elseif slot.defenseType == "field" then
+                        -- Draw a small diamond (field shape)
+                        local fieldSize = 7 * token.scale
+                        love.graphics.polygon("line", 
+                            token.x, token.y - fieldSize,
+                            token.x + fieldSize, token.y,
+                            token.x, token.y + fieldSize,
+                            token.x - fieldSize, token.y
+                        )
+                    end
+                end
+            end
+        end
         
         -- Draw lock overlay for locked tokens
         if token.state == "LOCKED" then
@@ -837,9 +1442,7 @@ function ManaPool:draw()
         end
     end
     
-    -- Outer border with subtle glow
-    love.graphics.setColor(0.5, 0.5, 0.8, 0.2 + 0.1 * math.sin(love.timer.getTime() * 0.5))
-    self:drawEllipse(self.x, self.y, self.radiusX + 2, self.radiusY + 2, "line")
+    -- No border - the pool is now completely invisible
 end
 
 -- Helper function to draw an ellipse
@@ -999,6 +1602,8 @@ function ManaPool:finalizeTokenReturn(token)
     token.scale = 0.85 + math.random() * 0.3
     token.zOrder = math.random()
     
+    -- No repulsion forces to reset (removed system)
+    
     -- Clear animation flags
     token.returning = false
     token.wizardOwner = nil
@@ -1015,268 +1620,2241 @@ return ManaPool```
 
 local Spells = {}
 
--- Spell costs are defined as tables with mana type and count
--- For generic/any mana, use "any" as the type
--- For modal costs (can be paid with subset of types), use a table of types
+-- Schema for spell object:
+-- id: Unique identifier for the spell (string)
+-- name: Display name of the spell (string)
+-- description: Text description of what the spell does (string)
+-- attackType: How the spell is delivered - "projectile", "remote", "zone", "utility" (string)
+--   * projectile: Physical projectile attacks - can be blocked by barriers and wards
+--   * remote:     Magical attacks at a distance - can only be blocked by wards
+--   * zone:       Area effect attacks - can be blocked by barriers and fields
+--   * utility:    Non-offensive spells that affect the caster - cannot be blocked
+-- castTime: Duration in seconds to cast the spell (number)
+-- cost: Array of token types required (simple array of strings like {"fire", "fire", "moon"})
+-- keywords: Table of effect keywords and their parameters (table)
+--   - Available keywords: conjure, dissipate, damage, lock, delay, accelerate, dispel, disjoint, 
+--     stagger, elevate, ground, rangeShift, forcePull, reflect, block, echo, zoneAnchor,
+--     zoneMulti, manaLeak, tokenShift, overcharge, rebound
+-- vfx: Visual effect identifier (string, optional)
+-- sfx: Sound effect identifier (string, optional)
+-- blockableBy: Array of shield types that can block this spell (array, optional)
+--
+-- Shield Types and Blocking Rules:
+-- * barrier: Physical shield that blocks projectiles and zones
+-- * ward:    Magical shield that blocks projectiles and remotes
+-- * field:   Energy field that blocks remotes and zones
+-- 
+-- When a shield blocks a spell:
+-- 1. The spell's effect is completely negated
+-- 2. If the shield is mana-linked, one token used to cast it is released to the pool
+-- 3. The shield's strength is reduced by 1
+-- 4. When a shield's strength reaches 0, it is destroyed
+-- 5. If the shield has the reflect property, damage spells are reflected back at the caster
+
+-- Define a logging function for keyword resolution
+local function logKeywordResolution(spellId, keyword, params, results)
+    local paramString = ""
+    for k, v in pairs(params) do
+        if type(v) == "function" then
+            paramString = paramString .. k .. "=<function>, "
+        else
+            paramString = paramString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    local resultString = ""
+    for k, v in pairs(results) do
+        if k ~= "damage" or results.damage ~= 0 then  -- Skip damage=0 to reduce noise
+            resultString = resultString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    print(string.format("[KEYWORD] %s: %s(%s) -> %s", 
+                         spellId or "unknown", 
+                         keyword, 
+                         paramString:sub(1, -3),  -- Remove trailing comma
+                         resultString:sub(1, -3)))  -- Remove trailing comma
+end
+
+-- Keyword resolution framework
+local KeywordSystem = {}
+
+-- Define keyword categories for organization
+KeywordSystem.categories = {
+    RESOURCE = "Resource Manipulation",
+    DAMAGE = "Damage Effects",
+    DOT = "Damage Over Time",
+    TOKEN = "Token Manipulation",
+    TIMING = "Spell Timing",
+    MOVEMENT = "Movement & Position",
+    DEFENSE = "Defense Mechanisms",
+    SPECIAL = "Special Effects",
+    ZONE = "Zone Mechanics"
+}
+
+-- Define targeting modes for keywords and spells
+KeywordSystem.targetTypes = {
+    SELF = "self",           -- The caster
+    ENEMY = "enemy",         -- The opponent
+    POOL_SELF = "pool_self", -- Caster's mana pool
+    POOL_ENEMY = "pool_enemy", -- Opponent's mana pool
+    SLOT_SELF = "slot_self", -- Caster's spell slots
+    SLOT_ENEMY = "slot_enemy", -- Opponent's spell slots
+    GLOBAL = "global",       -- Affects the entire game state
+    NONE = "none"            -- No specific target (utility spells)
+}
+
+-- Map keywords to their default target type
+KeywordSystem.keywordTargets = {
+    -- Resource manipulation (mostly affect mana pools)
+    tokenShift = "POOL_SELF",  -- Default affects own pool
+    conjure = "POOL_SELF",
+    dissipate = "POOL_ENEMY",  -- Default removes opponent's tokens
+    
+    -- Damage (always targets enemy)
+    damage = "ENEMY",
+    
+    -- Damage over time effects
+    burn = "ENEMY",
+    
+    -- Token manipulation
+    lock = "POOL_ENEMY",
+    
+    -- Spell timing effects
+    delay = "SLOT_ENEMY",
+    accelerate = "SLOT_SELF",
+    dispel = "SLOT_ENEMY", 
+    disjoint = "SLOT_ENEMY",
+    stagger = "SLOT_ENEMY",
+    freeze = "SLOT_ENEMY", 
+    
+    -- Movement and position effects
+    elevate = "SELF",
+    ground = "ENEMY",
+    rangeShift = "SELF", 
+    forcePull = "ENEMY",
+    
+    -- Defense mechanisms
+    reflect = "SELF",
+    block = "SELF",
+    
+    -- Special effects
+    echo = "SLOT_SELF",
+    
+    -- Zone mechanics
+    zoneAnchor = "SELF",
+    zoneMulti = "SELF"
+}
+
+-- Map keywords to their categories
+KeywordSystem.keywordCategories = {
+    -- Resource Manipulation
+    tokenShift = "RESOURCE",
+    conjure = "RESOURCE",
+    dissipate = "RESOURCE",
+    
+    -- Damage Effects
+    damage = "DAMAGE",
+    
+    -- Damage Over Time Effects
+    burn = "DOT",
+    
+    -- Token Manipulation
+    lock = "TOKEN",
+    
+    -- Spell Timing
+    delay = "TIMING",
+    accelerate = "TIMING",
+    dispel = "TIMING",
+    disjoint = "TIMING",
+    stagger = "TIMING",
+    freeze = "TIMING",
+    
+    -- Movement & Position
+    elevate = "MOVEMENT",
+    ground = "MOVEMENT",
+    rangeShift = "MOVEMENT",
+    forcePull = "MOVEMENT",
+    
+    -- Defense Mechanisms
+    reflect = "DEFENSE",
+    block = "DEFENSE",
+    
+    -- Special Effects
+    echo = "SPECIAL",
+    
+    -- Zone Mechanics
+    zoneAnchor = "ZONE",
+    zoneMulti = "ZONE"
+}
+
+-- Keyword handlers table - each entry is a function that processes one keyword type
+KeywordSystem.handlers = {
+    -- Damage over time effects
+    burn = function(params, caster, target, results)
+        results.burnApplied = true
+        results.burnDuration = params.duration or 3.0
+        results.burnTickDamage = params.tickDamage or 2
+        results.burnTickInterval = params.tickInterval or 1.0  -- Default to 1 second between ticks
+        return results
+    end,
+    -- Resource manipulation
+    tokenShift = function(params, caster, target, results)
+        local tokenType = params.type or "fire"
+        local amount = params.amount or 1
+        
+        if tokenType == "random" then
+            -- Implement random token shifting
+            results.tokenShift = true
+            results.tokenShiftType = "random"
+            results.tokenShiftAmount = amount
+        else
+            -- Implement specific token shifting
+            results.tokenShift = true
+            results.tokenShiftType = tokenType
+            results.tokenShiftAmount = amount
+        end
+        
+        return results
+    end,
+    conjure = function(params, caster, target, results)
+        local tokenType = params.token or "fire"
+        local amount = params.amount or 1
+        
+        for i = 1, amount do
+            local assetPath = "assets/sprites/" .. tokenType .. "-token.png"
+            caster.manaPool:addToken(tokenType, assetPath)
+        end
+        
+        return results
+    end,
+    
+    dissipate = function(params, caster, target, results)
+        local tokenType = params.token or "any"
+        local amount = params.amount or 1
+        local targetWizard = params.target == "caster" and caster or target
+        
+        -- Find and remove tokens from the target's mana pool
+        results.dissipate = true
+        results.dissipateType = tokenType
+        results.dissipateAmount = amount
+        results.dissipateTarget = targetWizard
+        
+        -- Keep track of how many tokens were successfully found to remove
+        local tokensFound = 0
+        
+        -- Logic to find and mark tokens for removal
+        for i, token in ipairs(targetWizard.manaPool.tokens) do
+            if token.state == "FREE" and (tokenType == "any" or token.type == tokenType) then
+                -- Mark token for destruction
+                token.state = "DESTROYED"
+                tokensFound = tokensFound + 1
+                
+                -- Add a destruction effect
+                if targetWizard.gameState.vfx then
+                    targetWizard.gameState.vfx.createEffect("token_destroy", token.x, token.y, nil, nil, {
+                        duration = 0.5,
+                        color = {0.8, 0.3, 0.3, 0.7},
+                        particleCount = 5,
+                        radius = 15
+                    })
+                end
+                
+                -- Stop once we've marked enough tokens
+                if tokensFound >= amount then
+                    break
+                end
+            end
+        end
+        
+        results.tokensDestroyed = tokensFound
+        
+        return results
+    end,
+    
+    -- Damage effects
+    damage = function(params, caster, target, results)
+        -- Handle damage amount that could be a function or a value
+        local damageAmount = params.amount or 0
+        
+        -- If damage is a function, evaluate it with nil checks
+        if type(damageAmount) == "function" then
+            if target ~= nil then
+                -- Normal case, we have a target
+                results.damage = damageAmount(caster, target)
+            else
+                -- No target, use 0 damage as default
+                results.damage = 0
+                print("[WARNING] Damage calculation called with nil target")
+            end
+        else
+            -- Static damage value
+            results.damage = damageAmount
+        end
+        
+        results.damageType = params.type
+        return results
+    end,
+    
+    -- Token manipulation
+    lock = function(params, caster, target, results)
+        results.lockToken = true
+        results.lockDuration = params.duration or 5.0
+        return results
+    end,
+    
+    -- Spell timing effects
+    delay = function(params, caster, target, results)
+        results.delayApplied = true
+        results.targetSlot = params.slot or 0  -- 0 means random or auto-select
+        results.delayAmount = params.duration or 1.0
+        return results
+    end,
+    
+    accelerate = function(params, caster, target, results)
+        -- This would need implementation in wizard.lua to accelerate spell progress
+        results.accelerate = true
+        results.targetSlot = params.slot or 0  -- 0 means self or current slot
+        results.accelerateAmount = params.amount or 1.0
+        return results
+    end,
+    
+    -- Spell cancellation effects
+    dispel = function(params, caster, target, results)
+        results.dispel = true
+        results.targetSlot = params.slot or 0  -- 0 means random active slot
+        return results
+    end,
+    
+    disjoint = function(params, caster, target, results)
+        results.disjoint = true
+        results.targetSlot = params.slot or 0
+        return results
+    end,
+    
+    stagger = function(params, caster, target, results)
+        results.stagger = true
+        results.targetSlot = params.slot or 0
+        results.staggerDuration = params.duration or 3.0
+        return results
+    end,
+    
+    -- Movement and position effects
+    elevate = function(params, caster, target, results)
+        results.setElevation = "AERIAL"
+        results.elevationDuration = params.duration or 5.0
+        return results
+    end,
+    
+    ground = function(params, caster, target, results)
+        results.setElevation = "GROUNDED"
+        return results
+    end,
+    
+    rangeShift = function(params, caster, target, results)
+        results.setPosition = params.position or "NEAR"
+        return results
+    end,
+    
+    forcePull = function(params, caster, target, results)
+        -- Force opponent to move to caster's range
+        results.forcePosition = true
+        return results
+    end,
+    
+    -- Defense mechanisms
+    reflect = function(params, caster, target, results)
+        results.reflect = true
+        results.reflectDuration = params.duration or 3.0
+        return results
+    end,
+    
+    block = function(params, caster, target, results)
+        local spellSlot = params.slot or nil
+        
+        -- Check if we should create a shield directly
+        if caster and spellSlot then
+            -- Call the shield creation function
+            local shieldResults = KeywordSystem.createShield(caster, spellSlot, params)
+            
+            -- Merge the shield results with our existing results
+            for k, v in pairs(shieldResults) do
+                results[k] = v
+            end
+        else
+            -- Set shield parameters on the results object for later processing
+            results.isShield = true
+            results.defenseType = params.type or "barrier"
+            results.blockTypes = params.blocks or {"projectile"}
+            results.manaLinked = params.manaLinked or true  -- Default to true for mana linking
+            results.reflect = params.reflect or false
+            results.hitPoints = params.hitPoints  -- Optional override for shield strength
+        end
+        
+        return results
+    end,
+    
+    -- Special effects
+    echo = function(params, caster, target, results)
+        results.echo = true
+        results.echoDelay = params.delay or 2.0
+        return results
+    end,
+    
+    -- Zone mechanics
+    zoneAnchor = function(params, caster, target, results)
+        results.zoneAnchor = true
+        
+        -- Store the anchor parameters
+        if params.range then
+            -- Range can be "NEAR", "FAR", or "ANY"
+            results.anchorRange = params.range
+        elseif caster and caster.gameState then
+            -- If not explicitly set, anchor to current range state
+            results.anchorRange = caster.gameState.rangeState
+        end
+        
+        if params.elevation then
+            -- Elevation can be "AERIAL", "GROUNDED", or "ANY"
+            results.anchorElevation = params.elevation
+        elseif target then
+            -- If not explicitly set, anchor to current target elevation
+            results.anchorElevation = target.elevation
+        end
+        
+        -- Store requirement for matching all conditions or just one
+        results.anchorRequireAll = params.requireAll
+        if results.anchorRequireAll == nil then
+            results.anchorRequireAll = true  -- Default to requiring all conditions
+        end
+        
+        return results
+    end,
+    
+    zoneMulti = function(params, caster, target, results)
+        results.zoneMulti = true
+        return results
+    end,
+    
+    -- Special slot effects
+    freeze = function(params, caster, target, results)
+        -- Freeze a spell in place (pause its progress)
+        results.freezeApplied = true
+        results.targetSlot = params.slot or 2  -- Default to middle slot
+        results.freezeDuration = params.duration or 2.0
+        return results
+    end
+}
+
+-- Function to validate spell schema - Made more robust to handle malformed spells
+local function validateSpell(spell, spellId)
+    -- Add a missing ID based on spell name if needed
+    if not spell.id and spell.name then
+        spell.id = spell.name:lower():gsub(" ", "")
+        print("INFO: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+    end
+    
+    -- Check essential properties with better error handling
+    if not spell.id then
+        print("WARNING: Spell " .. spellId .. " missing required property: id, creating a default")
+        spell.id = "spell_" .. spellId
+    end
+    
+    if not spell.name then
+        print("WARNING: Spell " .. spellId .. " missing required property: name, creating a default")
+        spell.name = "Unnamed Spell " .. spellId
+    end
+    
+    if not spell.description then
+        print("WARNING: Spell " .. spellId .. " missing required property: description, creating a default")
+        spell.description = "No description available for " .. spell.name
+    end
+    
+    if not spell.castTime then
+        print("WARNING: Spell " .. spellId .. " missing required property: castTime, setting default")
+        spell.castTime = 5.0 -- Default cast time
+    end
+    
+    if type(spell.castTime) ~= "number" then
+        print("WARNING: Spell " .. spellId .. " castTime must be a number, fixing")
+        spell.castTime = tonumber(spell.castTime) or 5.0
+    end
+    
+    -- Ensure cost is a table, if empty then create empty table
+    if not spell.cost then
+        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+        spell.cost = {}
+    elseif type(spell.cost) ~= "table" then
+        print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
+        -- Try to convert to a table if possible
+        local originalCost = spell.cost
+        spell.cost = {}
+        if originalCost then
+            print("INFO: Converting non-table cost to table for: " .. spell.name)
+            table.insert(spell.cost, tostring(originalCost))
+        end
+    end
+    
+    -- Check attackType is valid
+    if spell.attackType then
+        local validTypes = {
+            projectile = true,
+            remote = true,
+            zone = true,
+            utility = true
+        }
+        
+        if not validTypes[spell.attackType] then
+            print("WARNING: Spell " .. spellId .. " has invalid attackType: " .. spell.attackType .. ", fixing to utility")
+            spell.attackType = "utility" -- Default to utility
+        end
+    else
+        -- Default to utility if not specified
+        print("WARNING: Spell " .. spellId .. " missing attackType, setting to utility")
+        spell.attackType = "utility"
+    end
+    
+    -- Check keywords are valid (if present)
+    if spell.keywords then
+        if type(spell.keywords) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " keywords must be a table, fixing")
+            spell.keywords = {}
+        else
+            for keyword, _ in pairs(spell.keywords) do
+                if not KeywordSystem.handlers[keyword] then
+                    print("WARNING: Spell " .. spellId .. " has unimplemented keyword: " .. keyword .. ", removing")
+                    spell.keywords[keyword] = nil
+                end
+            end
+        end
+    else
+        -- Create empty keywords table if missing
+        spell.keywords = {}
+    end
+    
+    -- Check blockableBy (if present)
+    if spell.blockableBy then
+        if type(spell.blockableBy) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
+            spell.blockableBy = {}
+        end
+    else
+        -- Create empty blockableBy table
+        spell.blockableBy = {}
+    end
+    
+    return true
+end
+
+-- Debug helper to show all available keywords and their descriptions
+KeywordSystem.getKeywordHelp = function(format)
+    -- Define descriptions for each keyword
+    local descriptions = {
+        -- Resource manipulation
+        tokenShift = "Changes token types in the mana pool",
+        conjure = "Creates new tokens in the mana pool",
+        dissipate = "Removes tokens from the mana pool",
+        
+        -- Damage effects
+        damage = "Deals damage to the opponent",
+        
+        -- Token manipulation
+        lock = "Locks tokens, preventing their use for a duration",
+        
+        -- Spell timing effects
+        delay = "Adds time to opponent's spell cast",
+        accelerate = "Reduces cast time of a spell",
+        dispel = "Cancels a spell and returns mana to the pool",
+        disjoint = "Cancels a spell and destroys its mana",
+        stagger = "Cancels a spell and prevents recasting",
+        
+        -- Movement and position effects
+        elevate = "Sets caster to AERIAL state",
+        ground = "Forces target to GROUNDED state",
+        rangeShift = "Changes range state (NEAR/FAR)",
+        forcePull = "Forces opponent to caster's range",
+        
+        -- Defense mechanisms
+        reflect = "Reflects incoming spells",
+        block = "Creates a shield to block specific attack types",
+        
+        -- Special effects
+        echo = "Recasts the spell after a delay",
+        freeze = "Freezes a spell's progress for a duration",
+        
+        -- Zone mechanics
+        zoneAnchor = "Locks spell to cast-time range; fails if range changes",
+        zoneMulti = "Makes zone affect both NEAR/FAR"
+    }
+    
+    if format == "byCategory" then
+        -- Organize keywords by category
+        local categorizedInfo = {}
+        
+        -- Initialize categories
+        for categoryKey, categoryName in pairs(KeywordSystem.categories) do
+            categorizedInfo[categoryKey] = {
+                name = categoryName,
+                keywords = {}
+            }
+        end
+        
+        -- Sort keywords into categories
+        for keyword in pairs(KeywordSystem.handlers) do
+            local category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            
+            table.insert(categorizedInfo[category].keywords, {
+                name = keyword,
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword)
+            })
+        end
+        
+        return categorizedInfo
+    else
+        -- Default flat format
+        local keywordInfo = {}
+        
+        -- Build a table of keyword info with usage examples
+        for keyword in pairs(KeywordSystem.handlers) do
+            keywordInfo[keyword] = {
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword),
+                category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            }
+        end
+        
+        return keywordInfo
+    end
+end
+
+-- Generate example usage for keywords
+KeywordSystem.getExampleUsage = function(keyword)
+    local examples = {
+        tokenShift = [[
+            tokenShift = {
+                type = "random",  -- or specific type like "fire"
+                amount = 3
+            }
+        ]],
+        
+        conjure = [[
+            conjure = {
+                token = "fire",  -- or "moon", "force", etc.
+                amount = 1
+            }
+        ]],
+        
+        damage = [[
+            damage = {
+                amount = 10,  -- or function(caster, target) return value end
+                type = "fire"
+            }
+        ]],
+        
+        lock = [[
+            lock = {
+                duration = 5.0
+            }
+        ]],
+        
+        elevate = [[
+            elevate = {
+                duration = 4.0
+            }
+        ]],
+        
+        ground = [[
+            ground = true
+        ]],
+        
+        block = [[
+            block = {
+                type = "barrier",  -- Shield type: "barrier", "ward", or "field"
+                blocks = {"projectile", "zone"},  -- Attack types to block
+                manaLinked = true,  -- Whether shield consumes tokens on block (default: true)
+                reflect = false,    -- Whether attacks are reflected back (default: false)
+                hitPoints = 3       -- Optional: Fixed number of hits shield can take (default: token count)
+            }
+        ]]
+    }
+    
+    return examples[keyword] or "No example available"
+end
+
+-- Centralized keyword resolution function
+KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target, slot, results)
+    -- Check if this keyword has a handler
+    if not KeywordSystem.handlers[keyword] then
+        print(string.format("[KEYWORD ERROR] %s: Unknown keyword '%s'", spellId, keyword))
+        return results
+    end
+    
+    -- Process the parameters - handle both table and boolean cases
+    local processedParams = {}
+    
+    if type(params) == "table" then
+        -- For table parameters, process each one
+        for paramKey, paramValue in pairs(params) do
+            if type(paramValue) == "function" then
+                processedParams[paramKey] = paramValue(caster, target, slot)
+            else
+                processedParams[paramKey] = paramValue
+            end
+        end
+    else
+        -- For boolean or other simple params, use directly
+        processedParams = params
+    end
+    
+    -- Store the original results for logging
+    local resultsBefore = {}
+    for k, v in pairs(results) do
+        resultsBefore[k] = v
+    end
+    
+    -- Process this keyword and get updated results
+    local updatedResults = KeywordSystem.handlers[keyword](processedParams, caster, target, results)
+    
+    -- Log the keyword resolution
+    if type(processedParams) == "table" then
+        logKeywordResolution(spellId, keyword, processedParams, updatedResults)
+    else
+        -- For boolean params, create a simple parameter table for logging
+        local simpleParams = {value = processedParams}
+        logKeywordResolution(spellId, keyword, simpleParams, updatedResults)
+    end
+    
+    return updatedResults
+end
+
+-- Function to get the appropriate target based on target type
+KeywordSystem.resolveTarget = function(targetType, caster, opponent, spellSlot)
+    local targetMap = {
+        [KeywordSystem.targetTypes.SELF] = caster,
+        [KeywordSystem.targetTypes.ENEMY] = opponent,
+        [KeywordSystem.targetTypes.POOL_SELF] = caster.manaPool,
+        [KeywordSystem.targetTypes.POOL_ENEMY] = opponent.manaPool,
+        [KeywordSystem.targetTypes.SLOT_SELF] = caster.spellSlots[spellSlot] or caster.spellSlots,
+        [KeywordSystem.targetTypes.SLOT_ENEMY] = opponent.spellSlots,
+        [KeywordSystem.targetTypes.GLOBAL] = caster.gameState,
+        [KeywordSystem.targetTypes.NONE] = nil
+    }
+    
+    return targetMap[targetType]
+end
+
+-- Enhanced spell resolution function with targeting support and attack type resolution
+KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, options)
+    options = options or {}
+    local debug = options.debug or false
+    
+    -- Validate spell before attempting to resolve
+    validateSpell(spell, spell.id or "unknown")
+    
+    local results = {
+        damage = 0,
+        spellType = spell.attackType,
+        targetingInfo = {},  -- Store targeting information for post-processing
+        blocked = false,     -- Indicates if the spell was blocked by a shield
+        missed = false       -- Indicates if a zone spell missed due to range/elevation mismatch
+    }
+    
+    if debug then
+        print(string.format("[SPELL] Resolving spell: %s (cast by %s)", 
+                         spell.name, caster.name))
+    end
+    
+    -- Check if this spell can be blocked by opponent's shields before we process keywords
+    if spell.attackType and spell.attackType ~= "utility" then
+        local blockInfo = KeywordSystem.checkBlockable(spell, caster, opponent)
+        
+        -- If the spell would be blocked, execute onBlock handler and process shield effects
+        if blockInfo.blockable then
+            if debug then
+                print(string.format("[BLOCK CHECK] %s by %s would be blocked by opponent's %s",
+                    spell.name, caster.name, blockInfo.blockType))
+            end
+            
+            -- Set blocked flag in results
+            results.blocked = true
+            results.blockType = blockInfo.blockType
+            results.blockingShield = blockInfo.blockingShield
+            results.blockingSlot = blockInfo.blockingSlot
+            results.shieldBreakPower = spell.shieldBreaker or 1
+            
+            -- Process shield block effects if needed
+            if blockInfo.processBlockEffect then
+                -- Get the shield
+                local shield = blockInfo.blockingShield
+                local shieldSlot = blockInfo.blockingSlot
+                
+                -- Decrease shield strength
+                shield.shieldStrength = shield.shieldStrength - blockInfo.strengthReduction
+                
+                if debug then
+                    print(string.format("[SHIELD] %s's shield strength reduced by %d (now %d)",
+                        opponent.name, blockInfo.strengthReduction, shield.shieldStrength))
+                end
+                
+                -- If mana linked, consume tokens
+                if blockInfo.manaLinked and blockInfo.tokensToConsume > 0 then
+                    -- Return tokens to the pool
+                    for i = 1, blockInfo.tokensToConsume do
+                        if #shield.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #shield.tokens
+                            local tokenData = shield.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            opponent.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(shield.tokens, lastTokenIndex)
+                            
+                            if debug then
+                                print(string.format("[SHIELD] Token returned to %s's mana pool from shield",
+                                    opponent.name))
+                            end
+                        end
+                    end
+                end
+                
+                -- If the shield is depleted, destroy it
+                if shield.shieldStrength <= 0 or blockInfo.destroyShield then
+                    if debug then
+                        print(string.format("[SHIELD] %s's shield in slot %d has been broken!",
+                            opponent.name, shieldSlot))
+                    end
+                    
+                    -- Return any remaining tokens to the pool
+                    for _, tokenData in ipairs(shield.tokens) do
+                        opponent.manaPool:returnToken(tokenData.index)
+                    end
+                    
+                    -- Reset the shield slot
+                    shield.active = false
+                    shield.isShield = false
+                    shield.defenseType = nil
+                    shield.blocksAttackTypes = nil
+                    shield.shieldStrength = 0
+                    shield.progress = 0
+                    shield.spellType = nil
+                    shield.castTime = 0
+                    shield.tokens = {}
+                    
+                    -- Set a specific flag in results to indicate shield was destroyed
+                    results.shieldDestroyed = true
+                end
+                
+                -- Add visual effects for the block
+                -- These will be handled by the wizard's castSpell function
+            end
+            
+            -- Call onBlock handler if defined in the spell
+            if spell.onBlock then
+                local blockResults = spell.onBlock(caster, opponent, spellSlot, blockInfo)
+                
+                -- Merge onBlock results with main results
+                if blockResults then
+                    for k, v in pairs(blockResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onBlock handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we're blocked and there's no override, return early
+                    return results
+                end
+            else
+                -- If blocked with no handler, return early
+                return results
+            end
+        end
+    end
+    
+    -- For zone spells, check if the spell would miss due to range mismatch when zoneAnchor is used
+    if spell.attackType == "zone" then
+        local doesMiss = false
+        
+        -- Check for zoneAnchor keyword
+        if spell.keywords and spell.keywords.zoneAnchor then
+            -- For zone anchored spells, check if the target's position matches the anchor
+            -- Get cast-time range and elevation state
+            local anchorRange = spell.keywords.zoneAnchor.range
+            local anchorElevation = spell.keywords.zoneAnchor.elevation
+            
+            -- Check current range state
+            if anchorRange and caster.gameState then
+                if anchorRange ~= caster.gameState.rangeState then
+                    doesMiss = true
+                end
+            end
+            
+            -- Check current elevation state
+            if anchorElevation and opponent then
+                if anchorElevation ~= opponent.elevation then
+                    doesMiss = true
+                end
+            end
+        end
+        
+        -- If the spell would miss, execute onMiss handler if present
+        if doesMiss then
+            if debug then
+                print(string.format("[ZONE MISS] %s by %s misses due to range/elevation mismatch",
+                    spell.name, caster.name))
+            end
+            
+            -- Set missed flag in results
+            results.missed = true
+            
+            -- Call onMiss handler if defined in the spell
+            if spell.onMiss then
+                local missResults = spell.onMiss(caster, opponent, spellSlot)
+                
+                -- Merge onMiss results with main results
+                if missResults then
+                    for k, v in pairs(missResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onMiss handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we missed with no override, return early
+                    return results
+                end
+            else
+                -- If missed with no handler, return early but with a basic whiff effect
+                results.whiffEffect = true
+                return results
+            end
+        end
+    end
+    
+    -- Process each keyword in the spell
+    if spell.keywords then
+        for keyword, params in pairs(spell.keywords) do
+            -- Get the target type based on whether params is a table or a boolean
+            local targetType
+            if type(params) == "table" then
+                targetType = params.target or KeywordSystem.keywordTargets[keyword]
+            else
+                -- For boolean params (like ground = true), use the default target
+                targetType = KeywordSystem.keywordTargets[keyword]
+            end
+            
+            local target = KeywordSystem.resolveTarget(targetType, caster, opponent, spellSlot)
+            
+            -- Store targeting info for debugging and post-processing
+            results.targetingInfo[keyword] = {
+                targetType = targetType,
+                target = target and target.name or "unknown"
+            }
+            
+            -- Add targeting info to the log if in debug mode
+            if debug then
+                print(string.format("[TARGETING] Keyword %s targeting %s", 
+                                 keyword, targetType))
+            end
+            
+            -- Process the keyword with the correct target
+            results = KeywordSystem.resolveKeyword(spell.id, keyword, params, caster, target, spellSlot, results)
+        end
+    end
+    
+    -- For backward compatibility - delegate to effect function if present
+    if spell.effect then
+        if debug then
+            print(string.format("[SPELL] %s: Using legacy effect function", spell.id))
+        end
+        
+        local effectResults = spell.effect(caster, opponent, spellSlot)
+        -- Merge effect results with keyword results
+        for k, v in pairs(effectResults) do
+            results[k] = v
+        end
+    end
+    
+    -- If we have an onSuccess handler and the spell wasn't blocked or missed, execute it
+    if not results.blocked and not results.missed and spell.onSuccess then
+        local successResults = spell.onSuccess(caster, opponent, spellSlot, results)
+        
+        -- Merge onSuccess results with main results
+        if successResults then
+            for k, v in pairs(successResults) do
+                results[k] = v
+            end
+        end
+    end
+    
+    -- Count number of effects in results (excluding utility fields)
+    local effectCount = 0
+    for k, _ in pairs(results) do
+        -- Don't count utility fields or zero damage
+        if k ~= "damage" or results.damage ~= 0 then
+            if k ~= "spellType" and k ~= "targetingInfo" and k ~= "blocked" and k ~= "missed" then
+                effectCount = effectCount + 1
+            end
+        end
+    end
+    
+    if debug then
+        print(string.format("[SPELL] %s complete: damage=%s, effects=%d, blocked=%s, missed=%s", 
+                            spell.id, tostring(results.damage), effectCount, 
+                            tostring(results.blocked), tostring(results.missed)))
+    end
+    
+    return results
+end
+
+-- Convenience function to resolve a spell against a specific target
+KeywordSystem.castSpell = function(spell, caster, options)
+    options = options or {}
+    local gameState = caster.gameState
+    local spellSlot = options.spellSlot or 1
+    local debugMode = options.debug or false
+    
+    -- Find default opponent if not specified
+    local opponent = options.opponent
+    if not opponent and gameState and gameState.wizards then
+        for _, wizard in ipairs(gameState.wizards) do
+            if wizard ~= caster then
+                opponent = wizard
+                break
+            end
+        end
+    end
+    
+    if not opponent then
+        print("[ERROR] No opponent found for spell: " .. spell.name)
+        return nil
+    end
+    
+    -- Call the resolve function with appropriate targets
+    return KeywordSystem.resolveSpell(spell, caster, opponent, spellSlot, { debug = debugMode })
+end
+
+-- Function to check if a spell can be blocked by opponent's shields
+KeywordSystem.checkBlockable = function(spell, caster, opponent)
+    -- Default response - not blockable
+    local result = {
+        blockable = false,
+        blockType = nil,
+        blockingShield = nil,
+        blockingSlot = nil,
+        manaLinked = nil,
+        processBlockEffect = false
+    }
+    
+    -- Early exit cases
+    if not opponent or not spell or not spell.attackType then
+        return result
+    end
+    
+    -- Utility spells can't be blocked
+    if spell.attackType == "utility" then
+        return result
+    end
+    
+    -- Get the attack type of the spell
+    local attackType = spell.attackType  -- "projectile", "remote", or "zone"
+    
+    -- Check each of the opponent's spell slots for active shields
+    for i, slot in ipairs(opponent.spellSlots) do
+        -- Skip inactive slots or non-shield slots
+        if not slot.active or not slot.isShield then
+            goto continue
+        end
+        
+        -- Check if this shield has strength remaining
+        if slot.shieldStrength <= 0 then
+            goto continue
+        end
+        
+        -- Verify this shield can block this attack type
+        local canBlock = false
+        
+        -- Check blocksAttackTypes or blockTypes properties
+        if slot.blocksAttackTypes and slot.blocksAttackTypes[attackType] then
+            canBlock = true
+        elseif slot.blockTypes then
+            -- Iterate through blockTypes array to find a match
+            for _, blockType in ipairs(slot.blockTypes) do
+                if blockType == attackType then
+                    canBlock = true
+                    break
+                end
+            end
+        end
+        
+        -- If we found a shield that can block this attack
+        if canBlock then
+            result.blockable = true
+            result.blockType = slot.defenseType
+            result.blockingShield = slot
+            result.blockingSlot = i
+            result.manaLinked = slot.manaLinked
+            
+            -- Handle mana consumption for the block if mana linked
+            if slot.manaLinked and #slot.tokens > 0 then
+                result.processBlockEffect = true
+                
+                -- Get amount of hits based on the spell's shield breaker power (if any)
+                local shieldBreakPower = spell.shieldBreaker or 1
+                
+                -- Determine how many tokens to consume (up to shield breaker power or tokens available)
+                local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
+                result.tokensToConsume = tokensToConsume
+                
+                -- Calculate how much to decrease the shield strength
+                result.strengthReduction = shieldBreakPower
+                
+                -- Check if this will destroy the shield
+                if slot.shieldStrength <= shieldBreakPower then
+                    result.destroyShield = true
+                end
+            end
+            
+            -- Return after finding the first blocking shield
+            return result
+        end
+        
+        ::continue::
+    end
+    
+    -- If we get here, no shield can block this spell
+    return result
+end
+
+-- Shield creation function
+KeywordSystem.createShield = function(wizard, spellSlot, blockParams)
+    -- Default result table
+    local results = {
+        isShield = true,
+        shieldCreated = true  -- Flag to indicate shield was created
+    }
+    
+    -- Check that the slot is valid
+    if not wizard.spellSlots[spellSlot] then
+        print("[SHIELD ERROR] Invalid spell slot for shield creation: " .. tostring(spellSlot))
+        return results
+    end
+    
+    local slot = wizard.spellSlots[spellSlot]
+    
+    -- Set shield parameters
+    slot.isShield = true
+    slot.defenseType = blockParams.type or "barrier"
+    
+    -- Set which attack types this shield blocks
+    slot.blocksAttackTypes = {}
+    local blockTypes = blockParams.blocks or {"projectile"}
+    for _, attackType in ipairs(blockTypes) do
+        slot.blocksAttackTypes[attackType] = true
+    end
+    
+    -- Set mana linking (default to true - shield consumes tokens when hit)
+    slot.manaLinked = blockParams.manaLinked
+    if slot.manaLinked == nil then  -- If not explicitly set
+        slot.manaLinked = true
+    end
+    
+    -- Set reflection capability
+    slot.reflect = blockParams.reflect or false
+    
+    -- Set shield strength based on tokens or override value
+    if blockParams.hitPoints then
+        -- Use explicit hit point value if provided
+        slot.shieldStrength = blockParams.hitPoints
+    else
+        -- Otherwise use token count
+        slot.shieldStrength = #slot.tokens
+    end
+    
+    -- Slow down token orbiting speed for shield tokens if they exist
+    for _, tokenData in ipairs(slot.tokens) do
+        local token = tokenData.token
+        -- Set token to "SHIELDING" state
+        token.state = "SHIELDING"
+        -- Add specific shield type info to the token for visual effects
+        token.shieldType = slot.defenseType
+        -- Slow down the rotation speed for shield tokens
+        if token.orbitSpeed then
+            token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
+        end
+    end
+    
+    -- Shield visual effect color based on type
+    local shieldColor = {0.8, 0.8, 0.8}  -- Default gray
+    if slot.defenseType == "barrier" then
+        shieldColor = {1.0, 1.0, 0.3}    -- Yellow for barriers
+    elseif slot.defenseType == "ward" then
+        shieldColor = {0.3, 0.3, 1.0}    -- Blue for wards
+    elseif slot.defenseType == "field" then
+        shieldColor = {0.3, 1.0, 0.3}    -- Green for fields
+    end
+    
+    -- Create shield effect using VFX system if available
+    if wizard.gameState and wizard.gameState.vfx then
+        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+            duration = 1.0,
+            color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
+            shieldType = slot.defenseType
+        })
+    end
+    
+    -- Print debug info
+    print(string.format("[SHIELD] %s created a %s shield in slot %d with %d strength (mana linked: %s)",
+        wizard.name or "Unknown wizard",
+        slot.defenseType,
+        spellSlot,
+        slot.shieldStrength,
+        slot.manaLinked and "yes" or "no"))
+    
+    -- Include key parameters in result for later spell resolution
+    results.defenseType = slot.defenseType
+    results.blockTypes = blockParams.blocks
+    results.shieldStrength = slot.shieldStrength
+    results.manaLinked = slot.manaLinked
+    
+    return results
+end
+
+-- Function to register a new keyword handler
+KeywordSystem.registerKeyword = function(keyword, handler, options)
+    options = options or {}
+    
+    -- Check if this keyword already exists
+    if KeywordSystem.handlers[keyword] then
+        print(string.format("[WARNING] Overwriting existing keyword handler: %s", keyword))
+    end
+    
+    -- Register the handler function
+    KeywordSystem.handlers[keyword] = handler
+    
+    -- Register category
+    local category = options.category or "SPECIAL"
+    KeywordSystem.keywordCategories[keyword] = category
+    
+    -- Register default target type
+    local targetType = options.targetType or KeywordSystem.targetTypes.SELF
+    KeywordSystem.keywordTargets[keyword] = targetType
+    
+    print(string.format("[KEYWORD] Registered new keyword: %s (category: %s, target: %s)",
+                      keyword, category, targetType))
+    
+    return true
+end
+
+-- Legacy resolution function name for backward compatibility
+local function resolveSpellEffect(spell, caster, target, slot)
+    return KeywordSystem.resolveSpell(spell, caster, target, slot)
+end
 
 -- Ashgar's Spells (Fire-focused)
 Spells.conjurefire = {
+    id = "conjurefire",
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
-    castTime = 2.0,  -- Fast cast time
+    attackType = "utility",
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Create a fire token in the mana pool
-        caster.manaPool:addToken("fire", "assets/sprites/fire-token.png")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
+    keywords = {
+        conjure = {
+            token = "fire",
+            amount = 1
         }
+    },
+    vfx = "fire_conjure",
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing fire tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count fire tokens in the mana pool
+        local fireCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "fire" and token.state == "FREE" then
+                    fireCount = fireCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing fire token
+        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        
+        return adjustedCastTime
     end
 }
 
 Spells.firebolt = {
+    id = "firebolt",
     name = "Firebolt",
-    description = "Quick ranged hit, more damage at FAR range",
-    castTime = 5.0,  -- seconds
-    spellType = "projectile",  -- Mark as a projectile spell
-    cost = {
-        {type = "fire", count = 1},
-        {type = "any", count = 1}
-    },
-    effect = function(caster, target)
-        -- Access shared range state from game state reference
-        local damage = 10
-        if caster.gameState.rangeState == "FAR" then damage = 15 end
-        return {
-            damage = damage,
-            damageType = "fire",  -- Type of damage
-            spellType = "projectile"  -- Include in effect for blocking check
+    description = "Quick ranged hit, more damage against AERIAL opponents",
+    castTime = 5.0,
+    attackType = "projectile",
+    cost = {"fire", "any"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 10
+                end
+                return 10
+            end,
+            type = "fire",
+            conditional = "target.AERIAL"
         }
-    end
+    },
+    vfx = "fire_bolt",
+    sfx = "fire_whoosh",
+    blockableBy = {"barrier", "ward"}
 }
 
 Spells.meteor = {
+    id = "meteor",
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
     castTime = 8.0,
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1},
-        {type = "star", count = 1}
-    },
-    effect = function(caster, target)
-        if target.elevation ~= "GROUNDED" then return {damage = 0} end
-        
-        return {
-            damage = 20,
+    attackType = "zone",
+    cost = {"fire", "force", "star"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "GROUNDED" and 20 or 0
+                end
+                return 0 -- Default damage if target is nil
+            end,
             type = "fire",
-            setPosition = "NEAR"  -- Moves caster to NEAR
+            conditional = "target.GROUNDED"
+        },
+        rangeShift = {
+            position = "NEAR"
         }
-    end
+    },
+    vfx = "meteor_dive",
+    sfx = "meteor_impact",
+    blockableBy = {"barrier", "field"}
 }
 
 Spells.combust = {
+    id = "combust",
     name = "Combust Lock",
     description = "Locks opponent mana token, punishes overqueueing",
     castTime = 6.0,
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1}
-    },
-    effect = function(caster, target)
-        -- Count active spell slots
-        local activeSlots = 0
-        for _, slot in ipairs(target.spellSlots) do
-            if slot.active then
-                activeSlots = activeSlots + 1
-            end
-        end
-        
-        return {
-            lockToken = true,
-            lockDuration = 10.0,  -- Lock mana token for 10 seconds
-            damage = activeSlots * 3  -- More damage if target has many active spells
+    attackType = "remote",
+    cost = {"fire", "force"},
+    keywords = {
+        lock = {
+            duration = 10.0
+        },
+        damage = {
+            amount = function(caster, target)
+                -- Count active spell slots
+                local activeSlots = 0
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active then
+                            activeSlots = activeSlots + 1
+                        end
+                    end
+                end
+                return activeSlots * 3
+            end,
+            type = "fire",
+            scalesWithOpponentSlots = true
         }
-    end
+    },
+    vfx = "combust_lock",
+    blockableBy = {"ward", "field"}
 }
 
 Spells.emberlift = {
+    id = "emberlift",
     name = "Emberlift",
     description = "Launches caster into the air and increases range",
-    castTime = 2.5,  -- Short cast time
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1}
-    },
-    effect = function(caster, target)
-        return {
-            setElevation = "AERIAL",
-            elevationDuration = 5.0,  -- Sets AERIAL for 5 seconds
-            setPosition = "FAR",      -- Sets range to FAR
-            damage = 0
+    castTime = 2.5,
+    attackType = "utility",
+    cost = {"fire", "force"},
+    keywords = {
+        elevate = {
+            duration = 5.0
+        },
+        rangeShift = {
+            position = "FAR"
         }
-    end
+    },
+    vfx = "ember_lift",
+    sfx = "whoosh_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 -- Selene's Spells (Moon-focused)
 Spells.conjuremoonlight = {
+    id = "conjuremoonlight",
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
-    castTime = 2.0,  -- Fast cast time
+    attackType = "utility",
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Create a moon token in the mana pool
-        caster.manaPool:addToken("moon", "assets/sprites/moon-token.png")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
+    keywords = {
+        conjure = {
+            token = "moon",
+            amount = 1
         }
+    },
+    vfx = "moon_conjure",
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing moon tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count moon tokens in the mana pool
+        local moonCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "moon" and token.state == "FREE" then
+                    moonCount = moonCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing moon token
+        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        
+        return adjustedCastTime
     end
 }
 
 Spells.volatileconjuring = {
+    id = "volatileconjuring",
     name = "Volatile Conjuring",
     description = "Creates a random mana token",
-    castTime = 1.4,  -- Shorter cast time than the dedicated conjuring spells
+    attackType = "utility",
+    castTime = 5.0,  -- Fixed cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Available token types and their image paths
-        local tokenTypes = {
-            {type = "fire", path = "assets/sprites/fire-token.png"},
-            {type = "force", path = "assets/sprites/force-token.png"},
-            {type = "moon", path = "assets/sprites/moon-token.png"},
-            {type = "nature", path = "assets/sprites/nature-token.png"},
-            {type = "star", path = "assets/sprites/star-token.png"}
+    keywords = {
+        conjure = {
+            token = function(caster, target)
+                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+                local randomIndex = math.random(#tokenTypes)
+                local selectedToken = tokenTypes[randomIndex]
+                print(caster.name .. " conjured a random " .. selectedToken .. " token")
+                return selectedToken
+            end,
+            amount = 1
         }
-        
-        -- Select a random token type
-        local randomIndex = math.random(#tokenTypes)
-        local selectedToken = tokenTypes[randomIndex]
-        
-        -- Create the token in the mana pool
-        caster.manaPool:addToken(selectedToken.type, selectedToken.path)
-        
-        -- Display a message about which token was created (optional)
-        print(caster.name .. " conjured a random " .. selectedToken.type .. " token")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
-        }
-    end
+    },
+    vfx = "volatile_conjure",
+    blockableBy = {}  -- Unblockable
+    -- Removed dynamic cast time calculation to keep it fixed at 5 seconds
 }
 
 Spells.mist = {
+    id = "mist",
     name = "Mist Veil",
-    description = "Projectile block, grants AERIAL",
+    description = "A ward of mist that blocks projectiles and remotes",
+    attackType = "utility",
     castTime = 5.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "any", count = 1}
-    },
-    effect = function(caster, target)
-        return {
-            setElevation = "AERIAL",
-            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
-            block = "projectile",
-            blockDuration = 5.0  -- Block projectiles for 5 seconds
+    cost = {"moon", "moon"},
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
+        },
+        elevate = {
+            duration = 4.0
         }
-    end
+    },
+    vfx = "mist_veil",
+    sfx = "mist_shimmer",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 Spells.gravity = {
+    id = "gravity",
     name = "Gravity Pin",
     description = "Traps AERIAL enemies",
+    attackType = "zone",
     castTime = 7.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "nature", count = 1}
-    },
-    effect = function(caster, target)
-        if target.elevation ~= "AERIAL" then return {damage = 0} end
-        
-        return {
-            damage = 15,
-            setElevation = "GROUNDED",
-            stun = 2.0  -- Stun for 2 seconds
+    cost = {"moon", "nature"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 0
+                end
+                return 0 -- Default damage if target is nil
+            end,
+            type = "moon",
+            conditional = "target.AERIAL"
+        },
+        ground = true,  -- Set target to GROUNDED
+        stagger = {
+            duration = 2.0  -- Stun for 2 seconds
         }
-    end
+    },
+    vfx = "gravity_pin",
+    sfx = "gravity_slam",
+    blockableBy = {"barrier", "field"}
 }
 
 Spells.eclipse = {
+    id = "eclipse",
     name = "Eclipse Echo",
     description = "Freezes caster's central queued spell for 2 seconds",
+    attackType = "remote",
     castTime = 6.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "force", count = 1}
+    cost = {"moon", "force"},
+    keywords = {
+        freeze = {
+            slot = 2,  -- Middle spell slot
+            duration = 2.0
+        }
     },
-    effect = function(caster, target)
-        -- Directly modify the middle spell slot if it's active
-        if caster.spellSlots[2] and caster.spellSlots[2].active then
-            local slot = caster.spellSlots[2]
-            local originalCastTime = slot.castTime
-            local currentProgress = slot.progress
-            
-            -- Instead of adding to the cast time, we're just freezing progress
-            -- The spell's total cast time remains the same, but progress will freeze for 2 seconds
-            
-            -- Add a "frozen" flag and freeze timer
-            slot.frozen = true
-            slot.freezeTimer = 2.0  -- Freeze for 2 seconds
-            
-            print("Eclipse Echo froze " .. caster.name .. "'s spell in slot 2 for 2 seconds")
-            print("Spell will be frozen at " .. currentProgress .. " / " .. originalCastTime .. " for 2 seconds")
-            
-            return {
-                delayApplied = true,
-                targetSlot = 2,
-                delayAmount = 2.0
-            }
-        else
-            print("Eclipse Echo found no spell to delay in slot 2")
-            return {
-                delayApplied = false
-            }
-        end
-    end
+    vfx = "eclipse_echo",
+    sfx = "time_stop",
+    blockableBy = {"ward", "field"}
 }
 
 Spells.fullmoonbeam = {
+    id = "fullmoonbeam",
     name = "Full Moon Beam",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
-    castTime = 7.0,    -- Base cast time
-    cost = {
-        {type = "moon", count = 5}  -- Costs 5 moon mana
+    attackType = "projectile",
+    castTime = 7.0,
+    cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
+    keywords = {
+        damage = {
+            amount = function(caster, target, slot)
+                -- Find the slot this spell was cast from to get its actual cast time
+                local actualCastTime = 7.0  -- Default/base cast time
+                
+                -- If we know which slot this spell was cast from
+                if slot and caster.spellSlots[slot] then
+                    -- Use the actual cast time of the spell which may have been modified
+                    actualCastTime = caster.spellSlots[slot].castTime
+                end
+                
+                -- Calculate damage based on cast time (roughly 3.5 damage per second)
+                local damage = math.floor(actualCastTime * 3.5)
+                
+                -- Log the damage calculation
+                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+                
+                return damage
+            end,
+            type = "moon",
+            scaledDamage = true
+        }
     },
-    effect = function(caster, target, spellSlot)
-        -- Find the slot this spell was cast from to get its actual cast time
-        local actualCastTime = 7.0  -- Default/base cast time
+    vfx = "moon_beam",
+    sfx = "beam_charge",
+    blockableBy = {"barrier", "ward"}
+}
+
+-- New shield spells
+
+Spells.forcebarrier = {
+    id = "forcebarrier",
+    name = "Force Barrier",
+    description = "A protective barrier that blocks projectiles and zones",
+    castTime = 4.0,
+    attackType = "utility",
+    cost = {"force", "force"},
+    keywords = {
+        block = {
+            type = "barrier",
+            blocks = {"projectile", "zone"},
+            manaLinked = true
+        }
+    },
+    vfx = "force_barrier",
+    sfx = "shield_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+Spells.moonward = {
+    id = "moonward",
+    name = "Moon Ward",
+    description = "A mystical ward that blocks projectiles and remotes",
+    attackType = "utility",
+    castTime = 4.5,
+    cost = {"moon", "moon"},  -- Changed cost from moon+star to moon+moon
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
+        }
+    },
+    vfx = "moon_ward",
+    sfx = "shield_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+Spells.naturefield = {
+    id = "naturefield",
+    name = "Nature Field",
+    description = "A field of natural energy that blocks remotes and zones",
+    attackType = "utility",
+    castTime = 4.0,
+    cost = {"nature", "nature"},
+    keywords = {
+        block = {
+            type = "field",
+            blocks = {"remote", "zone"},
+            manaLinked = true
+        }
+    },
+    vfx = "nature_field",
+    sfx = "nature_grow",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Advanced reflective shield example
+Spells.mirrorshield = {
+    id = "mirrorshield",
+    name = "Mirror Shield",
+    description = "A reflective barrier that returns damage to attackers",
+    attackType = "utility",
+    castTime = 5.0,
+    cost = {"moon", "moon", "star"},  -- Changed cost from force+moon+star to moon+moon+star
+    keywords = {
+        block = {
+            type = "barrier",  -- Barrier type blocks projectiles and zones
+            blocks = {"projectile", "zone"},
+            manaLinked = false, -- Doesn't consume tokens when blocking
+            reflect = true,     -- Reflects damage back to attacker
+            hitPoints = 3       -- Can block 3 attacks regardless of token count
+        }
+    },
+    vfx = "mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Shield-breaking spell example
+Spells.shieldbreaker = {
+    id = "shieldbreaker",
+    name = "Shield Breaker",
+    description = "A powerful force blast that shatters shields and barriers",
+    attackType = "projectile", -- Projectile type (can be blocked by barriers and wards)
+    castTime = 6.0,
+    cost = {"force", "force", "star"},
+    keywords = {
+        -- Regular damage component
+        damage = {
+            amount = function(caster, target)
+                -- Base damage
+                local baseDamage = 8
+                
+                -- Check if target exists before checking shields
+                local shieldBonus = 0
+                if target and target.spellSlots then
+                    -- Bonus damage if target has active shields
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldBonus = shieldBonus + 6
+                            break -- Only count one shield for bonus
+                        end
+                    end
+                end
+                
+                return baseDamage + shieldBonus
+            end,
+            type = "force"
+        },
         
-        -- If we know which slot this spell was cast from
-        if spellSlot and caster.spellSlots[spellSlot] then
-            -- Use the actual cast time of the spell which may have been modified
-            actualCastTime = caster.spellSlots[spellSlot].castTime
-        end
+        -- Special effect: If it hits a shield, it deals 3 "hits" worth of damage
+        -- This is implemented through the spell resolution pipeline that checks
+        -- for shields blocking the projectile
+        -- The effect is simulated by multiple shield strength reductions in a single hit
+    },
+    -- Add special property that indicates this is a shield-breaker spell
+    -- This will be used in the shield-blocking logic
+    shieldBreaker = 3, -- Deals 3 hits worth of damage to shields
+    vfx = "force_blast",
+    sfx = "shield_break",
+    blockableBy = {"barrier", "ward"}, -- Can be blocked by barriers and wards
+    
+    -- Custom handler for when this spell is blocked
+    onBlock = function(caster, target, slot, blockInfo)
+        print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
+            caster.name, blockInfo.blockType))
         
-        -- Calculate damage based on cast time (roughly 3.5 damage per second)
-        local damage = math.floor(actualCastTime * 3.5)
-        
-        -- Log the damage calculation
-        print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
-        
+        -- Return a special response that overrides behavior
         return {
-            damage = damage,     -- Damage scales with cast time
-            damageType = "moon",
-            scaledDamage = true  -- Flag to indicate this used a scaled damage value
+            specialBlockMessage = "Shield Breaker collides with active shield!",
+            damageShield = true,  -- Signal that we want to damage the shield
+            continueExecution = false  -- Don't continue processing the spell
         }
     end
 }
 
-return Spells```
+-- Zone spell with range anchoring example
+Spells.eruption = {
+    id = "eruption",
+    name = "Lava Eruption",
+    description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
+    attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
+    castTime = 7.0,
+    cost = {"fire", "fire", "nature"},
+    keywords = {
+        -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
+        zoneAnchor = {
+            range = "NEAR", -- Only works at NEAR range
+            elevation = "GROUNDED", -- Only hits GROUNDED targets
+            requireAll = true -- Must match both conditions
+        },
+        
+        -- Damage component
+        damage = {
+            amount = 16,
+            type = "fire"
+        },
+        
+        -- Secondary effect - ground the target if they're AERIAL
+        ground = true,
+        
+        -- Add damage over time
+        burn = {
+            duration = 4.0,
+            tickDamage = 3
+        }
+    },
+    vfx = "lava_eruption",
+    sfx = "volcano_rumble",
+    blockableBy = {"barrier", "field"},
+    
+    -- Custom handler for when this spell misses
+    onMiss = function(caster, target, slot)
+        print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
+        
+        -- Create a small damage effect at caster's feet to simulate backfire
+        if caster.gameState and caster.gameState.vfx then
+            caster.gameState.vfx.createEffect("impact", caster.x, caster.y + 30, nil, nil, {
+                duration = 0.5,
+                color = {1.0, 0.3, 0.1, 0.6},
+                particleCount = 5,
+                radius = 15
+            })
+        end
+        
+        -- Caster takes a small amount of damage from their own spell backfiring
+        local selfDamage = 4
+        caster.health = caster.health - selfDamage
+        if caster.health < 0 then caster.health = 0 end
+        
+        -- Return special response for handling the miss
+        return {
+            missBackfire = true,
+            backfireDamage = selfDamage,
+            backfireMessage = "Lava Eruption backfires when cast at wrong range!"
+        }
+    end,
+    
+    -- Custom handler for when this spell succeeds
+    onSuccess = function(caster, target, slot, results)
+        print(string.format("[SUCCESS] %s's Lava Eruption hits %s with full force!", caster.name, target.name))
+        
+        -- Return additional effects for when the spell hits successfully
+        return {
+            successMessage = "The ground trembles with volcanic fury!",
+            extraEffect = "area_burn",
+            burnDuration = 2.0
+        }
+    end
+}
+
+-- Prepare the return table with all spells and utility functions
+local SpellsModule = {
+    spells = Spells,
+    resolveSpellEffect = resolveSpellEffect,  -- Legacy function 
+    resolveSpell = KeywordSystem.resolveSpell,  -- New function
+    castSpell = KeywordSystem.castSpell,       -- Convenient casting function
+    validateSpell = validateSpell,
+    keywords = KeywordSystem.handlers,         -- Keyword handlers
+    registerKeyword = KeywordSystem.registerKeyword,  -- Register new keywords
+    keywordTargets = KeywordSystem.targetTypes,  -- Targeting types
+    keywordSystem = KeywordSystem               -- Full system access 
+}
+
+-- Validate all spells at module load time to catch errors early
+for spellId, spell in pairs(Spells) do
+    validateSpell(spell, spellId)
+end
+
+-- Add new spells using the keyword system
+
+-- Utility spell that changes tokens
+Spells.stormMeld = {
+    id = "stormmeld",
+    name = "Storm Meld",
+    description = "An elemental fusion spell that changes tokens to random types",
+    attackType = "utility",
+    castTime = 3.0,
+    cost = {"fire", "moon"},
+    keywords = {
+        tokenShift = {
+            type = "random",
+            amount = 3
+        },
+        damage = {
+            amount = 5,
+            type = "mixed"
+        },
+        echo = {
+            delay = 3.0
+        }
+    },
+    vfx = "storm_meld",
+    sfx = "elemental_fusion",
+    blockableBy = {}  -- Utility spells can't be blocked
+}
+
+-- Offensive spell with multiple effects
+Spells.cosmicRift = {
+    id = "cosmicrift",
+    name = "Cosmic Rift",
+    description = "Opens a rift that damages opponents and disrupts spellcasting",
+    attackType = "zone",
+    castTime = 5.5,
+    cost = {"star", "star", "force"},
+    keywords = {
+        damage = {
+            amount = 12,
+            type = "star"
+        },
+        delay = {
+            slot = 1,  -- Target opponent's first spell slot
+            duration = 2.0
+        },
+        zoneMulti = true  -- Affects both NEAR and FAR
+    },
+    vfx = "cosmic_rift",
+    sfx = "space_tear",
+    blockableBy = {"barrier", "field"}
+}
+
+-- Movement spell with multiple effects
+Spells.blazingAscent = {
+    id = "blazingascent",
+    name = "Blazing Ascent",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    attackType = "projectile",
+    castTime = 3.0,
+    cost = {"fire", "fire", "force"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- More damage if already AERIAL (harder to cast while falling)
+                return caster.elevation == "AERIAL" and 15 or 10
+            end,
+            type = "fire"
+        },
+        elevate = {
+            duration = 6.0
+        },
+        dissipate = {
+            token = "nature",
+            amount = 1
+        }
+    },
+    vfx = "blazing_ascent",
+    sfx = "fire_whoosh",
+    blockableBy = {"barrier", "ward"}
+}
+
+-- Complex multi-target spell using the new targeting system
+Spells.arcaneReversal = {
+    id = "arcanereversal",
+    name = "Arcane Reversal",
+    description = "A complex spell that manipulates mana, movement, and timing simultaneously",
+    attackType = "remote",
+    castTime = 6.0,
+    cost = {"moon", "star", "force", "force"},
+    keywords = {
+        -- Apply damage to enemy
+        damage = {
+            amount = function(caster, target)
+                -- More damage if enemy has active shields
+                local shieldCount = 0
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldCount = shieldCount + 1
+                        end
+                    end
+                end
+                return 8 + (shieldCount * 4)  -- 8 base + 4 per shield
+            end,
+            type = "star",
+            target = "ENEMY"  -- Explicit targeting
+        },
+        
+        -- Move self to opposite range
+        rangeShift = {
+            position = function(caster, target)
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end,
+            target = "SELF"
+        },
+        
+        -- Lock opponent's mana tokens
+        lock = {
+            duration = 4.0,
+            target = "POOL_ENEMY" 
+        },
+        
+        -- Add tokens to own pool
+        conjure = {
+            token = function(caster, target)
+                -- Create a token of the type that's most common in opponent's pool
+                local tokenCounts = {
+                    fire = 0,
+                    force = 0,
+                    moon = 0,
+                    nature = 0,
+                    star = 0
+                }
+                
+                -- Count opponent's token types in mana pool
+                if target.manaPool then
+                    for _, token in ipairs(target.manaPool.tokens or {}) do
+                        if token.state == "FREE" then
+                            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+                        end
+                    end
+                end
+                
+                -- Find the most common type
+                local maxCount = 0
+                local mostCommonType = "force"  -- Default
+                
+                for tokenType, count in pairs(tokenCounts) do
+                    if count > maxCount then
+                        maxCount = count
+                        mostCommonType = tokenType
+                    end
+                end
+                
+                return mostCommonType
+            end,
+            amount = 1,
+            target = "POOL_SELF"
+        },
+        
+        -- Accelerate own next spell
+        accelerate = {
+            amount = 2.0,
+            slot = 1,  -- First slot
+            target = "SLOT_SELF"
+        }
+    },
+    vfx = "arcane_reversal",
+    sfx = "time_shift",
+    blockableBy = {"ward", "field"}
+}
+
+-- Complex positional spell
+Spells.lunarTides = {
+    id = "lunartides",
+    name = "Lunar Tides",
+    description = "Manipulates the battle flow based on range and elevation",
+    attackType = "zone",
+    castTime = 7.0,
+    cost = {"moon", "moon", "force", "star"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- Damage based on position
+                local baseDamage = 8
+                
+                -- If opponent is AERIAL, deal more damage
+                if target and target.elevation and target.elevation == "AERIAL" then
+                    baseDamage = baseDamage + 4
+                end
+                
+                -- If in NEAR range, deal more damage
+                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
+                    baseDamage = baseDamage + 3
+                end
+                
+                return baseDamage
+            end,
+            type = "moon",
+            target = "ENEMY"  -- Explicit targeting
+        },
+        rangeShift = {
+            -- Position changes based on current state
+            position = function(caster, target)
+                -- Toggle position
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end,
+            target = "SELF"  -- Affects caster
+        },
+        lock = {
+            -- Lock duration increases if target has multiple active spells
+            duration = function(caster, target)
+                local activeSlots = 0
+                for _, slot in ipairs(target.spellSlots) do
+                    if slot.active then
+                        activeSlots = activeSlots + 1
+                    end
+                end
+                return 3.0 + (activeSlots * 1.0)  -- Base 3 seconds + 1 per active slot
+            end,
+            target = "POOL_ENEMY"  -- Affects opponent's mana pool
+        }
+    },
+    vfx = "lunar_tide",
+    sfx = "tide_rush",
+    blockableBy = {"field"}
+}
+
+return SpellsModule```
+
+## ./tools/generate_docs.lua
+```lua
+#!/usr/bin/env lua
+-- Script to generate keyword documentation
+
+-- Add manastorm root directory to lua path
+package.path = package.path .. ";../?.lua"
+
+-- Import the documentation generator
+local DocGenerator = require("docs.keywords")
+
+-- Generate the documentation
+DocGenerator.writeDocumentation("../docs/KEYWORDS.md")
+
+print("Documentation generation complete!")```
+
+## ./tools/test_keywords.lua
+```lua
+#!/usr/bin/env lua
+-- Script to test and debug keyword resolution
+
+-- Add manastorm root directory to lua path
+package.path = package.path .. ";../?.lua"
+
+-- Import the spells module
+local Spells = require("spells")
+
+-- Mock wizard class for testing
+local MockWizard = {}
+MockWizard.__index = MockWizard
+
+function MockWizard.new(name, position)
+    local self = setmetatable({}, MockWizard)
+    self.name = name
+    self.x = position or 0
+    self.y = 370
+    self.elevation = "GROUNDED"
+    self.spellSlots = {{}, {}, {}}
+    self.manaPool = {
+        tokens = {},
+        addToken = function() print("Added token") end
+    }
+    self.gameState = {
+        rangeState = "FAR",
+        wizards = {}
+    }
+    return self
+end
+
+-- Create mock wizards for testing
+local caster = MockWizard.new("TestWizard", 200)
+local opponent = MockWizard.new("Opponent", 600)
+
+-- Set up test state
+caster.gameState.wizards = {caster, opponent}
+
+-- Test a keyword in isolation
+local function testKeyword(keyword, params)
+    print("\n====== Testing keyword: " .. keyword .. " ======")
+    
+    -- Create starting results
+    local results = {damage = 0, spellType = "test"}
+    
+    -- Process the keyword
+    local newResults = Spells.keywordSystem.resolveKeyword(
+        "test_spell", 
+        keyword, 
+        params, 
+        caster, 
+        opponent, 
+        1, -- spell slot
+        results
+    )
+    
+    -- Show detailed results
+    print("\nKeyword results:")
+    for k, v in pairs(newResults) do
+        if k ~= "damage" or v ~= 0 then
+            print("  " .. k .. ": " .. tostring(v))
+        end
+    end
+    
+    return newResults
+end
+
+-- Test a full spell
+local function testSpell(spell)
+    print("\n====== Testing spell: " .. spell.name .. " ======")
+    
+    -- Process the spell using the new targeting-aware system
+    local results = Spells.keywordSystem.castSpell(
+        spell, 
+        caster, 
+        {
+            opponent = opponent,
+            spellSlot = 1,
+            debug = true
+        }
+    )
+    
+    -- Show detailed results
+    print("\nSpell results:")
+    for k, v in pairs(results) do
+        if k ~= "damage" or v ~= 0 then
+            if k ~= "targetingInfo" then  -- Handle targeting info separately
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    
+    -- Display targeting info
+    if results.targetingInfo then
+        print("\nTargeting information:")
+        for keyword, info in pairs(results.targetingInfo) do
+            print(string.format("  %s -> %s (%s)", 
+                keyword, info.targetType, info.target))
+        end
+    end
+    
+    return results
+end
+
+-- Run tests based on command-line arguments
+local function runTests()
+    local arg = {...}
+    
+    if #arg == 0 then
+        -- Default tests if no arguments provided
+        print("Running default tests...")
+        
+        -- Test individual keywords
+        testKeyword("damage", {amount = 10, type = "fire"})
+        testKeyword("elevate", {duration = 3.0})
+        testKeyword("rangeShift", {position = "NEAR"})
+        
+        -- Test a dynamic function parameter
+        testKeyword("damage", {
+            amount = function(caster, target)
+                return caster.gameState.rangeState == "FAR" and 15 or 10
+            end,
+            type = "fire"
+        })
+        
+        -- Test a complex spell
+        local testSpell = {
+            id = "testspell",
+            name = "Test Compound Spell",
+            description = "A spell combining multiple effects for testing",
+            attackType = "projectile",
+            castTime = 5.0,
+            cost = {"fire", "force"},
+            keywords = {
+                damage = {
+                    amount = function(caster, target)
+                        return target.elevation == "AERIAL" and 15 or 10
+                    end,
+                    type = "fire"
+                },
+                elevate = {
+                    duration = 3.0
+                },
+                rangeShift = {
+                    position = "NEAR"
+                }
+            }
+        }
+        testSpell(testSpell)
+        
+    elseif arg[1] == "list" then
+        -- List all available keywords
+        print("Available keywords:")
+        local keywordInfo = Spells.keywordSystem.getKeywordHelp()
+        for keyword, info in pairs(keywordInfo) do
+            print("- " .. keyword .. ": " .. info.description)
+        end
+        
+    elseif arg[1] == "keyword" and arg[2] then
+        -- Test a specific keyword
+        local keyword = arg[2]
+        
+        -- Check if this keyword exists
+        if not Spells.keywordSystem.handlers[keyword] then
+            print("Error: Unknown keyword '" .. keyword .. "'")
+            return
+        end
+        
+        -- Create some basic params for testing
+        local params = {}
+        if keyword == "damage" then
+            params = {amount = 10, type = "fire"}
+        elseif keyword == "elevate" or keyword == "freeze" then
+            params = {duration = 3.0}
+        elseif keyword == "rangeShift" then
+            params = {position = "NEAR"}
+        elseif keyword == "block" then
+            params = {type = "barrier", blocks = {"projectile"}}
+        elseif keyword == "conjure" then
+            params = {token = "fire", amount = 1}
+        elseif keyword == "dissipate" then
+            params = {token = "fire", amount = 1}
+        elseif keyword == "tokenShift" then
+            params = {type = "random", amount = 2}
+        end
+        
+        testKeyword(keyword, params)
+        
+    elseif arg[1] == "spell" and arg[2] then
+        -- Test a specific spell
+        local spellId = arg[2]
+        
+        -- Check if this spell exists
+        if not Spells.spells[spellId] then
+            print("Error: Unknown spell '" .. spellId .. "'")
+            return
+        end
+        
+        testSpell(Spells.spells[spellId])
+        
+    else
+        -- Show usage
+        print("Usage:")
+        print("  lua test_keywords.lua                  Run default tests")
+        print("  lua test_keywords.lua list             List all available keywords")
+        print("  lua test_keywords.lua keyword <name>   Test a specific keyword")
+        print("  lua test_keywords.lua spell <id>       Test a specific spell")
+    end
+end
+
+-- Run the tests
+runTests(...)```
 
 ## ./ui.lua
 ```lua
@@ -1293,16 +3871,28 @@ UI.spellbookVisible = {
 function UI.drawHelpText(font)
     -- Set font and color
     love.graphics.setFont(font)
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
     
-    -- Only show minimal debug controls at the bottom
-    local y = love.graphics.getHeight() - 110
-    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 10, y + 50)
-    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 10, y + 70)
-    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 10, y + 90)
+    -- Draw a semi-transparent background for the debug panel
+    love.graphics.setColor(0.1, 0.1, 0.2, 0.7)
+    local panelWidth = 600
+    local y = love.graphics.getHeight() - 130
+    love.graphics.rectangle("fill", 5, y + 30, panelWidth, 95, 5, 5)
     
-    -- Draw spellbook buttons for each player
-    UI.drawSpellbookButtons()
+    -- Draw a border
+    love.graphics.setColor(0.3, 0.3, 0.5, 0.8)
+    love.graphics.rectangle("line", 5, y + 30, panelWidth, 95, 5, 5)
+    
+    -- Draw header
+    love.graphics.setColor(1, 1, 0.7, 0.9)
+    love.graphics.print("DEBUG MODE", 15, y + 35)
+    
+    -- Show debug controls with brighter text
+    love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 15, y + 55)
+    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 15, y + 75)
+    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 15, y + 95)
+    
+    -- No longer calling UI.drawSpellbookButtons() here as it's now handled in the main loop
 end
 
 -- Toggle spellbook visibility for a player
@@ -1423,7 +4013,7 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     -- GROUP 2: CAST BUTTON
     -- Positioned farther to the right
     local castX = x + 150
-    local castKey = (playerNum == 1) and "F" or "L"
+    local castKey = (playerNum == 1) and "F" or "J"
     
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
@@ -1552,14 +4142,34 @@ function UI.drawSpellInfo(wizards)
             return "Free"
         end
         
+        -- Handle both old and new cost formats
         local costText = ""
-        for _, component in ipairs(cost) do
-            local typeText = component.type
-            if type(typeText) == "table" then
-                typeText = table.concat(typeText, "/")
+        local tokenCounts = {}  -- For new array-style format
+        
+        -- Check if this is the new array-style format (simple array of strings)
+        local isNewFormat = type(cost[1]) == "string"
+        
+        if isNewFormat then
+            -- Count each token type
+            for _, tokenType in ipairs(cost) do
+                tokenCounts[tokenType] = (tokenCounts[tokenType] or 0) + 1
             end
-            costText = costText .. component.count .. " " .. typeText .. ", "
+            
+            -- Format the counts
+            for tokenType, count in pairs(tokenCounts) do
+                costText = costText .. count .. " " .. tokenType .. ", "
+            end
+        else
+            -- Old format with type and count properties
+            for _, component in ipairs(cost) do
+                local typeText = component.type
+                if type(typeText) == "table" then
+                    typeText = table.concat(typeText, "/")
+                end
+                costText = costText .. component.count .. " " .. typeText .. ", "
+            end
         end
+        
         return costText:sub(1, -3)  -- Remove trailing comma and space
     end
     
@@ -1838,6 +4448,18 @@ function VFX.init()
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- General impact effect (used for many spell interactions)
+        impact = {
+            type = "impact",
+            duration = 0.5,  -- Half second by default
+            particleCount = 15,
+            startScale = 0.8,
+            endScale = 0.2,
+            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            radius = 30,
+            sound = nil  -- No default sound
+        },
+
         -- Firebolt effect
         firebolt = {
             type = "projectile",
@@ -1938,6 +4560,19 @@ function VFX.init()
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
+        },
+        
+        -- Shield effect (used for barrier, ward, and field shield activation)
+        shield = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            radius = 60,
+            pulseRate = 3,
+            sound = "shield"
         }
     }
     
@@ -1947,7 +4582,9 @@ function VFX.init()
         meteor = nil,
         mist = nil,
         whoosh = nil,
-        moonbeam = nil
+        moonbeam = nil,
+        conjure = nil,
+        shield = nil
     }
     
     return VFX
@@ -2943,8 +5580,9 @@ return VFX```
 local Wizard = {}
 Wizard.__index = Wizard
 
--- Load spells
-local Spells = require("spells")
+-- Load spells module with the new keyword system
+local SpellsModule = require("spells")
+local Spells = SpellsModule.spells  -- For backwards compatibility
 
 function Wizard.new(name, x, y, color)
     local self = setmetatable({}, Wizard)
@@ -2961,6 +5599,18 @@ function Wizard.new(name, x, y, color)
     self.stunTimer = 0           -- Stun timer in seconds
     self.blockers = {            -- Spell blocking effects
         projectile = 0           -- Projectile block duration
+    }
+    
+    -- Status effects
+    self.statusEffects = {
+        burn = {
+            active = false,
+            duration = 0,
+            tickDamage = 0,
+            tickInterval = 1.0,
+            elapsed = 0,         -- Time since last tick
+            totalTime = 0        -- Total time effect has been active
+        }
     }
     
     -- Visual effects
@@ -2991,10 +5641,10 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
             
             -- Multi-key combinations
-            ["12"] = Spells.meteor,
-            ["13"] = Spells.combust,
-            ["23"] = Spells.emberlift, -- Added Emberlift spell
-            ["123"] = Spells.meteor   -- Placeholder, could be a new spell
+            ["12"] = Spells.eruption,      -- Zone spell with range anchoring 
+            ["13"] = Spells.combust, -- Mana denial spell
+            ["23"] = Spells.emberlift,     -- Movement spell
+            ["123"] = Spells.meteor  -- Zone dependent nuke
         }
     elseif name == "Selene" then
         self.spellbook = {
@@ -3004,11 +5654,32 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.mist,
             
             -- Multi-key combinations
-            ["12"] = Spells.gravity,
+            ["12"] = Spells.tidalforce,     -- Chip damage Remote spell that forces out of AERIAL
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.fullmoonbeam, -- Added Full Moon Beam spell
-            ["123"] = Spells.eclipse  -- Placeholder, could be a new spell
+            ["23"] = Spells.combust, -- 
+            ["123"] = Spells.fullmoonbeam -- Full Moon Beam spell
         }
+    end
+    
+    -- Verify that all spells in the spellbook are properly defined
+    for key, spell in pairs(self.spellbook) do
+        if not spell then
+            print("WARNING: Spell for key combo '" .. key .. "' is nil for " .. name)
+        elseif not spell.cost then
+            print("WARNING: Spell '" .. (spell.name or "unnamed") .. "' for key combo '" .. key .. "' has no cost defined")
+        else
+            -- Ensure spell has an ID
+            if not spell.id and spell.name then
+                spell.id = spell.name:lower():gsub(" ", "")
+                print("DEBUG: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+            end
+            
+            -- Detailed debug output for detecting reference issues
+            print("DEBUG: Spell reference check for key combo '" .. key .. "':")
+            print("DEBUG: - Name: " .. (spell.name or "unnamed"))
+            print("DEBUG: - ID: " .. (spell.id or "no id"))
+            print("DEBUG: - Cost: " .. (type(spell.cost) == "table" and "table of length " .. #spell.cost or tostring(spell.cost)))
+        end
     end
     
     -- Spell slots (3 max)
@@ -3019,7 +5690,13 @@ function Wizard.new(name, x, y, color)
             progress = 0,
             spellType = nil,
             castTime = 0,
-            tokens = {}  -- Will hold channeled mana tokens
+            tokens = {},  -- Will hold channeled mana tokens
+            
+            -- Shield-specific properties
+            isShield = false,
+            defenseType = nil,  -- "barrier", "ward", or "field"
+            shieldStrength = 0, -- How many hits the shield can take
+            blocksAttackTypes = nil  -- Table of attack types this shield blocks
         }
     end
     
@@ -3058,6 +5735,52 @@ function Wizard:update(dt)
         end
     end
     
+    -- Update burn status effect
+    if self.statusEffects.burn.active then
+        -- Update total time
+        self.statusEffects.burn.totalTime = self.statusEffects.burn.totalTime + dt
+        
+        -- Update elapsed time since last tick
+        self.statusEffects.burn.elapsed = self.statusEffects.burn.elapsed + dt
+        
+        -- Check if it's time for damage tick
+        if self.statusEffects.burn.elapsed >= self.statusEffects.burn.tickInterval then
+            -- Apply burn damage
+            local damage = self.statusEffects.burn.tickDamage
+            self.health = math.max(0, self.health - damage)
+            
+            -- Reset elapsed time
+            self.statusEffects.burn.elapsed = 0
+            
+            -- Log damage
+            print(string.format("[BURN] %s takes %d burn damage! (health: %d)", 
+                self.name, damage, self.health))
+            
+            -- Create burn effect using VFX system
+            if self.gameState and self.gameState.vfx then
+                -- Random position around the wizard for the burn effect
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(10, 30)
+                local effectX = self.x + math.cos(angle) * distance
+                local effectY = self.y + math.sin(angle) * distance
+                
+                self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                    duration = 0.3,
+                    color = {1.0, 0.4, 0.1, 0.6},
+                    particleCount = 3,
+                    radius = 10
+                })
+            end
+        end
+        
+        -- Check if the effect has expired
+        if self.statusEffects.burn.totalTime >= self.statusEffects.burn.duration then
+            -- Deactivate the effect
+            self.statusEffects.burn.active = false
+            print(string.format("[STATUS] %s is no longer burning", self.name))
+        end
+    end
+    
     -- Update blocker timers
     for blockType, duration in pairs(self.blockers) do
         if duration > 0 then
@@ -3087,6 +5810,94 @@ function Wizard:update(dt)
     -- Update spell slots
     for i, slot in ipairs(self.spellSlots) do
         if slot.active then
+            -- If the slot is an active shield, just keep it active, and add
+            -- shield pulsing effects if needed
+            if slot.isShield and slot.progress >= slot.castTime then
+                -- For active shields, make tokens orbit their slots
+                -- Calculate positions for all tokens in this shield
+                local slotYOffsets = {30, 0, -30}
+                -- Apply AERIAL offset to shield tokens
+                local yOffset = self.currentYOffset or 0
+                local slotY = self.y + slotYOffsets[i] + yOffset
+                -- Define orbit radii for each slot (same values used in drawSpellSlots)
+                local horizontalRadii = {80, 70, 60}  -- Wider at the bottom, narrower at the top  
+                local verticalRadii = {20, 25, 30}    -- Flatter at the bottom, rounder at the top
+                local radiusX = horizontalRadii[i]
+                local radiusY = verticalRadii[i]
+                
+                -- Move all tokens in a slow orbit
+                if #slot.tokens > 0 then
+                    -- Make tokens orbit slowly
+                    local baseAngle = love.timer.getTime() * 0.3  -- Slow steady rotation
+                    local tokenCount = #slot.tokens
+                    
+                    for j, tokenData in ipairs(slot.tokens) do
+                        local token = tokenData.token
+                        -- Position tokens evenly around the orbit
+                        local anglePerToken = math.pi * 2 / tokenCount
+                        local tokenAngle = baseAngle + anglePerToken * (j - 1)
+                        
+                        -- Calculate 3D position with elliptical projection
+                        -- Apply NEAR/FAR positioning offset for tokens as well
+                        local xOffset = 0
+                        local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                        
+                        -- Push wizards closer to center in NEAR mode, further in FAR mode
+                        if self.name == "Ashgar" then -- Player 1 (left side)
+                            xOffset = isNear and 60 or 0 -- Move right when NEAR
+                        else -- Player 2 (right side)
+                            xOffset = isNear and -60 or 0 -- Move left when NEAR
+                        end
+                        
+                        token.x = self.x + xOffset + math.cos(tokenAngle) * radiusX
+                        token.y = slotY + math.sin(tokenAngle) * radiusY
+                        
+                        -- Update token rotation angle too (spin on its axis)
+                        token.rotAngle = token.rotAngle + 0.01  -- Slow spin
+                    end
+                end
+                
+                -- Occasionally add subtle visual effects
+                if math.random() < 0.01 and self.gameState and self.gameState.vfx then
+                    local angle = math.random() * math.pi * 2
+                    local radius = math.random(30, 40)
+                    
+                    -- Apply NEAR/FAR offset to sparkle effects as well
+                    local xOffset = 0
+                    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                    
+                    -- Push wizards closer to center in NEAR mode, further in FAR mode
+                    if self.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local sparkleX = self.x + xOffset + math.cos(angle) * radius
+                    local sparkleY = slotY + math.sin(angle) * radius
+                    
+                    -- Color based on shield type
+                    local effectColor = {0.7, 0.7, 0.7, 0.5}  -- Default gray
+                    if slot.defenseType == "barrier" then
+                        effectColor = {1.0, 1.0, 0.3, 0.5}  -- Yellow for barriers
+                    elseif slot.defenseType == "ward" then
+                        effectColor = {0.3, 0.3, 1.0, 0.5}  -- Blue for wards
+                    elseif slot.defenseType == "field" then
+                        effectColor = {0.3, 1.0, 0.3, 0.5}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                        duration = 0.3,
+                        color = effectColor,
+                        particleCount = 2,
+                        radius = 5
+                    })
+                end
+                
+                -- Continue to next spell slot
+                goto continue_next_slot
+            end
+            
             -- Check if the spell is frozen (by Eclipse Echo)
             if slot.frozen then
                 -- Update freeze timer
@@ -3138,34 +5949,56 @@ function Wizard:update(dt)
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
+                -- Cast the spell
                 self:castSpell(i)
                 
-                -- Start return animation for tokens
-                if #slot.tokens > 0 then
-                    for _, tokenData in ipairs(slot.tokens) do
-                        -- Trigger animation to return token to the mana pool
-                        self.manaPool:returnToken(tokenData.index)
+                -- For non-shield spells, we return tokens and reset the slot
+                -- For shield spells, castSpell will handle setting up the shield 
+                -- and we won't get here because we'll have the isShield check above
+                if not slot.isShield then
+                    -- Start return animation for tokens
+                    if #slot.tokens > 0 then
+                        for _, tokenData in ipairs(slot.tokens) do
+                            -- Trigger animation to return token to the mana pool
+                            self.manaPool:returnToken(tokenData.index)
+                        end
+                        
+                        -- Clear token list (tokens still exist in the mana pool)
+                        slot.tokens = {}
                     end
                     
-                    -- Clear token list (tokens still exist in the mana pool)
-                    slot.tokens = {}
+                    -- Reset slot
+                    slot.active = false
+                    slot.progress = 0
+                    slot.spellType = nil
+                    slot.castTime = 0
                 end
-                
-                -- Reset slot
-                slot.active = false
-                slot.progress = 0
-                slot.spellType = nil
-                slot.castTime = 0
             end
+            
+            ::continue_next_slot::
         end
     end
 end
 
 function Wizard:draw()
-    -- Calculate position adjustments based on elevation
+    -- Calculate position adjustments based on elevation and range state
     local yOffset = 0
+    local xOffset = 0
+    
+    -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if self.elevation == "AERIAL" then
-        yOffset = -30  -- Lift the wizard up when AERIAL
+        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
+    end
+    
+    -- Horizontal adjustment for NEAR/FAR state
+    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+    local centerX = love.graphics.getWidth() / 2
+    
+    -- Push wizards closer to center in NEAR mode, further in FAR mode
+    if self.name == "Ashgar" then -- Player 1 (left side)
+        xOffset = isNear and 60 or 0 -- Move right when NEAR
+    else -- Player 2 (right side)
+        xOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
     -- Set color and draw wizard
@@ -3179,12 +6012,16 @@ function Wizard:draw()
     
     -- Draw elevation effect (GROUNDED or AERIAL)
     if self.elevation == "GROUNDED" then
-        -- Draw ground indicator below wizard
+        -- Draw ground indicator below wizard, applying the x offset
         love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
-        love.graphics.ellipse("fill", self.x, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
+        love.graphics.ellipse("fill", self.x + xOffset, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
     end
     
-    -- Draw the wizard with appropriate elevation
+    -- Store current offsets for other functions to use
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
+    
+    -- Draw the wizard with appropriate elevation and position
     love.graphics.setColor(1, 1, 1)
     
     -- Flip Selene's sprite horizontally if she's player 2
@@ -3196,7 +6033,7 @@ function Wizard:draw()
     
     love.graphics.draw(
         self.sprite, 
-        self.x, self.y + yOffset,  -- Apply elevation offset
+        self.x + xOffset, self.y + yOffset,  -- Apply both offsets
         0,  -- Rotation
         scaleX, self.scale,  -- Scale x, Scale y (negative x scale for Selene)
         self.sprite:getWidth()/2, self.sprite:getHeight()/2  -- Origin at center
@@ -3207,13 +6044,13 @@ function Wizard:draw()
         -- Draw aerial effect (clouds, wind lines, etc.)
         love.graphics.setColor(0.8, 0.8, 1, 0.3)
         
-        -- Draw cloud-like puffs
+        -- Draw cloud-like puffs, applying the xOffset
         for i = 1, 3 do
-            local xOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
-            local cloudY = self.y + yOffset + 25 + math.sin(love.timer.getTime() + i) * 3
-            love.graphics.circle("fill", self.x - 15 + xOffset, cloudY, 8)
-            love.graphics.circle("fill", self.x + xOffset, cloudY, 10)
-            love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
+            local cloudXOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
+            local cloudY = self.y + yOffset + 40 + math.sin(love.timer.getTime() + i) * 3
+            love.graphics.circle("fill", self.x + xOffset - 15 + cloudXOffset, cloudY, 8)
+            love.graphics.circle("fill", self.x + xOffset + cloudXOffset, cloudY, 10)
+            love.graphics.circle("fill", self.x + xOffset + 15 + cloudXOffset, cloudY, 8)
         end
         
         -- No visual timer display here - moved to drawStatusEffects function
@@ -3226,9 +6063,9 @@ function Wizard:draw()
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
         love.graphics.setColor(0.5, 0.5, 1, 0.15)
-        love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("fill", self.x + xOffset, self.y, shieldRadius + pulseAmount)
         love.graphics.setColor(0.7, 0.7, 1, 0.2)
-        love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("line", self.x + xOffset, self.y, shieldRadius + pulseAmount)
     end
     
     -- Draw status effects with durations using the new horizontal bar system
@@ -3240,11 +6077,11 @@ function Wizard:draw()
         local progress = self.blockVFX.timer / 0.5  -- Normalize to 0-1
         local size = 80 * (1 - progress)
         love.graphics.setColor(0.7, 0.7, 1, progress * 0.8)
-        love.graphics.circle("fill", self.x, self.y, size)
+        love.graphics.circle("fill", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.circle("line", self.x, self.y, size)
+        love.graphics.circle("line", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.print("BLOCKED!", self.x - 30, self.y - 120)
+        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y + 70)
     end
     
     -- Health bars will now be drawn in the UI system for a more dramatic fighting game style
@@ -3259,15 +6096,19 @@ function Wizard:draw()
         love.graphics.setColor(color[1], color[2], color[3], alpha)
         
         -- Draw with a subtle rise effect
-        local yOffset = 10 * (1 - alpha)  -- Rise up as it fades
+        local notifYOffset = 10 * (1 - alpha)  -- Rise up as it fades
         love.graphics.print(self.spellCastNotification.text, 
-                           self.spellCastNotification.x - 60, 
-                           self.spellCastNotification.y - yOffset, 
+                           self.spellCastNotification.x + xOffset - 60, 
+                           self.spellCastNotification.y - notifYOffset, 
                            0, -- rotation
                            1.5, 1.5) -- scale
     end
     
     -- We'll remove the key indicators from here as they'll be drawn in the UI's spellbook component
+    
+    -- Save current xOffset and yOffset for other drawing functions
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
     
     -- Draw spell slots (orbits)
     self:drawSpellSlots()
@@ -3326,6 +6167,10 @@ function Wizard:drawStatusEffects()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
+    -- Get position offsets from draw function
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
+    
     -- Properties for status effect bars
     local barWidth = 130
     local barHeight = 12
@@ -3336,14 +6181,15 @@ function Wizard:drawStatusEffects()
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is
-    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
+    local x = (self.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
     
     -- Define colors for different effect types
     local effectColors = {
         aerial = {0.7, 0.7, 1.0, 0.8},
         stun = {1.0, 1.0, 0.1, 0.8},
-        shield = {0.5, 0.7, 1.0, 0.8}
+        shield = {0.5, 0.7, 1.0, 0.8},
+        burn = {1.0, 0.4, 0.1, 0.8}
     }
     
     -- Draw AERIAL duration if active
@@ -3456,11 +6302,68 @@ function Wizard:drawStatusEffects()
         love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
                            x + barWidth/2 - 30, y)
     end
+    
+    -- Draw BURN duration if active
+    if self.statusEffects.burn.active then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = self.statusEffects.burn.duration
+        local progress = 1.0 - (self.statusEffects.burn.totalTime / maxDuration)
+        progress = math.max(0.0, progress)  -- Ensure non-negative
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label with pulsing effect
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 
+                              effectColors.burn[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 7)))
+        love.graphics.print("BURNING", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.burn)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time remaining and damage info
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs (%d/tick)", 
+                           maxDuration - self.statusEffects.burn.totalTime,
+                           self.statusEffects.burn.tickDamage), 
+                           x - 20, y)
+        
+        -- Draw fire particles on the wizard to show the burning effect
+        if math.random() < 0.2 and self.gameState and self.gameState.vfx then
+            local angle = math.random() * math.pi * 2
+            local distance = math.random(10, 30)
+            local effectX = self.x + xOffset + math.cos(angle) * distance
+            local effectY = self.y + yOffset + math.sin(angle) * distance
+            
+            self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                duration = 0.2,
+                color = {1.0, 0.3, 0.1, 0.4},
+                particleCount = 2,
+                radius = 5
+            })
+        end
+    end
 end
 
 function Wizard:drawSpellSlots()
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
+    -- Get position offsets from draw function to apply the same offsets as the wizard
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
     local slotYOffsets = {30, 0, -30}  -- From bottom to top
     
     -- Horizontal and vertical radii for each elliptical path
@@ -3468,13 +6371,15 @@ function Wizard:drawSpellSlots()
     local verticalRadii = {20, 25, 30}     -- Flatter at the bottom, rounder at the top
     
     for i, slot in ipairs(self.spellSlots) do
-        -- Position parameters for each slot
-        local slotY = self.y + slotYOffsets[i]
+        -- Position parameters for each slot, applying both offsets
+        local slotY = self.y + slotYOffsets[i] + yOffset
+        local slotX = self.x + xOffset
         local radiusX = horizontalRadii[i]
         local radiusY = verticalRadii[i]
         
         -- Draw tokens that should appear "behind" the character first
-        if slot.active and #slot.tokens > 0 then
+        -- Skip drawing here for shields as those are handled in update
+        if slot.active and #slot.tokens > 0 and not slot.isShield then
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
             for j, tokenData in ipairs(slot.tokens) do
@@ -3488,7 +6393,7 @@ function Wizard:drawSpellSlots()
                     local normalizedAngle = tokenAngle % (math.pi * 2)
                     if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
                         -- Calculate 3D position with elliptical projection
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         token.zOrder = 0  -- Behind the wizard
                         
@@ -3513,15 +6418,60 @@ function Wizard:drawSpellSlots()
             -- Calculate progress angle (0 to 2*pi)
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
+            -- Check if it's a shield spell (fully cast)
+            if slot.isShield then
+                -- Draw a full shield arc with color based on defense type
+                local shieldColor
+                local shieldName = ""
+                
+                if slot.defenseType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3}  -- Yellow for barriers
+                    shieldName = "Barrier"
+                elseif slot.defenseType == "ward" then 
+                    shieldColor = {0.3, 0.3, 1.0}  -- Blue for wards
+                    shieldName = "Ward"
+                elseif slot.defenseType == "field" then
+                    shieldColor = {0.3, 1.0, 0.3}  -- Green for fields
+                    shieldName = "Field"
+                else
+                    shieldColor = {0.8, 0.8, 0.8}  -- Grey fallback
+                    shieldName = "Shield"
+                end
+                
+                -- Add pulsing effect for active shields
+                local pulseSize = 2 + math.sin(love.timer.getTime() * 3) * 2
+                
+                -- Draw a slightly larger pulse effect around the orbit
+                for j = 1, 3 do
+                    local extraSize = j * 2
+                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.2 - j*0.05)
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + extraSize, 
+                                    radiusY + pulseSize + extraSize, "line")
+                end
+                
+                -- Draw the back half of the shield (reduced alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.4)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 16)
+                
+                -- Draw the front half of the shield (full alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 16)
+                
+                -- Draw shield name (without numeric indicator) above the highest slot
+                if i == 3 then
+                    love.graphics.setColor(1, 1, 1, 0.8)
+                    love.graphics.print(shieldName, slotX - 25, slotY - radiusY - 15)
+                end
+            
             -- Check if the spell is frozen by Eclipse Echo
-            if slot.frozen then
+            elseif slot.frozen then
                 -- Draw frozen indicator - a "stopped" pulse effect around the orbit
                 for j = 1, 3 do
                     local pulseSize = 2 + j*1.5
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
                     
                     -- Draw a slightly larger ellipse to indicate frozen state
-                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
                                     radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
                 end
                 
@@ -3529,33 +6479,34 @@ function Wizard:drawSpellSlots()
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             else
                 -- Normal progress arc for unfrozen spells
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
             
-            -- Draw spell name above the highest slot
-            if i == 3 then
+            -- Draw spell name above the highest slot (only for non-shield spells)
+            if i == 3 and not slot.isShield then
                 love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.print(slot.spellType, self.x - 20, slotY - radiusY - 15)
+                love.graphics.print(slot.spellType, slotX - 20, slotY - radiusY - 15)
             end
             
             -- Draw tokens that should appear "in front" of the character
-            if #slot.tokens > 0 then
+            -- Skip drawing here for shields as those are handled in update
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -3567,7 +6518,7 @@ function Wizard:drawSpellSlots()
                         local normalizedAngle = tokenAngle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then
                             -- Calculate 3D position with elliptical projection
-                            token.x = self.x + math.cos(tokenAngle) * radiusX
+                            token.x = slotX + math.cos(tokenAngle) * radiusX
                             token.y = slotY + math.sin(tokenAngle) * radiusY
                             token.zOrder = 1  -- In front of the wizard
                             
@@ -3586,7 +6537,8 @@ function Wizard:drawSpellSlots()
             end
         else
             -- For inactive slots, only update token positions without drawing orbits
-            if #slot.tokens > 0 then
+            -- Skip drawing inactive tokens for shield slots - we shouldn't have this case anyway
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -3596,7 +6548,7 @@ function Wizard:drawSpellSlots()
                         local tokenAngle = anglePerToken * (j - 1)
                         
                         -- Calculate position based on angle
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         
                         -- Set z-order based on position
@@ -3659,6 +6611,11 @@ function Wizard:keySpell(keyIndex, isPressed)
         -- Log the currently keyed spell
         if self.currentKeyedSpell then
             print(self.name .. " keyed " .. self.currentKeyedSpell.name .. " (" .. keyCombo .. ")")
+            
+            -- Debug: verify spell definition is complete
+            if not self.currentKeyedSpell.cost then
+                print("WARNING: Spell '" .. self.currentKeyedSpell.name .. "' has no cost defined!")
+            end
         else
             print(self.name .. " has no spell for key combination: " .. keyCombo)
         end
@@ -3681,11 +6638,76 @@ function Wizard:castKeyedSpell()
         return false
     end
     
-    -- Queue the keyed spell and return the result
-    return self:queueSpell(self.currentKeyedSpell)
+    -- Debug output to identify issues with specific spells
+    print("DEBUG: " .. self.name .. " attempting to cast: " .. self.currentKeyedSpell.name)
+    print("DEBUG: Spell cost: " .. self:formatCost(self.currentKeyedSpell.cost))
+    
+    -- Enhanced debugging for ALL spells to identify differences
+    print("\nDEBUG: FULL SPELL ANALYSIS:")
+    print("  - Name: " .. (self.currentKeyedSpell.name or "nil"))
+    print("  - ID: " .. (self.currentKeyedSpell.id or "nil"))
+    print("  - Cost type: " .. type(self.currentKeyedSpell.cost))
+    print("  - Attack Type: " .. (self.currentKeyedSpell.attackType or "nil"))
+    print("  - Has isShield: " .. tostring(self.currentKeyedSpell.isShield ~= nil))
+    if self.currentKeyedSpell.isShield ~= nil then
+        print("  - isShield value: " .. tostring(self.currentKeyedSpell.isShield))
+    end
+    print("  - Has effect func: " .. tostring(type(self.currentKeyedSpell.effect) == "function"))
+    print("  - Has keywords: " .. tostring(self.currentKeyedSpell.keywords ~= nil))
+    if self.currentKeyedSpell.keywords and self.currentKeyedSpell.keywords.block then
+        print("  - Has block keyword")
+        print("  - Block type: " .. (self.currentKeyedSpell.keywords.block.type or "nil"))
+    else
+        print("  - No block keyword")
+    end
+    
+    -- Queue the keyed spell with detailed error handling
+    print("DEBUG: Calling queueSpell...")
+    local success, result = pcall(function() 
+        return self:queueSpell(self.currentKeyedSpell)
+    end)
+    
+    -- Debug the result of queueSpell
+    if not success then
+        print("ERROR: Exception in queueSpell: " .. tostring(result))
+        print("ERROR TRACE: " .. debug.traceback())
+        return false
+    elseif not result then
+        print("DEBUG: Failed to queue " .. self.currentKeyedSpell.name .. " - check if manaCost check failed")
+    else
+        print("DEBUG: Successfully queued " .. self.currentKeyedSpell.name)
+    end
+    
+    return result
+end
+
+-- Helper to format spell cost for debug output
+function Wizard:formatCost(cost)
+    local costText = ""
+    for i, costComponent in ipairs(cost) do
+        if type(costComponent) == "string" then
+            -- New format
+            costText = costText .. costComponent
+        else
+            -- Old format
+            costText = costText .. costComponent.type .. " x" .. costComponent.count
+        end
+        
+        if i < #cost then
+            costText = costText .. ", "
+        end
+    end
+    
+    if costText == "" then
+        return "Free"
+    else
+        return costText
+    end
 end
 
 function Wizard:queueSpell(spell)
+    print("DEBUG: " .. self.name .. " queueSpell called for " .. (spell and spell.name or "nil spell"))
+    
     -- Check if wizard is stunned
     if self.stunTimer > 0 then
         print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
@@ -3699,10 +6721,25 @@ function Wizard:queueSpell(spell)
     end
     
     -- Find the innermost available spell slot
+    print("DEBUG: Checking for available spell slots...")
     for i = 1, #self.spellSlots do
+        print("DEBUG: Checking slot " .. i .. ": " .. (self.spellSlots[i].active and "ACTIVE" or "AVAILABLE"))
         if not self.spellSlots[i].active then
+            print("DEBUG: Found available slot " .. i .. ", checking mana cost...")
             -- Check if we can pay the mana cost from the pool
             local tokenReservations = self:canPayManaCost(spell.cost)
+            
+            -- Debug info for mana cost checks
+            if not tokenReservations then
+                print("DEBUG: Cannot pay mana cost for " .. spell.name)
+                if type(spell.cost) == "table" then
+                    for j, component in ipairs(spell.cost) do
+                        print("DEBUG: - Cost component " .. j .. ": " .. tostring(component))
+                    end
+                else
+                    print("DEBUG: Cost is not a table: " .. tostring(spell.cost))
+                end
+            end
             
             if tokenReservations then
                 -- Collect the actual tokens to animate them to the spell slot
@@ -3749,9 +6786,22 @@ function Wizard:queueSpell(spell)
                 self.spellSlots[i].active = true
                 self.spellSlots[i].progress = 0
                 self.spellSlots[i].spellType = spell.name
-                self.spellSlots[i].castTime = spell.castTime
+                
+                -- Use dynamic cast time if available, otherwise use static cast time
+                if spell.getCastTime and type(spell.getCastTime) == "function" then
+                    self.spellSlots[i].castTime = spell.getCastTime(self)
+                    print(self.name .. " is using dynamic cast time: " .. self.spellSlots[i].castTime .. "s")
+                else
+                    self.spellSlots[i].castTime = spell.castTime
+                end
+                
                 self.spellSlots[i].spell = spell
                 self.spellSlots[i].tokens = tokens
+                
+                -- Set attackType if present in the new schema
+                if spell.attackType then
+                    self.spellSlots[i].attackType = spell.attackType
+                end
                 
                 print(self.name .. " queued " .. spell.name .. " in slot " .. i .. " (cast time: " .. spell.castTime .. "s)")
                 return true
@@ -3773,11 +6823,63 @@ function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
+    -- Debug output for cost checking
+    print("DEBUG: Checking mana cost payment for " .. (self.currentKeyedSpell and self.currentKeyedSpell.name or "unknown spell"))
+    
+    -- Handle cost being nil or not a table
+    if not cost then
+        print("DEBUG: Cost is nil")
+        return {}
+    end
+    
+    -- Check if cost is a valid table we can iterate through
+    if type(cost) ~= "table" then
+        print("DEBUG: Cost is not a table, it's a " .. type(cost))
+        return nil
+    end
+    
+    -- Early exit if cost is empty
+    if #cost == 0 then 
+        print("DEBUG: Cost is an empty table")
+        return {} 
+    end
+    
+    -- Dump the exact cost structure to understand what's being passed
+    print("DEBUG: Cost structure details:")
+    print("DEBUG: - Type: " .. type(cost))
+    print("DEBUG: - Length: " .. #cost)
+    for i, component in ipairs(cost) do
+        print("DEBUG: - Component " .. i .. " type: " .. type(component))
+        print("DEBUG: - Component " .. i .. " value: " .. tostring(component))
+    end
+    
+    -- Print existing tokens in mana pool for debugging
+    print("DEBUG: Mana pool contains " .. #self.manaPool.tokens .. " tokens:")
+    local tokenCounts = {}
+    for _, token in ipairs(self.manaPool.tokens) do
+        if token.state == "FREE" then
+            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+        end
+    end
+    for tokenType, count in pairs(tokenCounts) do
+        print("DEBUG: - " .. tokenType .. ": " .. count .. " free tokens")
+    end
+    
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -3841,7 +6943,7 @@ function Wizard:canPayManaCost(cost)
             -- Get all the free tokens of this type first
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not reservedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -3853,7 +6955,9 @@ function Wizard:canPayManaCost(cost)
             
             -- Add the required number of tokens to our reservations
             for i = 1, costCount do
-                table.insert(tokenReservations, availableTokens[i])
+                local tokenData = availableTokens[i]
+                table.insert(tokenReservations, tokenData)
+                reservedIndices[tokenData.index] = true -- Mark as reserved
             end
         end
     end
@@ -3866,10 +6970,26 @@ function Wizard:payManaCost(cost)
     local tokens = {}
     local usedIndices = {} -- Track which token indices are already used
     
+    -- Early exit if cost is empty
+    if not cost or #cost == 0 then 
+        print("DEBUG: Cost is nil or empty")
+        return {} 
+    end
+    
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -3945,7 +7065,7 @@ function Wizard:payManaCost(cost)
             -- First gather all available tokens of this type
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not usedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -3965,6 +7085,7 @@ function Wizard:payManaCost(cost)
                 local token = self.manaPool.tokens[tokenData.index]
                 token.state = "CHANNELED"  -- Mark as being used
                 table.insert(tokens, {token = token, index = tokenData.index})
+                usedIndices[tokenData.index] = true -- Mark as used
             end
         end
     end
@@ -3984,7 +7105,7 @@ function Wizard:castSpell(spellSlot)
         text = self.name .. " cast " .. slot.spellType,
         timer = 2.0,  -- Show for 2 seconds
         x = self.x,
-        y = self.y - 120,
+        y = self.y + 70, -- Moved below the wizard instead of above
         color = {self.color[1]/255, self.color[2]/255, self.color[3]/255, 1.0}
     }
     
@@ -3999,26 +7120,166 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect, passing the spell slot number as an additional parameter
-    local effect = slot.spell.effect(self, target, spellSlot)
+    -- Apply spell effect using the enhanced keyword system with targeting
+    local effect = SpellsModule.keywordSystem.castSpell(
+        slot.spell,
+        self,
+        {
+            opponent = target,
+            spellSlot = spellSlot,
+            debug = false  -- Set to true for detailed logging
+        }
+    )
     
-    -- Debug effect details
-    if slot.spellType == "Eclipse Echo" then
-        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+    -- Early exit if the spell was blocked (handled by the resolution process)
+    if effect.blocked then
+        local shieldBreakPower = effect.shieldBreakPower or 1
+        local shieldDestroyed = effect.shieldDestroyed or false
         
-        -- Add visual effect for the delayed spell
-        if effect.delayApplied and self.gameState.vfx then
-            -- Calculate position of the targeted spell slot
-            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-            local slotY = self.y + slotYOffsets[effect.targetSlot]
+        if shieldDestroyed then
+            print(string.format("[BLOCKED] %s's %s was blocked by %s's %s which has been DESTROYED!", 
+                self.name, slot.spellType, target.name, effect.blockType or "shield"))
+                
+            -- Create shield break visual effect on the target
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.7,
+                    color = {1.0, 0.5, 0.5, 0.8},
+                    particleCount = 15,
+                    radius = 50
+                })
+            end
+        else
+            if shieldBreakPower > 1 then
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s! (shield took %d hits)", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield", shieldBreakPower))
+            else
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield"))
+            end
             
-            -- Create a clear visual effect to show delay
-            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
-                duration = 1.2,
-                color = {0.3, 0.3, 0.8, 0.7},
-                particleCount = 20,
-                radius = 50
+            -- Create blocked visual effect at the shield
+            if self.gameState.vfx then
+                -- Shield color based on type
+                local shieldColor = {0.8, 0.8, 0.8, 0.7}  -- Default gray
+                if effect.blockType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3, 0.7}    -- Yellow for barriers
+                elseif effect.blockType == "ward" then
+                    shieldColor = {0.3, 0.3, 1.0, 0.7}    -- Blue for wards
+                elseif effect.blockType == "field" then 
+                    shieldColor = {0.3, 1.0, 0.3, 0.7}    -- Green for fields
+                end
+                
+                -- Create visual effect on the target to show the block
+                self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = shieldColor,
+                    shieldType = effect.blockType
+                })
+            end
+        end
+        
+        -- Create spell impact effect on the caster to show the spell being blocked
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.8, 0.2, 0.2, 0.5},
+                particleCount = 5,
+                radius = 15
             })
+        end
+        
+        -- Skip further processing - tokens have already been returned by the blocking logic
+        return
+    end
+    
+    -- Check if the spell missed (for zone spells with zoneAnchor)
+    if effect.missed then
+        print(string.format("[MISSED] %s's %s missed due to range/elevation mismatch", 
+            self.name, slot.spellType))
+        
+        -- Create whiff visual effect
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.5, 0.5, 0.5, 0.3},
+                particleCount = 3,
+                radius = 10
+            })
+        end
+    end
+    
+    -- Handle token dissipation from the dissipate keyword
+    if effect.dissipate then
+        local tokenType = effect.dissipateType or "any"
+        local amount = effect.dissipateAmount or 1
+        local tokensDestroyed = effect.tokensDestroyed or 0
+        
+        if tokensDestroyed > 0 then
+            print("Destroyed " .. tokensDestroyed .. " " .. tokenType .. " tokens")
+        else
+            print("No matching " .. tokenType .. " tokens found to destroy")
+        end
+    end
+    
+    -- Handle burn effects from the burn keyword
+    if effect.burnApplied then
+        -- Apply burn status effect to target
+        target.statusEffects.burn.active = true
+        target.statusEffects.burn.duration = effect.burnDuration or 3.0
+        target.statusEffects.burn.tickDamage = effect.burnTickDamage or 2
+        target.statusEffects.burn.tickInterval = effect.burnTickInterval or 1.0
+        target.statusEffects.burn.elapsed = 0
+        target.statusEffects.burn.totalTime = 0
+        
+        print(string.format("[STATUS] %s is burning! (%d damage per %.1f sec for %.1f sec)",
+            target.name, 
+            target.statusEffects.burn.tickDamage,
+            target.statusEffects.burn.tickInterval,
+            target.statusEffects.burn.duration))
+        
+        -- Create initial burn effect
+        if self.gameState and self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                duration = 0.6,
+                color = {1.0, 0.3, 0.1, 0.8},
+                particleCount = 12,
+                radius = 35
+            })
+        end
+    end
+    
+    -- Handle spell freeze effect from the freeze keyword
+    if effect.freezeApplied then
+        local targetSlot = effect.targetSlot or 2  -- Default to middle slot
+        local freezeDuration = effect.freezeDuration or 2.0
+        
+        -- Check if the target slot exists and is active
+        if self.spellSlots[targetSlot] and self.spellSlots[targetSlot].active then
+            local slot = self.spellSlots[targetSlot]
+            
+            -- Add the frozen flag and timer
+            slot.frozen = true
+            slot.freezeTimer = freezeDuration
+            
+            print(slot.spellType .. " in slot " .. targetSlot .. " frozen for " .. freezeDuration .. " seconds")
+            
+            -- Add visual effect for the frozen spell
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlot]
+                
+                -- Create a clear visual effect to show freeze
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 1.2,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 20,
+                    radius = 50
+                })
+            end
+        else
+            print("No active spell found in slot " .. targetSlot .. " to freeze")
         end
     end
     
@@ -4027,7 +7288,329 @@ function Wizard:castSpell(spellSlot)
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
     end
     
-    -- Check for projectile blocking
+    -- Check if it's a shield spell that should persist in the spell slot
+    if slot.spell.isShield or effect.isShield then
+        -- Mark the progress as completed
+        slot.progress = slot.castTime  -- Mark as fully cast
+        
+        -- Debug shield creation process
+        print("DEBUG: Creating shield from spell: " .. slot.spellType)
+        
+        -- Check if we have shieldCreated flag which means the shield was already
+        -- created by the block keyword handler
+        if not effect.shieldCreated then
+            -- Extract shield params from effect or keywords
+            local defenseType = "barrier"
+            local blocks = {"projectile"}
+            local manaLinked = true
+            local reflect = false
+            local hitPoints = nil
+            
+            -- Get shield parameters from effect or spell
+            if effect.defenseType then
+                defenseType = effect.defenseType
+            elseif slot.spell.defenseType then
+                defenseType = slot.spell.defenseType
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type then
+                defenseType = slot.spell.keywords.block.type
+            end
+            
+            -- Get blocks from effect or spell
+            if effect.blockTypes then
+                blocks = effect.blockTypes
+            elseif slot.spell.blockableBy then
+                blocks = slot.spell.blockableBy
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.blocks then
+                blocks = slot.spell.keywords.block.blocks
+            end
+            
+            -- Get manaLinked from effect or spell
+            if effect.manaLinked ~= nil then
+                manaLinked = effect.manaLinked
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.manaLinked ~= nil then
+                manaLinked = slot.spell.keywords.block.manaLinked
+            end
+            
+            -- Get reflect from effect or spell
+            if effect.reflect ~= nil then
+                reflect = effect.reflect
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.reflect ~= nil then
+                reflect = slot.spell.keywords.block.reflect
+            end
+            
+            -- Get hitPoints from effect or spell
+            if effect.shieldStrength then
+                hitPoints = effect.shieldStrength
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.hitPoints then
+                hitPoints = slot.spell.keywords.block.hitPoints
+            end
+            
+            -- Use our central shield creation function to set up the shield
+            local blockParams = {
+                type = defenseType,
+                blocks = blocks,
+                manaLinked = manaLinked,
+                reflect = reflect,
+                hitPoints = hitPoints -- Use existing shield strength if specified
+            }
+            
+            print("DEBUG: Shield parameters:")
+            print("DEBUG: - Type: " .. defenseType)
+            print("DEBUG: - Mana linked: " .. tostring(manaLinked))
+            print("DEBUG: - Reflect: " .. tostring(reflect))
+            if hitPoints then
+                print("DEBUG: - Hit points: " .. hitPoints)
+            end
+            
+            -- Call the shield creation function - this centralizes all shield setup logic
+            SpellsModule.keywordSystem.createShield(self, spellSlot, blockParams)
+        end
+        
+        -- Apply elevation change if the shield spell includes that effect
+        if effect.setElevation then
+            self.elevation = effect.setElevation
+            
+            -- Set duration for elevation change if provided
+            if effect.elevationDuration and effect.setElevation == "AERIAL" then
+                self.elevationTimer = effect.elevationDuration
+                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            else
+                -- No duration specified, treat as permanent until changed by another spell
+                self.elevationTimer = 0
+                print(self.name .. " moved to " .. self.elevation .. " elevation")
+            end
+            
+            -- Create elevation change effect
+            if self.gameState.vfx and effect.setElevation == "AERIAL" then
+                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            end
+        end
+        
+        -- Do not reset the slot - the shield will remain active
+        return
+    end
+    
+    -- Check for shield blocking based on attack type
+    local attackBlocked = false
+    local blockingShieldSlot = nil
+    
+    -- Only check for blocking if this is an offensive spell
+    if slot.spell.attackType or slot.attackType then
+        -- The attack type of the current spell (check both old and new schema)
+        local attackType = slot.spell.attackType or slot.attackType
+        print("Checking if " .. attackType .. " attack can be blocked by " .. target.name .. "'s shields")
+        
+        -- Check each of the target's spell slots for active shields
+        for i, targetSlot in ipairs(target.spellSlots) do
+            -- Debug print to check shield state
+            if targetSlot.active and targetSlot.isShield then
+                print("Found shield in slot " .. i .. " of type " .. targetSlot.defenseType .. 
+                      " with strength " .. targetSlot.shieldStrength)
+                
+                -- Check if the shield blocks appropriate attack types
+                if targetSlot.blocksAttackTypes then
+                    for blockType, _ in pairs(targetSlot.blocksAttackTypes) do
+                        print("Shield blocks: " .. blockType)
+                    end
+                else
+                    print("Shield does not have blocksAttackTypes defined!")
+                end
+            end
+            
+            -- Check if this shield can block this attack type
+            local canBlock = false
+            if targetSlot.blocksAttackTypes then
+                -- Old format - table with attackType as keys
+                canBlock = targetSlot.blocksAttackTypes[attackType]
+            elseif targetSlot.blockTypes then
+                -- New format - array of attack types
+                for _, blockType in ipairs(targetSlot.blockTypes) do
+                    if blockType == attackType then
+                        canBlock = true
+                        break
+                    end
+                end
+            end
+            
+            if targetSlot.active and targetSlot.isShield and 
+               targetSlot.shieldStrength > 0 and canBlock then
+                
+                -- This shield can block this attack type
+                attackBlocked = true
+                blockingShieldSlot = i
+                
+                -- Create visual effect for the block
+                target.blockVFX = {
+                    active = true,
+                    timer = 0.5,  -- Duration of the block visual effect
+                    x = target.x,
+                    y = target.y
+                }
+                
+                -- Create block effect using VFX system
+                if self.gameState.vfx then
+                    local shieldColor
+                    if targetSlot.defenseType == "barrier" then
+                        shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+                    elseif targetSlot.defenseType == "ward" then
+                        shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+                    elseif targetSlot.defenseType == "field" then
+                        shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                        duration = 0.5, -- Short block flash
+                        color = shieldColor,
+                        shieldType = targetSlot.defenseType
+                    })
+                end
+                
+                -- Determine how many hits to apply to the shield
+                -- Check if this is a shield-breaker spell
+                local shieldBreakPower = 1  -- Default: reduce shield by 1
+                if slot.spell.shieldBreaker then
+                    shieldBreakPower = slot.spell.shieldBreaker
+                    print(string.format("[SHIELD BREAKER] %s's %s is a shield-breaker spell that deals %d hits to shields!",
+                        self.name, slot.spellType, shieldBreakPower))
+                end
+                
+                -- Check if this is a mana-linked shield (consumes tokens when blocking)
+                -- Default to true (backward compatibility)
+                local manaLinked = targetSlot.manaLinked
+                if manaLinked == nil then
+                    manaLinked = true
+                end
+                
+                if manaLinked then
+                    -- Apply shield-break effect and leak tokens
+                    local tokensToReturn = math.min(shieldBreakPower, #targetSlot.tokens)
+                    
+                    -- Return tokens back to the mana pool
+                    for i = 1, tokensToReturn do
+                        if #targetSlot.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #targetSlot.tokens
+                            local tokenData = targetSlot.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            target.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(targetSlot.tokens, lastTokenIndex)
+                        end
+                    end
+                    
+                    -- Update shield strength based on remaining tokens
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print the blocked attack message with mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked %d mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, tokensToReturn, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked one mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                else
+                    -- For non-mana linked shields, just decrease the shield strength
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print blocked message without mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (-%d strength, %d remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, shieldBreakPower, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                end
+                
+                -- If the shield is depleted (no strength left), destroy it
+                if targetSlot.shieldStrength <= 0 then
+                    print(string.format("[BLOCK] %s's %s shield has been broken!", target.name, targetSlot.defenseType))
+                    
+                    -- Return any remaining tokens (for partially consumed shields)
+                    for _, tokenData in ipairs(targetSlot.tokens) do
+                        target.manaPool:returnToken(tokenData.index)
+                    end
+                    
+                    -- Reset slot
+                    targetSlot.active = false
+                    targetSlot.isShield = false
+                    targetSlot.defenseType = nil
+                    targetSlot.blocksAttackTypes = nil
+                    targetSlot.shieldStrength = 0
+                    targetSlot.progress = 0
+                    targetSlot.spellType = nil
+                    targetSlot.castTime = 0
+                    
+                    -- Create shield break effect
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                            duration = 0.7,
+                            color = {1.0, 0.5, 0.5, 0.8},
+                            particleCount = 15,
+                            radius = 50
+                        })
+                    end
+                end
+                
+                -- Check for reflection if this shield has that property
+                if targetSlot.reflect then
+                    print(string.format("[REFLECT] %s's shield reflected %s's attack back at them!",
+                        target.name, self.name))
+                    
+                    -- Implement spell reflection (simplified version)
+                    -- For now, just deal partial damage back to the caster
+                    if effect.damage and effect.damage > 0 then
+                        local reflectDamage = math.floor(effect.damage * 0.5) -- 50% reflection
+                        self.health = self.health - reflectDamage
+                        if self.health < 0 then self.health = 0 end
+                        
+                        print(string.format("[REFLECT] %s took %d reflected damage! (health: %d)", 
+                            self.name, reflectDamage, self.health))
+                            
+                        -- Create reflected damage visual effect
+                        if self.gameState.vfx then
+                            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                                duration = 0.5,
+                                color = {0.8, 0.2, 0.8, 0.7}, -- Purple for reflection
+                                particleCount = 10,
+                                radius = 30
+                            })
+                        end
+                    end
+                end
+                
+                break  -- Stop checking other shields once one has blocked
+            end
+        end
+    end
+    
+    -- If the attack was blocked, don't apply any effects
+    if attackBlocked then
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
+        return  -- Skip applying any effects
+    end
+    
+    -- LEGACY CHECK FOR OLD BLOCKER SYSTEM - Disabled (Now using shield system instead)
+    --[[
     if effect.spellType == "projectile" and target.blockers.projectile > 0 then
         -- Target has an active projectile block
         print(target.name .. " blocked " .. slot.spellType .. " with Mist Veil!")
@@ -4048,11 +7631,29 @@ function Wizard:castSpell(spellSlot)
             })
         end
         
-        -- Don't consume the block, it remains active for its duration
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
         return  -- Skip applying any effects
-    end
+    }
+    --]]
     
-    -- Apply blocking effects (like Mist Veil)
+    -- LEGACY CODE - Apply blocking effects (like old Mist Veil) - Disabled
+    --[[
     if effect.block then
         if effect.block == "projectile" then
             local duration = effect.blockDuration or 2.5  -- Default to 2.5s if not specified
@@ -4065,6 +7666,7 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+    --]]
     
     -- Apply damage
     if effect.damage and effect.damage > 0 then
@@ -4285,6 +7887,25 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+    
+    -- Only reset the spell slot and return tokens for non-shield spells
+    -- This is now handled at the beginning of the function for shield spells
+    -- Start return animation for tokens
+    if #slot.tokens > 0 then
+        for _, tokenData in ipairs(slot.tokens) do
+            -- Trigger animation to return token to the mana pool
+            self.manaPool:returnToken(tokenData.index)
+        end
+        
+        -- Clear token list (tokens still exist in the mana pool)
+        slot.tokens = {}
+    end
+    
+    -- Reset slot
+    slot.active = false
+    slot.progress = 0
+    slot.spellType = nil
+    slot.castTime = 0
 end
 
 return Wizard```
@@ -4508,7 +8129,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Wed Apr 16 12:25:23 CDT 2025
+Generated: Wed Apr 16 19:26:28 CDT 2025
 
 # Source Code
 
@@ -4532,6 +8153,203 @@ function love.conf(t)
     t.modules.physics = false
 end```
 
+## ./docs/keywords.lua
+```lua
+-- Keywords Documentation Generator
+-- This file helps maintain up-to-date documentation for the keyword system
+
+local Spells = require("spells")
+
+local DocGenerator = {}
+
+-- Function to get the default target type description for a keyword
+local function getTargetTypeDescription(keyword)
+    local targetType = Spells.keywordSystem.keywordTargets[keyword]
+    local descriptions = {
+        self = "Affects the caster",
+        enemy = "Affects the opponent",
+        pool_self = "Affects the caster's mana pool",
+        pool_enemy = "Affects the opponent's mana pool",
+        slot_self = "Affects the caster's spell slots",
+        slot_enemy = "Affects the opponent's spell slots",
+        global = "Affects the game state",
+        none = "No specific target"
+    }
+    
+    return descriptions[targetType] or "Unknown target type"
+end
+
+-- Generate markdown documentation for all available keywords
+function DocGenerator.generateMarkdown()
+    local output = "# Manastorm Spell Keyword Reference\n\n"
+    output = output .. "This document provides a reference for all available keywords in the Manastorm spell system.\n\n"
+    
+    -- Get keyword info organized by category
+    local keywordsByCategory = Spells.keywordSystem.getKeywordHelp("byCategory")
+    
+    -- Table of contents
+    output = output .. "## Contents\n\n"
+    for categoryKey, category in pairs(keywordsByCategory) do
+        output = output .. "- [" .. category.name .. "](#" .. string.lower(category.name:gsub("%s+", "-")) .. ")\n"
+    end
+    output = output .. "\n\n"
+    
+    -- Generate sections for each category
+    for categoryKey, category in pairs(keywordsByCategory) do
+        output = output .. "## " .. category.name .. "\n\n"
+        
+        for _, keyword in ipairs(category.keywords) do
+            output = output .. "### " .. keyword.name .. "\n\n"
+            output = output .. keyword.description .. "\n\n"
+            output = output .. "**Default targeting:** " .. getTargetTypeDescription(keyword.name) .. "\n\n"
+            output = output .. "**Example usage:**\n\n"
+            output = output .. "```lua\n" .. keyword.example .. "\n```\n\n"
+            
+            -- Add targeting example if appropriate
+            if Spells.keywordSystem.keywordTargets[keyword.name] then
+                output = output .. "**Custom targeting example:**\n\n"
+                output = output .. "```lua\n" .. keyword.name .. " = {\n"
+                output = output .. "    -- Parameters as above\n"
+                output = output .. "    target = \"" .. Spells.keywordSystem.keywordTargets[keyword.name] .. "\"  -- Default target\n"
+                output = output .. "    -- You can override with any of: \"self\", \"enemy\", \"pool_self\", \"pool_enemy\", \"slot_self\", \"slot_enemy\", \"global\", \"none\"\n"
+                output = output .. "}\n```\n\n"
+            end
+        end
+    end
+    
+    -- Add a section with sample spells
+    output = output .. "## Sample Spells\n\n"
+    output = output .. "These examples show how to combine multiple keywords to create complex spell effects.\n\n"
+    
+    -- Targeting section
+    output = output .. "### About Targeting\n\n"
+    output = output .. "Each keyword has a default target (shown in the keyword documentation). You can override this by specifying a `target` parameter in the keyword configuration.\n\n"
+    output = output .. "Available target types:\n\n"
+    output = output .. "| Target Type | Description |\n"
+    output = output .. "|------------|-------------|\n"
+    output = output .. "| `self` | Affects the caster |\n"
+    output = output .. "| `enemy` | Affects the opponent |\n"
+    output = output .. "| `pool_self` | Affects the caster's mana pool |\n"
+    output = output .. "| `pool_enemy` | Affects the opponent's mana pool |\n"
+    output = output .. "| `slot_self` | Affects the caster's spell slots |\n"
+    output = output .. "| `slot_enemy` | Affects the opponent's spell slots |\n"
+    output = output .. "| `global` | Affects the game state |\n"
+    output = output .. "| `none` | No specific target |\n\n"
+    
+    -- Multi-target spell example
+    output = output .. "### Arcane Reversal (Multi-Target Example)\n\n"
+    output = output .. "```lua\nSpells.arcaneReversal = {\n"
+    output = output .. "    id = \"arcanereversal\",\n"
+    output = output .. "    name = \"Arcane Reversal\",\n"
+    output = output .. "    description = \"A complex spell that manipulates mana, movement, and timing simultaneously\",\n"
+    output = output .. "    attackType = \"remote\",\n"
+    output = output .. "    castTime = 6.0,\n"
+    output = output .. "    cost = {\"moon\", \"star\", \"force\", \"force\"},\n"
+    output = output .. "    keywords = {\n"
+    output = output .. "        -- Apply damage to enemy\n"
+    output = output .. "        damage = {\n"
+    output = output .. "            amount = function(caster, target)\n"
+    output = output .. "                -- More damage if enemy has active shields\n"
+    output = output .. "                local shieldCount = 0\n"
+    output = output .. "                for _, slot in ipairs(target.spellSlots) do\n"
+    output = output .. "                    if slot.active and slot.isShield then\n"
+    output = output .. "                        shieldCount = shieldCount + 1\n"
+    output = output .. "                    end\n"
+    output = output .. "                end\n"
+    output = output .. "                return 8 + (shieldCount * 4)  -- 8 base + 4 per shield\n"
+    output = output .. "            end,\n"
+    output = output .. "            type = \"star\",\n"
+    output = output .. "            target = \"ENEMY\"  -- Explicit targeting\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Move self to opposite range\n"
+    output = output .. "        rangeShift = {\n"
+    output = output .. "            position = function(caster, target)\n"
+    output = output .. "                return caster.gameState.rangeState == \"NEAR\" and \"FAR\" or \"NEAR\"\n"
+    output = output .. "            end,\n"
+    output = output .. "            target = \"SELF\"  -- Different target from damage\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Lock opponent's mana tokens\n"
+    output = output .. "        lock = {\n"
+    output = output .. "            duration = 4.0,\n"
+    output = output .. "            target = \"POOL_ENEMY\"  -- Target opponent's pool\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Add tokens to own pool\n"
+    output = output .. "        conjure = {\n"
+    output = output .. "            token = \"force\",\n"
+    output = output .. "            amount = 1,\n"
+    output = output .. "            target = \"POOL_SELF\"  -- Target own pool\n"
+    output = output .. "        },\n"
+    output = output .. "        \n"
+    output = output .. "        -- Accelerate own next spell\n"
+    output = output .. "        accelerate = {\n"
+    output = output .. "            amount = 2.0,\n"
+    output = output .. "            slot = 1,  -- First slot\n"
+    output = output .. "            target = \"SLOT_SELF\"  -- Target own slot\n"
+    output = output .. "        }\n"
+    output = output .. "    },\n"
+    output = output .. "    vfx = \"arcane_reversal\",\n"
+    output = output .. "    blockableBy = {\"ward\", \"field\"}\n"
+    output = output .. "}\n```\n\n"
+    
+    -- Fireball example
+    output = output .. "### Fireball\n\n"
+    output = output .. "```lua\nSpells.fireball = {\n"
+    output = output .. "    id = \"fireball\",\n"
+    output = output .. "    name = \"Fireball\",\n"
+    output = output .. "    description = \"Launches a ball of fire that deals heavy damage\",\n"
+    output = output .. "    attackType = \"projectile\",\n"
+    output = output .. "    castTime = 4.0,\n"
+    output = output .. "    cost = {\"fire\", \"fire\", \"force\"},\n"
+    output = output .. "    keywords = {\n"
+    output = output .. "        damage = {\n"
+    output = output .. "            amount = function(caster, target)\n"
+    output = output .. "                -- More damage at FAR range\n"
+    output = output .. "                return caster.gameState.rangeState == \"FAR\" and 18 or 12\n"
+    output = output .. "            end,\n"
+    output = output .. "            type = \"fire\"\n"
+    output = output .. "            -- No target specified, uses default: ENEMY\n"
+    output = output .. "        },\n"
+    output = output .. "        -- Add AOE effect if cast from AERIAL\n"
+    output = output .. "        zoneMulti = function(caster, target)\n"
+    output = output .. "            return caster.elevation == \"AERIAL\"\n"
+    output = output .. "        end\n"
+    output = output .. "    },\n"
+    output = output .. "    vfx = \"fireball\",\n"
+    output = output .. "    sfx = \"explosion\",\n"
+    output = output .. "    blockableBy = {\"barrier\"}\n"
+    output = output .. "}\n```\n\n"
+    
+    return output
+end
+
+-- Generate a documentation file
+function DocGenerator.writeDocumentation(outputPath)
+    outputPath = outputPath or "/Users/russell/Manastorm/docs/KEYWORDS.md"
+    
+    local markdown = DocGenerator.generateMarkdown()
+    
+    local file = io.open(outputPath, "w")
+    if file then
+        file:write(markdown)
+        file:close()
+        print("Keyword documentation written to: " .. outputPath)
+        return true
+    else
+        print("Error: Could not open file for writing: " .. outputPath)
+        return false
+    end
+end
+
+-- Execute documentation generation if this file is run directly
+if not ... then
+    DocGenerator.writeDocumentation()
+end
+
+return DocGenerator```
+
 ## ./main.lua
 ```lua
 -- Manastorm - Wizard Duel Game
@@ -4548,7 +8366,11 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
-    rangeState = "FAR"  -- Initial range state (NEAR or FAR)
+    rangeState = "FAR",  -- Initial range state (NEAR or FAR)
+    gameOver = false,
+    winner = nil,
+    winScreenTimer = 0,
+    winScreenDuration = 5  -- How long to show the win screen before auto-reset
 }
 
 -- Define token types and images (globally available for consistency)
@@ -4584,9 +8406,9 @@ function love.load()
     local screenHeight = love.graphics.getHeight()
     game.manaPool = ManaPool.new(screenWidth/2, 120)  -- Positioned between health bars and wizards
     
-    -- Create wizards
-    game.wizards[1] = Wizard.new("Ashgar", 200, 300, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 300, {100, 100, 255})
+    -- Create wizards - moved lower on screen to allow more room for aerial movement
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
+    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -4597,6 +8419,52 @@ function love.load()
     -- Initialize VFX system
     game.vfx = VFX.init()
     
+    -- Create custom shield spells just for hotkeys
+    -- These are complete, independent spell definitions
+    game.customSpells = {}
+    
+    -- Define Moon Ward with minimal dependencies
+    game.customSpells.moonWard = {
+        id = "customMoonWard",
+        name = "Moon Ward",
+        description = "A mystical ward that blocks projectiles and remotes",
+        attackType = "utility",
+        castTime = 4.5,
+        cost = {"moon", "moon"},
+        keywords = {
+            block = {
+                type = "ward",
+                blocks = {"projectile", "remote"},
+                manaLinked = true
+            }
+        },
+        vfx = "moon_ward",
+        sfx = "shield_up",
+        blockableBy = {}
+    }
+    
+    -- Define Mirror Shield with minimal dependencies
+    game.customSpells.mirrorShield = {
+        id = "customMirrorShield",
+        name = "Mirror Shield",
+        description = "A reflective barrier that returns damage to attackers",
+        attackType = "utility",
+        castTime = 5.0,
+        cost = {"moon", "moon", "star"},
+        keywords = {
+            block = {
+                type = "barrier",
+                blocks = {"projectile", "zone"},
+                manaLinked = false,
+                reflect = true,
+                hitPoints = 3
+            }
+        },
+        vfx = "mirror_shield",
+        sfx = "crystal_ring",
+        blockableBy = {}
+    }
+    
     -- Initialize mana pool with a single random token to start
     local tokenType = game.addRandomToken()
     
@@ -4604,7 +8472,116 @@ function love.load()
     print("Starting the game with a single " .. tokenType .. " token")
 end
 
+-- Reset the game
+function resetGame()
+    -- Reset game state
+    game.gameOver = false
+    game.winner = nil
+    game.winScreenTimer = 0
+    
+    -- Reset wizards
+    for _, wizard in ipairs(game.wizards) do
+        wizard.health = 100
+        wizard.elevation = "GROUNDED"
+        wizard.elevationTimer = 0
+        wizard.stunTimer = 0
+        
+        -- Reset spell slots
+        for i = 1, 3 do
+            wizard.spellSlots[i] = {
+                active = false,
+                progress = 0,
+                spellType = nil,
+                castTime = 0,
+                tokens = {},
+                isShield = false,
+                defenseType = nil,
+                shieldStrength = 0,
+                blocksAttackTypes = nil
+            }
+        end
+        
+        -- Reset status effects
+        wizard.statusEffects.burn.active = false
+        wizard.statusEffects.burn.duration = 0
+        wizard.statusEffects.burn.tickDamage = 0
+        wizard.statusEffects.burn.tickInterval = 1.0
+        wizard.statusEffects.burn.elapsed = 0
+        wizard.statusEffects.burn.totalTime = 0
+        
+        -- Reset blockers
+        for blockType in pairs(wizard.blockers) do
+            wizard.blockers[blockType] = 0
+        end
+        
+        -- Reset spell keying
+        wizard.activeKeys = {[1] = false, [2] = false, [3] = false}
+        wizard.currentKeyedSpell = nil
+    end
+    
+    -- Reset range state
+    game.rangeState = "FAR"
+    
+    -- Clear mana pool and add a single token to start
+    game.manaPool:clear()
+    local tokenType = game.addRandomToken()
+    print("Game reset! Starting with a single " .. tokenType .. " token")
+end
+
 function love.update(dt)
+    -- Check for win condition before updates
+    if game.gameOver then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+        
+        -- Auto-reset after duration
+        if game.winScreenTimer >= game.winScreenDuration then
+            resetGame()
+        end
+        
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+        return
+    end
+    
+    -- Check if any wizard's health has reached zero
+    for i, wizard in ipairs(game.wizards) do
+        if wizard.health <= 0 then
+            game.gameOver = true
+            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+            game.winScreenTimer = 0
+            
+            -- Create victory VFX around the winner
+            local winner = game.wizards[game.winner]
+            for j = 1, 15 do
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(40, 100)
+                local x = winner.x + math.cos(angle) * distance
+                local y = winner.y + math.sin(angle) * distance
+                
+                -- Determine winner's color for effects
+                local color
+                if game.winner == 1 then -- Ashgar
+                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                else -- Selene
+                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                end
+                
+                -- Create sparkle effect with delay
+                game.vfx.createEffect("impact", x, y, nil, nil, {
+                    duration = 0.8 + math.random() * 0.5,
+                    color = color,
+                    particleCount = 5,
+                    radius = 15,
+                    delay = j * 0.1
+                })
+            end
+            
+            print(winner.name .. " wins!")
+            break
+        end
+    end
+    
     -- Update wizards
     for _, wizard in ipairs(game.wizards) do
         wizard:update(dt)
@@ -4638,12 +8615,118 @@ function love.draw()
     -- Draw UI (health bars and wizard names are handled in UI.drawSpellInfo)
     love.graphics.setColor(1, 1, 1)
     
-    -- Draw help text and spell info
-    UI.drawHelpText(game.font)
+    -- Always draw spellbook components
+    UI.drawSpellbookButtons()
+    
+    -- Draw spell info (health bars, etc.)
     UI.drawSpellInfo(game.wizards)
     
-    -- Debug info
-    love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    -- Draw win screen if game is over
+    if game.gameOver and game.winner then
+        drawWinScreen()
+    end
+    
+    -- Debug info only when debug key is pressed
+    if love.keyboard.isDown("`") then
+        UI.drawHelpText(game.font)
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
+    else
+        -- Always show a small hint about the debug key
+        love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
+        love.graphics.print("Press ` for debug controls", 10, love.graphics.getHeight() - 20)
+    end
+end
+
+-- Draw the win screen
+function drawWinScreen()
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    local winner = game.wizards[game.winner]
+    
+    -- Fade in effect
+    local fadeProgress = math.min(game.winScreenTimer / 0.5, 1.0)
+    
+    -- Draw semi-transparent overlay
+    love.graphics.setColor(0, 0, 0, 0.7 * fadeProgress)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Determine winner's color scheme
+    local winnerColor
+    if game.winner == 1 then -- Ashgar
+        winnerColor = {1.0, 0.4, 0.2} -- Fire-like
+    else -- Selene
+        winnerColor = {0.4, 0.4, 1.0} -- Moon-like
+    end
+    
+    -- Calculate animation progress for text
+    local textProgress = math.min(math.max(game.winScreenTimer - 0.5, 0) / 0.5, 1.0)
+    local textScale = 1 + (1 - textProgress) * 3 -- Text starts larger and shrinks to normal size
+    local textY = screenHeight / 2 - 100
+    
+    -- Draw winner text with animated scale
+    love.graphics.setColor(winnerColor[1], winnerColor[2], winnerColor[3], textProgress)
+    
+    -- Main victory text
+    local victoryText = winner.name .. " WINS!"
+    local victoryTextWidth = game.font:getWidth(victoryText) * textScale * 3
+    love.graphics.print(
+        victoryText, 
+        screenWidth / 2 - victoryTextWidth / 2, 
+        textY,
+        0, -- rotation
+        textScale * 3, -- scale X
+        textScale * 3  -- scale Y
+    )
+    
+    -- Only show restart instructions after initial animation
+    if game.winScreenTimer > 1.0 then
+        -- Calculate pulse effect
+        local pulse = 0.7 + 0.3 * math.sin(game.winScreenTimer * 4)
+        
+        -- Draw restart instruction with pulse effect
+        local restartText = "Press [SPACE] to play again"
+        local restartTextWidth = game.font:getWidth(restartText) * 1.5
+        
+        love.graphics.setColor(1, 1, 1, pulse)
+        love.graphics.print(
+            restartText,
+            screenWidth / 2 - restartTextWidth / 2,
+            textY + 150,
+            0, -- rotation
+            1.5, -- scale X
+            1.5  -- scale Y
+        )
+        
+        -- Show auto-restart countdown
+        local remainingTime = math.ceil(game.winScreenDuration - game.winScreenTimer)
+        local countdownText = "Auto-restart in " .. remainingTime .. "..."
+        local countdownTextWidth = game.font:getWidth(countdownText)
+        
+        love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
+        love.graphics.print(
+            countdownText,
+            screenWidth / 2 - countdownTextWidth / 2,
+            textY + 200
+        )
+    end
+    
+    -- Draw some victory effect particles
+    for i = 1, 3 do
+        if math.random() < 0.3 then
+            local x = math.random(screenWidth)
+            local y = math.random(screenHeight)
+            local size = math.random(10, 30)
+            
+            love.graphics.setColor(
+                winnerColor[1], 
+                winnerColor[2], 
+                winnerColor[3], 
+                math.random() * 0.3
+            )
+            love.graphics.circle("fill", x, y, size)
+        end
+    end
 end
 
 -- Function to draw the range indicator for NEAR/FAR states
@@ -4652,66 +8735,74 @@ function drawRangeIndicator()
     local screenHeight = love.graphics.getHeight()
     local centerX = screenWidth / 2
     
-    -- Start range indicator well below the mana pool
-    local startY = 200
+    -- Only draw a subtle central line, without the text indicators
+    -- The wizard positions themselves will communicate NEAR/FAR state
     
-    -- Draw a line or barrier to indicate NEAR/FAR state
+    -- Different visual style based on range state
     if game.rangeState == "NEAR" then
-        -- Draw a more prominent barrier for NEAR state
-        love.graphics.setColor(0.6, 0.6, 0.8, 0.4)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- For NEAR state, draw a more vibrant, energetic line
+        love.graphics.setColor(0.5, 0.5, 0.9, 0.4)
         
-        -- Add a more noticeable glow/pulse
-        for i = 1, 7 do
-            local alpha = 0.15 - (i * 0.018)
-            local width = i * 5
-            love.graphics.setColor(0.6, 0.6, 0.8, alpha)
-            love.graphics.setLineWidth(width)
-            love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        -- Draw main line
+        love.graphics.setLineWidth(1.5)
+        love.graphics.line(centerX, 200, centerX, screenHeight - 100)
+        
+        -- Add a subtle energetic glow/pulse
+        for i = 1, 5 do
+            local pulseWidth = 3 + math.sin(love.timer.getTime() * 2.5) * 2
+            local alpha = 0.12 - (i * 0.02)
+            love.graphics.setColor(0.5, 0.5, 0.9, alpha)
+            love.graphics.setLineWidth(pulseWidth * i)
+            love.graphics.line(centerX, 200, centerX, screenHeight - 100)
         end
         love.graphics.setLineWidth(1)
-        
-        -- Add "NEAR" text indicator below mana pool
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.8)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.5, 0.5, 0.8, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 25, startY - 23, 50, 20)
-        love.graphics.setColor(0.9, 0.9, 1, 0.9)
-        love.graphics.print("NEAR", centerX - 20, startY - 20)
     else
-        -- For FAR state, draw a more substantial, distant barrier
-        -- Distortion effect to simulate distance
-        for i = 1, 12 do
-            local wobble = math.sin(love.timer.getTime() * 2 + i * 0.3) * 3
-            local y1 = startY + (i * 5) + wobble
-            local y2 = screenHeight - 100 - (i * 5) + wobble
-            local alpha = 0.15 - (i * 0.009)
-            love.graphics.setColor(0.4, 0.4, 0.7, alpha)
-            love.graphics.line(centerX + i * 3, y1, centerX + i * 3, y2)
-            love.graphics.line(centerX - i * 3, y1, centerX - i * 3, y2)
+        -- For FAR state, draw a more distant, faded line
+        love.graphics.setColor(0.3, 0.3, 0.7, 0.3)
+        
+        -- Draw main line with slight wave effect
+        local segments = 12
+        local segmentHeight = (screenHeight - 300) / segments
+        local points = {}
+        
+        for i = 0, segments do
+            local y = 200 + i * segmentHeight
+            local wobble = math.sin(love.timer.getTime() + i * 0.3) * 1.5
+            table.insert(points, centerX + wobble)
+            table.insert(points, y)
         end
         
-        -- Main line
-        love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
-        love.graphics.line(centerX, startY, centerX, screenHeight - 100)
+        love.graphics.setLineWidth(1)
+        love.graphics.line(points)
         
-        -- Add "FAR" text indicator below mana pool
-        love.graphics.setColor(0.5, 0.5, 0.8, 0.8)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
-        
-        -- Add a pulsing background for the text
-        local pulseIntensity = 0.3 + 0.1 * math.sin(love.timer.getTime() * 3)
-        love.graphics.setColor(0.3, 0.3, 0.6, pulseIntensity)
-        love.graphics.rectangle("fill", centerX - 20, startY - 23, 40, 20)
-        love.graphics.setColor(0.7, 0.7, 0.9, 0.9)
-        love.graphics.print("FAR", centerX - 15, startY - 20)
+        -- Add very subtle horizontal distortion lines
+        for i = 1, 5 do
+            local y = 200 + (i * (screenHeight - 300) / 6)
+            local width = 15 + math.sin(love.timer.getTime() * 0.7 + i) * 5
+            local alpha = 0.05
+            love.graphics.setColor(0.3, 0.3, 0.7, alpha)
+            love.graphics.setLineWidth(0.5)
+            love.graphics.line(centerX - width, y, centerX + width, y)
+        end
     end
+    
+    -- Reset line width
+    love.graphics.setLineWidth(1)
 end
 
 function love.keypressed(key)
+    -- Debug all key presses to isolate input issues
+    print("DEBUG: Key pressed: '" .. key .. "'")
+    
+    -- Check for game over state first
+    if game.gameOver then
+        -- Reset game on space bar press during game over
+        if key == "space" then
+            resetGame()
+        end
+        return
+    end
+    
     if key == "escape" then
         love.event.quit()
     end
@@ -4738,7 +8829,7 @@ function love.keypressed(key)
         game.wizards[2]:keySpell(2, true)
     elseif key == "p" then
         game.wizards[2]:keySpell(3, true)
-    elseif key == "l" then
+    elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
     elseif key == "m" then
@@ -4750,6 +8841,34 @@ function love.keypressed(key)
     if key == "t" then
         local tokenType = game.addRandomToken()
         print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Debug: Add specific tokens for testing shield spells
+    if key == "z" then
+        local tokenType = "moon"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "x" then
+        local tokenType = "star"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "c" then
+        local tokenType = "force"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Direct keys for casting shield spells, bypassing keying and issue in cast key "l"
+    if key == "1" then
+        -- Force cast Moon Ward for Selene
+        print("DEBUG: Directly casting Moon Ward for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.moonWard)
+        print("DEBUG: Moon Ward cast result: " .. tostring(result))
+    elseif key == "2" then
+        -- Force cast Mirror Shield for Selene
+        print("DEBUG: Directly casting Mirror Shield for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.mirrorShield)
+        print("DEBUG: Mirror Shield cast result: " .. tostring(result))
     end
     
     -- Debug: Position/elevation test controls
@@ -4884,6 +9003,12 @@ function ManaPool.new(x, y)
     return self
 end
 
+-- Clear all tokens from the mana pool
+function ManaPool:clear()
+    self.tokens = {}
+    self.reservedTokens = {}
+end
+
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)
@@ -4909,7 +9034,7 @@ function ManaPool:addToken(tokenType, imagePath)
         image = love.graphics.newImage(imagePath),
         x = x + variationX,
         y = y + variationY,
-        state = "FREE",  -- FREE, CHANNELED, LOCKED, DESTROYED
+        state = "FREE",  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
         lockDuration = 0, -- Duration for how long a token remains locked
         
         -- Valence-based orbit properties
@@ -4948,12 +9073,16 @@ function ManaPool:addToken(tokenType, imagePath)
         
         -- Depth/z-order variation
         zOrder = math.random(),  -- Used for layering tokens
+        
+        -- We've intentionally removed token repulsion to return to clean orbital motion
     }
     
     token.originalSpeed = token.orbitSpeed
     
     table.insert(self.tokens, token)
 end
+
+-- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
     -- Update token positions and states
@@ -5079,8 +9208,8 @@ function ManaPool:update(dt)
             if math.random() < 0.002 then  -- Small chance to reverse rotation
                 token.rotSpeed = -token.rotSpeed
             end
-        elseif token.state == "CHANNELED" then
-            -- For channeled tokens, animate movement to/from their spell slot
+        elseif token.state == "CHANNELED" or token.state == "SHIELDING" then
+            -- For channeled or shielding tokens, animate movement to/from their spell slot
             
             if token.animTime < token.animDuration then
                 -- Token is still being animated to the spell slot
@@ -5116,7 +9245,18 @@ function ManaPool:update(dt)
                                        anglePerToken * (token.tokenIndex - 1)
                     
                     -- Calculate position using elliptical projection
-                    local x3 = wizard.x + math.cos(tokenAngle) * radiusX
+                    -- Apply the NEAR/FAR offset to the target position
+                    local xOffset = 0
+                    local isNear = wizard.gameState and wizard.gameState.rangeState == "NEAR"
+                    
+                    -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
+                    if wizard.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
                     local y3 = slotY + math.sin(tokenAngle) * radiusY
                     
                     -- Control points for bezier (creating an arc)
@@ -5204,6 +9344,7 @@ function ManaPool:update(dt)
                     local valence = self.valences[token.valenceIndex]
                     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
                     token.originalSpeed = token.orbitSpeed
+                    -- No repulsion forces needed (system removed)
                 end
             end
             
@@ -5221,20 +9362,8 @@ function ManaPool:update(dt)
 end
 
 function ManaPool:draw()
-    -- Draw pool background with a subtle gradient effect for elliptical shape
-    love.graphics.setColor(0.15, 0.15, 0.25, 0.2)
-    
-    -- Draw the elliptical mana pool area with a glow effect
-    self:drawEllipse(self.x, self.y, self.radiusX, self.radiusY, "fill")
-    
-    -- Draw valence rings subtly
-    for _, valence in ipairs(self.valences) do
-        local alpha = 0.07  -- Very subtle
-        love.graphics.setColor(0.5, 0.5, 0.7, alpha)
-        
-        -- Draw elliptical valence path
-        self:drawEllipse(self.x, self.y, valence.radiusX, valence.radiusY, "line")
-    end
+    -- No longer drawing the pool background or valence rings
+    -- The pool is now completely invisible, defined only by the positions of the tokens
     
     -- Sort tokens by z-order for better layering
     local sortedTokens = {}
@@ -5250,40 +9379,66 @@ function ManaPool:draw()
     for _, tokenData in ipairs(sortedTokens) do
         local token = tokenData.token
         
-        -- Draw a glow around the token based on its type
-        local glowSize = 10
-        local glowIntensity = 0.4  -- Slightly stronger glow
+        -- Draw a larger, more vibrant glow around the token based on its type
+        local glowSize = 15 -- Larger glow radius
+        local glowIntensity = 0.6  -- Stronger glow intensity
         
-        -- Increase glow for tokens in transition (newly returned to pool)
-        if token.state == "FREE" and token.inTransition then
-            -- Stronger glow that fades over the transition period
-            local transitionBoost = 0.4 + 0.6 * (1 - token.transitionTime / token.transitionDuration)
-            glowSize = glowSize * (1 + transitionBoost * 0.5)
-            glowIntensity = glowIntensity + transitionBoost * 0.4
+        -- Multiple glow layers for more visual interest
+        for layer = 1, 2 do
+            local layerSize = glowSize * (1.2 - layer * 0.3)
+            local layerIntensity = glowIntensity * (layer == 1 and 0.4 or 0.8)
+            
+            -- Increase glow for tokens in transition (newly returned to pool)
+            if token.state == "FREE" and token.inTransition then
+                -- Stronger glow that fades over the transition period
+                local transitionBoost = 0.6 + 0.8 * (1 - token.transitionTime / token.transitionDuration)
+                layerSize = layerSize * (1 + transitionBoost * 0.5)
+                layerIntensity = layerIntensity + transitionBoost * 0.5
+            end
+            
+            -- Set glow color based on token type with improved contrast and vibrancy
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.3, 0.1, layerIntensity)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 0.9, 0.3, layerIntensity)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.4, 0.4, 1, layerIntensity)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.2, 0.9, 0.1, layerIntensity)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.8, 0.2, layerIntensity)
+            end
+            
+            -- Draw glow with pulsation
+            local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
+            
+            -- Enhanced pulsation for transitioning tokens
+            if token.state == "FREE" and token.inTransition then
+                pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
+            end
+            
+            love.graphics.circle("fill", token.x, token.y, layerSize * pulseAmount * token.scale)
         end
         
-        -- Set glow color based on token type with improved contrast
-        if token.type == "fire" then
-            love.graphics.setColor(1, 0.3, 0.1, glowIntensity)
-        elseif token.type == "force" then
-            love.graphics.setColor(1, 1, 0.5, glowIntensity)
-        elseif token.type == "moon" then
-            love.graphics.setColor(0.5, 0.5, 1, glowIntensity)
-        elseif token.type == "nature" then
-            love.graphics.setColor(0.3, 0.9, 0.1, glowIntensity)
-        elseif token.type == "star" then
-            love.graphics.setColor(1, 1, 0.2, glowIntensity)
+        -- Draw a small outer ring for better definition
+        if token.state == "FREE" then
+            local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
+            
+            -- Set ring color based on token type
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.5, 0.2, ringAlpha)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 1, 0.4, ringAlpha)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.6, 0.6, 1, ringAlpha)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.3, 1, 0.2, ringAlpha)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.9, 0.3, ringAlpha)
+            end
+            
+            love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
-        
-        -- Draw glow with pulsation
-        local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
-        
-        -- Enhanced pulsation for transitioning tokens
-        if token.state == "FREE" and token.inTransition then
-            pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
-        end
-        
-        love.graphics.circle("fill", token.x, token.y, glowSize * pulseAmount * token.scale)
         
         -- Draw token image based on state
         if token.state == "FREE" then
@@ -5298,6 +9453,17 @@ function ManaPool:draw()
         elseif token.state == "CHANNELED" then
             -- Channeled tokens are fully visible
             love.graphics.setColor(1, 1, 1, 1)
+        elseif token.state == "SHIELDING" then
+            -- Shielding tokens have a slight colored tint based on their type
+            if token.type == "force" then
+                love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
+            elseif token.type == "moon" or token.type == "star" then
+                love.graphics.setColor(0.8, 0.8, 1, 1)  -- Blue tint for moon/star (ward)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.8, 1, 0.8, 1)  -- Green tint for nature (field)
+            else
+                love.graphics.setColor(1, 1, 1, 1)  -- Default
+            end
         elseif token.state == "LOCKED" then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
@@ -5312,6 +9478,66 @@ function ManaPool:draw()
             token.scale, token.scale,  -- Use token-specific scale
             token.image:getWidth()/2, token.image:getHeight()/2  -- Origin at center
         )
+        
+        -- Draw shield effect for shielding tokens
+        if token.state == "SHIELDING" then
+            -- Get token color based on its mana type
+            local tokenColor = {1, 1, 1, 0.3}  -- Default white
+            
+            -- Match color to the token type
+            if token.type == "fire" then
+                tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
+            elseif token.type == "force" then
+                tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
+            elseif token.type == "moon" then
+                tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
+            elseif token.type == "star" then
+                tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
+            elseif token.type == "nature" then
+                tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
+            end
+            
+            -- Draw a subtle shield aura with slight pulsation
+            local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
+            love.graphics.setColor(tokenColor)
+            love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Draw shield border
+            love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+            love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
+            
+            -- Add a small defensive shield symbol inside the circle
+            -- Determine symbol shape by defense type if available
+            if token.wizardOwner and token.spellSlot then
+                local slot = token.wizardOwner.spellSlots[token.spellSlot]
+                if slot and slot.defenseType then
+                    love.graphics.setColor(1, 1, 1, 0.7)
+                    if slot.defenseType == "barrier" then
+                        -- Draw a small hexagon (shield shape) for barriers
+                        local shieldSize = 6 * token.scale
+                        local points = {}
+                        for i = 1, 6 do
+                            local angle = (i - 1) * math.pi / 3
+                            table.insert(points, token.x + math.cos(angle) * shieldSize)
+                            table.insert(points, token.y + math.sin(angle) * shieldSize)
+                        end
+                        love.graphics.polygon("line", points)
+                    elseif slot.defenseType == "ward" then
+                        -- Draw a small circle (ward shape)
+                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
+                    elseif slot.defenseType == "field" then
+                        -- Draw a small diamond (field shape)
+                        local fieldSize = 7 * token.scale
+                        love.graphics.polygon("line", 
+                            token.x, token.y - fieldSize,
+                            token.x + fieldSize, token.y,
+                            token.x, token.y + fieldSize,
+                            token.x - fieldSize, token.y
+                        )
+                    end
+                end
+            end
+        end
         
         -- Draw lock overlay for locked tokens
         if token.state == "LOCKED" then
@@ -5346,9 +9572,7 @@ function ManaPool:draw()
         end
     end
     
-    -- Outer border with subtle glow
-    love.graphics.setColor(0.5, 0.5, 0.8, 0.2 + 0.1 * math.sin(love.timer.getTime() * 0.5))
-    self:drawEllipse(self.x, self.y, self.radiusX + 2, self.radiusY + 2, "line")
+    -- No border - the pool is now completely invisible
 end
 
 -- Helper function to draw an ellipse
@@ -5508,6 +9732,8 @@ function ManaPool:finalizeTokenReturn(token)
     token.scale = 0.85 + math.random() * 0.3
     token.zOrder = math.random()
     
+    -- No repulsion forces to reset (removed system)
+    
     -- Clear animation flags
     token.returning = false
     token.wizardOwner = nil
@@ -5524,268 +9750,2241 @@ return ManaPool```
 
 local Spells = {}
 
--- Spell costs are defined as tables with mana type and count
--- For generic/any mana, use "any" as the type
--- For modal costs (can be paid with subset of types), use a table of types
+-- Schema for spell object:
+-- id: Unique identifier for the spell (string)
+-- name: Display name of the spell (string)
+-- description: Text description of what the spell does (string)
+-- attackType: How the spell is delivered - "projectile", "remote", "zone", "utility" (string)
+--   * projectile: Physical projectile attacks - can be blocked by barriers and wards
+--   * remote:     Magical attacks at a distance - can only be blocked by wards
+--   * zone:       Area effect attacks - can be blocked by barriers and fields
+--   * utility:    Non-offensive spells that affect the caster - cannot be blocked
+-- castTime: Duration in seconds to cast the spell (number)
+-- cost: Array of token types required (simple array of strings like {"fire", "fire", "moon"})
+-- keywords: Table of effect keywords and their parameters (table)
+--   - Available keywords: conjure, dissipate, damage, lock, delay, accelerate, dispel, disjoint, 
+--     stagger, elevate, ground, rangeShift, forcePull, reflect, block, echo, zoneAnchor,
+--     zoneMulti, manaLeak, tokenShift, overcharge, rebound
+-- vfx: Visual effect identifier (string, optional)
+-- sfx: Sound effect identifier (string, optional)
+-- blockableBy: Array of shield types that can block this spell (array, optional)
+--
+-- Shield Types and Blocking Rules:
+-- * barrier: Physical shield that blocks projectiles and zones
+-- * ward:    Magical shield that blocks projectiles and remotes
+-- * field:   Energy field that blocks remotes and zones
+-- 
+-- When a shield blocks a spell:
+-- 1. The spell's effect is completely negated
+-- 2. If the shield is mana-linked, one token used to cast it is released to the pool
+-- 3. The shield's strength is reduced by 1
+-- 4. When a shield's strength reaches 0, it is destroyed
+-- 5. If the shield has the reflect property, damage spells are reflected back at the caster
+
+-- Define a logging function for keyword resolution
+local function logKeywordResolution(spellId, keyword, params, results)
+    local paramString = ""
+    for k, v in pairs(params) do
+        if type(v) == "function" then
+            paramString = paramString .. k .. "=<function>, "
+        else
+            paramString = paramString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    local resultString = ""
+    for k, v in pairs(results) do
+        if k ~= "damage" or results.damage ~= 0 then  -- Skip damage=0 to reduce noise
+            resultString = resultString .. k .. "=" .. tostring(v) .. ", "
+        end
+    end
+    
+    print(string.format("[KEYWORD] %s: %s(%s) -> %s", 
+                         spellId or "unknown", 
+                         keyword, 
+                         paramString:sub(1, -3),  -- Remove trailing comma
+                         resultString:sub(1, -3)))  -- Remove trailing comma
+end
+
+-- Keyword resolution framework
+local KeywordSystem = {}
+
+-- Define keyword categories for organization
+KeywordSystem.categories = {
+    RESOURCE = "Resource Manipulation",
+    DAMAGE = "Damage Effects",
+    DOT = "Damage Over Time",
+    TOKEN = "Token Manipulation",
+    TIMING = "Spell Timing",
+    MOVEMENT = "Movement & Position",
+    DEFENSE = "Defense Mechanisms",
+    SPECIAL = "Special Effects",
+    ZONE = "Zone Mechanics"
+}
+
+-- Define targeting modes for keywords and spells
+KeywordSystem.targetTypes = {
+    SELF = "self",           -- The caster
+    ENEMY = "enemy",         -- The opponent
+    POOL_SELF = "pool_self", -- Caster's mana pool
+    POOL_ENEMY = "pool_enemy", -- Opponent's mana pool
+    SLOT_SELF = "slot_self", -- Caster's spell slots
+    SLOT_ENEMY = "slot_enemy", -- Opponent's spell slots
+    GLOBAL = "global",       -- Affects the entire game state
+    NONE = "none"            -- No specific target (utility spells)
+}
+
+-- Map keywords to their default target type
+KeywordSystem.keywordTargets = {
+    -- Resource manipulation (mostly affect mana pools)
+    tokenShift = "POOL_SELF",  -- Default affects own pool
+    conjure = "POOL_SELF",
+    dissipate = "POOL_ENEMY",  -- Default removes opponent's tokens
+    
+    -- Damage (always targets enemy)
+    damage = "ENEMY",
+    
+    -- Damage over time effects
+    burn = "ENEMY",
+    
+    -- Token manipulation
+    lock = "POOL_ENEMY",
+    
+    -- Spell timing effects
+    delay = "SLOT_ENEMY",
+    accelerate = "SLOT_SELF",
+    dispel = "SLOT_ENEMY", 
+    disjoint = "SLOT_ENEMY",
+    stagger = "SLOT_ENEMY",
+    freeze = "SLOT_ENEMY", 
+    
+    -- Movement and position effects
+    elevate = "SELF",
+    ground = "ENEMY",
+    rangeShift = "SELF", 
+    forcePull = "ENEMY",
+    
+    -- Defense mechanisms
+    reflect = "SELF",
+    block = "SELF",
+    
+    -- Special effects
+    echo = "SLOT_SELF",
+    
+    -- Zone mechanics
+    zoneAnchor = "SELF",
+    zoneMulti = "SELF"
+}
+
+-- Map keywords to their categories
+KeywordSystem.keywordCategories = {
+    -- Resource Manipulation
+    tokenShift = "RESOURCE",
+    conjure = "RESOURCE",
+    dissipate = "RESOURCE",
+    
+    -- Damage Effects
+    damage = "DAMAGE",
+    
+    -- Damage Over Time Effects
+    burn = "DOT",
+    
+    -- Token Manipulation
+    lock = "TOKEN",
+    
+    -- Spell Timing
+    delay = "TIMING",
+    accelerate = "TIMING",
+    dispel = "TIMING",
+    disjoint = "TIMING",
+    stagger = "TIMING",
+    freeze = "TIMING",
+    
+    -- Movement & Position
+    elevate = "MOVEMENT",
+    ground = "MOVEMENT",
+    rangeShift = "MOVEMENT",
+    forcePull = "MOVEMENT",
+    
+    -- Defense Mechanisms
+    reflect = "DEFENSE",
+    block = "DEFENSE",
+    
+    -- Special Effects
+    echo = "SPECIAL",
+    
+    -- Zone Mechanics
+    zoneAnchor = "ZONE",
+    zoneMulti = "ZONE"
+}
+
+-- Keyword handlers table - each entry is a function that processes one keyword type
+KeywordSystem.handlers = {
+    -- Damage over time effects
+    burn = function(params, caster, target, results)
+        results.burnApplied = true
+        results.burnDuration = params.duration or 3.0
+        results.burnTickDamage = params.tickDamage or 2
+        results.burnTickInterval = params.tickInterval or 1.0  -- Default to 1 second between ticks
+        return results
+    end,
+    -- Resource manipulation
+    tokenShift = function(params, caster, target, results)
+        local tokenType = params.type or "fire"
+        local amount = params.amount or 1
+        
+        if tokenType == "random" then
+            -- Implement random token shifting
+            results.tokenShift = true
+            results.tokenShiftType = "random"
+            results.tokenShiftAmount = amount
+        else
+            -- Implement specific token shifting
+            results.tokenShift = true
+            results.tokenShiftType = tokenType
+            results.tokenShiftAmount = amount
+        end
+        
+        return results
+    end,
+    conjure = function(params, caster, target, results)
+        local tokenType = params.token or "fire"
+        local amount = params.amount or 1
+        
+        for i = 1, amount do
+            local assetPath = "assets/sprites/" .. tokenType .. "-token.png"
+            caster.manaPool:addToken(tokenType, assetPath)
+        end
+        
+        return results
+    end,
+    
+    dissipate = function(params, caster, target, results)
+        local tokenType = params.token or "any"
+        local amount = params.amount or 1
+        local targetWizard = params.target == "caster" and caster or target
+        
+        -- Find and remove tokens from the target's mana pool
+        results.dissipate = true
+        results.dissipateType = tokenType
+        results.dissipateAmount = amount
+        results.dissipateTarget = targetWizard
+        
+        -- Keep track of how many tokens were successfully found to remove
+        local tokensFound = 0
+        
+        -- Logic to find and mark tokens for removal
+        for i, token in ipairs(targetWizard.manaPool.tokens) do
+            if token.state == "FREE" and (tokenType == "any" or token.type == tokenType) then
+                -- Mark token for destruction
+                token.state = "DESTROYED"
+                tokensFound = tokensFound + 1
+                
+                -- Add a destruction effect
+                if targetWizard.gameState.vfx then
+                    targetWizard.gameState.vfx.createEffect("token_destroy", token.x, token.y, nil, nil, {
+                        duration = 0.5,
+                        color = {0.8, 0.3, 0.3, 0.7},
+                        particleCount = 5,
+                        radius = 15
+                    })
+                end
+                
+                -- Stop once we've marked enough tokens
+                if tokensFound >= amount then
+                    break
+                end
+            end
+        end
+        
+        results.tokensDestroyed = tokensFound
+        
+        return results
+    end,
+    
+    -- Damage effects
+    damage = function(params, caster, target, results)
+        -- Handle damage amount that could be a function or a value
+        local damageAmount = params.amount or 0
+        
+        -- If damage is a function, evaluate it with nil checks
+        if type(damageAmount) == "function" then
+            if target ~= nil then
+                -- Normal case, we have a target
+                results.damage = damageAmount(caster, target)
+            else
+                -- No target, use 0 damage as default
+                results.damage = 0
+                print("[WARNING] Damage calculation called with nil target")
+            end
+        else
+            -- Static damage value
+            results.damage = damageAmount
+        end
+        
+        results.damageType = params.type
+        return results
+    end,
+    
+    -- Token manipulation
+    lock = function(params, caster, target, results)
+        results.lockToken = true
+        results.lockDuration = params.duration or 5.0
+        return results
+    end,
+    
+    -- Spell timing effects
+    delay = function(params, caster, target, results)
+        results.delayApplied = true
+        results.targetSlot = params.slot or 0  -- 0 means random or auto-select
+        results.delayAmount = params.duration or 1.0
+        return results
+    end,
+    
+    accelerate = function(params, caster, target, results)
+        -- This would need implementation in wizard.lua to accelerate spell progress
+        results.accelerate = true
+        results.targetSlot = params.slot or 0  -- 0 means self or current slot
+        results.accelerateAmount = params.amount or 1.0
+        return results
+    end,
+    
+    -- Spell cancellation effects
+    dispel = function(params, caster, target, results)
+        results.dispel = true
+        results.targetSlot = params.slot or 0  -- 0 means random active slot
+        return results
+    end,
+    
+    disjoint = function(params, caster, target, results)
+        results.disjoint = true
+        results.targetSlot = params.slot or 0
+        return results
+    end,
+    
+    stagger = function(params, caster, target, results)
+        results.stagger = true
+        results.targetSlot = params.slot or 0
+        results.staggerDuration = params.duration or 3.0
+        return results
+    end,
+    
+    -- Movement and position effects
+    elevate = function(params, caster, target, results)
+        results.setElevation = "AERIAL"
+        results.elevationDuration = params.duration or 5.0
+        return results
+    end,
+    
+    ground = function(params, caster, target, results)
+        results.setElevation = "GROUNDED"
+        return results
+    end,
+    
+    rangeShift = function(params, caster, target, results)
+        results.setPosition = params.position or "NEAR"
+        return results
+    end,
+    
+    forcePull = function(params, caster, target, results)
+        -- Force opponent to move to caster's range
+        results.forcePosition = true
+        return results
+    end,
+    
+    -- Defense mechanisms
+    reflect = function(params, caster, target, results)
+        results.reflect = true
+        results.reflectDuration = params.duration or 3.0
+        return results
+    end,
+    
+    block = function(params, caster, target, results)
+        local spellSlot = params.slot or nil
+        
+        -- Check if we should create a shield directly
+        if caster and spellSlot then
+            -- Call the shield creation function
+            local shieldResults = KeywordSystem.createShield(caster, spellSlot, params)
+            
+            -- Merge the shield results with our existing results
+            for k, v in pairs(shieldResults) do
+                results[k] = v
+            end
+        else
+            -- Set shield parameters on the results object for later processing
+            results.isShield = true
+            results.defenseType = params.type or "barrier"
+            results.blockTypes = params.blocks or {"projectile"}
+            results.manaLinked = params.manaLinked or true  -- Default to true for mana linking
+            results.reflect = params.reflect or false
+            results.hitPoints = params.hitPoints  -- Optional override for shield strength
+        end
+        
+        return results
+    end,
+    
+    -- Special effects
+    echo = function(params, caster, target, results)
+        results.echo = true
+        results.echoDelay = params.delay or 2.0
+        return results
+    end,
+    
+    -- Zone mechanics
+    zoneAnchor = function(params, caster, target, results)
+        results.zoneAnchor = true
+        
+        -- Store the anchor parameters
+        if params.range then
+            -- Range can be "NEAR", "FAR", or "ANY"
+            results.anchorRange = params.range
+        elseif caster and caster.gameState then
+            -- If not explicitly set, anchor to current range state
+            results.anchorRange = caster.gameState.rangeState
+        end
+        
+        if params.elevation then
+            -- Elevation can be "AERIAL", "GROUNDED", or "ANY"
+            results.anchorElevation = params.elevation
+        elseif target then
+            -- If not explicitly set, anchor to current target elevation
+            results.anchorElevation = target.elevation
+        end
+        
+        -- Store requirement for matching all conditions or just one
+        results.anchorRequireAll = params.requireAll
+        if results.anchorRequireAll == nil then
+            results.anchorRequireAll = true  -- Default to requiring all conditions
+        end
+        
+        return results
+    end,
+    
+    zoneMulti = function(params, caster, target, results)
+        results.zoneMulti = true
+        return results
+    end,
+    
+    -- Special slot effects
+    freeze = function(params, caster, target, results)
+        -- Freeze a spell in place (pause its progress)
+        results.freezeApplied = true
+        results.targetSlot = params.slot or 2  -- Default to middle slot
+        results.freezeDuration = params.duration or 2.0
+        return results
+    end
+}
+
+-- Function to validate spell schema - Made more robust to handle malformed spells
+local function validateSpell(spell, spellId)
+    -- Add a missing ID based on spell name if needed
+    if not spell.id and spell.name then
+        spell.id = spell.name:lower():gsub(" ", "")
+        print("INFO: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+    end
+    
+    -- Check essential properties with better error handling
+    if not spell.id then
+        print("WARNING: Spell " .. spellId .. " missing required property: id, creating a default")
+        spell.id = "spell_" .. spellId
+    end
+    
+    if not spell.name then
+        print("WARNING: Spell " .. spellId .. " missing required property: name, creating a default")
+        spell.name = "Unnamed Spell " .. spellId
+    end
+    
+    if not spell.description then
+        print("WARNING: Spell " .. spellId .. " missing required property: description, creating a default")
+        spell.description = "No description available for " .. spell.name
+    end
+    
+    if not spell.castTime then
+        print("WARNING: Spell " .. spellId .. " missing required property: castTime, setting default")
+        spell.castTime = 5.0 -- Default cast time
+    end
+    
+    if type(spell.castTime) ~= "number" then
+        print("WARNING: Spell " .. spellId .. " castTime must be a number, fixing")
+        spell.castTime = tonumber(spell.castTime) or 5.0
+    end
+    
+    -- Ensure cost is a table, if empty then create empty table
+    if not spell.cost then
+        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+        spell.cost = {}
+    elseif type(spell.cost) ~= "table" then
+        print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
+        -- Try to convert to a table if possible
+        local originalCost = spell.cost
+        spell.cost = {}
+        if originalCost then
+            print("INFO: Converting non-table cost to table for: " .. spell.name)
+            table.insert(spell.cost, tostring(originalCost))
+        end
+    end
+    
+    -- Check attackType is valid
+    if spell.attackType then
+        local validTypes = {
+            projectile = true,
+            remote = true,
+            zone = true,
+            utility = true
+        }
+        
+        if not validTypes[spell.attackType] then
+            print("WARNING: Spell " .. spellId .. " has invalid attackType: " .. spell.attackType .. ", fixing to utility")
+            spell.attackType = "utility" -- Default to utility
+        end
+    else
+        -- Default to utility if not specified
+        print("WARNING: Spell " .. spellId .. " missing attackType, setting to utility")
+        spell.attackType = "utility"
+    end
+    
+    -- Check keywords are valid (if present)
+    if spell.keywords then
+        if type(spell.keywords) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " keywords must be a table, fixing")
+            spell.keywords = {}
+        else
+            for keyword, _ in pairs(spell.keywords) do
+                if not KeywordSystem.handlers[keyword] then
+                    print("WARNING: Spell " .. spellId .. " has unimplemented keyword: " .. keyword .. ", removing")
+                    spell.keywords[keyword] = nil
+                end
+            end
+        end
+    else
+        -- Create empty keywords table if missing
+        spell.keywords = {}
+    end
+    
+    -- Check blockableBy (if present)
+    if spell.blockableBy then
+        if type(spell.blockableBy) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
+            spell.blockableBy = {}
+        end
+    else
+        -- Create empty blockableBy table
+        spell.blockableBy = {}
+    end
+    
+    return true
+end
+
+-- Debug helper to show all available keywords and their descriptions
+KeywordSystem.getKeywordHelp = function(format)
+    -- Define descriptions for each keyword
+    local descriptions = {
+        -- Resource manipulation
+        tokenShift = "Changes token types in the mana pool",
+        conjure = "Creates new tokens in the mana pool",
+        dissipate = "Removes tokens from the mana pool",
+        
+        -- Damage effects
+        damage = "Deals damage to the opponent",
+        
+        -- Token manipulation
+        lock = "Locks tokens, preventing their use for a duration",
+        
+        -- Spell timing effects
+        delay = "Adds time to opponent's spell cast",
+        accelerate = "Reduces cast time of a spell",
+        dispel = "Cancels a spell and returns mana to the pool",
+        disjoint = "Cancels a spell and destroys its mana",
+        stagger = "Cancels a spell and prevents recasting",
+        
+        -- Movement and position effects
+        elevate = "Sets caster to AERIAL state",
+        ground = "Forces target to GROUNDED state",
+        rangeShift = "Changes range state (NEAR/FAR)",
+        forcePull = "Forces opponent to caster's range",
+        
+        -- Defense mechanisms
+        reflect = "Reflects incoming spells",
+        block = "Creates a shield to block specific attack types",
+        
+        -- Special effects
+        echo = "Recasts the spell after a delay",
+        freeze = "Freezes a spell's progress for a duration",
+        
+        -- Zone mechanics
+        zoneAnchor = "Locks spell to cast-time range; fails if range changes",
+        zoneMulti = "Makes zone affect both NEAR/FAR"
+    }
+    
+    if format == "byCategory" then
+        -- Organize keywords by category
+        local categorizedInfo = {}
+        
+        -- Initialize categories
+        for categoryKey, categoryName in pairs(KeywordSystem.categories) do
+            categorizedInfo[categoryKey] = {
+                name = categoryName,
+                keywords = {}
+            }
+        end
+        
+        -- Sort keywords into categories
+        for keyword in pairs(KeywordSystem.handlers) do
+            local category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            
+            table.insert(categorizedInfo[category].keywords, {
+                name = keyword,
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword)
+            })
+        end
+        
+        return categorizedInfo
+    else
+        -- Default flat format
+        local keywordInfo = {}
+        
+        -- Build a table of keyword info with usage examples
+        for keyword in pairs(KeywordSystem.handlers) do
+            keywordInfo[keyword] = {
+                description = descriptions[keyword] or "No description available",
+                example = KeywordSystem.getExampleUsage(keyword),
+                category = KeywordSystem.keywordCategories[keyword] or "SPECIAL"
+            }
+        end
+        
+        return keywordInfo
+    end
+end
+
+-- Generate example usage for keywords
+KeywordSystem.getExampleUsage = function(keyword)
+    local examples = {
+        tokenShift = [[
+            tokenShift = {
+                type = "random",  -- or specific type like "fire"
+                amount = 3
+            }
+        ]],
+        
+        conjure = [[
+            conjure = {
+                token = "fire",  -- or "moon", "force", etc.
+                amount = 1
+            }
+        ]],
+        
+        damage = [[
+            damage = {
+                amount = 10,  -- or function(caster, target) return value end
+                type = "fire"
+            }
+        ]],
+        
+        lock = [[
+            lock = {
+                duration = 5.0
+            }
+        ]],
+        
+        elevate = [[
+            elevate = {
+                duration = 4.0
+            }
+        ]],
+        
+        ground = [[
+            ground = true
+        ]],
+        
+        block = [[
+            block = {
+                type = "barrier",  -- Shield type: "barrier", "ward", or "field"
+                blocks = {"projectile", "zone"},  -- Attack types to block
+                manaLinked = true,  -- Whether shield consumes tokens on block (default: true)
+                reflect = false,    -- Whether attacks are reflected back (default: false)
+                hitPoints = 3       -- Optional: Fixed number of hits shield can take (default: token count)
+            }
+        ]]
+    }
+    
+    return examples[keyword] or "No example available"
+end
+
+-- Centralized keyword resolution function
+KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target, slot, results)
+    -- Check if this keyword has a handler
+    if not KeywordSystem.handlers[keyword] then
+        print(string.format("[KEYWORD ERROR] %s: Unknown keyword '%s'", spellId, keyword))
+        return results
+    end
+    
+    -- Process the parameters - handle both table and boolean cases
+    local processedParams = {}
+    
+    if type(params) == "table" then
+        -- For table parameters, process each one
+        for paramKey, paramValue in pairs(params) do
+            if type(paramValue) == "function" then
+                processedParams[paramKey] = paramValue(caster, target, slot)
+            else
+                processedParams[paramKey] = paramValue
+            end
+        end
+    else
+        -- For boolean or other simple params, use directly
+        processedParams = params
+    end
+    
+    -- Store the original results for logging
+    local resultsBefore = {}
+    for k, v in pairs(results) do
+        resultsBefore[k] = v
+    end
+    
+    -- Process this keyword and get updated results
+    local updatedResults = KeywordSystem.handlers[keyword](processedParams, caster, target, results)
+    
+    -- Log the keyword resolution
+    if type(processedParams) == "table" then
+        logKeywordResolution(spellId, keyword, processedParams, updatedResults)
+    else
+        -- For boolean params, create a simple parameter table for logging
+        local simpleParams = {value = processedParams}
+        logKeywordResolution(spellId, keyword, simpleParams, updatedResults)
+    end
+    
+    return updatedResults
+end
+
+-- Function to get the appropriate target based on target type
+KeywordSystem.resolveTarget = function(targetType, caster, opponent, spellSlot)
+    local targetMap = {
+        [KeywordSystem.targetTypes.SELF] = caster,
+        [KeywordSystem.targetTypes.ENEMY] = opponent,
+        [KeywordSystem.targetTypes.POOL_SELF] = caster.manaPool,
+        [KeywordSystem.targetTypes.POOL_ENEMY] = opponent.manaPool,
+        [KeywordSystem.targetTypes.SLOT_SELF] = caster.spellSlots[spellSlot] or caster.spellSlots,
+        [KeywordSystem.targetTypes.SLOT_ENEMY] = opponent.spellSlots,
+        [KeywordSystem.targetTypes.GLOBAL] = caster.gameState,
+        [KeywordSystem.targetTypes.NONE] = nil
+    }
+    
+    return targetMap[targetType]
+end
+
+-- Enhanced spell resolution function with targeting support and attack type resolution
+KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, options)
+    options = options or {}
+    local debug = options.debug or false
+    
+    -- Validate spell before attempting to resolve
+    validateSpell(spell, spell.id or "unknown")
+    
+    local results = {
+        damage = 0,
+        spellType = spell.attackType,
+        targetingInfo = {},  -- Store targeting information for post-processing
+        blocked = false,     -- Indicates if the spell was blocked by a shield
+        missed = false       -- Indicates if a zone spell missed due to range/elevation mismatch
+    }
+    
+    if debug then
+        print(string.format("[SPELL] Resolving spell: %s (cast by %s)", 
+                         spell.name, caster.name))
+    end
+    
+    -- Check if this spell can be blocked by opponent's shields before we process keywords
+    if spell.attackType and spell.attackType ~= "utility" then
+        local blockInfo = KeywordSystem.checkBlockable(spell, caster, opponent)
+        
+        -- If the spell would be blocked, execute onBlock handler and process shield effects
+        if blockInfo.blockable then
+            if debug then
+                print(string.format("[BLOCK CHECK] %s by %s would be blocked by opponent's %s",
+                    spell.name, caster.name, blockInfo.blockType))
+            end
+            
+            -- Set blocked flag in results
+            results.blocked = true
+            results.blockType = blockInfo.blockType
+            results.blockingShield = blockInfo.blockingShield
+            results.blockingSlot = blockInfo.blockingSlot
+            results.shieldBreakPower = spell.shieldBreaker or 1
+            
+            -- Process shield block effects if needed
+            if blockInfo.processBlockEffect then
+                -- Get the shield
+                local shield = blockInfo.blockingShield
+                local shieldSlot = blockInfo.blockingSlot
+                
+                -- Decrease shield strength
+                shield.shieldStrength = shield.shieldStrength - blockInfo.strengthReduction
+                
+                if debug then
+                    print(string.format("[SHIELD] %s's shield strength reduced by %d (now %d)",
+                        opponent.name, blockInfo.strengthReduction, shield.shieldStrength))
+                end
+                
+                -- If mana linked, consume tokens
+                if blockInfo.manaLinked and blockInfo.tokensToConsume > 0 then
+                    -- Return tokens to the pool
+                    for i = 1, blockInfo.tokensToConsume do
+                        if #shield.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #shield.tokens
+                            local tokenData = shield.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            opponent.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(shield.tokens, lastTokenIndex)
+                            
+                            if debug then
+                                print(string.format("[SHIELD] Token returned to %s's mana pool from shield",
+                                    opponent.name))
+                            end
+                        end
+                    end
+                end
+                
+                -- If the shield is depleted, destroy it
+                if shield.shieldStrength <= 0 or blockInfo.destroyShield then
+                    if debug then
+                        print(string.format("[SHIELD] %s's shield in slot %d has been broken!",
+                            opponent.name, shieldSlot))
+                    end
+                    
+                    -- Return any remaining tokens to the pool
+                    for _, tokenData in ipairs(shield.tokens) do
+                        opponent.manaPool:returnToken(tokenData.index)
+                    end
+                    
+                    -- Reset the shield slot
+                    shield.active = false
+                    shield.isShield = false
+                    shield.defenseType = nil
+                    shield.blocksAttackTypes = nil
+                    shield.shieldStrength = 0
+                    shield.progress = 0
+                    shield.spellType = nil
+                    shield.castTime = 0
+                    shield.tokens = {}
+                    
+                    -- Set a specific flag in results to indicate shield was destroyed
+                    results.shieldDestroyed = true
+                end
+                
+                -- Add visual effects for the block
+                -- These will be handled by the wizard's castSpell function
+            end
+            
+            -- Call onBlock handler if defined in the spell
+            if spell.onBlock then
+                local blockResults = spell.onBlock(caster, opponent, spellSlot, blockInfo)
+                
+                -- Merge onBlock results with main results
+                if blockResults then
+                    for k, v in pairs(blockResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onBlock handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we're blocked and there's no override, return early
+                    return results
+                end
+            else
+                -- If blocked with no handler, return early
+                return results
+            end
+        end
+    end
+    
+    -- For zone spells, check if the spell would miss due to range mismatch when zoneAnchor is used
+    if spell.attackType == "zone" then
+        local doesMiss = false
+        
+        -- Check for zoneAnchor keyword
+        if spell.keywords and spell.keywords.zoneAnchor then
+            -- For zone anchored spells, check if the target's position matches the anchor
+            -- Get cast-time range and elevation state
+            local anchorRange = spell.keywords.zoneAnchor.range
+            local anchorElevation = spell.keywords.zoneAnchor.elevation
+            
+            -- Check current range state
+            if anchorRange and caster.gameState then
+                if anchorRange ~= caster.gameState.rangeState then
+                    doesMiss = true
+                end
+            end
+            
+            -- Check current elevation state
+            if anchorElevation and opponent then
+                if anchorElevation ~= opponent.elevation then
+                    doesMiss = true
+                end
+            end
+        end
+        
+        -- If the spell would miss, execute onMiss handler if present
+        if doesMiss then
+            if debug then
+                print(string.format("[ZONE MISS] %s by %s misses due to range/elevation mismatch",
+                    spell.name, caster.name))
+            end
+            
+            -- Set missed flag in results
+            results.missed = true
+            
+            -- Call onMiss handler if defined in the spell
+            if spell.onMiss then
+                local missResults = spell.onMiss(caster, opponent, spellSlot)
+                
+                -- Merge onMiss results with main results
+                if missResults then
+                    for k, v in pairs(missResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onMiss handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we missed with no override, return early
+                    return results
+                end
+            else
+                -- If missed with no handler, return early but with a basic whiff effect
+                results.whiffEffect = true
+                return results
+            end
+        end
+    end
+    
+    -- Process each keyword in the spell
+    if spell.keywords then
+        for keyword, params in pairs(spell.keywords) do
+            -- Get the target type based on whether params is a table or a boolean
+            local targetType
+            if type(params) == "table" then
+                targetType = params.target or KeywordSystem.keywordTargets[keyword]
+            else
+                -- For boolean params (like ground = true), use the default target
+                targetType = KeywordSystem.keywordTargets[keyword]
+            end
+            
+            local target = KeywordSystem.resolveTarget(targetType, caster, opponent, spellSlot)
+            
+            -- Store targeting info for debugging and post-processing
+            results.targetingInfo[keyword] = {
+                targetType = targetType,
+                target = target and target.name or "unknown"
+            }
+            
+            -- Add targeting info to the log if in debug mode
+            if debug then
+                print(string.format("[TARGETING] Keyword %s targeting %s", 
+                                 keyword, targetType))
+            end
+            
+            -- Process the keyword with the correct target
+            results = KeywordSystem.resolveKeyword(spell.id, keyword, params, caster, target, spellSlot, results)
+        end
+    end
+    
+    -- For backward compatibility - delegate to effect function if present
+    if spell.effect then
+        if debug then
+            print(string.format("[SPELL] %s: Using legacy effect function", spell.id))
+        end
+        
+        local effectResults = spell.effect(caster, opponent, spellSlot)
+        -- Merge effect results with keyword results
+        for k, v in pairs(effectResults) do
+            results[k] = v
+        end
+    end
+    
+    -- If we have an onSuccess handler and the spell wasn't blocked or missed, execute it
+    if not results.blocked and not results.missed and spell.onSuccess then
+        local successResults = spell.onSuccess(caster, opponent, spellSlot, results)
+        
+        -- Merge onSuccess results with main results
+        if successResults then
+            for k, v in pairs(successResults) do
+                results[k] = v
+            end
+        end
+    end
+    
+    -- Count number of effects in results (excluding utility fields)
+    local effectCount = 0
+    for k, _ in pairs(results) do
+        -- Don't count utility fields or zero damage
+        if k ~= "damage" or results.damage ~= 0 then
+            if k ~= "spellType" and k ~= "targetingInfo" and k ~= "blocked" and k ~= "missed" then
+                effectCount = effectCount + 1
+            end
+        end
+    end
+    
+    if debug then
+        print(string.format("[SPELL] %s complete: damage=%s, effects=%d, blocked=%s, missed=%s", 
+                            spell.id, tostring(results.damage), effectCount, 
+                            tostring(results.blocked), tostring(results.missed)))
+    end
+    
+    return results
+end
+
+-- Convenience function to resolve a spell against a specific target
+KeywordSystem.castSpell = function(spell, caster, options)
+    options = options or {}
+    local gameState = caster.gameState
+    local spellSlot = options.spellSlot or 1
+    local debugMode = options.debug or false
+    
+    -- Find default opponent if not specified
+    local opponent = options.opponent
+    if not opponent and gameState and gameState.wizards then
+        for _, wizard in ipairs(gameState.wizards) do
+            if wizard ~= caster then
+                opponent = wizard
+                break
+            end
+        end
+    end
+    
+    if not opponent then
+        print("[ERROR] No opponent found for spell: " .. spell.name)
+        return nil
+    end
+    
+    -- Call the resolve function with appropriate targets
+    return KeywordSystem.resolveSpell(spell, caster, opponent, spellSlot, { debug = debugMode })
+end
+
+-- Function to check if a spell can be blocked by opponent's shields
+KeywordSystem.checkBlockable = function(spell, caster, opponent)
+    -- Default response - not blockable
+    local result = {
+        blockable = false,
+        blockType = nil,
+        blockingShield = nil,
+        blockingSlot = nil,
+        manaLinked = nil,
+        processBlockEffect = false
+    }
+    
+    -- Early exit cases
+    if not opponent or not spell or not spell.attackType then
+        return result
+    end
+    
+    -- Utility spells can't be blocked
+    if spell.attackType == "utility" then
+        return result
+    end
+    
+    -- Get the attack type of the spell
+    local attackType = spell.attackType  -- "projectile", "remote", or "zone"
+    
+    -- Check each of the opponent's spell slots for active shields
+    for i, slot in ipairs(opponent.spellSlots) do
+        -- Skip inactive slots or non-shield slots
+        if not slot.active or not slot.isShield then
+            goto continue
+        end
+        
+        -- Check if this shield has strength remaining
+        if slot.shieldStrength <= 0 then
+            goto continue
+        end
+        
+        -- Verify this shield can block this attack type
+        local canBlock = false
+        
+        -- Check blocksAttackTypes or blockTypes properties
+        if slot.blocksAttackTypes and slot.blocksAttackTypes[attackType] then
+            canBlock = true
+        elseif slot.blockTypes then
+            -- Iterate through blockTypes array to find a match
+            for _, blockType in ipairs(slot.blockTypes) do
+                if blockType == attackType then
+                    canBlock = true
+                    break
+                end
+            end
+        end
+        
+        -- If we found a shield that can block this attack
+        if canBlock then
+            result.blockable = true
+            result.blockType = slot.defenseType
+            result.blockingShield = slot
+            result.blockingSlot = i
+            result.manaLinked = slot.manaLinked
+            
+            -- Handle mana consumption for the block if mana linked
+            if slot.manaLinked and #slot.tokens > 0 then
+                result.processBlockEffect = true
+                
+                -- Get amount of hits based on the spell's shield breaker power (if any)
+                local shieldBreakPower = spell.shieldBreaker or 1
+                
+                -- Determine how many tokens to consume (up to shield breaker power or tokens available)
+                local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
+                result.tokensToConsume = tokensToConsume
+                
+                -- Calculate how much to decrease the shield strength
+                result.strengthReduction = shieldBreakPower
+                
+                -- Check if this will destroy the shield
+                if slot.shieldStrength <= shieldBreakPower then
+                    result.destroyShield = true
+                end
+            end
+            
+            -- Return after finding the first blocking shield
+            return result
+        end
+        
+        ::continue::
+    end
+    
+    -- If we get here, no shield can block this spell
+    return result
+end
+
+-- Shield creation function
+KeywordSystem.createShield = function(wizard, spellSlot, blockParams)
+    -- Default result table
+    local results = {
+        isShield = true,
+        shieldCreated = true  -- Flag to indicate shield was created
+    }
+    
+    -- Check that the slot is valid
+    if not wizard.spellSlots[spellSlot] then
+        print("[SHIELD ERROR] Invalid spell slot for shield creation: " .. tostring(spellSlot))
+        return results
+    end
+    
+    local slot = wizard.spellSlots[spellSlot]
+    
+    -- Set shield parameters
+    slot.isShield = true
+    slot.defenseType = blockParams.type or "barrier"
+    
+    -- Set which attack types this shield blocks
+    slot.blocksAttackTypes = {}
+    local blockTypes = blockParams.blocks or {"projectile"}
+    for _, attackType in ipairs(blockTypes) do
+        slot.blocksAttackTypes[attackType] = true
+    end
+    
+    -- Set mana linking (default to true - shield consumes tokens when hit)
+    slot.manaLinked = blockParams.manaLinked
+    if slot.manaLinked == nil then  -- If not explicitly set
+        slot.manaLinked = true
+    end
+    
+    -- Set reflection capability
+    slot.reflect = blockParams.reflect or false
+    
+    -- Set shield strength based on tokens or override value
+    if blockParams.hitPoints then
+        -- Use explicit hit point value if provided
+        slot.shieldStrength = blockParams.hitPoints
+    else
+        -- Otherwise use token count
+        slot.shieldStrength = #slot.tokens
+    end
+    
+    -- Slow down token orbiting speed for shield tokens if they exist
+    for _, tokenData in ipairs(slot.tokens) do
+        local token = tokenData.token
+        -- Set token to "SHIELDING" state
+        token.state = "SHIELDING"
+        -- Add specific shield type info to the token for visual effects
+        token.shieldType = slot.defenseType
+        -- Slow down the rotation speed for shield tokens
+        if token.orbitSpeed then
+            token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
+        end
+    end
+    
+    -- Shield visual effect color based on type
+    local shieldColor = {0.8, 0.8, 0.8}  -- Default gray
+    if slot.defenseType == "barrier" then
+        shieldColor = {1.0, 1.0, 0.3}    -- Yellow for barriers
+    elseif slot.defenseType == "ward" then
+        shieldColor = {0.3, 0.3, 1.0}    -- Blue for wards
+    elseif slot.defenseType == "field" then
+        shieldColor = {0.3, 1.0, 0.3}    -- Green for fields
+    end
+    
+    -- Create shield effect using VFX system if available
+    if wizard.gameState and wizard.gameState.vfx then
+        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+            duration = 1.0,
+            color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
+            shieldType = slot.defenseType
+        })
+    end
+    
+    -- Print debug info
+    print(string.format("[SHIELD] %s created a %s shield in slot %d with %d strength (mana linked: %s)",
+        wizard.name or "Unknown wizard",
+        slot.defenseType,
+        spellSlot,
+        slot.shieldStrength,
+        slot.manaLinked and "yes" or "no"))
+    
+    -- Include key parameters in result for later spell resolution
+    results.defenseType = slot.defenseType
+    results.blockTypes = blockParams.blocks
+    results.shieldStrength = slot.shieldStrength
+    results.manaLinked = slot.manaLinked
+    
+    return results
+end
+
+-- Function to register a new keyword handler
+KeywordSystem.registerKeyword = function(keyword, handler, options)
+    options = options or {}
+    
+    -- Check if this keyword already exists
+    if KeywordSystem.handlers[keyword] then
+        print(string.format("[WARNING] Overwriting existing keyword handler: %s", keyword))
+    end
+    
+    -- Register the handler function
+    KeywordSystem.handlers[keyword] = handler
+    
+    -- Register category
+    local category = options.category or "SPECIAL"
+    KeywordSystem.keywordCategories[keyword] = category
+    
+    -- Register default target type
+    local targetType = options.targetType or KeywordSystem.targetTypes.SELF
+    KeywordSystem.keywordTargets[keyword] = targetType
+    
+    print(string.format("[KEYWORD] Registered new keyword: %s (category: %s, target: %s)",
+                      keyword, category, targetType))
+    
+    return true
+end
+
+-- Legacy resolution function name for backward compatibility
+local function resolveSpellEffect(spell, caster, target, slot)
+    return KeywordSystem.resolveSpell(spell, caster, target, slot)
+end
 
 -- Ashgar's Spells (Fire-focused)
 Spells.conjurefire = {
+    id = "conjurefire",
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
-    castTime = 2.0,  -- Fast cast time
+    attackType = "utility",
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Create a fire token in the mana pool
-        caster.manaPool:addToken("fire", "assets/sprites/fire-token.png")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
+    keywords = {
+        conjure = {
+            token = "fire",
+            amount = 1
         }
+    },
+    vfx = "fire_conjure",
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing fire tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count fire tokens in the mana pool
+        local fireCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "fire" and token.state == "FREE" then
+                    fireCount = fireCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing fire token
+        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        
+        return adjustedCastTime
     end
 }
 
 Spells.firebolt = {
+    id = "firebolt",
     name = "Firebolt",
-    description = "Quick ranged hit, more damage at FAR range",
-    castTime = 5.0,  -- seconds
-    spellType = "projectile",  -- Mark as a projectile spell
-    cost = {
-        {type = "fire", count = 1},
-        {type = "any", count = 1}
-    },
-    effect = function(caster, target)
-        -- Access shared range state from game state reference
-        local damage = 10
-        if caster.gameState.rangeState == "FAR" then damage = 15 end
-        return {
-            damage = damage,
-            damageType = "fire",  -- Type of damage
-            spellType = "projectile"  -- Include in effect for blocking check
+    description = "Quick ranged hit, more damage against AERIAL opponents",
+    castTime = 5.0,
+    attackType = "projectile",
+    cost = {"fire", "any"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 10
+                end
+                return 10
+            end,
+            type = "fire",
+            conditional = "target.AERIAL"
         }
-    end
+    },
+    vfx = "fire_bolt",
+    sfx = "fire_whoosh",
+    blockableBy = {"barrier", "ward"}
 }
 
 Spells.meteor = {
+    id = "meteor",
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
     castTime = 8.0,
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1},
-        {type = "star", count = 1}
-    },
-    effect = function(caster, target)
-        if target.elevation ~= "GROUNDED" then return {damage = 0} end
-        
-        return {
-            damage = 20,
+    attackType = "zone",
+    cost = {"fire", "force", "star"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "GROUNDED" and 20 or 0
+                end
+                return 0 -- Default damage if target is nil
+            end,
             type = "fire",
-            setPosition = "NEAR"  -- Moves caster to NEAR
+            conditional = "target.GROUNDED"
+        },
+        rangeShift = {
+            position = "NEAR"
         }
-    end
+    },
+    vfx = "meteor_dive",
+    sfx = "meteor_impact",
+    blockableBy = {"barrier", "field"}
 }
 
 Spells.combust = {
+    id = "combust",
     name = "Combust Lock",
     description = "Locks opponent mana token, punishes overqueueing",
     castTime = 6.0,
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1}
-    },
-    effect = function(caster, target)
-        -- Count active spell slots
-        local activeSlots = 0
-        for _, slot in ipairs(target.spellSlots) do
-            if slot.active then
-                activeSlots = activeSlots + 1
-            end
-        end
-        
-        return {
-            lockToken = true,
-            lockDuration = 10.0,  -- Lock mana token for 10 seconds
-            damage = activeSlots * 3  -- More damage if target has many active spells
+    attackType = "remote",
+    cost = {"fire", "force"},
+    keywords = {
+        lock = {
+            duration = 10.0
+        },
+        damage = {
+            amount = function(caster, target)
+                -- Count active spell slots
+                local activeSlots = 0
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active then
+                            activeSlots = activeSlots + 1
+                        end
+                    end
+                end
+                return activeSlots * 3
+            end,
+            type = "fire",
+            scalesWithOpponentSlots = true
         }
-    end
+    },
+    vfx = "combust_lock",
+    blockableBy = {"ward", "field"}
 }
 
 Spells.emberlift = {
+    id = "emberlift",
     name = "Emberlift",
     description = "Launches caster into the air and increases range",
-    castTime = 2.5,  -- Short cast time
-    cost = {
-        {type = "fire", count = 1},
-        {type = "force", count = 1}
-    },
-    effect = function(caster, target)
-        return {
-            setElevation = "AERIAL",
-            elevationDuration = 5.0,  -- Sets AERIAL for 5 seconds
-            setPosition = "FAR",      -- Sets range to FAR
-            damage = 0
+    castTime = 2.5,
+    attackType = "utility",
+    cost = {"fire", "force"},
+    keywords = {
+        elevate = {
+            duration = 5.0
+        },
+        rangeShift = {
+            position = "FAR"
         }
-    end
+    },
+    vfx = "ember_lift",
+    sfx = "whoosh_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 -- Selene's Spells (Moon-focused)
 Spells.conjuremoonlight = {
+    id = "conjuremoonlight",
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
-    castTime = 2.0,  -- Fast cast time
+    attackType = "utility",
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Create a moon token in the mana pool
-        caster.manaPool:addToken("moon", "assets/sprites/moon-token.png")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
+    keywords = {
+        conjure = {
+            token = "moon",
+            amount = 1
         }
+    },
+    vfx = "moon_conjure",
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing moon tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count moon tokens in the mana pool
+        local moonCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "moon" and token.state == "FREE" then
+                    moonCount = moonCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing moon token
+        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        
+        return adjustedCastTime
     end
 }
 
 Spells.volatileconjuring = {
+    id = "volatileconjuring",
     name = "Volatile Conjuring",
     description = "Creates a random mana token",
-    castTime = 1.4,  -- Shorter cast time than the dedicated conjuring spells
+    attackType = "utility",
+    castTime = 5.0,  -- Fixed cast time of 5 seconds
     cost = {},  -- No mana cost
-    effect = function(caster, target)
-        -- Available token types and their image paths
-        local tokenTypes = {
-            {type = "fire", path = "assets/sprites/fire-token.png"},
-            {type = "force", path = "assets/sprites/force-token.png"},
-            {type = "moon", path = "assets/sprites/moon-token.png"},
-            {type = "nature", path = "assets/sprites/nature-token.png"},
-            {type = "star", path = "assets/sprites/star-token.png"}
+    keywords = {
+        conjure = {
+            token = function(caster, target)
+                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+                local randomIndex = math.random(#tokenTypes)
+                local selectedToken = tokenTypes[randomIndex]
+                print(caster.name .. " conjured a random " .. selectedToken .. " token")
+                return selectedToken
+            end,
+            amount = 1
         }
-        
-        -- Select a random token type
-        local randomIndex = math.random(#tokenTypes)
-        local selectedToken = tokenTypes[randomIndex]
-        
-        -- Create the token in the mana pool
-        caster.manaPool:addToken(selectedToken.type, selectedToken.path)
-        
-        -- Display a message about which token was created (optional)
-        print(caster.name .. " conjured a random " .. selectedToken.type .. " token")
-        
-        return {
-            -- No direct effects on target
-            damage = 0
-        }
-    end
+    },
+    vfx = "volatile_conjure",
+    blockableBy = {}  -- Unblockable
+    -- Removed dynamic cast time calculation to keep it fixed at 5 seconds
 }
 
 Spells.mist = {
+    id = "mist",
     name = "Mist Veil",
-    description = "Projectile block, grants AERIAL",
+    description = "A ward of mist that blocks projectiles and remotes",
+    attackType = "utility",
     castTime = 5.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "any", count = 1}
-    },
-    effect = function(caster, target)
-        return {
-            setElevation = "AERIAL",
-            elevationDuration = 4.0,  -- AERIAL effect lasts for 4 seconds
-            block = "projectile",
-            blockDuration = 5.0  -- Block projectiles for 5 seconds
+    cost = {"moon", "moon"},
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
+        },
+        elevate = {
+            duration = 4.0
         }
-    end
+    },
+    vfx = "mist_veil",
+    sfx = "mist_shimmer",
+    blockableBy = {}  -- Utility spell, can't be blocked
 }
 
 Spells.gravity = {
+    id = "gravity",
     name = "Gravity Pin",
     description = "Traps AERIAL enemies",
+    attackType = "zone",
     castTime = 7.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "nature", count = 1}
-    },
-    effect = function(caster, target)
-        if target.elevation ~= "AERIAL" then return {damage = 0} end
-        
-        return {
-            damage = 15,
-            setElevation = "GROUNDED",
-            stun = 2.0  -- Stun for 2 seconds
+    cost = {"moon", "nature"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 0
+                end
+                return 0 -- Default damage if target is nil
+            end,
+            type = "moon",
+            conditional = "target.AERIAL"
+        },
+        ground = true,  -- Set target to GROUNDED
+        stagger = {
+            duration = 2.0  -- Stun for 2 seconds
         }
-    end
+    },
+    vfx = "gravity_pin",
+    sfx = "gravity_slam",
+    blockableBy = {"barrier", "field"}
 }
 
 Spells.eclipse = {
+    id = "eclipse",
     name = "Eclipse Echo",
     description = "Freezes caster's central queued spell for 2 seconds",
+    attackType = "remote",
     castTime = 6.0,
-    cost = {
-        {type = "moon", count = 1},
-        {type = "force", count = 1}
+    cost = {"moon", "force"},
+    keywords = {
+        freeze = {
+            slot = 2,  -- Middle spell slot
+            duration = 2.0
+        }
     },
-    effect = function(caster, target)
-        -- Directly modify the middle spell slot if it's active
-        if caster.spellSlots[2] and caster.spellSlots[2].active then
-            local slot = caster.spellSlots[2]
-            local originalCastTime = slot.castTime
-            local currentProgress = slot.progress
-            
-            -- Instead of adding to the cast time, we're just freezing progress
-            -- The spell's total cast time remains the same, but progress will freeze for 2 seconds
-            
-            -- Add a "frozen" flag and freeze timer
-            slot.frozen = true
-            slot.freezeTimer = 2.0  -- Freeze for 2 seconds
-            
-            print("Eclipse Echo froze " .. caster.name .. "'s spell in slot 2 for 2 seconds")
-            print("Spell will be frozen at " .. currentProgress .. " / " .. originalCastTime .. " for 2 seconds")
-            
-            return {
-                delayApplied = true,
-                targetSlot = 2,
-                delayAmount = 2.0
-            }
-        else
-            print("Eclipse Echo found no spell to delay in slot 2")
-            return {
-                delayApplied = false
-            }
-        end
-    end
+    vfx = "eclipse_echo",
+    sfx = "time_stop",
+    blockableBy = {"ward", "field"}
 }
 
 Spells.fullmoonbeam = {
+    id = "fullmoonbeam",
     name = "Full Moon Beam",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
-    castTime = 7.0,    -- Base cast time
-    cost = {
-        {type = "moon", count = 5}  -- Costs 5 moon mana
+    attackType = "projectile",
+    castTime = 7.0,
+    cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
+    keywords = {
+        damage = {
+            amount = function(caster, target, slot)
+                -- Find the slot this spell was cast from to get its actual cast time
+                local actualCastTime = 7.0  -- Default/base cast time
+                
+                -- If we know which slot this spell was cast from
+                if slot and caster.spellSlots[slot] then
+                    -- Use the actual cast time of the spell which may have been modified
+                    actualCastTime = caster.spellSlots[slot].castTime
+                end
+                
+                -- Calculate damage based on cast time (roughly 3.5 damage per second)
+                local damage = math.floor(actualCastTime * 3.5)
+                
+                -- Log the damage calculation
+                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+                
+                return damage
+            end,
+            type = "moon",
+            scaledDamage = true
+        }
     },
-    effect = function(caster, target, spellSlot)
-        -- Find the slot this spell was cast from to get its actual cast time
-        local actualCastTime = 7.0  -- Default/base cast time
+    vfx = "moon_beam",
+    sfx = "beam_charge",
+    blockableBy = {"barrier", "ward"}
+}
+
+-- New shield spells
+
+Spells.forcebarrier = {
+    id = "forcebarrier",
+    name = "Force Barrier",
+    description = "A protective barrier that blocks projectiles and zones",
+    castTime = 4.0,
+    attackType = "utility",
+    cost = {"force", "force"},
+    keywords = {
+        block = {
+            type = "barrier",
+            blocks = {"projectile", "zone"},
+            manaLinked = true
+        }
+    },
+    vfx = "force_barrier",
+    sfx = "shield_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+Spells.moonward = {
+    id = "moonward",
+    name = "Moon Ward",
+    description = "A mystical ward that blocks projectiles and remotes",
+    attackType = "utility",
+    castTime = 4.5,
+    cost = {"moon", "moon"},  -- Changed cost from moon+star to moon+moon
+    keywords = {
+        block = {
+            type = "ward",
+            blocks = {"projectile", "remote"},
+            manaLinked = true
+        }
+    },
+    vfx = "moon_ward",
+    sfx = "shield_up",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+Spells.naturefield = {
+    id = "naturefield",
+    name = "Nature Field",
+    description = "A field of natural energy that blocks remotes and zones",
+    attackType = "utility",
+    castTime = 4.0,
+    cost = {"nature", "nature"},
+    keywords = {
+        block = {
+            type = "field",
+            blocks = {"remote", "zone"},
+            manaLinked = true
+        }
+    },
+    vfx = "nature_field",
+    sfx = "nature_grow",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Advanced reflective shield example
+Spells.mirrorshield = {
+    id = "mirrorshield",
+    name = "Mirror Shield",
+    description = "A reflective barrier that returns damage to attackers",
+    attackType = "utility",
+    castTime = 5.0,
+    cost = {"moon", "moon", "star"},  -- Changed cost from force+moon+star to moon+moon+star
+    keywords = {
+        block = {
+            type = "barrier",  -- Barrier type blocks projectiles and zones
+            blocks = {"projectile", "zone"},
+            manaLinked = false, -- Doesn't consume tokens when blocking
+            reflect = true,     -- Reflects damage back to attacker
+            hitPoints = 3       -- Can block 3 attacks regardless of token count
+        }
+    },
+    vfx = "mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Shield-breaking spell example
+Spells.shieldbreaker = {
+    id = "shieldbreaker",
+    name = "Shield Breaker",
+    description = "A powerful force blast that shatters shields and barriers",
+    attackType = "projectile", -- Projectile type (can be blocked by barriers and wards)
+    castTime = 6.0,
+    cost = {"force", "force", "star"},
+    keywords = {
+        -- Regular damage component
+        damage = {
+            amount = function(caster, target)
+                -- Base damage
+                local baseDamage = 8
+                
+                -- Check if target exists before checking shields
+                local shieldBonus = 0
+                if target and target.spellSlots then
+                    -- Bonus damage if target has active shields
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldBonus = shieldBonus + 6
+                            break -- Only count one shield for bonus
+                        end
+                    end
+                end
+                
+                return baseDamage + shieldBonus
+            end,
+            type = "force"
+        },
         
-        -- If we know which slot this spell was cast from
-        if spellSlot and caster.spellSlots[spellSlot] then
-            -- Use the actual cast time of the spell which may have been modified
-            actualCastTime = caster.spellSlots[spellSlot].castTime
-        end
+        -- Special effect: If it hits a shield, it deals 3 "hits" worth of damage
+        -- This is implemented through the spell resolution pipeline that checks
+        -- for shields blocking the projectile
+        -- The effect is simulated by multiple shield strength reductions in a single hit
+    },
+    -- Add special property that indicates this is a shield-breaker spell
+    -- This will be used in the shield-blocking logic
+    shieldBreaker = 3, -- Deals 3 hits worth of damage to shields
+    vfx = "force_blast",
+    sfx = "shield_break",
+    blockableBy = {"barrier", "ward"}, -- Can be blocked by barriers and wards
+    
+    -- Custom handler for when this spell is blocked
+    onBlock = function(caster, target, slot, blockInfo)
+        print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
+            caster.name, blockInfo.blockType))
         
-        -- Calculate damage based on cast time (roughly 3.5 damage per second)
-        local damage = math.floor(actualCastTime * 3.5)
-        
-        -- Log the damage calculation
-        print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
-        
+        -- Return a special response that overrides behavior
         return {
-            damage = damage,     -- Damage scales with cast time
-            damageType = "moon",
-            scaledDamage = true  -- Flag to indicate this used a scaled damage value
+            specialBlockMessage = "Shield Breaker collides with active shield!",
+            damageShield = true,  -- Signal that we want to damage the shield
+            continueExecution = false  -- Don't continue processing the spell
         }
     end
 }
 
-return Spells```
+-- Zone spell with range anchoring example
+Spells.eruption = {
+    id = "eruption",
+    name = "Lava Eruption",
+    description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
+    attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
+    castTime = 7.0,
+    cost = {"fire", "fire", "nature"},
+    keywords = {
+        -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
+        zoneAnchor = {
+            range = "NEAR", -- Only works at NEAR range
+            elevation = "GROUNDED", -- Only hits GROUNDED targets
+            requireAll = true -- Must match both conditions
+        },
+        
+        -- Damage component
+        damage = {
+            amount = 16,
+            type = "fire"
+        },
+        
+        -- Secondary effect - ground the target if they're AERIAL
+        ground = true,
+        
+        -- Add damage over time
+        burn = {
+            duration = 4.0,
+            tickDamage = 3
+        }
+    },
+    vfx = "lava_eruption",
+    sfx = "volcano_rumble",
+    blockableBy = {"barrier", "field"},
+    
+    -- Custom handler for when this spell misses
+    onMiss = function(caster, target, slot)
+        print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
+        
+        -- Create a small damage effect at caster's feet to simulate backfire
+        if caster.gameState and caster.gameState.vfx then
+            caster.gameState.vfx.createEffect("impact", caster.x, caster.y + 30, nil, nil, {
+                duration = 0.5,
+                color = {1.0, 0.3, 0.1, 0.6},
+                particleCount = 5,
+                radius = 15
+            })
+        end
+        
+        -- Caster takes a small amount of damage from their own spell backfiring
+        local selfDamage = 4
+        caster.health = caster.health - selfDamage
+        if caster.health < 0 then caster.health = 0 end
+        
+        -- Return special response for handling the miss
+        return {
+            missBackfire = true,
+            backfireDamage = selfDamage,
+            backfireMessage = "Lava Eruption backfires when cast at wrong range!"
+        }
+    end,
+    
+    -- Custom handler for when this spell succeeds
+    onSuccess = function(caster, target, slot, results)
+        print(string.format("[SUCCESS] %s's Lava Eruption hits %s with full force!", caster.name, target.name))
+        
+        -- Return additional effects for when the spell hits successfully
+        return {
+            successMessage = "The ground trembles with volcanic fury!",
+            extraEffect = "area_burn",
+            burnDuration = 2.0
+        }
+    end
+}
+
+-- Prepare the return table with all spells and utility functions
+local SpellsModule = {
+    spells = Spells,
+    resolveSpellEffect = resolveSpellEffect,  -- Legacy function 
+    resolveSpell = KeywordSystem.resolveSpell,  -- New function
+    castSpell = KeywordSystem.castSpell,       -- Convenient casting function
+    validateSpell = validateSpell,
+    keywords = KeywordSystem.handlers,         -- Keyword handlers
+    registerKeyword = KeywordSystem.registerKeyword,  -- Register new keywords
+    keywordTargets = KeywordSystem.targetTypes,  -- Targeting types
+    keywordSystem = KeywordSystem               -- Full system access 
+}
+
+-- Validate all spells at module load time to catch errors early
+for spellId, spell in pairs(Spells) do
+    validateSpell(spell, spellId)
+end
+
+-- Add new spells using the keyword system
+
+-- Utility spell that changes tokens
+Spells.stormMeld = {
+    id = "stormmeld",
+    name = "Storm Meld",
+    description = "An elemental fusion spell that changes tokens to random types",
+    attackType = "utility",
+    castTime = 3.0,
+    cost = {"fire", "moon"},
+    keywords = {
+        tokenShift = {
+            type = "random",
+            amount = 3
+        },
+        damage = {
+            amount = 5,
+            type = "mixed"
+        },
+        echo = {
+            delay = 3.0
+        }
+    },
+    vfx = "storm_meld",
+    sfx = "elemental_fusion",
+    blockableBy = {}  -- Utility spells can't be blocked
+}
+
+-- Offensive spell with multiple effects
+Spells.cosmicRift = {
+    id = "cosmicrift",
+    name = "Cosmic Rift",
+    description = "Opens a rift that damages opponents and disrupts spellcasting",
+    attackType = "zone",
+    castTime = 5.5,
+    cost = {"star", "star", "force"},
+    keywords = {
+        damage = {
+            amount = 12,
+            type = "star"
+        },
+        delay = {
+            slot = 1,  -- Target opponent's first spell slot
+            duration = 2.0
+        },
+        zoneMulti = true  -- Affects both NEAR and FAR
+    },
+    vfx = "cosmic_rift",
+    sfx = "space_tear",
+    blockableBy = {"barrier", "field"}
+}
+
+-- Movement spell with multiple effects
+Spells.blazingAscent = {
+    id = "blazingascent",
+    name = "Blazing Ascent",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    attackType = "projectile",
+    castTime = 3.0,
+    cost = {"fire", "fire", "force"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- More damage if already AERIAL (harder to cast while falling)
+                return caster.elevation == "AERIAL" and 15 or 10
+            end,
+            type = "fire"
+        },
+        elevate = {
+            duration = 6.0
+        },
+        dissipate = {
+            token = "nature",
+            amount = 1
+        }
+    },
+    vfx = "blazing_ascent",
+    sfx = "fire_whoosh",
+    blockableBy = {"barrier", "ward"}
+}
+
+-- Complex multi-target spell using the new targeting system
+Spells.arcaneReversal = {
+    id = "arcanereversal",
+    name = "Arcane Reversal",
+    description = "A complex spell that manipulates mana, movement, and timing simultaneously",
+    attackType = "remote",
+    castTime = 6.0,
+    cost = {"moon", "star", "force", "force"},
+    keywords = {
+        -- Apply damage to enemy
+        damage = {
+            amount = function(caster, target)
+                -- More damage if enemy has active shields
+                local shieldCount = 0
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldCount = shieldCount + 1
+                        end
+                    end
+                end
+                return 8 + (shieldCount * 4)  -- 8 base + 4 per shield
+            end,
+            type = "star",
+            target = "ENEMY"  -- Explicit targeting
+        },
+        
+        -- Move self to opposite range
+        rangeShift = {
+            position = function(caster, target)
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end,
+            target = "SELF"
+        },
+        
+        -- Lock opponent's mana tokens
+        lock = {
+            duration = 4.0,
+            target = "POOL_ENEMY" 
+        },
+        
+        -- Add tokens to own pool
+        conjure = {
+            token = function(caster, target)
+                -- Create a token of the type that's most common in opponent's pool
+                local tokenCounts = {
+                    fire = 0,
+                    force = 0,
+                    moon = 0,
+                    nature = 0,
+                    star = 0
+                }
+                
+                -- Count opponent's token types in mana pool
+                if target.manaPool then
+                    for _, token in ipairs(target.manaPool.tokens or {}) do
+                        if token.state == "FREE" then
+                            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+                        end
+                    end
+                end
+                
+                -- Find the most common type
+                local maxCount = 0
+                local mostCommonType = "force"  -- Default
+                
+                for tokenType, count in pairs(tokenCounts) do
+                    if count > maxCount then
+                        maxCount = count
+                        mostCommonType = tokenType
+                    end
+                end
+                
+                return mostCommonType
+            end,
+            amount = 1,
+            target = "POOL_SELF"
+        },
+        
+        -- Accelerate own next spell
+        accelerate = {
+            amount = 2.0,
+            slot = 1,  -- First slot
+            target = "SLOT_SELF"
+        }
+    },
+    vfx = "arcane_reversal",
+    sfx = "time_shift",
+    blockableBy = {"ward", "field"}
+}
+
+-- Complex positional spell
+Spells.lunarTides = {
+    id = "lunartides",
+    name = "Lunar Tides",
+    description = "Manipulates the battle flow based on range and elevation",
+    attackType = "zone",
+    castTime = 7.0,
+    cost = {"moon", "moon", "force", "star"},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                -- Damage based on position
+                local baseDamage = 8
+                
+                -- If opponent is AERIAL, deal more damage
+                if target and target.elevation and target.elevation == "AERIAL" then
+                    baseDamage = baseDamage + 4
+                end
+                
+                -- If in NEAR range, deal more damage
+                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
+                    baseDamage = baseDamage + 3
+                end
+                
+                return baseDamage
+            end,
+            type = "moon",
+            target = "ENEMY"  -- Explicit targeting
+        },
+        rangeShift = {
+            -- Position changes based on current state
+            position = function(caster, target)
+                -- Toggle position
+                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
+            end,
+            target = "SELF"  -- Affects caster
+        },
+        lock = {
+            -- Lock duration increases if target has multiple active spells
+            duration = function(caster, target)
+                local activeSlots = 0
+                for _, slot in ipairs(target.spellSlots) do
+                    if slot.active then
+                        activeSlots = activeSlots + 1
+                    end
+                end
+                return 3.0 + (activeSlots * 1.0)  -- Base 3 seconds + 1 per active slot
+            end,
+            target = "POOL_ENEMY"  -- Affects opponent's mana pool
+        }
+    },
+    vfx = "lunar_tide",
+    sfx = "tide_rush",
+    blockableBy = {"field"}
+}
+
+return SpellsModule```
+
+## ./tools/generate_docs.lua
+```lua
+#!/usr/bin/env lua
+-- Script to generate keyword documentation
+
+-- Add manastorm root directory to lua path
+package.path = package.path .. ";../?.lua"
+
+-- Import the documentation generator
+local DocGenerator = require("docs.keywords")
+
+-- Generate the documentation
+DocGenerator.writeDocumentation("../docs/KEYWORDS.md")
+
+print("Documentation generation complete!")```
+
+## ./tools/test_keywords.lua
+```lua
+#!/usr/bin/env lua
+-- Script to test and debug keyword resolution
+
+-- Add manastorm root directory to lua path
+package.path = package.path .. ";../?.lua"
+
+-- Import the spells module
+local Spells = require("spells")
+
+-- Mock wizard class for testing
+local MockWizard = {}
+MockWizard.__index = MockWizard
+
+function MockWizard.new(name, position)
+    local self = setmetatable({}, MockWizard)
+    self.name = name
+    self.x = position or 0
+    self.y = 370
+    self.elevation = "GROUNDED"
+    self.spellSlots = {{}, {}, {}}
+    self.manaPool = {
+        tokens = {},
+        addToken = function() print("Added token") end
+    }
+    self.gameState = {
+        rangeState = "FAR",
+        wizards = {}
+    }
+    return self
+end
+
+-- Create mock wizards for testing
+local caster = MockWizard.new("TestWizard", 200)
+local opponent = MockWizard.new("Opponent", 600)
+
+-- Set up test state
+caster.gameState.wizards = {caster, opponent}
+
+-- Test a keyword in isolation
+local function testKeyword(keyword, params)
+    print("\n====== Testing keyword: " .. keyword .. " ======")
+    
+    -- Create starting results
+    local results = {damage = 0, spellType = "test"}
+    
+    -- Process the keyword
+    local newResults = Spells.keywordSystem.resolveKeyword(
+        "test_spell", 
+        keyword, 
+        params, 
+        caster, 
+        opponent, 
+        1, -- spell slot
+        results
+    )
+    
+    -- Show detailed results
+    print("\nKeyword results:")
+    for k, v in pairs(newResults) do
+        if k ~= "damage" or v ~= 0 then
+            print("  " .. k .. ": " .. tostring(v))
+        end
+    end
+    
+    return newResults
+end
+
+-- Test a full spell
+local function testSpell(spell)
+    print("\n====== Testing spell: " .. spell.name .. " ======")
+    
+    -- Process the spell using the new targeting-aware system
+    local results = Spells.keywordSystem.castSpell(
+        spell, 
+        caster, 
+        {
+            opponent = opponent,
+            spellSlot = 1,
+            debug = true
+        }
+    )
+    
+    -- Show detailed results
+    print("\nSpell results:")
+    for k, v in pairs(results) do
+        if k ~= "damage" or v ~= 0 then
+            if k ~= "targetingInfo" then  -- Handle targeting info separately
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    
+    -- Display targeting info
+    if results.targetingInfo then
+        print("\nTargeting information:")
+        for keyword, info in pairs(results.targetingInfo) do
+            print(string.format("  %s -> %s (%s)", 
+                keyword, info.targetType, info.target))
+        end
+    end
+    
+    return results
+end
+
+-- Run tests based on command-line arguments
+local function runTests()
+    local arg = {...}
+    
+    if #arg == 0 then
+        -- Default tests if no arguments provided
+        print("Running default tests...")
+        
+        -- Test individual keywords
+        testKeyword("damage", {amount = 10, type = "fire"})
+        testKeyword("elevate", {duration = 3.0})
+        testKeyword("rangeShift", {position = "NEAR"})
+        
+        -- Test a dynamic function parameter
+        testKeyword("damage", {
+            amount = function(caster, target)
+                return caster.gameState.rangeState == "FAR" and 15 or 10
+            end,
+            type = "fire"
+        })
+        
+        -- Test a complex spell
+        local testSpell = {
+            id = "testspell",
+            name = "Test Compound Spell",
+            description = "A spell combining multiple effects for testing",
+            attackType = "projectile",
+            castTime = 5.0,
+            cost = {"fire", "force"},
+            keywords = {
+                damage = {
+                    amount = function(caster, target)
+                        return target.elevation == "AERIAL" and 15 or 10
+                    end,
+                    type = "fire"
+                },
+                elevate = {
+                    duration = 3.0
+                },
+                rangeShift = {
+                    position = "NEAR"
+                }
+            }
+        }
+        testSpell(testSpell)
+        
+    elseif arg[1] == "list" then
+        -- List all available keywords
+        print("Available keywords:")
+        local keywordInfo = Spells.keywordSystem.getKeywordHelp()
+        for keyword, info in pairs(keywordInfo) do
+            print("- " .. keyword .. ": " .. info.description)
+        end
+        
+    elseif arg[1] == "keyword" and arg[2] then
+        -- Test a specific keyword
+        local keyword = arg[2]
+        
+        -- Check if this keyword exists
+        if not Spells.keywordSystem.handlers[keyword] then
+            print("Error: Unknown keyword '" .. keyword .. "'")
+            return
+        end
+        
+        -- Create some basic params for testing
+        local params = {}
+        if keyword == "damage" then
+            params = {amount = 10, type = "fire"}
+        elseif keyword == "elevate" or keyword == "freeze" then
+            params = {duration = 3.0}
+        elseif keyword == "rangeShift" then
+            params = {position = "NEAR"}
+        elseif keyword == "block" then
+            params = {type = "barrier", blocks = {"projectile"}}
+        elseif keyword == "conjure" then
+            params = {token = "fire", amount = 1}
+        elseif keyword == "dissipate" then
+            params = {token = "fire", amount = 1}
+        elseif keyword == "tokenShift" then
+            params = {type = "random", amount = 2}
+        end
+        
+        testKeyword(keyword, params)
+        
+    elseif arg[1] == "spell" and arg[2] then
+        -- Test a specific spell
+        local spellId = arg[2]
+        
+        -- Check if this spell exists
+        if not Spells.spells[spellId] then
+            print("Error: Unknown spell '" .. spellId .. "'")
+            return
+        end
+        
+        testSpell(Spells.spells[spellId])
+        
+    else
+        -- Show usage
+        print("Usage:")
+        print("  lua test_keywords.lua                  Run default tests")
+        print("  lua test_keywords.lua list             List all available keywords")
+        print("  lua test_keywords.lua keyword <name>   Test a specific keyword")
+        print("  lua test_keywords.lua spell <id>       Test a specific spell")
+    end
+end
+
+-- Run the tests
+runTests(...)```
 
 ## ./ui.lua
 ```lua
@@ -5802,16 +12001,28 @@ UI.spellbookVisible = {
 function UI.drawHelpText(font)
     -- Set font and color
     love.graphics.setFont(font)
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
     
-    -- Only show minimal debug controls at the bottom
-    local y = love.graphics.getHeight() - 110
-    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 10, y + 50)
-    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 10, y + 70)
-    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 10, y + 90)
+    -- Draw a semi-transparent background for the debug panel
+    love.graphics.setColor(0.1, 0.1, 0.2, 0.7)
+    local panelWidth = 600
+    local y = love.graphics.getHeight() - 130
+    love.graphics.rectangle("fill", 5, y + 30, panelWidth, 95, 5, 5)
     
-    -- Draw spellbook buttons for each player
-    UI.drawSpellbookButtons()
+    -- Draw a border
+    love.graphics.setColor(0.3, 0.3, 0.5, 0.8)
+    love.graphics.rectangle("line", 5, y + 30, panelWidth, 95, 5, 5)
+    
+    -- Draw header
+    love.graphics.setColor(1, 1, 0.7, 0.9)
+    love.graphics.print("DEBUG MODE", 15, y + 35)
+    
+    -- Show debug controls with brighter text
+    love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+    love.graphics.print("Debug Controls: T (Add tokens), R (Toggle range), A/S (Toggle elevations), ESC (Quit)", 15, y + 55)
+    love.graphics.print("VFX Test Keys: 1 (Firebolt), 2 (Meteor), 3 (Mist Veil), 4 (Emberlift), 5 (Full Moon Beam)", 15, y + 75)
+    love.graphics.print("Conjure Test Keys: 6 (Fire), 7 (Moonlight), 8 (Volatile)", 15, y + 95)
+    
+    -- No longer calling UI.drawSpellbookButtons() here as it's now handled in the main loop
 end
 
 -- Toggle spellbook visibility for a player
@@ -5932,7 +12143,7 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     -- GROUP 2: CAST BUTTON
     -- Positioned farther to the right
     local castX = x + 150
-    local castKey = (playerNum == 1) and "F" or "L"
+    local castKey = (playerNum == 1) and "F" or "J"
     
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)
@@ -6061,14 +12272,34 @@ function UI.drawSpellInfo(wizards)
             return "Free"
         end
         
+        -- Handle both old and new cost formats
         local costText = ""
-        for _, component in ipairs(cost) do
-            local typeText = component.type
-            if type(typeText) == "table" then
-                typeText = table.concat(typeText, "/")
+        local tokenCounts = {}  -- For new array-style format
+        
+        -- Check if this is the new array-style format (simple array of strings)
+        local isNewFormat = type(cost[1]) == "string"
+        
+        if isNewFormat then
+            -- Count each token type
+            for _, tokenType in ipairs(cost) do
+                tokenCounts[tokenType] = (tokenCounts[tokenType] or 0) + 1
             end
-            costText = costText .. component.count .. " " .. typeText .. ", "
+            
+            -- Format the counts
+            for tokenType, count in pairs(tokenCounts) do
+                costText = costText .. count .. " " .. tokenType .. ", "
+            end
+        else
+            -- Old format with type and count properties
+            for _, component in ipairs(cost) do
+                local typeText = component.type
+                if type(typeText) == "table" then
+                    typeText = table.concat(typeText, "/")
+                end
+                costText = costText .. component.count .. " " .. typeText .. ", "
+            end
         end
+        
         return costText:sub(1, -3)  -- Remove trailing comma and space
     end
     
@@ -6347,6 +12578,18 @@ function VFX.init()
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- General impact effect (used for many spell interactions)
+        impact = {
+            type = "impact",
+            duration = 0.5,  -- Half second by default
+            particleCount = 15,
+            startScale = 0.8,
+            endScale = 0.2,
+            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            radius = 30,
+            sound = nil  -- No default sound
+        },
+
         -- Firebolt effect
         firebolt = {
             type = "projectile",
@@ -6447,6 +12690,19 @@ function VFX.init()
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
+        },
+        
+        -- Shield effect (used for barrier, ward, and field shield activation)
+        shield = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            radius = 60,
+            pulseRate = 3,
+            sound = "shield"
         }
     }
     
@@ -6456,7 +12712,9 @@ function VFX.init()
         meteor = nil,
         mist = nil,
         whoosh = nil,
-        moonbeam = nil
+        moonbeam = nil,
+        conjure = nil,
+        shield = nil
     }
     
     return VFX
@@ -7452,8 +13710,9 @@ return VFX```
 local Wizard = {}
 Wizard.__index = Wizard
 
--- Load spells
-local Spells = require("spells")
+-- Load spells module with the new keyword system
+local SpellsModule = require("spells")
+local Spells = SpellsModule.spells  -- For backwards compatibility
 
 function Wizard.new(name, x, y, color)
     local self = setmetatable({}, Wizard)
@@ -7470,6 +13729,18 @@ function Wizard.new(name, x, y, color)
     self.stunTimer = 0           -- Stun timer in seconds
     self.blockers = {            -- Spell blocking effects
         projectile = 0           -- Projectile block duration
+    }
+    
+    -- Status effects
+    self.statusEffects = {
+        burn = {
+            active = false,
+            duration = 0,
+            tickDamage = 0,
+            tickInterval = 1.0,
+            elapsed = 0,         -- Time since last tick
+            totalTime = 0        -- Total time effect has been active
+        }
     }
     
     -- Visual effects
@@ -7500,10 +13771,10 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
             
             -- Multi-key combinations
-            ["12"] = Spells.meteor,
-            ["13"] = Spells.combust,
-            ["23"] = Spells.emberlift, -- Added Emberlift spell
-            ["123"] = Spells.meteor   -- Placeholder, could be a new spell
+            ["12"] = Spells.eruption,      -- Zone spell with range anchoring 
+            ["13"] = Spells.combust, -- Mana denial spell
+            ["23"] = Spells.emberlift,     -- Movement spell
+            ["123"] = Spells.meteor  -- Zone dependent nuke
         }
     elseif name == "Selene" then
         self.spellbook = {
@@ -7513,11 +13784,32 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.mist,
             
             -- Multi-key combinations
-            ["12"] = Spells.gravity,
+            ["12"] = Spells.tidalforce,     -- Chip damage Remote spell that forces out of AERIAL
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.fullmoonbeam, -- Added Full Moon Beam spell
-            ["123"] = Spells.eclipse  -- Placeholder, could be a new spell
+            ["23"] = Spells.combust, -- 
+            ["123"] = Spells.fullmoonbeam -- Full Moon Beam spell
         }
+    end
+    
+    -- Verify that all spells in the spellbook are properly defined
+    for key, spell in pairs(self.spellbook) do
+        if not spell then
+            print("WARNING: Spell for key combo '" .. key .. "' is nil for " .. name)
+        elseif not spell.cost then
+            print("WARNING: Spell '" .. (spell.name or "unnamed") .. "' for key combo '" .. key .. "' has no cost defined")
+        else
+            -- Ensure spell has an ID
+            if not spell.id and spell.name then
+                spell.id = spell.name:lower():gsub(" ", "")
+                print("DEBUG: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+            end
+            
+            -- Detailed debug output for detecting reference issues
+            print("DEBUG: Spell reference check for key combo '" .. key .. "':")
+            print("DEBUG: - Name: " .. (spell.name or "unnamed"))
+            print("DEBUG: - ID: " .. (spell.id or "no id"))
+            print("DEBUG: - Cost: " .. (type(spell.cost) == "table" and "table of length " .. #spell.cost or tostring(spell.cost)))
+        end
     end
     
     -- Spell slots (3 max)
@@ -7528,7 +13820,13 @@ function Wizard.new(name, x, y, color)
             progress = 0,
             spellType = nil,
             castTime = 0,
-            tokens = {}  -- Will hold channeled mana tokens
+            tokens = {},  -- Will hold channeled mana tokens
+            
+            -- Shield-specific properties
+            isShield = false,
+            defenseType = nil,  -- "barrier", "ward", or "field"
+            shieldStrength = 0, -- How many hits the shield can take
+            blocksAttackTypes = nil  -- Table of attack types this shield blocks
         }
     end
     
@@ -7567,6 +13865,52 @@ function Wizard:update(dt)
         end
     end
     
+    -- Update burn status effect
+    if self.statusEffects.burn.active then
+        -- Update total time
+        self.statusEffects.burn.totalTime = self.statusEffects.burn.totalTime + dt
+        
+        -- Update elapsed time since last tick
+        self.statusEffects.burn.elapsed = self.statusEffects.burn.elapsed + dt
+        
+        -- Check if it's time for damage tick
+        if self.statusEffects.burn.elapsed >= self.statusEffects.burn.tickInterval then
+            -- Apply burn damage
+            local damage = self.statusEffects.burn.tickDamage
+            self.health = math.max(0, self.health - damage)
+            
+            -- Reset elapsed time
+            self.statusEffects.burn.elapsed = 0
+            
+            -- Log damage
+            print(string.format("[BURN] %s takes %d burn damage! (health: %d)", 
+                self.name, damage, self.health))
+            
+            -- Create burn effect using VFX system
+            if self.gameState and self.gameState.vfx then
+                -- Random position around the wizard for the burn effect
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(10, 30)
+                local effectX = self.x + math.cos(angle) * distance
+                local effectY = self.y + math.sin(angle) * distance
+                
+                self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                    duration = 0.3,
+                    color = {1.0, 0.4, 0.1, 0.6},
+                    particleCount = 3,
+                    radius = 10
+                })
+            end
+        end
+        
+        -- Check if the effect has expired
+        if self.statusEffects.burn.totalTime >= self.statusEffects.burn.duration then
+            -- Deactivate the effect
+            self.statusEffects.burn.active = false
+            print(string.format("[STATUS] %s is no longer burning", self.name))
+        end
+    end
+    
     -- Update blocker timers
     for blockType, duration in pairs(self.blockers) do
         if duration > 0 then
@@ -7596,6 +13940,94 @@ function Wizard:update(dt)
     -- Update spell slots
     for i, slot in ipairs(self.spellSlots) do
         if slot.active then
+            -- If the slot is an active shield, just keep it active, and add
+            -- shield pulsing effects if needed
+            if slot.isShield and slot.progress >= slot.castTime then
+                -- For active shields, make tokens orbit their slots
+                -- Calculate positions for all tokens in this shield
+                local slotYOffsets = {30, 0, -30}
+                -- Apply AERIAL offset to shield tokens
+                local yOffset = self.currentYOffset or 0
+                local slotY = self.y + slotYOffsets[i] + yOffset
+                -- Define orbit radii for each slot (same values used in drawSpellSlots)
+                local horizontalRadii = {80, 70, 60}  -- Wider at the bottom, narrower at the top  
+                local verticalRadii = {20, 25, 30}    -- Flatter at the bottom, rounder at the top
+                local radiusX = horizontalRadii[i]
+                local radiusY = verticalRadii[i]
+                
+                -- Move all tokens in a slow orbit
+                if #slot.tokens > 0 then
+                    -- Make tokens orbit slowly
+                    local baseAngle = love.timer.getTime() * 0.3  -- Slow steady rotation
+                    local tokenCount = #slot.tokens
+                    
+                    for j, tokenData in ipairs(slot.tokens) do
+                        local token = tokenData.token
+                        -- Position tokens evenly around the orbit
+                        local anglePerToken = math.pi * 2 / tokenCount
+                        local tokenAngle = baseAngle + anglePerToken * (j - 1)
+                        
+                        -- Calculate 3D position with elliptical projection
+                        -- Apply NEAR/FAR positioning offset for tokens as well
+                        local xOffset = 0
+                        local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                        
+                        -- Push wizards closer to center in NEAR mode, further in FAR mode
+                        if self.name == "Ashgar" then -- Player 1 (left side)
+                            xOffset = isNear and 60 or 0 -- Move right when NEAR
+                        else -- Player 2 (right side)
+                            xOffset = isNear and -60 or 0 -- Move left when NEAR
+                        end
+                        
+                        token.x = self.x + xOffset + math.cos(tokenAngle) * radiusX
+                        token.y = slotY + math.sin(tokenAngle) * radiusY
+                        
+                        -- Update token rotation angle too (spin on its axis)
+                        token.rotAngle = token.rotAngle + 0.01  -- Slow spin
+                    end
+                end
+                
+                -- Occasionally add subtle visual effects
+                if math.random() < 0.01 and self.gameState and self.gameState.vfx then
+                    local angle = math.random() * math.pi * 2
+                    local radius = math.random(30, 40)
+                    
+                    -- Apply NEAR/FAR offset to sparkle effects as well
+                    local xOffset = 0
+                    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+                    
+                    -- Push wizards closer to center in NEAR mode, further in FAR mode
+                    if self.name == "Ashgar" then -- Player 1 (left side)
+                        xOffset = isNear and 60 or 0 -- Move right when NEAR
+                    else -- Player 2 (right side)
+                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    end
+                    
+                    local sparkleX = self.x + xOffset + math.cos(angle) * radius
+                    local sparkleY = slotY + math.sin(angle) * radius
+                    
+                    -- Color based on shield type
+                    local effectColor = {0.7, 0.7, 0.7, 0.5}  -- Default gray
+                    if slot.defenseType == "barrier" then
+                        effectColor = {1.0, 1.0, 0.3, 0.5}  -- Yellow for barriers
+                    elseif slot.defenseType == "ward" then
+                        effectColor = {0.3, 0.3, 1.0, 0.5}  -- Blue for wards
+                    elseif slot.defenseType == "field" then
+                        effectColor = {0.3, 1.0, 0.3, 0.5}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                        duration = 0.3,
+                        color = effectColor,
+                        particleCount = 2,
+                        radius = 5
+                    })
+                end
+                
+                -- Continue to next spell slot
+                goto continue_next_slot
+            end
+            
             -- Check if the spell is frozen (by Eclipse Echo)
             if slot.frozen then
                 -- Update freeze timer
@@ -7647,34 +14079,56 @@ function Wizard:update(dt)
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
+                -- Cast the spell
                 self:castSpell(i)
                 
-                -- Start return animation for tokens
-                if #slot.tokens > 0 then
-                    for _, tokenData in ipairs(slot.tokens) do
-                        -- Trigger animation to return token to the mana pool
-                        self.manaPool:returnToken(tokenData.index)
+                -- For non-shield spells, we return tokens and reset the slot
+                -- For shield spells, castSpell will handle setting up the shield 
+                -- and we won't get here because we'll have the isShield check above
+                if not slot.isShield then
+                    -- Start return animation for tokens
+                    if #slot.tokens > 0 then
+                        for _, tokenData in ipairs(slot.tokens) do
+                            -- Trigger animation to return token to the mana pool
+                            self.manaPool:returnToken(tokenData.index)
+                        end
+                        
+                        -- Clear token list (tokens still exist in the mana pool)
+                        slot.tokens = {}
                     end
                     
-                    -- Clear token list (tokens still exist in the mana pool)
-                    slot.tokens = {}
+                    -- Reset slot
+                    slot.active = false
+                    slot.progress = 0
+                    slot.spellType = nil
+                    slot.castTime = 0
                 end
-                
-                -- Reset slot
-                slot.active = false
-                slot.progress = 0
-                slot.spellType = nil
-                slot.castTime = 0
             end
+            
+            ::continue_next_slot::
         end
     end
 end
 
 function Wizard:draw()
-    -- Calculate position adjustments based on elevation
+    -- Calculate position adjustments based on elevation and range state
     local yOffset = 0
+    local xOffset = 0
+    
+    -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if self.elevation == "AERIAL" then
-        yOffset = -30  -- Lift the wizard up when AERIAL
+        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
+    end
+    
+    -- Horizontal adjustment for NEAR/FAR state
+    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
+    local centerX = love.graphics.getWidth() / 2
+    
+    -- Push wizards closer to center in NEAR mode, further in FAR mode
+    if self.name == "Ashgar" then -- Player 1 (left side)
+        xOffset = isNear and 60 or 0 -- Move right when NEAR
+    else -- Player 2 (right side)
+        xOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
     -- Set color and draw wizard
@@ -7688,12 +14142,16 @@ function Wizard:draw()
     
     -- Draw elevation effect (GROUNDED or AERIAL)
     if self.elevation == "GROUNDED" then
-        -- Draw ground indicator below wizard
+        -- Draw ground indicator below wizard, applying the x offset
         love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
-        love.graphics.ellipse("fill", self.x, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
+        love.graphics.ellipse("fill", self.x + xOffset, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
     end
     
-    -- Draw the wizard with appropriate elevation
+    -- Store current offsets for other functions to use
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
+    
+    -- Draw the wizard with appropriate elevation and position
     love.graphics.setColor(1, 1, 1)
     
     -- Flip Selene's sprite horizontally if she's player 2
@@ -7705,7 +14163,7 @@ function Wizard:draw()
     
     love.graphics.draw(
         self.sprite, 
-        self.x, self.y + yOffset,  -- Apply elevation offset
+        self.x + xOffset, self.y + yOffset,  -- Apply both offsets
         0,  -- Rotation
         scaleX, self.scale,  -- Scale x, Scale y (negative x scale for Selene)
         self.sprite:getWidth()/2, self.sprite:getHeight()/2  -- Origin at center
@@ -7716,13 +14174,13 @@ function Wizard:draw()
         -- Draw aerial effect (clouds, wind lines, etc.)
         love.graphics.setColor(0.8, 0.8, 1, 0.3)
         
-        -- Draw cloud-like puffs
+        -- Draw cloud-like puffs, applying the xOffset
         for i = 1, 3 do
-            local xOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
-            local cloudY = self.y + yOffset + 25 + math.sin(love.timer.getTime() + i) * 3
-            love.graphics.circle("fill", self.x - 15 + xOffset, cloudY, 8)
-            love.graphics.circle("fill", self.x + xOffset, cloudY, 10)
-            love.graphics.circle("fill", self.x + 15 + xOffset, cloudY, 8)
+            local cloudXOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
+            local cloudY = self.y + yOffset + 40 + math.sin(love.timer.getTime() + i) * 3
+            love.graphics.circle("fill", self.x + xOffset - 15 + cloudXOffset, cloudY, 8)
+            love.graphics.circle("fill", self.x + xOffset + cloudXOffset, cloudY, 10)
+            love.graphics.circle("fill", self.x + xOffset + 15 + cloudXOffset, cloudY, 8)
         end
         
         -- No visual timer display here - moved to drawStatusEffects function
@@ -7735,9 +14193,9 @@ function Wizard:draw()
         local shieldRadius = 60
         local pulseAmount = 5 * math.sin(love.timer.getTime() * 3)
         love.graphics.setColor(0.5, 0.5, 1, 0.15)
-        love.graphics.circle("fill", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("fill", self.x + xOffset, self.y, shieldRadius + pulseAmount)
         love.graphics.setColor(0.7, 0.7, 1, 0.2)
-        love.graphics.circle("line", self.x, self.y, shieldRadius + pulseAmount)
+        love.graphics.circle("line", self.x + xOffset, self.y, shieldRadius + pulseAmount)
     end
     
     -- Draw status effects with durations using the new horizontal bar system
@@ -7749,11 +14207,11 @@ function Wizard:draw()
         local progress = self.blockVFX.timer / 0.5  -- Normalize to 0-1
         local size = 80 * (1 - progress)
         love.graphics.setColor(0.7, 0.7, 1, progress * 0.8)
-        love.graphics.circle("fill", self.x, self.y, size)
+        love.graphics.circle("fill", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.circle("line", self.x, self.y, size)
+        love.graphics.circle("line", self.x + xOffset, self.y, size)
         love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.print("BLOCKED!", self.x - 30, self.y - 120)
+        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y + 70)
     end
     
     -- Health bars will now be drawn in the UI system for a more dramatic fighting game style
@@ -7768,15 +14226,19 @@ function Wizard:draw()
         love.graphics.setColor(color[1], color[2], color[3], alpha)
         
         -- Draw with a subtle rise effect
-        local yOffset = 10 * (1 - alpha)  -- Rise up as it fades
+        local notifYOffset = 10 * (1 - alpha)  -- Rise up as it fades
         love.graphics.print(self.spellCastNotification.text, 
-                           self.spellCastNotification.x - 60, 
-                           self.spellCastNotification.y - yOffset, 
+                           self.spellCastNotification.x + xOffset - 60, 
+                           self.spellCastNotification.y - notifYOffset, 
                            0, -- rotation
                            1.5, 1.5) -- scale
     end
     
     -- We'll remove the key indicators from here as they'll be drawn in the UI's spellbook component
+    
+    -- Save current xOffset and yOffset for other drawing functions
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
     
     -- Draw spell slots (orbits)
     self:drawSpellSlots()
@@ -7835,6 +14297,10 @@ function Wizard:drawStatusEffects()
     local screenWidth = love.graphics.getWidth()
     local screenHeight = love.graphics.getHeight()
     
+    -- Get position offsets from draw function
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
+    
     -- Properties for status effect bars
     local barWidth = 130
     local barHeight = 12
@@ -7845,14 +14311,15 @@ function Wizard:drawStatusEffects()
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is
-    local x = (self.name == "Ashgar") and 150 or (screenWidth - 150)
+    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
+    local x = (self.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
     
     -- Define colors for different effect types
     local effectColors = {
         aerial = {0.7, 0.7, 1.0, 0.8},
         stun = {1.0, 1.0, 0.1, 0.8},
-        shield = {0.5, 0.7, 1.0, 0.8}
+        shield = {0.5, 0.7, 1.0, 0.8},
+        burn = {1.0, 0.4, 0.1, 0.8}
     }
     
     -- Draw AERIAL duration if active
@@ -7965,11 +14432,68 @@ function Wizard:drawStatusEffects()
         love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
                            x + barWidth/2 - 30, y)
     end
+    
+    -- Draw BURN duration if active
+    if self.statusEffects.burn.active then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = self.statusEffects.burn.duration
+        local progress = 1.0 - (self.statusEffects.burn.totalTime / maxDuration)
+        progress = math.max(0.0, progress)  -- Ensure non-negative
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label with pulsing effect
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 
+                              effectColors.burn[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 7)))
+        love.graphics.print("BURNING", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.burn)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time remaining and damage info
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs (%d/tick)", 
+                           maxDuration - self.statusEffects.burn.totalTime,
+                           self.statusEffects.burn.tickDamage), 
+                           x - 20, y)
+        
+        -- Draw fire particles on the wizard to show the burning effect
+        if math.random() < 0.2 and self.gameState and self.gameState.vfx then
+            local angle = math.random() * math.pi * 2
+            local distance = math.random(10, 30)
+            local effectX = self.x + xOffset + math.cos(angle) * distance
+            local effectY = self.y + yOffset + math.sin(angle) * distance
+            
+            self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                duration = 0.2,
+                color = {1.0, 0.3, 0.1, 0.4},
+                particleCount = 2,
+                radius = 5
+            })
+        end
+    end
 end
 
 function Wizard:drawSpellSlots()
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
+    -- Get position offsets from draw function to apply the same offsets as the wizard
+    local xOffset = self.currentXOffset or 0
+    local yOffset = self.currentYOffset or 0
     local slotYOffsets = {30, 0, -30}  -- From bottom to top
     
     -- Horizontal and vertical radii for each elliptical path
@@ -7977,13 +14501,15 @@ function Wizard:drawSpellSlots()
     local verticalRadii = {20, 25, 30}     -- Flatter at the bottom, rounder at the top
     
     for i, slot in ipairs(self.spellSlots) do
-        -- Position parameters for each slot
-        local slotY = self.y + slotYOffsets[i]
+        -- Position parameters for each slot, applying both offsets
+        local slotY = self.y + slotYOffsets[i] + yOffset
+        local slotX = self.x + xOffset
         local radiusX = horizontalRadii[i]
         local radiusY = verticalRadii[i]
         
         -- Draw tokens that should appear "behind" the character first
-        if slot.active and #slot.tokens > 0 then
+        -- Skip drawing here for shields as those are handled in update
+        if slot.active and #slot.tokens > 0 and not slot.isShield then
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
             for j, tokenData in ipairs(slot.tokens) do
@@ -7997,7 +14523,7 @@ function Wizard:drawSpellSlots()
                     local normalizedAngle = tokenAngle % (math.pi * 2)
                     if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
                         -- Calculate 3D position with elliptical projection
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         token.zOrder = 0  -- Behind the wizard
                         
@@ -8022,15 +14548,60 @@ function Wizard:drawSpellSlots()
             -- Calculate progress angle (0 to 2*pi)
             local progressAngle = slot.progress / slot.castTime * math.pi * 2
             
+            -- Check if it's a shield spell (fully cast)
+            if slot.isShield then
+                -- Draw a full shield arc with color based on defense type
+                local shieldColor
+                local shieldName = ""
+                
+                if slot.defenseType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3}  -- Yellow for barriers
+                    shieldName = "Barrier"
+                elseif slot.defenseType == "ward" then 
+                    shieldColor = {0.3, 0.3, 1.0}  -- Blue for wards
+                    shieldName = "Ward"
+                elseif slot.defenseType == "field" then
+                    shieldColor = {0.3, 1.0, 0.3}  -- Green for fields
+                    shieldName = "Field"
+                else
+                    shieldColor = {0.8, 0.8, 0.8}  -- Grey fallback
+                    shieldName = "Shield"
+                end
+                
+                -- Add pulsing effect for active shields
+                local pulseSize = 2 + math.sin(love.timer.getTime() * 3) * 2
+                
+                -- Draw a slightly larger pulse effect around the orbit
+                for j = 1, 3 do
+                    local extraSize = j * 2
+                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.2 - j*0.05)
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + extraSize, 
+                                    radiusY + pulseSize + extraSize, "line")
+                end
+                
+                -- Draw the back half of the shield (reduced alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.4)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 16)
+                
+                -- Draw the front half of the shield (full alpha)
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 16)
+                
+                -- Draw shield name (without numeric indicator) above the highest slot
+                if i == 3 then
+                    love.graphics.setColor(1, 1, 1, 0.8)
+                    love.graphics.print(shieldName, slotX - 25, slotY - radiusY - 15)
+                end
+            
             -- Check if the spell is frozen by Eclipse Echo
-            if slot.frozen then
+            elseif slot.frozen then
                 -- Draw frozen indicator - a "stopped" pulse effect around the orbit
                 for j = 1, 3 do
                     local pulseSize = 2 + j*1.5
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.2 - j*0.05)
                     
                     -- Draw a slightly larger ellipse to indicate frozen state
-                    self:drawEllipse(self.x, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
+                    self:drawEllipse(slotX, slotY, radiusX + pulseSize + math.sin(love.timer.getTime() * 3) * 2, 
                                     radiusY + pulseSize + math.sin(love.timer.getTime() * 3) * 2, "line")
                 end
                 
@@ -8038,33 +14609,34 @@ function Wizard:drawSpellSlots()
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.3)  -- Light blue for frozen
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.5, 0.5, 1.0, 0.7)  -- Light blue for frozen
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             else
                 -- Normal progress arc for unfrozen spells
                 -- First the back half of the progress arc (if it extends that far)
                 if progressAngle > math.pi then
                     love.graphics.setColor(0.8, 0.8, 0.2, 0.3)  -- Lower alpha for back
-                    self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
+                    self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, progressAngle, 16)
                 end
                 
                 -- Then the front half of the progress arc
                 love.graphics.setColor(0.8, 0.8, 0.2, 0.7)  -- Higher alpha for front
-                self:drawEllipticalArc(self.x, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
+                self:drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.min(progressAngle, math.pi), 16)
             end
             
-            -- Draw spell name above the highest slot
-            if i == 3 then
+            -- Draw spell name above the highest slot (only for non-shield spells)
+            if i == 3 and not slot.isShield then
                 love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.print(slot.spellType, self.x - 20, slotY - radiusY - 15)
+                love.graphics.print(slot.spellType, slotX - 20, slotY - radiusY - 15)
             end
             
             -- Draw tokens that should appear "in front" of the character
-            if #slot.tokens > 0 then
+            -- Skip drawing here for shields as those are handled in update
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -8076,7 +14648,7 @@ function Wizard:drawSpellSlots()
                         local normalizedAngle = tokenAngle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then
                             -- Calculate 3D position with elliptical projection
-                            token.x = self.x + math.cos(tokenAngle) * radiusX
+                            token.x = slotX + math.cos(tokenAngle) * radiusX
                             token.y = slotY + math.sin(tokenAngle) * radiusY
                             token.zOrder = 1  -- In front of the wizard
                             
@@ -8095,7 +14667,8 @@ function Wizard:drawSpellSlots()
             end
         else
             -- For inactive slots, only update token positions without drawing orbits
-            if #slot.tokens > 0 then
+            -- Skip drawing inactive tokens for shield slots - we shouldn't have this case anyway
+            if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
                     if token.animTime >= token.animDuration and not token.returning then
@@ -8105,7 +14678,7 @@ function Wizard:drawSpellSlots()
                         local tokenAngle = anglePerToken * (j - 1)
                         
                         -- Calculate position based on angle
-                        token.x = self.x + math.cos(tokenAngle) * radiusX
+                        token.x = slotX + math.cos(tokenAngle) * radiusX
                         token.y = slotY + math.sin(tokenAngle) * radiusY
                         
                         -- Set z-order based on position
@@ -8168,6 +14741,11 @@ function Wizard:keySpell(keyIndex, isPressed)
         -- Log the currently keyed spell
         if self.currentKeyedSpell then
             print(self.name .. " keyed " .. self.currentKeyedSpell.name .. " (" .. keyCombo .. ")")
+            
+            -- Debug: verify spell definition is complete
+            if not self.currentKeyedSpell.cost then
+                print("WARNING: Spell '" .. self.currentKeyedSpell.name .. "' has no cost defined!")
+            end
         else
             print(self.name .. " has no spell for key combination: " .. keyCombo)
         end
@@ -8190,11 +14768,76 @@ function Wizard:castKeyedSpell()
         return false
     end
     
-    -- Queue the keyed spell and return the result
-    return self:queueSpell(self.currentKeyedSpell)
+    -- Debug output to identify issues with specific spells
+    print("DEBUG: " .. self.name .. " attempting to cast: " .. self.currentKeyedSpell.name)
+    print("DEBUG: Spell cost: " .. self:formatCost(self.currentKeyedSpell.cost))
+    
+    -- Enhanced debugging for ALL spells to identify differences
+    print("\nDEBUG: FULL SPELL ANALYSIS:")
+    print("  - Name: " .. (self.currentKeyedSpell.name or "nil"))
+    print("  - ID: " .. (self.currentKeyedSpell.id or "nil"))
+    print("  - Cost type: " .. type(self.currentKeyedSpell.cost))
+    print("  - Attack Type: " .. (self.currentKeyedSpell.attackType or "nil"))
+    print("  - Has isShield: " .. tostring(self.currentKeyedSpell.isShield ~= nil))
+    if self.currentKeyedSpell.isShield ~= nil then
+        print("  - isShield value: " .. tostring(self.currentKeyedSpell.isShield))
+    end
+    print("  - Has effect func: " .. tostring(type(self.currentKeyedSpell.effect) == "function"))
+    print("  - Has keywords: " .. tostring(self.currentKeyedSpell.keywords ~= nil))
+    if self.currentKeyedSpell.keywords and self.currentKeyedSpell.keywords.block then
+        print("  - Has block keyword")
+        print("  - Block type: " .. (self.currentKeyedSpell.keywords.block.type or "nil"))
+    else
+        print("  - No block keyword")
+    end
+    
+    -- Queue the keyed spell with detailed error handling
+    print("DEBUG: Calling queueSpell...")
+    local success, result = pcall(function() 
+        return self:queueSpell(self.currentKeyedSpell)
+    end)
+    
+    -- Debug the result of queueSpell
+    if not success then
+        print("ERROR: Exception in queueSpell: " .. tostring(result))
+        print("ERROR TRACE: " .. debug.traceback())
+        return false
+    elseif not result then
+        print("DEBUG: Failed to queue " .. self.currentKeyedSpell.name .. " - check if manaCost check failed")
+    else
+        print("DEBUG: Successfully queued " .. self.currentKeyedSpell.name)
+    end
+    
+    return result
+end
+
+-- Helper to format spell cost for debug output
+function Wizard:formatCost(cost)
+    local costText = ""
+    for i, costComponent in ipairs(cost) do
+        if type(costComponent) == "string" then
+            -- New format
+            costText = costText .. costComponent
+        else
+            -- Old format
+            costText = costText .. costComponent.type .. " x" .. costComponent.count
+        end
+        
+        if i < #cost then
+            costText = costText .. ", "
+        end
+    end
+    
+    if costText == "" then
+        return "Free"
+    else
+        return costText
+    end
 end
 
 function Wizard:queueSpell(spell)
+    print("DEBUG: " .. self.name .. " queueSpell called for " .. (spell and spell.name or "nil spell"))
+    
     -- Check if wizard is stunned
     if self.stunTimer > 0 then
         print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
@@ -8208,10 +14851,25 @@ function Wizard:queueSpell(spell)
     end
     
     -- Find the innermost available spell slot
+    print("DEBUG: Checking for available spell slots...")
     for i = 1, #self.spellSlots do
+        print("DEBUG: Checking slot " .. i .. ": " .. (self.spellSlots[i].active and "ACTIVE" or "AVAILABLE"))
         if not self.spellSlots[i].active then
+            print("DEBUG: Found available slot " .. i .. ", checking mana cost...")
             -- Check if we can pay the mana cost from the pool
             local tokenReservations = self:canPayManaCost(spell.cost)
+            
+            -- Debug info for mana cost checks
+            if not tokenReservations then
+                print("DEBUG: Cannot pay mana cost for " .. spell.name)
+                if type(spell.cost) == "table" then
+                    for j, component in ipairs(spell.cost) do
+                        print("DEBUG: - Cost component " .. j .. ": " .. tostring(component))
+                    end
+                else
+                    print("DEBUG: Cost is not a table: " .. tostring(spell.cost))
+                end
+            end
             
             if tokenReservations then
                 -- Collect the actual tokens to animate them to the spell slot
@@ -8258,9 +14916,22 @@ function Wizard:queueSpell(spell)
                 self.spellSlots[i].active = true
                 self.spellSlots[i].progress = 0
                 self.spellSlots[i].spellType = spell.name
-                self.spellSlots[i].castTime = spell.castTime
+                
+                -- Use dynamic cast time if available, otherwise use static cast time
+                if spell.getCastTime and type(spell.getCastTime) == "function" then
+                    self.spellSlots[i].castTime = spell.getCastTime(self)
+                    print(self.name .. " is using dynamic cast time: " .. self.spellSlots[i].castTime .. "s")
+                else
+                    self.spellSlots[i].castTime = spell.castTime
+                end
+                
                 self.spellSlots[i].spell = spell
                 self.spellSlots[i].tokens = tokens
+                
+                -- Set attackType if present in the new schema
+                if spell.attackType then
+                    self.spellSlots[i].attackType = spell.attackType
+                end
                 
                 print(self.name .. " queued " .. spell.name .. " in slot " .. i .. " (cast time: " .. spell.castTime .. "s)")
                 return true
@@ -8282,11 +14953,63 @@ function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
+    -- Debug output for cost checking
+    print("DEBUG: Checking mana cost payment for " .. (self.currentKeyedSpell and self.currentKeyedSpell.name or "unknown spell"))
+    
+    -- Handle cost being nil or not a table
+    if not cost then
+        print("DEBUG: Cost is nil")
+        return {}
+    end
+    
+    -- Check if cost is a valid table we can iterate through
+    if type(cost) ~= "table" then
+        print("DEBUG: Cost is not a table, it's a " .. type(cost))
+        return nil
+    end
+    
+    -- Early exit if cost is empty
+    if #cost == 0 then 
+        print("DEBUG: Cost is an empty table")
+        return {} 
+    end
+    
+    -- Dump the exact cost structure to understand what's being passed
+    print("DEBUG: Cost structure details:")
+    print("DEBUG: - Type: " .. type(cost))
+    print("DEBUG: - Length: " .. #cost)
+    for i, component in ipairs(cost) do
+        print("DEBUG: - Component " .. i .. " type: " .. type(component))
+        print("DEBUG: - Component " .. i .. " value: " .. tostring(component))
+    end
+    
+    -- Print existing tokens in mana pool for debugging
+    print("DEBUG: Mana pool contains " .. #self.manaPool.tokens .. " tokens:")
+    local tokenCounts = {}
+    for _, token in ipairs(self.manaPool.tokens) do
+        if token.state == "FREE" then
+            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+        end
+    end
+    for tokenType, count in pairs(tokenCounts) do
+        print("DEBUG: - " .. tokenType .. ": " .. count .. " free tokens")
+    end
+    
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -8350,7 +15073,7 @@ function Wizard:canPayManaCost(cost)
             -- Get all the free tokens of this type first
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not reservedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -8362,7 +15085,9 @@ function Wizard:canPayManaCost(cost)
             
             -- Add the required number of tokens to our reservations
             for i = 1, costCount do
-                table.insert(tokenReservations, availableTokens[i])
+                local tokenData = availableTokens[i]
+                table.insert(tokenReservations, tokenData)
+                reservedIndices[tokenData.index] = true -- Mark as reserved
             end
         end
     end
@@ -8375,10 +15100,26 @@ function Wizard:payManaCost(cost)
     local tokens = {}
     local usedIndices = {} -- Track which token indices are already used
     
+    -- Early exit if cost is empty
+    if not cost or #cost == 0 then 
+        print("DEBUG: Cost is nil or empty")
+        return {} 
+    end
+    
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
-        local costType = costComponent.type
-        local costCount = costComponent.count
+        local costType, costCount
+        
+        -- Handle both old and new cost formats
+        if type(costComponent) == "string" then
+            -- New format: simple string token type
+            costType = costComponent
+            costCount = 1
+        else
+            -- Old format: table with type and count
+            costType = costComponent.type
+            costCount = costComponent.count
+        end
         
         -- Handle different types of costs
         if type(costType) == "table" then
@@ -8454,7 +15195,7 @@ function Wizard:payManaCost(cost)
             -- First gather all available tokens of this type
             local availableTokens = {}
             for i, token in ipairs(self.manaPool.tokens) do
-                if token.type == costType and token.state == "FREE" then
+                if token.type == costType and token.state == "FREE" and not usedIndices[i] then
                     table.insert(availableTokens, {token = token, index = i})
                 end
             end
@@ -8474,6 +15215,7 @@ function Wizard:payManaCost(cost)
                 local token = self.manaPool.tokens[tokenData.index]
                 token.state = "CHANNELED"  -- Mark as being used
                 table.insert(tokens, {token = token, index = tokenData.index})
+                usedIndices[tokenData.index] = true -- Mark as used
             end
         end
     end
@@ -8493,7 +15235,7 @@ function Wizard:castSpell(spellSlot)
         text = self.name .. " cast " .. slot.spellType,
         timer = 2.0,  -- Show for 2 seconds
         x = self.x,
-        y = self.y - 120,
+        y = self.y + 70, -- Moved below the wizard instead of above
         color = {self.color[1]/255, self.color[2]/255, self.color[3]/255, 1.0}
     }
     
@@ -8508,26 +15250,166 @@ function Wizard:castSpell(spellSlot)
     
     if not target then return end
     
-    -- Apply spell effect, passing the spell slot number as an additional parameter
-    local effect = slot.spell.effect(self, target, spellSlot)
+    -- Apply spell effect using the enhanced keyword system with targeting
+    local effect = SpellsModule.keywordSystem.castSpell(
+        slot.spell,
+        self,
+        {
+            opponent = target,
+            spellSlot = spellSlot,
+            debug = false  -- Set to true for detailed logging
+        }
+    )
     
-    -- Debug effect details
-    if slot.spellType == "Eclipse Echo" then
-        print("DEBUG - Eclipse Echo being cast from slot " .. spellSlot)
+    -- Early exit if the spell was blocked (handled by the resolution process)
+    if effect.blocked then
+        local shieldBreakPower = effect.shieldBreakPower or 1
+        local shieldDestroyed = effect.shieldDestroyed or false
         
-        -- Add visual effect for the delayed spell
-        if effect.delayApplied and self.gameState.vfx then
-            -- Calculate position of the targeted spell slot
-            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-            local slotY = self.y + slotYOffsets[effect.targetSlot]
+        if shieldDestroyed then
+            print(string.format("[BLOCKED] %s's %s was blocked by %s's %s which has been DESTROYED!", 
+                self.name, slot.spellType, target.name, effect.blockType or "shield"))
+                
+            -- Create shield break visual effect on the target
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.7,
+                    color = {1.0, 0.5, 0.5, 0.8},
+                    particleCount = 15,
+                    radius = 50
+                })
+            end
+        else
+            if shieldBreakPower > 1 then
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s! (shield took %d hits)", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield", shieldBreakPower))
+            else
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield"))
+            end
             
-            -- Create a clear visual effect to show delay
-            self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
-                duration = 1.2,
-                color = {0.3, 0.3, 0.8, 0.7},
-                particleCount = 20,
-                radius = 50
+            -- Create blocked visual effect at the shield
+            if self.gameState.vfx then
+                -- Shield color based on type
+                local shieldColor = {0.8, 0.8, 0.8, 0.7}  -- Default gray
+                if effect.blockType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3, 0.7}    -- Yellow for barriers
+                elseif effect.blockType == "ward" then
+                    shieldColor = {0.3, 0.3, 1.0, 0.7}    -- Blue for wards
+                elseif effect.blockType == "field" then 
+                    shieldColor = {0.3, 1.0, 0.3, 0.7}    -- Green for fields
+                end
+                
+                -- Create visual effect on the target to show the block
+                self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = shieldColor,
+                    shieldType = effect.blockType
+                })
+            end
+        end
+        
+        -- Create spell impact effect on the caster to show the spell being blocked
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.8, 0.2, 0.2, 0.5},
+                particleCount = 5,
+                radius = 15
             })
+        end
+        
+        -- Skip further processing - tokens have already been returned by the blocking logic
+        return
+    end
+    
+    -- Check if the spell missed (for zone spells with zoneAnchor)
+    if effect.missed then
+        print(string.format("[MISSED] %s's %s missed due to range/elevation mismatch", 
+            self.name, slot.spellType))
+        
+        -- Create whiff visual effect
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.5, 0.5, 0.5, 0.3},
+                particleCount = 3,
+                radius = 10
+            })
+        end
+    end
+    
+    -- Handle token dissipation from the dissipate keyword
+    if effect.dissipate then
+        local tokenType = effect.dissipateType or "any"
+        local amount = effect.dissipateAmount or 1
+        local tokensDestroyed = effect.tokensDestroyed or 0
+        
+        if tokensDestroyed > 0 then
+            print("Destroyed " .. tokensDestroyed .. " " .. tokenType .. " tokens")
+        else
+            print("No matching " .. tokenType .. " tokens found to destroy")
+        end
+    end
+    
+    -- Handle burn effects from the burn keyword
+    if effect.burnApplied then
+        -- Apply burn status effect to target
+        target.statusEffects.burn.active = true
+        target.statusEffects.burn.duration = effect.burnDuration or 3.0
+        target.statusEffects.burn.tickDamage = effect.burnTickDamage or 2
+        target.statusEffects.burn.tickInterval = effect.burnTickInterval or 1.0
+        target.statusEffects.burn.elapsed = 0
+        target.statusEffects.burn.totalTime = 0
+        
+        print(string.format("[STATUS] %s is burning! (%d damage per %.1f sec for %.1f sec)",
+            target.name, 
+            target.statusEffects.burn.tickDamage,
+            target.statusEffects.burn.tickInterval,
+            target.statusEffects.burn.duration))
+        
+        -- Create initial burn effect
+        if self.gameState and self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                duration = 0.6,
+                color = {1.0, 0.3, 0.1, 0.8},
+                particleCount = 12,
+                radius = 35
+            })
+        end
+    end
+    
+    -- Handle spell freeze effect from the freeze keyword
+    if effect.freezeApplied then
+        local targetSlot = effect.targetSlot or 2  -- Default to middle slot
+        local freezeDuration = effect.freezeDuration or 2.0
+        
+        -- Check if the target slot exists and is active
+        if self.spellSlots[targetSlot] and self.spellSlots[targetSlot].active then
+            local slot = self.spellSlots[targetSlot]
+            
+            -- Add the frozen flag and timer
+            slot.frozen = true
+            slot.freezeTimer = freezeDuration
+            
+            print(slot.spellType .. " in slot " .. targetSlot .. " frozen for " .. freezeDuration .. " seconds")
+            
+            -- Add visual effect for the frozen spell
+            if self.gameState.vfx then
+                -- Calculate position of the targeted spell slot
+                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
+                local slotY = self.y + slotYOffsets[targetSlot]
+                
+                -- Create a clear visual effect to show freeze
+                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
+                    duration = 1.2,
+                    color = {0.3, 0.3, 0.8, 0.7},
+                    particleCount = 20,
+                    radius = 50
+                })
+            end
+        else
+            print("No active spell found in slot " .. targetSlot .. " to freeze")
         end
     end
     
@@ -8536,7 +15418,329 @@ function Wizard:castSpell(spellSlot)
         self.gameState.vfx.createSpellEffect(slot.spell, self, target)
     end
     
-    -- Check for projectile blocking
+    -- Check if it's a shield spell that should persist in the spell slot
+    if slot.spell.isShield or effect.isShield then
+        -- Mark the progress as completed
+        slot.progress = slot.castTime  -- Mark as fully cast
+        
+        -- Debug shield creation process
+        print("DEBUG: Creating shield from spell: " .. slot.spellType)
+        
+        -- Check if we have shieldCreated flag which means the shield was already
+        -- created by the block keyword handler
+        if not effect.shieldCreated then
+            -- Extract shield params from effect or keywords
+            local defenseType = "barrier"
+            local blocks = {"projectile"}
+            local manaLinked = true
+            local reflect = false
+            local hitPoints = nil
+            
+            -- Get shield parameters from effect or spell
+            if effect.defenseType then
+                defenseType = effect.defenseType
+            elseif slot.spell.defenseType then
+                defenseType = slot.spell.defenseType
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type then
+                defenseType = slot.spell.keywords.block.type
+            end
+            
+            -- Get blocks from effect or spell
+            if effect.blockTypes then
+                blocks = effect.blockTypes
+            elseif slot.spell.blockableBy then
+                blocks = slot.spell.blockableBy
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.blocks then
+                blocks = slot.spell.keywords.block.blocks
+            end
+            
+            -- Get manaLinked from effect or spell
+            if effect.manaLinked ~= nil then
+                manaLinked = effect.manaLinked
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.manaLinked ~= nil then
+                manaLinked = slot.spell.keywords.block.manaLinked
+            end
+            
+            -- Get reflect from effect or spell
+            if effect.reflect ~= nil then
+                reflect = effect.reflect
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.reflect ~= nil then
+                reflect = slot.spell.keywords.block.reflect
+            end
+            
+            -- Get hitPoints from effect or spell
+            if effect.shieldStrength then
+                hitPoints = effect.shieldStrength
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.hitPoints then
+                hitPoints = slot.spell.keywords.block.hitPoints
+            end
+            
+            -- Use our central shield creation function to set up the shield
+            local blockParams = {
+                type = defenseType,
+                blocks = blocks,
+                manaLinked = manaLinked,
+                reflect = reflect,
+                hitPoints = hitPoints -- Use existing shield strength if specified
+            }
+            
+            print("DEBUG: Shield parameters:")
+            print("DEBUG: - Type: " .. defenseType)
+            print("DEBUG: - Mana linked: " .. tostring(manaLinked))
+            print("DEBUG: - Reflect: " .. tostring(reflect))
+            if hitPoints then
+                print("DEBUG: - Hit points: " .. hitPoints)
+            end
+            
+            -- Call the shield creation function - this centralizes all shield setup logic
+            SpellsModule.keywordSystem.createShield(self, spellSlot, blockParams)
+        end
+        
+        -- Apply elevation change if the shield spell includes that effect
+        if effect.setElevation then
+            self.elevation = effect.setElevation
+            
+            -- Set duration for elevation change if provided
+            if effect.elevationDuration and effect.setElevation == "AERIAL" then
+                self.elevationTimer = effect.elevationDuration
+                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            else
+                -- No duration specified, treat as permanent until changed by another spell
+                self.elevationTimer = 0
+                print(self.name .. " moved to " .. self.elevation .. " elevation")
+            end
+            
+            -- Create elevation change effect
+            if self.gameState.vfx and effect.setElevation == "AERIAL" then
+                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            end
+        end
+        
+        -- Do not reset the slot - the shield will remain active
+        return
+    end
+    
+    -- Check for shield blocking based on attack type
+    local attackBlocked = false
+    local blockingShieldSlot = nil
+    
+    -- Only check for blocking if this is an offensive spell
+    if slot.spell.attackType or slot.attackType then
+        -- The attack type of the current spell (check both old and new schema)
+        local attackType = slot.spell.attackType or slot.attackType
+        print("Checking if " .. attackType .. " attack can be blocked by " .. target.name .. "'s shields")
+        
+        -- Check each of the target's spell slots for active shields
+        for i, targetSlot in ipairs(target.spellSlots) do
+            -- Debug print to check shield state
+            if targetSlot.active and targetSlot.isShield then
+                print("Found shield in slot " .. i .. " of type " .. targetSlot.defenseType .. 
+                      " with strength " .. targetSlot.shieldStrength)
+                
+                -- Check if the shield blocks appropriate attack types
+                if targetSlot.blocksAttackTypes then
+                    for blockType, _ in pairs(targetSlot.blocksAttackTypes) do
+                        print("Shield blocks: " .. blockType)
+                    end
+                else
+                    print("Shield does not have blocksAttackTypes defined!")
+                end
+            end
+            
+            -- Check if this shield can block this attack type
+            local canBlock = false
+            if targetSlot.blocksAttackTypes then
+                -- Old format - table with attackType as keys
+                canBlock = targetSlot.blocksAttackTypes[attackType]
+            elseif targetSlot.blockTypes then
+                -- New format - array of attack types
+                for _, blockType in ipairs(targetSlot.blockTypes) do
+                    if blockType == attackType then
+                        canBlock = true
+                        break
+                    end
+                end
+            end
+            
+            if targetSlot.active and targetSlot.isShield and 
+               targetSlot.shieldStrength > 0 and canBlock then
+                
+                -- This shield can block this attack type
+                attackBlocked = true
+                blockingShieldSlot = i
+                
+                -- Create visual effect for the block
+                target.blockVFX = {
+                    active = true,
+                    timer = 0.5,  -- Duration of the block visual effect
+                    x = target.x,
+                    y = target.y
+                }
+                
+                -- Create block effect using VFX system
+                if self.gameState.vfx then
+                    local shieldColor
+                    if targetSlot.defenseType == "barrier" then
+                        shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+                    elseif targetSlot.defenseType == "ward" then
+                        shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+                    elseif targetSlot.defenseType == "field" then
+                        shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+                    end
+                    
+                    self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                        duration = 0.5, -- Short block flash
+                        color = shieldColor,
+                        shieldType = targetSlot.defenseType
+                    })
+                end
+                
+                -- Determine how many hits to apply to the shield
+                -- Check if this is a shield-breaker spell
+                local shieldBreakPower = 1  -- Default: reduce shield by 1
+                if slot.spell.shieldBreaker then
+                    shieldBreakPower = slot.spell.shieldBreaker
+                    print(string.format("[SHIELD BREAKER] %s's %s is a shield-breaker spell that deals %d hits to shields!",
+                        self.name, slot.spellType, shieldBreakPower))
+                end
+                
+                -- Check if this is a mana-linked shield (consumes tokens when blocking)
+                -- Default to true (backward compatibility)
+                local manaLinked = targetSlot.manaLinked
+                if manaLinked == nil then
+                    manaLinked = true
+                end
+                
+                if manaLinked then
+                    -- Apply shield-break effect and leak tokens
+                    local tokensToReturn = math.min(shieldBreakPower, #targetSlot.tokens)
+                    
+                    -- Return tokens back to the mana pool
+                    for i = 1, tokensToReturn do
+                        if #targetSlot.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #targetSlot.tokens
+                            local tokenData = targetSlot.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            target.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(targetSlot.tokens, lastTokenIndex)
+                        end
+                    end
+                    
+                    -- Update shield strength based on remaining tokens
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print the blocked attack message with mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked %d mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, tokensToReturn, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked one mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                else
+                    -- For non-mana linked shields, just decrease the shield strength
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print blocked message without mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (-%d strength, %d remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, shieldBreakPower, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                end
+                
+                -- If the shield is depleted (no strength left), destroy it
+                if targetSlot.shieldStrength <= 0 then
+                    print(string.format("[BLOCK] %s's %s shield has been broken!", target.name, targetSlot.defenseType))
+                    
+                    -- Return any remaining tokens (for partially consumed shields)
+                    for _, tokenData in ipairs(targetSlot.tokens) do
+                        target.manaPool:returnToken(tokenData.index)
+                    end
+                    
+                    -- Reset slot
+                    targetSlot.active = false
+                    targetSlot.isShield = false
+                    targetSlot.defenseType = nil
+                    targetSlot.blocksAttackTypes = nil
+                    targetSlot.shieldStrength = 0
+                    targetSlot.progress = 0
+                    targetSlot.spellType = nil
+                    targetSlot.castTime = 0
+                    
+                    -- Create shield break effect
+                    if self.gameState.vfx then
+                        self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                            duration = 0.7,
+                            color = {1.0, 0.5, 0.5, 0.8},
+                            particleCount = 15,
+                            radius = 50
+                        })
+                    end
+                end
+                
+                -- Check for reflection if this shield has that property
+                if targetSlot.reflect then
+                    print(string.format("[REFLECT] %s's shield reflected %s's attack back at them!",
+                        target.name, self.name))
+                    
+                    -- Implement spell reflection (simplified version)
+                    -- For now, just deal partial damage back to the caster
+                    if effect.damage and effect.damage > 0 then
+                        local reflectDamage = math.floor(effect.damage * 0.5) -- 50% reflection
+                        self.health = self.health - reflectDamage
+                        if self.health < 0 then self.health = 0 end
+                        
+                        print(string.format("[REFLECT] %s took %d reflected damage! (health: %d)", 
+                            self.name, reflectDamage, self.health))
+                            
+                        -- Create reflected damage visual effect
+                        if self.gameState.vfx then
+                            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                                duration = 0.5,
+                                color = {0.8, 0.2, 0.8, 0.7}, -- Purple for reflection
+                                particleCount = 10,
+                                radius = 30
+                            })
+                        end
+                    end
+                end
+                
+                break  -- Stop checking other shields once one has blocked
+            end
+        end
+    end
+    
+    -- If the attack was blocked, don't apply any effects
+    if attackBlocked then
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
+        return  -- Skip applying any effects
+    end
+    
+    -- LEGACY CHECK FOR OLD BLOCKER SYSTEM - Disabled (Now using shield system instead)
+    --[[
     if effect.spellType == "projectile" and target.blockers.projectile > 0 then
         -- Target has an active projectile block
         print(target.name .. " blocked " .. slot.spellType .. " with Mist Veil!")
@@ -8557,11 +15761,29 @@ function Wizard:castSpell(spellSlot)
             })
         end
         
-        -- Don't consume the block, it remains active for its duration
+        -- Start return animation for tokens
+        if #slot.tokens > 0 then
+            for _, tokenData in ipairs(slot.tokens) do
+                -- Trigger animation to return token to the mana pool
+                self.manaPool:returnToken(tokenData.index)
+            end
+            
+            -- Clear token list (tokens still exist in the mana pool)
+            slot.tokens = {}
+        end
+        
+        -- Reset slot
+        slot.active = false
+        slot.progress = 0
+        slot.spellType = nil
+        slot.castTime = 0
+        
         return  -- Skip applying any effects
-    end
+    }
+    --]]
     
-    -- Apply blocking effects (like Mist Veil)
+    -- LEGACY CODE - Apply blocking effects (like old Mist Veil) - Disabled
+    --[[
     if effect.block then
         if effect.block == "projectile" then
             local duration = effect.blockDuration or 2.5  -- Default to 2.5s if not specified
@@ -8574,6 +15796,7 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+    --]]
     
     -- Apply damage
     if effect.damage and effect.damage > 0 then
@@ -8794,6 +16017,25 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+    
+    -- Only reset the spell slot and return tokens for non-shield spells
+    -- This is now handled at the beginning of the function for shield spells
+    -- Start return animation for tokens
+    if #slot.tokens > 0 then
+        for _, tokenData in ipairs(slot.tokens) do
+            -- Trigger animation to return token to the mana pool
+            self.manaPool:returnToken(tokenData.index)
+        end
+        
+        -- Clear token list (tokens still exist in the mana pool)
+        slot.tokens = {}
+    end
+    
+    -- Reset slot
+    slot.active = false
+    slot.progress = 0
+    slot.spellType = nil
+    slot.castTime = 0
 end
 
 return Wizard```

@@ -31,6 +31,12 @@ function ManaPool.new(x, y)
     return self
 end
 
+-- Clear all tokens from the mana pool
+function ManaPool:clear()
+    self.tokens = {}
+    self.reservedTokens = {}
+end
+
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)

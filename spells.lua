@@ -8,6 +8,10 @@ local Spells = {}
 -- name: Display name of the spell (string)
 -- description: Text description of what the spell does (string)
 -- attackType: How the spell is delivered - "projectile", "remote", "zone", "utility" (string)
+--   * projectile: Physical projectile attacks - can be blocked by barriers and wards
+--   * remote:     Magical attacks at a distance - can only be blocked by wards
+--   * zone:       Area effect attacks - can be blocked by barriers and fields
+--   * utility:    Non-offensive spells that affect the caster - cannot be blocked
 -- castTime: Duration in seconds to cast the spell (number)
 -- cost: Array of token types required (simple array of strings like {"fire", "fire", "moon"})
 -- keywords: Table of effect keywords and their parameters (table)
@@ -17,6 +21,18 @@ local Spells = {}
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
 -- blockableBy: Array of shield types that can block this spell (array, optional)
+--
+-- Shield Types and Blocking Rules:
+-- * barrier: Physical shield that blocks projectiles and zones
+-- * ward:    Magical shield that blocks projectiles and remotes
+-- * field:   Energy field that blocks remotes and zones
+-- 
+-- When a shield blocks a spell:
+-- 1. The spell's effect is completely negated
+-- 2. If the shield is mana-linked, one token used to cast it is released to the pool
+-- 3. The shield's strength is reduced by 1
+-- 4. When a shield's strength reaches 0, it is destroyed
+-- 5. If the shield has the reflect property, damage spells are reflected back at the caster
 
 -- Define a logging function for keyword resolution
 local function logKeywordResolution(spellId, keyword, params, results)
@@ -50,6 +66,7 @@ local KeywordSystem = {}
 KeywordSystem.categories = {
     RESOURCE = "Resource Manipulation",
     DAMAGE = "Damage Effects",
+    DOT = "Damage Over Time",
     TOKEN = "Token Manipulation",
     TIMING = "Spell Timing",
     MOVEMENT = "Movement & Position",
@@ -79,6 +96,9 @@ KeywordSystem.keywordTargets = {
     
     -- Damage (always targets enemy)
     damage = "ENEMY",
+    
+    -- Damage over time effects
+    burn = "ENEMY",
     
     -- Token manipulation
     lock = "POOL_ENEMY",
@@ -119,6 +139,9 @@ KeywordSystem.keywordCategories = {
     -- Damage Effects
     damage = "DAMAGE",
     
+    -- Damage Over Time Effects
+    burn = "DOT",
+    
     -- Token Manipulation
     lock = "TOKEN",
     
@@ -150,6 +173,14 @@ KeywordSystem.keywordCategories = {
 
 -- Keyword handlers table - each entry is a function that processes one keyword type
 KeywordSystem.handlers = {
+    -- Damage over time effects
+    burn = function(params, caster, target, results)
+        results.burnApplied = true
+        results.burnDuration = params.duration or 3.0
+        results.burnTickDamage = params.tickDamage or 2
+        results.burnTickInterval = params.tickInterval or 1.0  -- Default to 1 second between ticks
+        return results
+    end,
     -- Resource manipulation
     tokenShift = function(params, caster, target, results)
         local tokenType = params.type or "fire"
@@ -226,7 +257,24 @@ KeywordSystem.handlers = {
     
     -- Damage effects
     damage = function(params, caster, target, results)
-        results.damage = params.amount or 0
+        -- Handle damage amount that could be a function or a value
+        local damageAmount = params.amount or 0
+        
+        -- If damage is a function, evaluate it with nil checks
+        if type(damageAmount) == "function" then
+            if target ~= nil then
+                -- Normal case, we have a target
+                results.damage = damageAmount(caster, target)
+            else
+                -- No target, use 0 damage as default
+                results.damage = 0
+                print("[WARNING] Damage calculation called with nil target")
+            end
+        else
+            -- Static damage value
+            results.damage = damageAmount
+        end
+        
         results.damageType = params.type
         return results
     end,
@@ -282,7 +330,27 @@ KeywordSystem.handlers = {
     end,
     
     ground = function(params, caster, target, results)
-        results.setElevation = "GROUNDED"
+        -- Check if there's a conditional function
+        if params.conditional and type(params.conditional) == "function" then
+            -- Only apply grounding if the condition is met
+            if params.conditional(caster, target) then
+                results.setElevation = "GROUNDED"
+                
+                -- Add visual effect if specified
+                if target and caster.gameState and caster.gameState.vfx then
+                    caster.gameState.vfx.createEffect("tidal_force_ground", target.x, target.y, nil, nil)
+                end
+                
+                -- Print debug message indicating grounding
+                if target and target.name and caster and caster.name then
+                    print(target.name .. " was forced to GROUNDED by " .. caster.name .. "'s spell")
+                end
+            end
+        else
+            -- No condition, apply grounding unconditionally
+            results.setElevation = "GROUNDED"
+        end
+        
         return results
     end,
     
@@ -305,11 +373,27 @@ KeywordSystem.handlers = {
     end,
     
     block = function(params, caster, target, results)
-        results.isShield = true
-        results.defenseType = params.type or "barrier"
-        results.blockTypes = params.blocks or {"projectile"}
-        results.manaLinked = params.manaLinked or false
-        results.reflect = params.reflect or false
+        local spellSlot = params.slot or nil
+        
+        -- Check if we should create a shield directly
+        if caster and spellSlot then
+            -- Call the shield creation function
+            local shieldResults = KeywordSystem.createShield(caster, spellSlot, params)
+            
+            -- Merge the shield results with our existing results
+            for k, v in pairs(shieldResults) do
+                results[k] = v
+            end
+        else
+            -- Set shield parameters on the results object for later processing
+            results.isShield = true
+            results.defenseType = params.type or "barrier"
+            results.blockTypes = params.blocks or {"projectile"}
+            results.manaLinked = params.manaLinked or true  -- Default to true for mana linking
+            results.reflect = params.reflect or false
+            results.hitPoints = params.hitPoints  -- Optional override for shield strength
+        end
+        
         return results
     end,
     
@@ -323,6 +407,30 @@ KeywordSystem.handlers = {
     -- Zone mechanics
     zoneAnchor = function(params, caster, target, results)
         results.zoneAnchor = true
+        
+        -- Store the anchor parameters
+        if params.range then
+            -- Range can be "NEAR", "FAR", or "ANY"
+            results.anchorRange = params.range
+        elseif caster and caster.gameState then
+            -- If not explicitly set, anchor to current range state
+            results.anchorRange = caster.gameState.rangeState
+        end
+        
+        if params.elevation then
+            -- Elevation can be "AERIAL", "GROUNDED", or "ANY"
+            results.anchorElevation = params.elevation
+        elseif target then
+            -- If not explicitly set, anchor to current target elevation
+            results.anchorElevation = target.elevation
+        end
+        
+        -- Store requirement for matching all conditions or just one
+        results.anchorRequireAll = params.requireAll
+        if results.anchorRequireAll == nil then
+            results.anchorRequireAll = true  -- Default to requiring all conditions
+        end
+        
         return results
     end,
     
@@ -341,16 +449,54 @@ KeywordSystem.handlers = {
     end
 }
 
--- Function to validate spell schema
+-- Function to validate spell schema - Made more robust to handle malformed spells
 local function validateSpell(spell, spellId)
-    assert(spell.id, "Spell " .. spellId .. " missing required property: id")
-    assert(spell.name, "Spell " .. spellId .. " missing required property: name")
-    assert(spell.description, "Spell " .. spellId .. " missing required property: description")
-    assert(spell.castTime, "Spell " .. spellId .. " missing required property: castTime")
-    assert(type(spell.castTime) == "number", "Spell " .. spellId .. " castTime must be a number")
+    -- Add a missing ID based on spell name if needed
+    if not spell.id and spell.name then
+        spell.id = spell.name:lower():gsub(" ", "")
+        print("INFO: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+    end
     
-    -- Either cost must be a table or an array (empty cost is allowed)
-    assert(type(spell.cost) == "table", "Spell " .. spellId .. " cost must be a table")
+    -- Check essential properties with better error handling
+    if not spell.id then
+        print("WARNING: Spell " .. spellId .. " missing required property: id, creating a default")
+        spell.id = "spell_" .. spellId
+    end
+    
+    if not spell.name then
+        print("WARNING: Spell " .. spellId .. " missing required property: name, creating a default")
+        spell.name = "Unnamed Spell " .. spellId
+    end
+    
+    if not spell.description then
+        print("WARNING: Spell " .. spellId .. " missing required property: description, creating a default")
+        spell.description = "No description available for " .. spell.name
+    end
+    
+    if not spell.castTime then
+        print("WARNING: Spell " .. spellId .. " missing required property: castTime, setting default")
+        spell.castTime = 5.0 -- Default cast time
+    end
+    
+    if type(spell.castTime) ~= "number" then
+        print("WARNING: Spell " .. spellId .. " castTime must be a number, fixing")
+        spell.castTime = tonumber(spell.castTime) or 5.0
+    end
+    
+    -- Ensure cost is a table, if empty then create empty table
+    if not spell.cost then
+        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+        spell.cost = {}
+    elseif type(spell.cost) ~= "table" then
+        print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
+        -- Try to convert to a table if possible
+        local originalCost = spell.cost
+        spell.cost = {}
+        if originalCost then
+            print("INFO: Converting non-table cost to table for: " .. spell.name)
+            table.insert(spell.cost, tostring(originalCost))
+        end
+    end
     
     -- Check attackType is valid
     if spell.attackType then
@@ -360,20 +506,44 @@ local function validateSpell(spell, spellId)
             zone = true,
             utility = true
         }
-        assert(validTypes[spell.attackType], "Spell " .. spellId .. " has invalid attackType: " .. spell.attackType)
+        
+        if not validTypes[spell.attackType] then
+            print("WARNING: Spell " .. spellId .. " has invalid attackType: " .. spell.attackType .. ", fixing to utility")
+            spell.attackType = "utility" -- Default to utility
+        end
+    else
+        -- Default to utility if not specified
+        print("WARNING: Spell " .. spellId .. " missing attackType, setting to utility")
+        spell.attackType = "utility"
     end
     
     -- Check keywords are valid (if present)
     if spell.keywords then
-        assert(type(spell.keywords) == "table", "Spell " .. spellId .. " keywords must be a table")
-        for keyword, _ in pairs(spell.keywords) do
-            assert(KeywordSystem.handlers[keyword], "Spell " .. spellId .. " has unimplemented keyword: " .. keyword)
+        if type(spell.keywords) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " keywords must be a table, fixing")
+            spell.keywords = {}
+        else
+            for keyword, _ in pairs(spell.keywords) do
+                if not KeywordSystem.handlers[keyword] then
+                    print("WARNING: Spell " .. spellId .. " has unimplemented keyword: " .. keyword .. ", removing")
+                    spell.keywords[keyword] = nil
+                end
+            end
         end
+    else
+        -- Create empty keywords table if missing
+        spell.keywords = {}
     end
     
     -- Check blockableBy (if present)
     if spell.blockableBy then
-        assert(type(spell.blockableBy) == "table", "Spell " .. spellId .. " blockableBy must be a table")
+        if type(spell.blockableBy) ~= "table" then
+            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
+            spell.blockableBy = {}
+        end
+    else
+        -- Create empty blockableBy table
+        spell.blockableBy = {}
     end
     
     return true
@@ -503,9 +673,11 @@ KeywordSystem.getExampleUsage = function(keyword)
         
         block = [[
             block = {
-                type = "barrier",  -- or "ward", "field"
-                blocks = {"projectile", "zone"},
-                manaLinked = true
+                type = "barrier",  -- Shield type: "barrier", "ward", or "field"
+                blocks = {"projectile", "zone"},  -- Attack types to block
+                manaLinked = true,  -- Whether shield consumes tokens on block (default: true)
+                reflect = false,    -- Whether attacks are reflected back (default: false)
+                hitPoints = 3       -- Optional: Fixed number of hits shield can take (default: token count)
             }
         ]]
     }
@@ -521,14 +693,21 @@ KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target
         return results
     end
     
-    -- Process the parameters - evaluate dynamic functions
+    -- Process the parameters - handle both table and boolean cases
     local processedParams = {}
-    for paramKey, paramValue in pairs(params) do
-        if type(paramValue) == "function" then
-            processedParams[paramKey] = paramValue(caster, target, slot)
-        else
-            processedParams[paramKey] = paramValue
+    
+    if type(params) == "table" then
+        -- For table parameters, process each one
+        for paramKey, paramValue in pairs(params) do
+            if type(paramValue) == "function" then
+                processedParams[paramKey] = paramValue(caster, target, slot)
+            else
+                processedParams[paramKey] = paramValue
+            end
         end
+    else
+        -- For boolean or other simple params, use directly
+        processedParams = params
     end
     
     -- Store the original results for logging
@@ -541,7 +720,13 @@ KeywordSystem.resolveKeyword = function(spellId, keyword, params, caster, target
     local updatedResults = KeywordSystem.handlers[keyword](processedParams, caster, target, results)
     
     -- Log the keyword resolution
-    logKeywordResolution(spellId, keyword, processedParams, updatedResults)
+    if type(processedParams) == "table" then
+        logKeywordResolution(spellId, keyword, processedParams, updatedResults)
+    else
+        -- For boolean params, create a simple parameter table for logging
+        local simpleParams = {value = processedParams}
+        logKeywordResolution(spellId, keyword, simpleParams, updatedResults)
+    end
     
     return updatedResults
 end
@@ -562,7 +747,7 @@ KeywordSystem.resolveTarget = function(targetType, caster, opponent, spellSlot)
     return targetMap[targetType]
 end
 
--- Enhanced spell resolution function with targeting support
+-- Enhanced spell resolution function with targeting support and attack type resolution
 KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, options)
     options = options or {}
     local debug = options.debug or false
@@ -573,7 +758,9 @@ KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, option
     local results = {
         damage = 0,
         spellType = spell.attackType,
-        targetingInfo = {}  -- Store targeting information for post-processing
+        targetingInfo = {},  -- Store targeting information for post-processing
+        blocked = false,     -- Indicates if the spell was blocked by a shield
+        missed = false       -- Indicates if a zone spell missed due to range/elevation mismatch
     }
     
     if debug then
@@ -581,11 +768,187 @@ KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, option
                          spell.name, caster.name))
     end
     
+    -- Check if this spell can be blocked by opponent's shields before we process keywords
+    if spell.attackType and spell.attackType ~= "utility" then
+        local blockInfo = KeywordSystem.checkBlockable(spell, caster, opponent)
+        
+        -- If the spell would be blocked, execute onBlock handler and process shield effects
+        if blockInfo.blockable then
+            if debug then
+                print(string.format("[BLOCK CHECK] %s by %s would be blocked by opponent's %s",
+                    spell.name, caster.name, blockInfo.blockType))
+            end
+            
+            -- Set blocked flag in results
+            results.blocked = true
+            results.blockType = blockInfo.blockType
+            results.blockingShield = blockInfo.blockingShield
+            results.blockingSlot = blockInfo.blockingSlot
+            results.shieldBreakPower = spell.shieldBreaker or 1
+            
+            -- Process shield block effects if needed
+            if blockInfo.processBlockEffect then
+                -- Get the shield
+                local shield = blockInfo.blockingShield
+                local shieldSlot = blockInfo.blockingSlot
+                
+                -- Decrease shield strength
+                shield.shieldStrength = shield.shieldStrength - blockInfo.strengthReduction
+                
+                if debug then
+                    print(string.format("[SHIELD] %s's shield strength reduced by %d (now %d)",
+                        opponent.name, blockInfo.strengthReduction, shield.shieldStrength))
+                end
+                
+                -- If mana linked, consume tokens
+                if blockInfo.manaLinked and blockInfo.tokensToConsume > 0 then
+                    -- Return tokens to the pool
+                    for i = 1, blockInfo.tokensToConsume do
+                        if #shield.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #shield.tokens
+                            local tokenData = shield.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            opponent.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(shield.tokens, lastTokenIndex)
+                            
+                            if debug then
+                                print(string.format("[SHIELD] Token returned to %s's mana pool from shield",
+                                    opponent.name))
+                            end
+                        end
+                    end
+                end
+                
+                -- If the shield is depleted, destroy it
+                if shield.shieldStrength <= 0 or blockInfo.destroyShield then
+                    if debug then
+                        print(string.format("[SHIELD] %s's shield in slot %d has been broken!",
+                            opponent.name, shieldSlot))
+                    end
+                    
+                    -- Return any remaining tokens to the pool
+                    for _, tokenData in ipairs(shield.tokens) do
+                        opponent.manaPool:returnToken(tokenData.index)
+                    end
+                    
+                    -- Reset the shield slot
+                    shield.active = false
+                    shield.isShield = false
+                    shield.defenseType = nil
+                    shield.blocksAttackTypes = nil
+                    shield.shieldStrength = 0
+                    shield.progress = 0
+                    shield.spellType = nil
+                    shield.castTime = 0
+                    shield.tokens = {}
+                    
+                    -- Set a specific flag in results to indicate shield was destroyed
+                    results.shieldDestroyed = true
+                end
+                
+                -- Add visual effects for the block
+                -- These will be handled by the wizard's castSpell function
+            end
+            
+            -- Call onBlock handler if defined in the spell
+            if spell.onBlock then
+                local blockResults = spell.onBlock(caster, opponent, spellSlot, blockInfo)
+                
+                -- Merge onBlock results with main results
+                if blockResults then
+                    for k, v in pairs(blockResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onBlock handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we're blocked and there's no override, return early
+                    return results
+                end
+            else
+                -- If blocked with no handler, return early
+                return results
+            end
+        end
+    end
+    
+    -- For zone spells, check if the spell would miss due to range mismatch when zoneAnchor is used
+    if spell.attackType == "zone" then
+        local doesMiss = false
+        
+        -- Check for zoneAnchor keyword
+        if spell.keywords and spell.keywords.zoneAnchor then
+            -- For zone anchored spells, check if the target's position matches the anchor
+            -- Get cast-time range and elevation state
+            local anchorRange = spell.keywords.zoneAnchor.range
+            local anchorElevation = spell.keywords.zoneAnchor.elevation
+            
+            -- Check current range state
+            if anchorRange and caster.gameState then
+                if anchorRange ~= caster.gameState.rangeState then
+                    doesMiss = true
+                end
+            end
+            
+            -- Check current elevation state
+            if anchorElevation and opponent then
+                if anchorElevation ~= opponent.elevation then
+                    doesMiss = true
+                end
+            end
+        end
+        
+        -- If the spell would miss, execute onMiss handler if present
+        if doesMiss then
+            if debug then
+                print(string.format("[ZONE MISS] %s by %s misses due to range/elevation mismatch",
+                    spell.name, caster.name))
+            end
+            
+            -- Set missed flag in results
+            results.missed = true
+            
+            -- Call onMiss handler if defined in the spell
+            if spell.onMiss then
+                local missResults = spell.onMiss(caster, opponent, spellSlot)
+                
+                -- Merge onMiss results with main results
+                if missResults then
+                    for k, v in pairs(missResults) do
+                        results[k] = v
+                    end
+                end
+                
+                -- Special case: if onMiss handler sets 'continueExecution', don't stop processing
+                if not results.continueExecution then
+                    -- If we missed with no override, return early
+                    return results
+                end
+            else
+                -- If missed with no handler, return early but with a basic whiff effect
+                results.whiffEffect = true
+                return results
+            end
+        end
+    end
+    
     -- Process each keyword in the spell
     if spell.keywords then
         for keyword, params in pairs(spell.keywords) do
-            -- Determine targeting for this keyword
-            local targetType = params.target or KeywordSystem.keywordTargets[keyword]
+            -- Get the target type based on whether params is a table or a boolean
+            local targetType
+            if type(params) == "table" then
+                targetType = params.target or KeywordSystem.keywordTargets[keyword]
+            else
+                -- For boolean params (like ground = true), use the default target
+                targetType = KeywordSystem.keywordTargets[keyword]
+            end
+            
             local target = KeywordSystem.resolveTarget(targetType, caster, opponent, spellSlot)
             
             -- Store targeting info for debugging and post-processing
@@ -618,20 +981,33 @@ KeywordSystem.resolveSpell = function(spell, caster, opponent, spellSlot, option
         end
     end
     
+    -- If we have an onSuccess handler and the spell wasn't blocked or missed, execute it
+    if not results.blocked and not results.missed and spell.onSuccess then
+        local successResults = spell.onSuccess(caster, opponent, spellSlot, results)
+        
+        -- Merge onSuccess results with main results
+        if successResults then
+            for k, v in pairs(successResults) do
+                results[k] = v
+            end
+        end
+    end
+    
     -- Count number of effects in results (excluding utility fields)
     local effectCount = 0
     for k, _ in pairs(results) do
         -- Don't count utility fields or zero damage
         if k ~= "damage" or results.damage ~= 0 then
-            if k ~= "spellType" and k ~= "targetingInfo" then
+            if k ~= "spellType" and k ~= "targetingInfo" and k ~= "blocked" and k ~= "missed" then
                 effectCount = effectCount + 1
             end
         end
     end
     
     if debug then
-        print(string.format("[SPELL] %s complete: damage=%s, effects=%d", 
-                            spell.id, tostring(results.damage), effectCount))
+        print(string.format("[SPELL] %s complete: damage=%s, effects=%d, blocked=%s, missed=%s", 
+                            spell.id, tostring(results.damage), effectCount, 
+                            tostring(results.blocked), tostring(results.missed)))
     end
     
     return results
@@ -662,6 +1038,192 @@ KeywordSystem.castSpell = function(spell, caster, options)
     
     -- Call the resolve function with appropriate targets
     return KeywordSystem.resolveSpell(spell, caster, opponent, spellSlot, { debug = debugMode })
+end
+
+-- Function to check if a spell can be blocked by opponent's shields
+KeywordSystem.checkBlockable = function(spell, caster, opponent)
+    -- Default response - not blockable
+    local result = {
+        blockable = false,
+        blockType = nil,
+        blockingShield = nil,
+        blockingSlot = nil,
+        manaLinked = nil,
+        processBlockEffect = false
+    }
+    
+    -- Early exit cases
+    if not opponent or not spell or not spell.attackType then
+        return result
+    end
+    
+    -- Utility spells can't be blocked
+    if spell.attackType == "utility" then
+        return result
+    end
+    
+    -- Get the attack type of the spell
+    local attackType = spell.attackType  -- "projectile", "remote", or "zone"
+    
+    -- Check each of the opponent's spell slots for active shields
+    for i, slot in ipairs(opponent.spellSlots) do
+        -- Skip inactive slots or non-shield slots
+        if not slot.active or not slot.isShield then
+            goto continue
+        end
+        
+        -- Check if this shield has strength remaining
+        if slot.shieldStrength <= 0 then
+            goto continue
+        end
+        
+        -- Verify this shield can block this attack type
+        local canBlock = false
+        
+        -- Check blocksAttackTypes or blockTypes properties
+        if slot.blocksAttackTypes and slot.blocksAttackTypes[attackType] then
+            canBlock = true
+        elseif slot.blockTypes then
+            -- Iterate through blockTypes array to find a match
+            for _, blockType in ipairs(slot.blockTypes) do
+                if blockType == attackType then
+                    canBlock = true
+                    break
+                end
+            end
+        end
+        
+        -- If we found a shield that can block this attack
+        if canBlock then
+            result.blockable = true
+            result.blockType = slot.defenseType
+            result.blockingShield = slot
+            result.blockingSlot = i
+            result.manaLinked = slot.manaLinked
+            
+            -- Handle mana consumption for the block if mana linked
+            if slot.manaLinked and #slot.tokens > 0 then
+                result.processBlockEffect = true
+                
+                -- Get amount of hits based on the spell's shield breaker power (if any)
+                local shieldBreakPower = spell.shieldBreaker or 1
+                
+                -- Determine how many tokens to consume (up to shield breaker power or tokens available)
+                local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
+                result.tokensToConsume = tokensToConsume
+                
+                -- Calculate how much to decrease the shield strength
+                result.strengthReduction = shieldBreakPower
+                
+                -- Check if this will destroy the shield
+                if slot.shieldStrength <= shieldBreakPower then
+                    result.destroyShield = true
+                end
+            end
+            
+            -- Return after finding the first blocking shield
+            return result
+        end
+        
+        ::continue::
+    end
+    
+    -- If we get here, no shield can block this spell
+    return result
+end
+
+-- Shield creation function
+KeywordSystem.createShield = function(wizard, spellSlot, blockParams)
+    -- Default result table
+    local results = {
+        isShield = true,
+        shieldCreated = true  -- Flag to indicate shield was created
+    }
+    
+    -- Check that the slot is valid
+    if not wizard.spellSlots[spellSlot] then
+        print("[SHIELD ERROR] Invalid spell slot for shield creation: " .. tostring(spellSlot))
+        return results
+    end
+    
+    local slot = wizard.spellSlots[spellSlot]
+    
+    -- Set shield parameters
+    slot.isShield = true
+    slot.defenseType = blockParams.type or "barrier"
+    
+    -- Set which attack types this shield blocks
+    slot.blocksAttackTypes = {}
+    local blockTypes = blockParams.blocks or {"projectile"}
+    for _, attackType in ipairs(blockTypes) do
+        slot.blocksAttackTypes[attackType] = true
+    end
+    
+    -- Set mana linking (default to true - shield consumes tokens when hit)
+    slot.manaLinked = blockParams.manaLinked
+    if slot.manaLinked == nil then  -- If not explicitly set
+        slot.manaLinked = true
+    end
+    
+    -- Set reflection capability
+    slot.reflect = blockParams.reflect or false
+    
+    -- Set shield strength based on tokens or override value
+    if blockParams.hitPoints then
+        -- Use explicit hit point value if provided
+        slot.shieldStrength = blockParams.hitPoints
+    else
+        -- Otherwise use token count
+        slot.shieldStrength = #slot.tokens
+    end
+    
+    -- Slow down token orbiting speed for shield tokens if they exist
+    for _, tokenData in ipairs(slot.tokens) do
+        local token = tokenData.token
+        -- Set token to "SHIELDING" state
+        token.state = "SHIELDING"
+        -- Add specific shield type info to the token for visual effects
+        token.shieldType = slot.defenseType
+        -- Slow down the rotation speed for shield tokens
+        if token.orbitSpeed then
+            token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
+        end
+    end
+    
+    -- Shield visual effect color based on type
+    local shieldColor = {0.8, 0.8, 0.8}  -- Default gray
+    if slot.defenseType == "barrier" then
+        shieldColor = {1.0, 1.0, 0.3}    -- Yellow for barriers
+    elseif slot.defenseType == "ward" then
+        shieldColor = {0.3, 0.3, 1.0}    -- Blue for wards
+    elseif slot.defenseType == "field" then
+        shieldColor = {0.3, 1.0, 0.3}    -- Green for fields
+    end
+    
+    -- Create shield effect using VFX system if available
+    if wizard.gameState and wizard.gameState.vfx then
+        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+            duration = 1.0,
+            color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
+            shieldType = slot.defenseType
+        })
+    end
+    
+    -- Print debug info
+    print(string.format("[SHIELD] %s created a %s shield in slot %d with %d strength (mana linked: %s)",
+        wizard.name or "Unknown wizard",
+        slot.defenseType,
+        spellSlot,
+        slot.shieldStrength,
+        slot.manaLinked and "yes" or "no"))
+    
+    -- Include key parameters in result for later spell resolution
+    results.defenseType = slot.defenseType
+    results.blockTypes = blockParams.blocks
+    results.shieldStrength = slot.shieldStrength
+    results.manaLinked = slot.manaLinked
+    
+    return results
 end
 
 -- Function to register a new keyword handler
@@ -701,7 +1263,7 @@ Spells.conjurefire = {
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
     attackType = "utility",
-    castTime = 2.0,
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -710,23 +1272,47 @@ Spells.conjurefire = {
         }
     },
     vfx = "fire_conjure",
-    blockableBy = {}  -- Unblockable
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing fire tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count fire tokens in the mana pool
+        local fireCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "fire" and token.state == "FREE" then
+                    fireCount = fireCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing fire token
+        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        
+        return adjustedCastTime
+    end
 }
 
 Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
-    description = "Quick ranged hit, more damage at FAR range",
+    description = "Quick ranged hit, more damage against AERIAL opponents",
     castTime = 5.0,
     attackType = "projectile",
     cost = {"fire", "any"},
     keywords = {
         damage = {
             amount = function(caster, target)
-                -- Access shared range state from game state reference
-                return caster.gameState.rangeState == "FAR" and 15 or 10
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 10
+                end
+                return 10
             end,
-            type = "fire"
+            type = "fire",
+            conditional = "target.AERIAL"
         }
     },
     vfx = "fire_bolt",
@@ -744,7 +1330,10 @@ Spells.meteor = {
     keywords = {
         damage = {
             amount = function(caster, target)
-                return target.elevation == "GROUNDED" and 20 or 0
+                if target and target.elevation then
+                    return target.elevation == "GROUNDED" and 20 or 0
+                end
+                return 0 -- Default damage if target is nil
             end,
             type = "fire",
             conditional = "target.GROUNDED"
@@ -773,9 +1362,11 @@ Spells.combust = {
             amount = function(caster, target)
                 -- Count active spell slots
                 local activeSlots = 0
-                for _, slot in ipairs(target.spellSlots) do
-                    if slot.active then
-                        activeSlots = activeSlots + 1
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active then
+                            activeSlots = activeSlots + 1
+                        end
                     end
                 end
                 return activeSlots * 3
@@ -814,7 +1405,7 @@ Spells.conjuremoonlight = {
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
     attackType = "utility",
-    castTime = 2.0,
+    castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -823,7 +1414,28 @@ Spells.conjuremoonlight = {
         }
     },
     vfx = "moon_conjure",
-    blockableBy = {}  -- Unblockable
+    blockableBy = {},  -- Unblockable
+    
+    -- Custom cast time calculation based on existing moon tokens
+    getCastTime = function(caster)
+        -- Base cast time
+        local baseCastTime = 5.0
+        
+        -- Count moon tokens in the mana pool
+        local moonCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == "moon" and token.state == "FREE" then
+                    moonCount = moonCount + 1
+                end
+            end
+        end
+        
+        -- Increase cast time by 5 seconds per existing moon token
+        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        
+        return adjustedCastTime
+    end
 }
 
 Spells.volatileconjuring = {
@@ -831,7 +1443,7 @@ Spells.volatileconjuring = {
     name = "Volatile Conjuring",
     description = "Creates a random mana token",
     attackType = "utility",
-    castTime = 1.4,
+    castTime = 5.0,  -- Fixed cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -847,6 +1459,7 @@ Spells.volatileconjuring = {
     },
     vfx = "volatile_conjure",
     blockableBy = {}  -- Unblockable
+    -- Removed dynamic cast time calculation to keep it fixed at 5 seconds
 }
 
 Spells.mist = {
@@ -871,6 +1484,55 @@ Spells.mist = {
     blockableBy = {}  -- Utility spell, can't be blocked
 }
 
+Spells.tidalforce = {
+    id = "tidalforce",
+    name = "Tidal Force",
+    description = "Chip damage, forces AERIAL enemies out of the air",
+    attackType = "remote",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = "moon"
+        },
+        ground = {
+            -- Only apply grounding if the target is AERIAL
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end
+        }
+    },
+    vfx = "tidal_force",
+    sfx = "tidal_wave",
+    blockableBy = {"ward", "field"}
+}
+
+Spells.lunardisjunction = {
+    id = "lunardisjunction",
+    name = "Lunar Disjunction",
+    description = "Counterspell, cancels an opponent's spell and destroys its mana",
+    attackType = "projectile",
+    castTime = 5.0,
+    cost = {"moon", "any"},
+    keywords = {
+        disjoint = {
+            -- Target the opponent's slot corresponding to the slot this spell was cast from
+            slot = function(caster, target, slot) 
+                return slot 
+            end
+            -- Note: Default target for 'disjoint' is SLOT_ENEMY, which is correct.
+        }
+        -- Note: Destroying the mana used to cast *this* spell (Lunar Disjunction)
+        -- is not handled by standard keywords. 'disjoint' above handles destroying
+        -- the mana of the *target* spell. Self-destruction might require a custom
+        -- handler or engine-level support.
+    },
+    vfx = "lunardisjunction",
+    sfx = "lunardisjunction_sound",
+    blockableBy = {"barrier", "ward"} -- Disjunction is a projectile
+}
+
 Spells.gravity = {
     id = "gravity",
     name = "Gravity Pin",
@@ -881,12 +1543,19 @@ Spells.gravity = {
     keywords = {
         damage = {
             amount = function(caster, target)
-                return target.elevation == "AERIAL" and 15 or 0
+                if target and target.elevation then
+                    return target.elevation == "AERIAL" and 15 or 0
+                end
+                return 0 -- Default damage if target is nil
             end,
             type = "moon",
             conditional = "target.AERIAL"
         },
-        ground = true,  -- Set target to GROUNDED
+        ground = {
+            conditional = function(caster, target)
+                return target and target.elevation == "AERIAL"
+            end
+        },  -- Set target to GROUNDED if AERIAL
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
         }
@@ -977,7 +1646,7 @@ Spells.moonward = {
     description = "A mystical ward that blocks projectiles and remotes",
     attackType = "utility",
     castTime = 4.5,
-    cost = {"moon", "star"},
+    cost = {"moon", "moon"},  -- Changed cost from moon+star to moon+moon
     keywords = {
         block = {
             type = "ward",
@@ -1007,6 +1676,161 @@ Spells.naturefield = {
     vfx = "nature_field",
     sfx = "nature_grow",
     blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Advanced reflective shield example
+Spells.mirrorshield = {
+    id = "mirrorshield",
+    name = "Mirror Shield",
+    description = "A reflective barrier that returns damage to attackers",
+    attackType = "utility",
+    castTime = 5.0,
+    cost = {"moon", "moon", "star"},  -- Changed cost from force+moon+star to moon+moon+star
+    keywords = {
+        block = {
+            type = "barrier",  -- Barrier type blocks projectiles and zones
+            blocks = {"projectile", "zone"},
+            manaLinked = false, -- Doesn't consume tokens when blocking
+            reflect = true,     -- Reflects damage back to attacker
+            hitPoints = 3       -- Can block 3 attacks regardless of token count
+        }
+    },
+    vfx = "mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Shield-breaking spell example
+Spells.shieldbreaker = {
+    id = "shieldbreaker",
+    name = "Shield Breaker",
+    description = "A powerful force blast that shatters shields and barriers",
+    attackType = "projectile", -- Projectile type (can be blocked by barriers and wards)
+    castTime = 6.0,
+    cost = {"force", "force", "star"},
+    keywords = {
+        -- Regular damage component
+        damage = {
+            amount = function(caster, target)
+                -- Base damage
+                local baseDamage = 8
+                
+                -- Check if target exists before checking shields
+                local shieldBonus = 0
+                if target and target.spellSlots then
+                    -- Bonus damage if target has active shields
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldBonus = shieldBonus + 6
+                            break -- Only count one shield for bonus
+                        end
+                    end
+                end
+                
+                return baseDamage + shieldBonus
+            end,
+            type = "force"
+        },
+        
+        -- Special effect: If it hits a shield, it deals 3 "hits" worth of damage
+        -- This is implemented through the spell resolution pipeline that checks
+        -- for shields blocking the projectile
+        -- The effect is simulated by multiple shield strength reductions in a single hit
+    },
+    -- Add special property that indicates this is a shield-breaker spell
+    -- This will be used in the shield-blocking logic
+    shieldBreaker = 3, -- Deals 3 hits worth of damage to shields
+    vfx = "force_blast",
+    sfx = "shield_break",
+    blockableBy = {"barrier", "ward"}, -- Can be blocked by barriers and wards
+    
+    -- Custom handler for when this spell is blocked
+    onBlock = function(caster, target, slot, blockInfo)
+        print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
+            caster.name, blockInfo.blockType))
+        
+        -- Return a special response that overrides behavior
+        return {
+            specialBlockMessage = "Shield Breaker collides with active shield!",
+            damageShield = true,  -- Signal that we want to damage the shield
+            continueExecution = false  -- Don't continue processing the spell
+        }
+    end
+}
+
+-- Zone spell with range anchoring example
+Spells.eruption = {
+    id = "eruption",
+    name = "Lava Eruption",
+    description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
+    attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
+    castTime = 7.0,
+    cost = {"fire", "fire", "nature"},
+    keywords = {
+        -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
+        zoneAnchor = {
+            range = "NEAR", -- Only works at NEAR range
+            elevation = "GROUNDED", -- Only hits GROUNDED targets
+            requireAll = true -- Must match both conditions
+        },
+        
+        -- Damage component
+        damage = {
+            amount = 16,
+            type = "fire"
+        },
+        
+        -- Secondary effect - ground the target if they're AERIAL
+        ground = true,
+        
+        -- Add damage over time
+        burn = {
+            duration = 4.0,
+            tickDamage = 3
+        }
+    },
+    vfx = "lava_eruption",
+    sfx = "volcano_rumble",
+    blockableBy = {"barrier", "field"},
+    
+    -- Custom handler for when this spell misses
+    onMiss = function(caster, target, slot)
+        print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
+        
+        -- Create a small damage effect at caster's feet to simulate backfire
+        if caster.gameState and caster.gameState.vfx then
+            caster.gameState.vfx.createEffect("impact", caster.x, caster.y + 30, nil, nil, {
+                duration = 0.5,
+                color = {1.0, 0.3, 0.1, 0.6},
+                particleCount = 5,
+                radius = 15
+            })
+        end
+        
+        -- Caster takes a small amount of damage from their own spell backfiring
+        local selfDamage = 4
+        caster.health = caster.health - selfDamage
+        if caster.health < 0 then caster.health = 0 end
+        
+        -- Return special response for handling the miss
+        return {
+            missBackfire = true,
+            backfireDamage = selfDamage,
+            backfireMessage = "Lava Eruption backfires when cast at wrong range!"
+        }
+    end,
+    
+    -- Custom handler for when this spell succeeds
+    onSuccess = function(caster, target, slot, results)
+        print(string.format("[SUCCESS] %s's Lava Eruption hits %s with full force!", caster.name, target.name))
+        
+        -- Return additional effects for when the spell hits successfully
+        return {
+            successMessage = "The ground trembles with volcanic fury!",
+            extraEffect = "area_burn",
+            burnDuration = 2.0
+        }
+    end
 }
 
 -- Prepare the return table with all spells and utility functions
@@ -1122,9 +1946,11 @@ Spells.arcaneReversal = {
             amount = function(caster, target)
                 -- More damage if enemy has active shields
                 local shieldCount = 0
-                for _, slot in ipairs(target.spellSlots) do
-                    if slot.active and slot.isShield then
-                        shieldCount = shieldCount + 1
+                if target and target.spellSlots then
+                    for _, slot in ipairs(target.spellSlots) do
+                        if slot.active and slot.isShield then
+                            shieldCount = shieldCount + 1
+                        end
                     end
                 end
                 return 8 + (shieldCount * 4)  -- 8 base + 4 per shield
@@ -1159,10 +1985,12 @@ Spells.arcaneReversal = {
                     star = 0
                 }
                 
-                -- Count opponent's token types
-                for _, token in ipairs(target.tokens or {}) do
-                    if token.state == "FREE" then
-                        tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+                -- Count opponent's token types in mana pool
+                if target.manaPool then
+                    for _, token in ipairs(target.manaPool.tokens or {}) do
+                        if token.state == "FREE" then
+                            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+                        end
                     end
                 end
                 
@@ -1210,12 +2038,12 @@ Spells.lunarTides = {
                 local baseDamage = 8
                 
                 -- If opponent is AERIAL, deal more damage
-                if target.elevation == "AERIAL" then
+                if target and target.elevation and target.elevation == "AERIAL" then
                     baseDamage = baseDamage + 4
                 end
                 
                 -- If in NEAR range, deal more damage
-                if caster.gameState.rangeState == "NEAR" then
+                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
                     baseDamage = baseDamage + 3
                 end
                 

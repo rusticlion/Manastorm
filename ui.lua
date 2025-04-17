@@ -153,7 +153,7 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
     -- GROUP 2: CAST BUTTON
     -- Positioned farther to the right
     local castX = x + 150
-    local castKey = (playerNum == 1) and "F" or "L"
+    local castKey = (playerNum == 1) and "F" or "J"
     
     -- Subtle highlighting background
     love.graphics.setColor(0.3, 0.2, 0.1, 0.3)

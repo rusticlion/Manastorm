@@ -12,7 +12,11 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
-    rangeState = "FAR"  -- Initial range state (NEAR or FAR)
+    rangeState = "FAR",  -- Initial range state (NEAR or FAR)
+    gameOver = false,
+    winner = nil,
+    winScreenTimer = 0,
+    winScreenDuration = 5  -- How long to show the win screen before auto-reset
 }
 
 -- Define token types and images (globally available for consistency)
@@ -61,6 +65,52 @@ function love.load()
     -- Initialize VFX system
     game.vfx = VFX.init()
     
+    -- Create custom shield spells just for hotkeys
+    -- These are complete, independent spell definitions
+    game.customSpells = {}
+    
+    -- Define Moon Ward with minimal dependencies
+    game.customSpells.moonWard = {
+        id = "customMoonWard",
+        name = "Moon Ward",
+        description = "A mystical ward that blocks projectiles and remotes",
+        attackType = "utility",
+        castTime = 4.5,
+        cost = {"moon", "moon"},
+        keywords = {
+            block = {
+                type = "ward",
+                blocks = {"projectile", "remote"},
+                manaLinked = true
+            }
+        },
+        vfx = "moon_ward",
+        sfx = "shield_up",
+        blockableBy = {}
+    }
+    
+    -- Define Mirror Shield with minimal dependencies
+    game.customSpells.mirrorShield = {
+        id = "customMirrorShield",
+        name = "Mirror Shield",
+        description = "A reflective barrier that returns damage to attackers",
+        attackType = "utility",
+        castTime = 5.0,
+        cost = {"moon", "moon", "star"},
+        keywords = {
+            block = {
+                type = "barrier",
+                blocks = {"projectile", "zone"},
+                manaLinked = false,
+                reflect = true,
+                hitPoints = 3
+            }
+        },
+        vfx = "mirror_shield",
+        sfx = "crystal_ring",
+        blockableBy = {}
+    }
+    
     -- Initialize mana pool with a single random token to start
     local tokenType = game.addRandomToken()
     
@@ -68,7 +118,116 @@ function love.load()
     print("Starting the game with a single " .. tokenType .. " token")
 end
 
+-- Reset the game
+function resetGame()
+    -- Reset game state
+    game.gameOver = false
+    game.winner = nil
+    game.winScreenTimer = 0
+    
+    -- Reset wizards
+    for _, wizard in ipairs(game.wizards) do
+        wizard.health = 100
+        wizard.elevation = "GROUNDED"
+        wizard.elevationTimer = 0
+        wizard.stunTimer = 0
+        
+        -- Reset spell slots
+        for i = 1, 3 do
+            wizard.spellSlots[i] = {
+                active = false,
+                progress = 0,
+                spellType = nil,
+                castTime = 0,
+                tokens = {},
+                isShield = false,
+                defenseType = nil,
+                shieldStrength = 0,
+                blocksAttackTypes = nil
+            }
+        end
+        
+        -- Reset status effects
+        wizard.statusEffects.burn.active = false
+        wizard.statusEffects.burn.duration = 0
+        wizard.statusEffects.burn.tickDamage = 0
+        wizard.statusEffects.burn.tickInterval = 1.0
+        wizard.statusEffects.burn.elapsed = 0
+        wizard.statusEffects.burn.totalTime = 0
+        
+        -- Reset blockers
+        for blockType in pairs(wizard.blockers) do
+            wizard.blockers[blockType] = 0
+        end
+        
+        -- Reset spell keying
+        wizard.activeKeys = {[1] = false, [2] = false, [3] = false}
+        wizard.currentKeyedSpell = nil
+    end
+    
+    -- Reset range state
+    game.rangeState = "FAR"
+    
+    -- Clear mana pool and add a single token to start
+    game.manaPool:clear()
+    local tokenType = game.addRandomToken()
+    print("Game reset! Starting with a single " .. tokenType .. " token")
+end
+
 function love.update(dt)
+    -- Check for win condition before updates
+    if game.gameOver then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+        
+        -- Auto-reset after duration
+        if game.winScreenTimer >= game.winScreenDuration then
+            resetGame()
+        end
+        
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+        return
+    end
+    
+    -- Check if any wizard's health has reached zero
+    for i, wizard in ipairs(game.wizards) do
+        if wizard.health <= 0 then
+            game.gameOver = true
+            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+            game.winScreenTimer = 0
+            
+            -- Create victory VFX around the winner
+            local winner = game.wizards[game.winner]
+            for j = 1, 15 do
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(40, 100)
+                local x = winner.x + math.cos(angle) * distance
+                local y = winner.y + math.sin(angle) * distance
+                
+                -- Determine winner's color for effects
+                local color
+                if game.winner == 1 then -- Ashgar
+                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                else -- Selene
+                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                end
+                
+                -- Create sparkle effect with delay
+                game.vfx.createEffect("impact", x, y, nil, nil, {
+                    duration = 0.8 + math.random() * 0.5,
+                    color = color,
+                    particleCount = 5,
+                    radius = 15,
+                    delay = j * 0.1
+                })
+            end
+            
+            print(winner.name .. " wins!")
+            break
+        end
+    end
+    
     -- Update wizards
     for _, wizard in ipairs(game.wizards) do
         wizard:update(dt)
@@ -108,6 +267,11 @@ function love.draw()
     -- Draw spell info (health bars, etc.)
     UI.drawSpellInfo(game.wizards)
     
+    -- Draw win screen if game is over
+    if game.gameOver and game.winner then
+        drawWinScreen()
+    end
+    
     -- Debug info only when debug key is pressed
     if love.keyboard.isDown("`") then
         UI.drawHelpText(game.font)
@@ -117,6 +281,97 @@ function love.draw()
         -- Always show a small hint about the debug key
         love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
         love.graphics.print("Press ` for debug controls", 10, love.graphics.getHeight() - 20)
+    end
+end
+
+-- Draw the win screen
+function drawWinScreen()
+    local screenWidth = love.graphics.getWidth()
+    local screenHeight = love.graphics.getHeight()
+    local winner = game.wizards[game.winner]
+    
+    -- Fade in effect
+    local fadeProgress = math.min(game.winScreenTimer / 0.5, 1.0)
+    
+    -- Draw semi-transparent overlay
+    love.graphics.setColor(0, 0, 0, 0.7 * fadeProgress)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Determine winner's color scheme
+    local winnerColor
+    if game.winner == 1 then -- Ashgar
+        winnerColor = {1.0, 0.4, 0.2} -- Fire-like
+    else -- Selene
+        winnerColor = {0.4, 0.4, 1.0} -- Moon-like
+    end
+    
+    -- Calculate animation progress for text
+    local textProgress = math.min(math.max(game.winScreenTimer - 0.5, 0) / 0.5, 1.0)
+    local textScale = 1 + (1 - textProgress) * 3 -- Text starts larger and shrinks to normal size
+    local textY = screenHeight / 2 - 100
+    
+    -- Draw winner text with animated scale
+    love.graphics.setColor(winnerColor[1], winnerColor[2], winnerColor[3], textProgress)
+    
+    -- Main victory text
+    local victoryText = winner.name .. " WINS!"
+    local victoryTextWidth = game.font:getWidth(victoryText) * textScale * 3
+    love.graphics.print(
+        victoryText, 
+        screenWidth / 2 - victoryTextWidth / 2, 
+        textY,
+        0, -- rotation
+        textScale * 3, -- scale X
+        textScale * 3  -- scale Y
+    )
+    
+    -- Only show restart instructions after initial animation
+    if game.winScreenTimer > 1.0 then
+        -- Calculate pulse effect
+        local pulse = 0.7 + 0.3 * math.sin(game.winScreenTimer * 4)
+        
+        -- Draw restart instruction with pulse effect
+        local restartText = "Press [SPACE] to play again"
+        local restartTextWidth = game.font:getWidth(restartText) * 1.5
+        
+        love.graphics.setColor(1, 1, 1, pulse)
+        love.graphics.print(
+            restartText,
+            screenWidth / 2 - restartTextWidth / 2,
+            textY + 150,
+            0, -- rotation
+            1.5, -- scale X
+            1.5  -- scale Y
+        )
+        
+        -- Show auto-restart countdown
+        local remainingTime = math.ceil(game.winScreenDuration - game.winScreenTimer)
+        local countdownText = "Auto-restart in " .. remainingTime .. "..."
+        local countdownTextWidth = game.font:getWidth(countdownText)
+        
+        love.graphics.setColor(0.7, 0.7, 0.7, 0.7)
+        love.graphics.print(
+            countdownText,
+            screenWidth / 2 - countdownTextWidth / 2,
+            textY + 200
+        )
+    end
+    
+    -- Draw some victory effect particles
+    for i = 1, 3 do
+        if math.random() < 0.3 then
+            local x = math.random(screenWidth)
+            local y = math.random(screenHeight)
+            local size = math.random(10, 30)
+            
+            love.graphics.setColor(
+                winnerColor[1], 
+                winnerColor[2], 
+                winnerColor[3], 
+                math.random() * 0.3
+            )
+            love.graphics.circle("fill", x, y, size)
+        end
     end
 end
 
@@ -182,6 +437,18 @@ function drawRangeIndicator()
 end
 
 function love.keypressed(key)
+    -- Debug all key presses to isolate input issues
+    print("DEBUG: Key pressed: '" .. key .. "'")
+    
+    -- Check for game over state first
+    if game.gameOver then
+        -- Reset game on space bar press during game over
+        if key == "space" then
+            resetGame()
+        end
+        return
+    end
+    
     if key == "escape" then
         love.event.quit()
     end
@@ -208,7 +475,7 @@ function love.keypressed(key)
         game.wizards[2]:keySpell(2, true)
     elseif key == "p" then
         game.wizards[2]:keySpell(3, true)
-    elseif key == "l" then
+    elseif key == "j" then
         -- Cast key for Player 2
         game.wizards[2]:castKeyedSpell()
     elseif key == "m" then
@@ -220,6 +487,34 @@ function love.keypressed(key)
     if key == "t" then
         local tokenType = game.addRandomToken()
         print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Debug: Add specific tokens for testing shield spells
+    if key == "z" then
+        local tokenType = "moon"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "x" then
+        local tokenType = "star"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    elseif key == "c" then
+        local tokenType = "force"
+        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
+        print("Added a " .. tokenType .. " token to the mana pool")
+    end
+    
+    -- Direct keys for casting shield spells, bypassing keying and issue in cast key "l"
+    if key == "1" then
+        -- Force cast Moon Ward for Selene
+        print("DEBUG: Directly casting Moon Ward for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.moonWard)
+        print("DEBUG: Moon Ward cast result: " .. tostring(result))
+    elseif key == "2" then
+        -- Force cast Mirror Shield for Selene
+        print("DEBUG: Directly casting Mirror Shield for Selene")
+        local result = game.wizards[2]:queueSpell(game.customSpells.mirrorShield)
+        print("DEBUG: Mirror Shield cast result: " .. tostring(result))
     end
     
     -- Debug: Position/elevation test controls

@@ -24,6 +24,18 @@ function Wizard.new(name, x, y, color)
         projectile = 0           -- Projectile block duration
     }
     
+    -- Status effects
+    self.statusEffects = {
+        burn = {
+            active = false,
+            duration = 0,
+            tickDamage = 0,
+            tickInterval = 1.0,
+            elapsed = 0,         -- Time since last tick
+            totalTime = 0        -- Total time effect has been active
+        }
+    }
+    
     -- Visual effects
     self.blockVFX = {
         active = false,
@@ -52,10 +64,10 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
             
             -- Multi-key combinations
-            ["12"] = Spells.meteor,
-            ["13"] = Spells.combust,
+            ["12"] = Spells.eruption,      -- Zone spell with range anchoring 
+            ["13"] = Spells.combust, -- Mana denial spell
             ["23"] = Spells.emberlift,     -- Movement spell
-            ["123"] = Spells.forcebarrier  -- New barrier shield blocking projectiles & zones
+            ["123"] = Spells.meteor  -- Zone dependent nuke
         }
     elseif name == "Selene" then
         self.spellbook = {
@@ -65,11 +77,32 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.mist,
             
             -- Multi-key combinations
-            ["12"] = Spells.moonward,     -- New ward shield blocking projectiles & remotes
+            ["12"] = Spells.tidalforce,     -- Chip damage Remote spell that forces out of AERIAL
             ["13"] = Spells.eclipse,
-            ["23"] = Spells.fullmoonbeam, -- Full Moon Beam spell
-            ["123"] = Spells.naturefield  -- New field shield blocking remotes & zones
+            ["23"] = Spells.lunardisjunction, -- 
+            ["123"] = Spells.fullmoonbeam -- Full Moon Beam spell
         }
+    end
+    
+    -- Verify that all spells in the spellbook are properly defined
+    for key, spell in pairs(self.spellbook) do
+        if not spell then
+            print("WARNING: Spell for key combo '" .. key .. "' is nil for " .. name)
+        elseif not spell.cost then
+            print("WARNING: Spell '" .. (spell.name or "unnamed") .. "' for key combo '" .. key .. "' has no cost defined")
+        else
+            -- Ensure spell has an ID
+            if not spell.id and spell.name then
+                spell.id = spell.name:lower():gsub(" ", "")
+                print("DEBUG: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+            end
+            
+            -- Detailed debug output for detecting reference issues
+            print("DEBUG: Spell reference check for key combo '" .. key .. "':")
+            print("DEBUG: - Name: " .. (spell.name or "unnamed"))
+            print("DEBUG: - ID: " .. (spell.id or "no id"))
+            print("DEBUG: - Cost: " .. (type(spell.cost) == "table" and "table of length " .. #spell.cost or tostring(spell.cost)))
+        end
     end
     
     -- Spell slots (3 max)
@@ -125,6 +158,52 @@ function Wizard:update(dt)
         end
     end
     
+    -- Update burn status effect
+    if self.statusEffects.burn.active then
+        -- Update total time
+        self.statusEffects.burn.totalTime = self.statusEffects.burn.totalTime + dt
+        
+        -- Update elapsed time since last tick
+        self.statusEffects.burn.elapsed = self.statusEffects.burn.elapsed + dt
+        
+        -- Check if it's time for damage tick
+        if self.statusEffects.burn.elapsed >= self.statusEffects.burn.tickInterval then
+            -- Apply burn damage
+            local damage = self.statusEffects.burn.tickDamage
+            self.health = math.max(0, self.health - damage)
+            
+            -- Reset elapsed time
+            self.statusEffects.burn.elapsed = 0
+            
+            -- Log damage
+            print(string.format("[BURN] %s takes %d burn damage! (health: %d)", 
+                self.name, damage, self.health))
+            
+            -- Create burn effect using VFX system
+            if self.gameState and self.gameState.vfx then
+                -- Random position around the wizard for the burn effect
+                local angle = math.random() * math.pi * 2
+                local distance = math.random(10, 30)
+                local effectX = self.x + math.cos(angle) * distance
+                local effectY = self.y + math.sin(angle) * distance
+                
+                self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                    duration = 0.3,
+                    color = {1.0, 0.4, 0.1, 0.6},
+                    particleCount = 3,
+                    radius = 10
+                })
+            end
+        end
+        
+        -- Check if the effect has expired
+        if self.statusEffects.burn.totalTime >= self.statusEffects.burn.duration then
+            -- Deactivate the effect
+            self.statusEffects.burn.active = false
+            print(string.format("[STATUS] %s is no longer burning", self.name))
+        end
+    end
+    
     -- Update blocker timers
     for blockType, duration in pairs(self.blockers) do
         if duration > 0 then
@@ -160,7 +239,9 @@ function Wizard:update(dt)
                 -- For active shields, make tokens orbit their slots
                 -- Calculate positions for all tokens in this shield
                 local slotYOffsets = {30, 0, -30}
-                local slotY = self.y + slotYOffsets[i]
+                -- Apply AERIAL offset to shield tokens
+                local yOffset = self.currentYOffset or 0
+                local slotY = self.y + slotYOffsets[i] + yOffset
                 -- Define orbit radii for each slot (same values used in drawSpellSlots)
                 local horizontalRadii = {80, 70, 60}  -- Wider at the bottom, narrower at the top  
                 local verticalRadii = {20, 25, 30}    -- Flatter at the bottom, rounder at the top
@@ -359,6 +440,10 @@ function Wizard:draw()
         love.graphics.ellipse("fill", self.x + xOffset, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
     end
     
+    -- Store current offsets for other functions to use
+    self.currentXOffset = xOffset
+    self.currentYOffset = yOffset
+    
     -- Draw the wizard with appropriate elevation and position
     love.graphics.setColor(1, 1, 1)
     
@@ -526,7 +611,8 @@ function Wizard:drawStatusEffects()
     local effectColors = {
         aerial = {0.7, 0.7, 1.0, 0.8},
         stun = {1.0, 1.0, 0.1, 0.8},
-        shield = {0.5, 0.7, 1.0, 0.8}
+        shield = {0.5, 0.7, 1.0, 0.8},
+        burn = {1.0, 0.4, 0.1, 0.8}
     }
     
     -- Draw AERIAL duration if active
@@ -638,6 +724,60 @@ function Wizard:drawStatusEffects()
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.print(string.format("%.1fs", self.blockers.projectile), 
                            x + barWidth/2 - 30, y)
+    end
+    
+    -- Draw BURN duration if active
+    if self.statusEffects.burn.active then
+        effectCount = effectCount + 1
+        local y = baseY - (effectCount * (barHeight + barPadding))
+        
+        -- Calculate progress
+        local maxDuration = self.statusEffects.burn.duration
+        local progress = 1.0 - (self.statusEffects.burn.totalTime / maxDuration)
+        progress = math.max(0.0, progress)  -- Ensure non-negative
+        
+        -- Background frame for the entire effect
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.4)
+        love.graphics.rectangle("fill", x - barWidth/2 - 5, y - barHeight - 10, barWidth + 10, barHeight + 20, 5, 5)
+        
+        -- Draw label with pulsing effect
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 
+                              effectColors.burn[4] * (0.7 + 0.3 * math.sin(love.timer.getTime() * 7)))
+        love.graphics.print("BURNING", x - barWidth/2, y - barHeight - 5)
+        
+        -- Draw background bar
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.6)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw progress bar
+        love.graphics.setColor(effectColors.burn)
+        love.graphics.rectangle("fill", x - barWidth/2, y, barWidth * progress, barHeight, 3, 3)
+        
+        -- Draw border
+        love.graphics.setColor(effectColors.burn[1], effectColors.burn[2], effectColors.burn[3], 0.5)
+        love.graphics.rectangle("line", x - barWidth/2, y, barWidth, barHeight, 3, 3)
+        
+        -- Draw time remaining and damage info
+        love.graphics.setColor(1, 1, 1, 0.9)
+        love.graphics.print(string.format("%.1fs (%d/tick)", 
+                           maxDuration - self.statusEffects.burn.totalTime,
+                           self.statusEffects.burn.tickDamage), 
+                           x - 20, y)
+        
+        -- Draw fire particles on the wizard to show the burning effect
+        if math.random() < 0.2 and self.gameState and self.gameState.vfx then
+            local angle = math.random() * math.pi * 2
+            local distance = math.random(10, 30)
+            local effectX = self.x + xOffset + math.cos(angle) * distance
+            local effectY = self.y + yOffset + math.sin(angle) * distance
+            
+            self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
+                duration = 0.2,
+                color = {1.0, 0.3, 0.1, 0.4},
+                particleCount = 2,
+                radius = 5
+            })
+        end
     end
 end
 
@@ -894,6 +1034,11 @@ function Wizard:keySpell(keyIndex, isPressed)
         -- Log the currently keyed spell
         if self.currentKeyedSpell then
             print(self.name .. " keyed " .. self.currentKeyedSpell.name .. " (" .. keyCombo .. ")")
+            
+            -- Debug: verify spell definition is complete
+            if not self.currentKeyedSpell.cost then
+                print("WARNING: Spell '" .. self.currentKeyedSpell.name .. "' has no cost defined!")
+            end
         else
             print(self.name .. " has no spell for key combination: " .. keyCombo)
         end
@@ -916,11 +1061,76 @@ function Wizard:castKeyedSpell()
         return false
     end
     
-    -- Queue the keyed spell and return the result
-    return self:queueSpell(self.currentKeyedSpell)
+    -- Debug output to identify issues with specific spells
+    print("DEBUG: " .. self.name .. " attempting to cast: " .. self.currentKeyedSpell.name)
+    print("DEBUG: Spell cost: " .. self:formatCost(self.currentKeyedSpell.cost))
+    
+    -- Enhanced debugging for ALL spells to identify differences
+    print("\nDEBUG: FULL SPELL ANALYSIS:")
+    print("  - Name: " .. (self.currentKeyedSpell.name or "nil"))
+    print("  - ID: " .. (self.currentKeyedSpell.id or "nil"))
+    print("  - Cost type: " .. type(self.currentKeyedSpell.cost))
+    print("  - Attack Type: " .. (self.currentKeyedSpell.attackType or "nil"))
+    print("  - Has isShield: " .. tostring(self.currentKeyedSpell.isShield ~= nil))
+    if self.currentKeyedSpell.isShield ~= nil then
+        print("  - isShield value: " .. tostring(self.currentKeyedSpell.isShield))
+    end
+    print("  - Has effect func: " .. tostring(type(self.currentKeyedSpell.effect) == "function"))
+    print("  - Has keywords: " .. tostring(self.currentKeyedSpell.keywords ~= nil))
+    if self.currentKeyedSpell.keywords and self.currentKeyedSpell.keywords.block then
+        print("  - Has block keyword")
+        print("  - Block type: " .. (self.currentKeyedSpell.keywords.block.type or "nil"))
+    else
+        print("  - No block keyword")
+    end
+    
+    -- Queue the keyed spell with detailed error handling
+    print("DEBUG: Calling queueSpell...")
+    local success, result = pcall(function() 
+        return self:queueSpell(self.currentKeyedSpell)
+    end)
+    
+    -- Debug the result of queueSpell
+    if not success then
+        print("ERROR: Exception in queueSpell: " .. tostring(result))
+        print("ERROR TRACE: " .. debug.traceback())
+        return false
+    elseif not result then
+        print("DEBUG: Failed to queue " .. self.currentKeyedSpell.name .. " - check if manaCost check failed")
+    else
+        print("DEBUG: Successfully queued " .. self.currentKeyedSpell.name)
+    end
+    
+    return result
+end
+
+-- Helper to format spell cost for debug output
+function Wizard:formatCost(cost)
+    local costText = ""
+    for i, costComponent in ipairs(cost) do
+        if type(costComponent) == "string" then
+            -- New format
+            costText = costText .. costComponent
+        else
+            -- Old format
+            costText = costText .. costComponent.type .. " x" .. costComponent.count
+        end
+        
+        if i < #cost then
+            costText = costText .. ", "
+        end
+    end
+    
+    if costText == "" then
+        return "Free"
+    else
+        return costText
+    end
 end
 
 function Wizard:queueSpell(spell)
+    print("DEBUG: " .. self.name .. " queueSpell called for " .. (spell and spell.name or "nil spell"))
+    
     -- Check if wizard is stunned
     if self.stunTimer > 0 then
         print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
@@ -934,10 +1144,25 @@ function Wizard:queueSpell(spell)
     end
     
     -- Find the innermost available spell slot
+    print("DEBUG: Checking for available spell slots...")
     for i = 1, #self.spellSlots do
+        print("DEBUG: Checking slot " .. i .. ": " .. (self.spellSlots[i].active and "ACTIVE" or "AVAILABLE"))
         if not self.spellSlots[i].active then
+            print("DEBUG: Found available slot " .. i .. ", checking mana cost...")
             -- Check if we can pay the mana cost from the pool
             local tokenReservations = self:canPayManaCost(spell.cost)
+            
+            -- Debug info for mana cost checks
+            if not tokenReservations then
+                print("DEBUG: Cannot pay mana cost for " .. spell.name)
+                if type(spell.cost) == "table" then
+                    for j, component in ipairs(spell.cost) do
+                        print("DEBUG: - Cost component " .. j .. ": " .. tostring(component))
+                    end
+                else
+                    print("DEBUG: Cost is not a table: " .. tostring(spell.cost))
+                end
+            end
             
             if tokenReservations then
                 -- Collect the actual tokens to animate them to the spell slot
@@ -984,7 +1209,15 @@ function Wizard:queueSpell(spell)
                 self.spellSlots[i].active = true
                 self.spellSlots[i].progress = 0
                 self.spellSlots[i].spellType = spell.name
-                self.spellSlots[i].castTime = spell.castTime
+                
+                -- Use dynamic cast time if available, otherwise use static cast time
+                if spell.getCastTime and type(spell.getCastTime) == "function" then
+                    self.spellSlots[i].castTime = spell.getCastTime(self)
+                    print(self.name .. " is using dynamic cast time: " .. self.spellSlots[i].castTime .. "s")
+                else
+                    self.spellSlots[i].castTime = spell.castTime
+                end
+                
                 self.spellSlots[i].spell = spell
                 self.spellSlots[i].tokens = tokens
                 
@@ -1013,8 +1246,47 @@ function Wizard:canPayManaCost(cost)
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
+    -- Debug output for cost checking
+    print("DEBUG: Checking mana cost payment for " .. (self.currentKeyedSpell and self.currentKeyedSpell.name or "unknown spell"))
+    
+    -- Handle cost being nil or not a table
+    if not cost then
+        print("DEBUG: Cost is nil")
+        return {}
+    end
+    
+    -- Check if cost is a valid table we can iterate through
+    if type(cost) ~= "table" then
+        print("DEBUG: Cost is not a table, it's a " .. type(cost))
+        return nil
+    end
+    
     -- Early exit if cost is empty
-    if #cost == 0 then return {} end
+    if #cost == 0 then 
+        print("DEBUG: Cost is an empty table")
+        return {} 
+    end
+    
+    -- Dump the exact cost structure to understand what's being passed
+    print("DEBUG: Cost structure details:")
+    print("DEBUG: - Type: " .. type(cost))
+    print("DEBUG: - Length: " .. #cost)
+    for i, component in ipairs(cost) do
+        print("DEBUG: - Component " .. i .. " type: " .. type(component))
+        print("DEBUG: - Component " .. i .. " value: " .. tostring(component))
+    end
+    
+    -- Print existing tokens in mana pool for debugging
+    print("DEBUG: Mana pool contains " .. #self.manaPool.tokens .. " tokens:")
+    local tokenCounts = {}
+    for _, token in ipairs(self.manaPool.tokens) do
+        if token.state == "FREE" then
+            tokenCounts[token.type] = (tokenCounts[token.type] or 0) + 1
+        end
+    end
+    for tokenType, count in pairs(tokenCounts) do
+        print("DEBUG: - " .. tokenType .. ": " .. count .. " free tokens")
+    end
     
     -- This function mirrors payManaCost but just returns the indices of tokens that would be used
     -- Try to pay each component of the cost
@@ -1122,7 +1394,10 @@ function Wizard:payManaCost(cost)
     local usedIndices = {} -- Track which token indices are already used
     
     -- Early exit if cost is empty
-    if #cost == 0 then return {} end
+    if not cost or #cost == 0 then 
+        print("DEBUG: Cost is nil or empty")
+        return {} 
+    end
     
     -- Try to pay each component of the cost
     for _, costComponent in ipairs(cost) do
@@ -1279,6 +1554,84 @@ function Wizard:castSpell(spellSlot)
         }
     )
     
+    -- Early exit if the spell was blocked (handled by the resolution process)
+    if effect.blocked then
+        local shieldBreakPower = effect.shieldBreakPower or 1
+        local shieldDestroyed = effect.shieldDestroyed or false
+        
+        if shieldDestroyed then
+            print(string.format("[BLOCKED] %s's %s was blocked by %s's %s which has been DESTROYED!", 
+                self.name, slot.spellType, target.name, effect.blockType or "shield"))
+                
+            -- Create shield break visual effect on the target
+            if self.gameState.vfx then
+                self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                    duration = 0.7,
+                    color = {1.0, 0.5, 0.5, 0.8},
+                    particleCount = 15,
+                    radius = 50
+                })
+            end
+        else
+            if shieldBreakPower > 1 then
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s! (shield took %d hits)", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield", shieldBreakPower))
+            else
+                print(string.format("[BLOCKED] %s's %s was blocked by %s's %s", 
+                    self.name, slot.spellType, target.name, effect.blockType or "shield"))
+            end
+            
+            -- Create blocked visual effect at the shield
+            if self.gameState.vfx then
+                -- Shield color based on type
+                local shieldColor = {0.8, 0.8, 0.8, 0.7}  -- Default gray
+                if effect.blockType == "barrier" then
+                    shieldColor = {1.0, 1.0, 0.3, 0.7}    -- Yellow for barriers
+                elseif effect.blockType == "ward" then
+                    shieldColor = {0.3, 0.3, 1.0, 0.7}    -- Blue for wards
+                elseif effect.blockType == "field" then 
+                    shieldColor = {0.3, 1.0, 0.3, 0.7}    -- Green for fields
+                end
+                
+                -- Create visual effect on the target to show the block
+                self.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+                    duration = 0.5,
+                    color = shieldColor,
+                    shieldType = effect.blockType
+                })
+            end
+        end
+        
+        -- Create spell impact effect on the caster to show the spell being blocked
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.8, 0.2, 0.2, 0.5},
+                particleCount = 5,
+                radius = 15
+            })
+        end
+        
+        -- Skip further processing - tokens have already been returned by the blocking logic
+        return
+    end
+    
+    -- Check if the spell missed (for zone spells with zoneAnchor)
+    if effect.missed then
+        print(string.format("[MISSED] %s's %s missed due to range/elevation mismatch", 
+            self.name, slot.spellType))
+        
+        -- Create whiff visual effect
+        if self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                duration = 0.3,
+                color = {0.5, 0.5, 0.5, 0.3},
+                particleCount = 3,
+                radius = 10
+            })
+        end
+    end
+    
     -- Handle token dissipation from the dissipate keyword
     if effect.dissipate then
         local tokenType = effect.dissipateType or "any"
@@ -1289,6 +1642,33 @@ function Wizard:castSpell(spellSlot)
             print("Destroyed " .. tokensDestroyed .. " " .. tokenType .. " tokens")
         else
             print("No matching " .. tokenType .. " tokens found to destroy")
+        end
+    end
+    
+    -- Handle burn effects from the burn keyword
+    if effect.burnApplied then
+        -- Apply burn status effect to target
+        target.statusEffects.burn.active = true
+        target.statusEffects.burn.duration = effect.burnDuration or 3.0
+        target.statusEffects.burn.tickDamage = effect.burnTickDamage or 2
+        target.statusEffects.burn.tickInterval = effect.burnTickInterval or 1.0
+        target.statusEffects.burn.elapsed = 0
+        target.statusEffects.burn.totalTime = 0
+        
+        print(string.format("[STATUS] %s is burning! (%d damage per %.1f sec for %.1f sec)",
+            target.name, 
+            target.statusEffects.burn.tickDamage,
+            target.statusEffects.burn.tickInterval,
+            target.statusEffects.burn.duration))
+        
+        -- Create initial burn effect
+        if self.gameState and self.gameState.vfx then
+            self.gameState.vfx.createEffect("impact", target.x, target.y, nil, nil, {
+                duration = 0.6,
+                color = {1.0, 0.3, 0.1, 0.8},
+                particleCount = 12,
+                radius = 35
+            })
         end
     end
     
@@ -1333,91 +1713,111 @@ function Wizard:castSpell(spellSlot)
     
     -- Check if it's a shield spell that should persist in the spell slot
     if slot.spell.isShield or effect.isShield then
-        -- Set the shield properties directly on the slot
+        -- Mark the progress as completed
         slot.progress = slot.castTime  -- Mark as fully cast
-        slot.isShield = true
-        slot.defenseType = effect.defenseType or slot.spell.defenseType
         
-        -- If the shield has blockTypes defined in the effect (through the 'block' keyword)
-        if effect.blockTypes then
-            slot.blocksAttackTypes = effect.blockTypes
-        elseif slot.spell.blocksAttackTypes then
-            slot.blocksAttackTypes = slot.spell.blocksAttackTypes
-        end
+        -- Debug shield creation process
+        print("DEBUG: Creating shield from spell: " .. slot.spellType)
         
-        -- Set shield strength based on number of tokens in the shield
-        slot.shieldStrength = #slot.tokens
-        
-        -- Slow down token orbiting speed for shield tokens
-        for _, tokenData in ipairs(slot.tokens) do
-            local token = tokenData.token
-            -- Set token to "SHIELDING" state (similar to CHANNELED but slower)
-            token.state = "SHIELDING"
-            -- Slow down the rotation speed for shield tokens
-            token.orbitSpeed = token.orbitSpeed * 0.5  -- 50% slower
-        end
-        
-        -- Store attack types that this shield blocks
-        local blocksAttackTypes = slot.spell.blocksAttackTypes
-        if blocksAttackTypes then
-            slot.blocksAttackTypes = {}
-            for _, attackType in ipairs(blocksAttackTypes) do
-                slot.blocksAttackTypes[attackType] = true
-            end
-        end
-        
-        -- Make sure we keep the spell info for reference
-        slot.spell = slot.spell
-        
-        -- Keep the tokens in the slot (don't return them to the pool)
-        -- Note that the tokens have already been reserved during queueSpell
-        -- So we just need to keep them and not return them
-        
-        print(self.name .. " raised a " .. slot.defenseType .. " shield with " .. 
-              slot.shieldStrength .. " tokens in slot " .. spellSlot)
-        
-        -- Print the attack types this shield blocks
-        local blockedTypes = ""
-        for attackType, _ in pairs(slot.blocksAttackTypes) do
-            blockedTypes = blockedTypes .. attackType .. " "
-        end
-        print("Shield blocks: " .. blockedTypes)
-        
-        -- Create shield effect using VFX system
-        if self.gameState.vfx then
-            local shieldColor
-            if slot.defenseType == "barrier" then
-                shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
-            elseif slot.defenseType == "ward" then
-                shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
-            elseif slot.defenseType == "field" then
-                shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+        -- Check if we have shieldCreated flag which means the shield was already
+        -- created by the block keyword handler
+        if not effect.shieldCreated then
+            -- Extract shield params from effect or keywords
+            local defenseType = "barrier"
+            local blocks = {"projectile"}
+            local manaLinked = true
+            local reflect = false
+            local hitPoints = nil
+            
+            -- Get shield parameters from effect or spell
+            if effect.defenseType then
+                defenseType = effect.defenseType
+            elseif slot.spell.defenseType then
+                defenseType = slot.spell.defenseType
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type then
+                defenseType = slot.spell.keywords.block.type
             end
             
-            self.gameState.vfx.createEffect("shield", self.x, self.y, nil, nil, {
-                duration = 1.0,
-                color = shieldColor,
-                shieldType = slot.defenseType
-            })
+            -- Get blocks from effect or spell
+            if effect.blockTypes then
+                blocks = effect.blockTypes
+            elseif slot.spell.blockableBy then
+                blocks = slot.spell.blockableBy
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.blocks then
+                blocks = slot.spell.keywords.block.blocks
+            end
+            
+            -- Get manaLinked from effect or spell
+            if effect.manaLinked ~= nil then
+                manaLinked = effect.manaLinked
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.manaLinked ~= nil then
+                manaLinked = slot.spell.keywords.block.manaLinked
+            end
+            
+            -- Get reflect from effect or spell
+            if effect.reflect ~= nil then
+                reflect = effect.reflect
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.reflect ~= nil then
+                reflect = slot.spell.keywords.block.reflect
+            end
+            
+            -- Get hitPoints from effect or spell
+            if effect.shieldStrength then
+                hitPoints = effect.shieldStrength
+            elseif slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.hitPoints then
+                hitPoints = slot.spell.keywords.block.hitPoints
+            end
+            
+            -- Use our central shield creation function to set up the shield
+            local blockParams = {
+                type = defenseType,
+                blocks = blocks,
+                manaLinked = manaLinked,
+                reflect = reflect,
+                hitPoints = hitPoints -- Use existing shield strength if specified
+            }
+            
+            print("DEBUG: Shield parameters:")
+            print("DEBUG: - Type: " .. defenseType)
+            print("DEBUG: - Mana linked: " .. tostring(manaLinked))
+            print("DEBUG: - Reflect: " .. tostring(reflect))
+            if hitPoints then
+                print("DEBUG: - Hit points: " .. hitPoints)
+            end
+            
+            -- Call the shield creation function - this centralizes all shield setup logic
+            SpellsModule.keywordSystem.createShield(self, spellSlot, blockParams)
         end
         
         -- Apply elevation change if the shield spell includes that effect
         if effect.setElevation then
-            self.elevation = effect.setElevation
+            -- Determine the target for elevation changes
+            -- The 'ground' keyword targets the opponent, while 'elevate' targets self
+            local elevationTarget = effect.setElevation == "GROUNDED" and target or self
+            local wasAerial = elevationTarget.elevation == "AERIAL"
+            
+            -- Apply the elevation change
+            elevationTarget.elevation = effect.setElevation
             
             -- Set duration for elevation change if provided
             if effect.elevationDuration and effect.setElevation == "AERIAL" then
-                self.elevationTimer = effect.elevationDuration
-                print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+                elevationTarget.elevationTimer = effect.elevationDuration
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
             else
                 -- No duration specified, treat as permanent until changed by another spell
-                self.elevationTimer = 0
-                print(self.name .. " moved to " .. self.elevation .. " elevation")
+                elevationTarget.elevationTimer = 0
+                print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
             end
             
-            -- Create elevation change effect
-            if self.gameState.vfx and effect.setElevation == "AERIAL" then
-                self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+            -- Create appropriate visual effect for elevation change
+            if self.gameState.vfx then
+                if effect.setElevation == "AERIAL" then
+                    -- Effect for rising into the air
+                    self.gameState.vfx.createEffect("emberlift", elevationTarget.x, elevationTarget.y, nil, nil)
+                elseif effect.setElevation == "GROUNDED" and wasAerial then
+                    -- Effect for forcing opponent down to the ground
+                    self.gameState.vfx.createEffect("tidal_force_ground", elevationTarget.x, elevationTarget.y, nil, nil)
+                end
             end
         end
         
@@ -1500,29 +1900,74 @@ function Wizard:castSpell(spellSlot)
                     })
                 end
                 
-                -- Return one token back to the mana pool (use the last token in the list)
-                if #targetSlot.tokens > 0 then
-                    -- Get the last token
-                    local lastTokenIndex = #targetSlot.tokens
-                    local tokenData = targetSlot.tokens[lastTokenIndex]
-                    
-                    -- Trigger animation to return this token to the mana pool
-                    target.manaPool:returnToken(tokenData.index)
-                    
-                    -- Remove this token from the slot's token list
-                    table.remove(targetSlot.tokens, lastTokenIndex)
-                    
-                    -- Update shield strength based on remaining tokens
-                    targetSlot.shieldStrength = #targetSlot.tokens
-                    
-                    -- Print the blocked attack message
-                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield blocked " .. self.name .. "'s " .. 
-                          attackType .. " attack! (" .. targetSlot.shieldStrength .. " tokens remaining)")
+                -- Determine how many hits to apply to the shield
+                -- Check if this is a shield-breaker spell
+                local shieldBreakPower = 1  -- Default: reduce shield by 1
+                if slot.spell.shieldBreaker then
+                    shieldBreakPower = slot.spell.shieldBreaker
+                    print(string.format("[SHIELD BREAKER] %s's %s is a shield-breaker spell that deals %d hits to shields!",
+                        self.name, slot.spellType, shieldBreakPower))
                 end
                 
-                -- If the shield is depleted (no tokens left), destroy it
-                if #targetSlot.tokens <= 0 then
-                    print(target.name .. "'s " .. targetSlot.defenseType .. " shield has been broken!")
+                -- Check if this is a mana-linked shield (consumes tokens when blocking)
+                -- Default to true (backward compatibility)
+                local manaLinked = targetSlot.manaLinked
+                if manaLinked == nil then
+                    manaLinked = true
+                end
+                
+                if manaLinked then
+                    -- Apply shield-break effect and leak tokens
+                    local tokensToReturn = math.min(shieldBreakPower, #targetSlot.tokens)
+                    
+                    -- Return tokens back to the mana pool
+                    for i = 1, tokensToReturn do
+                        if #targetSlot.tokens > 0 then
+                            -- Get the last token
+                            local lastTokenIndex = #targetSlot.tokens
+                            local tokenData = targetSlot.tokens[lastTokenIndex]
+                            
+                            -- Trigger animation to return this token to the mana pool
+                            target.manaPool:returnToken(tokenData.index)
+                            
+                            -- Remove this token from the slot's token list
+                            table.remove(targetSlot.tokens, lastTokenIndex)
+                        end
+                    end
+                    
+                    -- Update shield strength based on remaining tokens
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print the blocked attack message with mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked %d mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, tokensToReturn, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack and leaked one mana! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                else
+                    -- For non-mana linked shields, just decrease the shield strength
+                    targetSlot.shieldStrength = targetSlot.shieldStrength - shieldBreakPower
+                    
+                    -- Print blocked message without mana leak info
+                    if shieldBreakPower > 1 then
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (-%d strength, %d remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, shieldBreakPower, targetSlot.shieldStrength))
+                    else
+                        print(string.format("[BLOCK] %s's %s shield blocked %s's %s attack! (%d strength remaining)",
+                            target.name, targetSlot.defenseType, self.name, attackType, targetSlot.shieldStrength))
+                    end
+                end
+                
+                -- If the shield is depleted (no strength left), destroy it
+                if targetSlot.shieldStrength <= 0 then
+                    print(string.format("[BLOCK] %s's %s shield has been broken!", target.name, targetSlot.defenseType))
+                    
+                    -- Return any remaining tokens (for partially consumed shields)
+                    for _, tokenData in ipairs(targetSlot.tokens) do
+                        target.manaPool:returnToken(tokenData.index)
+                    end
                     
                     -- Reset slot
                     targetSlot.active = false
@@ -1542,6 +1987,33 @@ function Wizard:castSpell(spellSlot)
                             particleCount = 15,
                             radius = 50
                         })
+                    end
+                end
+                
+                -- Check for reflection if this shield has that property
+                if targetSlot.reflect then
+                    print(string.format("[REFLECT] %s's shield reflected %s's attack back at them!",
+                        target.name, self.name))
+                    
+                    -- Implement spell reflection (simplified version)
+                    -- For now, just deal partial damage back to the caster
+                    if effect.damage and effect.damage > 0 then
+                        local reflectDamage = math.floor(effect.damage * 0.5) -- 50% reflection
+                        self.health = self.health - reflectDamage
+                        if self.health < 0 then self.health = 0 end
+                        
+                        print(string.format("[REFLECT] %s took %d reflected damage! (health: %d)", 
+                            self.name, reflectDamage, self.health))
+                            
+                        -- Create reflected damage visual effect
+                        if self.gameState.vfx then
+                            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                                duration = 0.5,
+                                color = {0.8, 0.2, 0.8, 0.7}, -- Purple for reflection
+                                particleCount = 10,
+                                radius = 30
+                            })
+                        end
                     end
                 end
                 
@@ -1675,21 +2147,33 @@ function Wizard:castSpell(spellSlot)
     end
     
     if effect.setElevation then
-        self.elevation = effect.setElevation
+        -- Determine the target for elevation changes
+        -- The 'ground' keyword targets the opponent, while 'elevate' targets self
+        local elevationTarget = effect.setElevation == "GROUNDED" and target or self
+        local wasAerial = elevationTarget.elevation == "AERIAL"
+        
+        -- Apply the elevation change
+        elevationTarget.elevation = effect.setElevation
         
         -- Set duration for elevation change if provided
         if effect.elevationDuration and effect.setElevation == "AERIAL" then
-            self.elevationTimer = effect.elevationDuration
-            print(self.name .. " moved to " .. self.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
+            elevationTarget.elevationTimer = effect.elevationDuration
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation for " .. effect.elevationDuration .. " seconds")
         else
             -- No duration specified, treat as permanent until changed by another spell
-            self.elevationTimer = 0
-            print(self.name .. " moved to " .. self.elevation .. " elevation")
+            elevationTarget.elevationTimer = 0
+            print(elevationTarget.name .. " moved to " .. elevationTarget.elevation .. " elevation")
         end
         
-        -- Create elevation change effect
-        if self.gameState.vfx and effect.setElevation == "AERIAL" then
-            self.gameState.vfx.createEffect("emberlift", self.x, self.y, nil, nil)
+        -- Create appropriate visual effect for elevation change
+        if self.gameState.vfx then
+            if effect.setElevation == "AERIAL" then
+                -- Effect for rising into the air
+                self.gameState.vfx.createEffect("emberlift", elevationTarget.x, elevationTarget.y, nil, nil)
+            elseif effect.setElevation == "GROUNDED" and wasAerial then
+                -- Effect for forcing opponent down to the ground
+                self.gameState.vfx.createEffect("tidal_force_ground", elevationTarget.x, elevationTarget.y, nil, nil)
+            end
         end
     end
     
