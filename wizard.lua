@@ -1097,7 +1097,11 @@ function Wizard:drawSpellSlots()
             
             for j, tokenData in ipairs(slot.tokens) do
                 local token = tokenData.token
-                if token.animTime >= token.animDuration and not token.returning then
+                -- Skip tokens that are returning or dissolving or in animation
+                if token and 
+                   (token.status == nil or (token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING)) and
+                   (token.isAnimating ~= true) and
+                   (token.animTime >= token.animDuration and not token.returning) then
                     local tokenCount = #slot.tokens
                     local anglePerToken = math.pi * 2 / tokenCount
                     local tokenAngle = progressAngle + anglePerToken * (j - 1)
@@ -1222,7 +1226,11 @@ function Wizard:drawSpellSlots()
             if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
-                    if token.animTime >= token.animDuration and not token.returning then
+                    -- Skip tokens that are returning or dissolving or in animation
+                    if token and 
+                       (token.status == nil or (token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING)) and
+                       (token.isAnimating ~= true) and
+                       (token.animTime >= token.animDuration and not token.returning) then
                         local tokenCount = #slot.tokens
                         local anglePerToken = math.pi * 2 / tokenCount
                         local tokenAngle = progressAngle + anglePerToken * (j - 1)
@@ -1254,7 +1262,11 @@ function Wizard:drawSpellSlots()
             if #slot.tokens > 0 and not slot.isShield then
                 for j, tokenData in ipairs(slot.tokens) do
                     local token = tokenData.token
-                    if token.animTime >= token.animDuration and not token.returning then
+                    -- Skip tokens that are returning or dissolving or in animation
+                    if token and 
+                       (token.status == nil or (token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING)) and
+                       (token.isAnimating ~= true) and
+                       (token.animTime >= token.animDuration and not token.returning) then
                         -- Position tokens on their appropriate paths even when slot is inactive
                         local tokenCount = #slot.tokens
                         local anglePerToken = math.pi * 2 / tokenCount

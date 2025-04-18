@@ -809,6 +809,11 @@ function ManaPool:draw()
     for _, tokenData in ipairs(sortedTokens) do
         local token = tokenData.token
         
+        -- Skip drawing POOLED tokens
+        if token.status == Constants.TokenStatus.POOLED then
+            goto continue_token
+        end
+        
         -- Draw a larger, more vibrant glow around the token based on its type
         local glowSize = 15 -- Larger glow radius
         local glowIntensity = 0.6  -- Stronger glow intensity
@@ -819,11 +824,27 @@ function ManaPool:draw()
             local layerIntensity = glowIntensity * (layer == 1 and 0.4 or 0.8)
             
             -- Increase glow for tokens in transition (newly returned to pool)
-            if token.state == "FREE" and token.inTransition then
+            if token.status == Constants.TokenStatus.FREE and token.inTransition then
                 -- Stronger glow that fades over the transition period
                 local transitionBoost = 0.6 + 0.8 * (1 - token.transitionTime / token.transitionDuration)
                 layerSize = layerSize * (1 + transitionBoost * 0.5)
                 layerIntensity = layerIntensity + transitionBoost * 0.5
+            end
+            
+            -- Special visual effects for RETURNING tokens
+            if token.status == Constants.TokenStatus.RETURNING then
+                -- Bright, trailing glow for returning tokens
+                local returnProgress = token.animTime / token.animDuration
+                layerSize = layerSize * (1.2 + returnProgress * 0.8) -- Growing glow
+                layerIntensity = layerIntensity + returnProgress * 0.4 -- Brightening
+            end
+            
+            -- Special visual effects for DISSOLVING tokens
+            if token.status == Constants.TokenStatus.DISSOLVING then
+                -- Fading, expanding glow for dissolving tokens
+                local dissolveProgress = token.dissolveTime / token.dissolveMaxTime
+                layerSize = layerSize * (1 + dissolveProgress) -- Expanding glow
+                layerIntensity = layerIntensity * (1 - dissolveProgress * 0.8) -- Fading
             end
             
             -- Set glow color based on token type with improved contrast and vibrancy
@@ -843,15 +864,20 @@ function ManaPool:draw()
             local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
             
             -- Enhanced pulsation for transitioning tokens
-            if token.state == "FREE" and token.inTransition then
+            if token.status == Constants.TokenStatus.FREE and token.inTransition then
                 pulseAmount = pulseAmount + 0.3 * math.sin(token.transitionTime * 10)
+            end
+            
+            -- Enhanced pulsation for returning tokens
+            if token.status == Constants.TokenStatus.RETURNING then
+                pulseAmount = pulseAmount + 0.4 * math.sin(token.animTime * 15)
             end
             
             love.graphics.circle("fill", token.x, token.y, layerSize * pulseAmount * token.scale)
         end
         
         -- Draw a small outer ring for better definition
-        if token.state == "FREE" then
+        if token.status == Constants.TokenStatus.FREE then
             local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
             
             -- Set ring color based on token type
@@ -870,8 +896,56 @@ function ManaPool:draw()
             love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
         
+        -- Draw a trailing effect for returning tokens
+        if token.status == Constants.TokenStatus.RETURNING then
+            local progress = token.animTime / token.animDuration
+            local trailAlpha = 0.6 * (1 - progress)
+            
+            -- Set trail color based on token type
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.3, 0.1, trailAlpha)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 0.9, 0.3, trailAlpha)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.4, 0.4, 1, trailAlpha)
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.2, 0.9, 0.1, trailAlpha)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.8, 0.2, trailAlpha)
+            end
+            
+            -- Draw the trail as small circles along the bezier path
+            local numTrailPoints = 6
+            for i = 0, numTrailPoints do
+                local trailProgress = progress - (i / numTrailPoints) * 0.25  -- Trail behind the token
+                
+                -- Only draw trail points that are within the animation progress
+                if trailProgress > 0 and trailProgress < 1 then
+                    -- Calculate position along the bezier path
+                    local x0 = token.startX
+                    local y0 = token.startY
+                    local x3 = self.x  -- End at center of mana pool
+                    local y3 = self.y
+                    
+                    -- Control points for bezier curve
+                    local midX = (x0 + x3) / 2
+                    local midY = (y0 + y3) / 2 - 50  -- Arc height
+                    
+                    -- Quadratic bezier calculation
+                    local t = trailProgress
+                    local u = 1 - t
+                    local trailX = u*u*x0 + 2*u*t*midX + t*t*x3
+                    local trailY = u*u*y0 + 2*u*t*midY + t*t*y3
+                    
+                    -- Draw trail point with decreasing size
+                    local pointSize = (numTrailPoints - i) / numTrailPoints * 8 * token.scale
+                    love.graphics.circle("fill", trailX, trailY, pointSize)
+                end
+            end
+        end
+        
         -- Draw token image based on state
-        if token.state == "FREE" then
+        if token.status == Constants.TokenStatus.FREE then
             -- Free tokens are fully visible
             -- If token is in transition (just returned to pool), add a subtle glow effect
             if token.inTransition then
@@ -880,10 +954,10 @@ function ManaPool:draw()
             else
                 love.graphics.setColor(1, 1, 1, 1)
             end
-        elseif token.state == "CHANNELED" then
+        elseif token.status == Constants.TokenStatus.CHANNELED then
             -- Channeled tokens are fully visible
             love.graphics.setColor(1, 1, 1, 1)
-        elseif token.state == "SHIELDING" then
+        elseif token.status == Constants.TokenStatus.SHIELDING then
             -- Shielding tokens have a slight colored tint based on their type
             if token.type == "force" then
                 love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
@@ -894,40 +968,49 @@ function ManaPool:draw()
             else
                 love.graphics.setColor(1, 1, 1, 1)  -- Default
             end
-        elseif token.state == "LOCKED" then
+        elseif token.status == Constants.TokenStatus.LOCKED then
             -- Locked tokens have a red tint
             love.graphics.setColor(1, 0.5, 0.5, 0.7)
-        elseif token.state == "DESTROYED" then
+        elseif token.status == Constants.TokenStatus.RETURNING then
+            -- Returning tokens have a bright, energetic glow
+            local returnGlow = 0.3 + 0.7 * math.sin(token.animTime * 15)
+            love.graphics.setColor(1, 1, 1, 0.8 + returnGlow * 0.2)
+        elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Dissolving tokens fade out
-            if token.dissolving then
-                -- Calculate progress of the dissolve animation
-                local progress = token.dissolveTime / token.dissolveMaxTime
-                
-                -- Fade out by decreasing alpha
-                local alpha = (1 - progress) * 0.8
-                
-                -- Get token color based on its type for the fade effect
-                if token.type == "fire" then
-                    love.graphics.setColor(1, 0.3, 0.1, alpha)
-                elseif token.type == "force" then
-                    love.graphics.setColor(1, 0.9, 0.3, alpha)
-                elseif token.type == "moon" then
-                    love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
-                elseif token.type == "nature" then
-                    love.graphics.setColor(0.2, 0.9, 0.1, alpha)
-                elseif token.type == "star" then
-                    love.graphics.setColor(1, 0.8, 0.2, alpha)
-                else
-                    love.graphics.setColor(1, 1, 1, alpha)
-                end
+            -- Calculate progress of the dissolve animation
+            local progress = token.dissolveTime / token.dissolveMaxTime
+            
+            -- Fade out by decreasing alpha
+            local alpha = (1 - progress) * 0.8
+            
+            -- Get token color based on its type for the fade effect
+            if token.type == "fire" then
+                love.graphics.setColor(1, 0.3, 0.1, alpha)
+            elseif token.type == "force" then
+                love.graphics.setColor(1, 0.9, 0.3, alpha)
+            elseif token.type == "moon" then
+                love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
+            elseif token.type == "nature" then
+                love.graphics.setColor(0.2, 0.9, 0.1, alpha)
+            elseif token.type == "star" then
+                love.graphics.setColor(1, 0.8, 0.2, alpha)
             else
-                -- Skip drawing if not dissolving
-                goto continue
+                love.graphics.setColor(1, 1, 1, alpha)
+            end
+        else
+            -- For legacy compatibility - handle any other states (like "DESTROYED")
+            -- Check for dissolving flag for backwards compatibility
+            if token.dissolving then
+                local progress = token.dissolveTime / token.dissolveMaxTime
+                local alpha = (1 - progress) * 0.8
+                love.graphics.setColor(1, 1, 1, alpha)
+            else
+                love.graphics.setColor(1, 1, 1, 1)
             end
         end
         
         -- Draw the token with dynamic scaling
-        if token.state == "DESTROYED" and token.dissolving then
+        if token.status == Constants.TokenStatus.DISSOLVING then
             -- For dissolving tokens, add special effects
             local progress = token.dissolveTime / token.dissolveMaxTime
             
@@ -959,99 +1042,102 @@ function ManaPool:draw()
             )
         end
         
-        ::continue::
-        
-        -- Draw shield effect for shielding tokens
-        if token.state == "SHIELDING" then
-            -- Get token color based on its mana type
-            local tokenColor = {1, 1, 1, 0.3}  -- Default white
-            
-            -- Match color to the token type
-            if token.type == "fire" then
-                tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
-            elseif token.type == "force" then
-                tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
-            elseif token.type == "moon" then
-                tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
-            elseif token.type == "star" then
-                tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
-            elseif token.type == "nature" then
-                tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
+        -- Draw additional effects for non-POOLED tokens only
+        if token.status ~= Constants.TokenStatus.POOLED then
+            -- Draw shield effect for shielding tokens
+            if token.status == Constants.TokenStatus.SHIELDING then
+                -- Get token color based on its mana type
+                local tokenColor = {1, 1, 1, 0.3}  -- Default white
+                
+                -- Match color to the token type
+                if token.type == "fire" then
+                    tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
+                elseif token.type == "force" then
+                    tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
+                elseif token.type == "moon" then
+                    tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
+                elseif token.type == "star" then
+                    tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
+                elseif token.type == "nature" then
+                    tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
+                end
+                
+                -- Draw a subtle shield aura with slight pulsation
+                local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
+                love.graphics.setColor(tokenColor)
+                love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
+                
+                -- Draw shield border
+                love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+                love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
+                
+                -- Add a small defensive shield symbol inside the circle
+                -- Determine symbol shape by defense type if available
+                if token.wizardOwner and token.spellSlot then
+                    local slot = token.wizardOwner.spellSlots[token.spellSlot]
+                    if slot and slot.defenseType then
+                        love.graphics.setColor(1, 1, 1, 0.7)
+                        if slot.defenseType == "barrier" then
+                            -- Draw a small hexagon (shield shape) for barriers
+                            local shieldSize = 6 * token.scale
+                            local points = {}
+                            for i = 1, 6 do
+                                local angle = (i - 1) * math.pi / 3
+                                table.insert(points, token.x + math.cos(angle) * shieldSize)
+                                table.insert(points, token.y + math.sin(angle) * shieldSize)
+                            end
+                            love.graphics.polygon("line", points)
+                        elseif slot.defenseType == "ward" then
+                            -- Draw a small circle (ward shape)
+                            love.graphics.circle("line", token.x, token.y, 6 * token.scale)
+                        elseif slot.defenseType == "field" then
+                            -- Draw a small diamond (field shape)
+                            local fieldSize = 7 * token.scale
+                            love.graphics.polygon("line", 
+                                token.x, token.y - fieldSize,
+                                token.x + fieldSize, token.y,
+                                token.x, token.y + fieldSize,
+                                token.x - fieldSize, token.y
+                            )
+                        end
+                    end
+                end
             end
             
-            -- Draw a subtle shield aura with slight pulsation
-            local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
-            love.graphics.setColor(tokenColor)
-            love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
-            
-            -- Draw shield border
-            love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
-            love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
-            
-            -- Add a small defensive shield symbol inside the circle
-            -- Determine symbol shape by defense type if available
-            if token.wizardOwner and token.spellSlot then
-                local slot = token.wizardOwner.spellSlots[token.spellSlot]
-                if slot and slot.defenseType then
-                    love.graphics.setColor(1, 1, 1, 0.7)
-                    if slot.defenseType == "barrier" then
-                        -- Draw a small hexagon (shield shape) for barriers
-                        local shieldSize = 6 * token.scale
-                        local points = {}
-                        for i = 1, 6 do
-                            local angle = (i - 1) * math.pi / 3
-                            table.insert(points, token.x + math.cos(angle) * shieldSize)
-                            table.insert(points, token.y + math.sin(angle) * shieldSize)
-                        end
-                        love.graphics.polygon("line", points)
-                    elseif slot.defenseType == "ward" then
-                        -- Draw a small circle (ward shape)
-                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
-                    elseif slot.defenseType == "field" then
-                        -- Draw a small diamond (field shape)
-                        local fieldSize = 7 * token.scale
-                        love.graphics.polygon("line", 
-                            token.x, token.y - fieldSize,
-                            token.x + fieldSize, token.y,
-                            token.x, token.y + fieldSize,
-                            token.x - fieldSize, token.y
-                        )
-                    end
+            -- Draw lock overlay for locked tokens
+            if token.status == Constants.TokenStatus.LOCKED then
+                -- Draw the lock overlay
+                local pulseScale = 0.9 + math.sin(token.lockPulse) * 0.2  -- Pulsing effect
+                local overlayScale = 1.2 * pulseScale * token.scale  -- Scale for the lock overlay
+                
+                -- Pulsing red glow behind the lock
+                love.graphics.setColor(1, 0, 0, 0.3 + 0.2 * math.sin(token.lockPulse))
+                love.graphics.circle("fill", token.x, token.y, 12 * pulseScale * token.scale)
+                
+                -- Lock icon
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.draw(
+                    self.lockOverlay,
+                    token.x,
+                    token.y,
+                    0,  -- No rotation for lock
+                    overlayScale, overlayScale,
+                    self.lockOverlay:getWidth()/2, self.lockOverlay:getHeight()/2
+                )
+                
+                -- Display remaining lock time if more than 1 second
+                if token.lockDuration > 1 then
+                    love.graphics.setColor(1, 1, 1, 0.8)
+                    love.graphics.print(
+                        string.format("%.0f", token.lockDuration),
+                        token.x - 5,
+                        token.y - 25
+                    )
                 end
             end
         end
         
-        -- Draw lock overlay for locked tokens
-        if token.state == "LOCKED" then
-            -- Draw the lock overlay
-            local pulseScale = 0.9 + math.sin(token.lockPulse) * 0.2  -- Pulsing effect
-            local overlayScale = 1.2 * pulseScale * token.scale  -- Scale for the lock overlay
-            
-            -- Pulsing red glow behind the lock
-            love.graphics.setColor(1, 0, 0, 0.3 + 0.2 * math.sin(token.lockPulse))
-            love.graphics.circle("fill", token.x, token.y, 12 * pulseScale * token.scale)
-            
-            -- Lock icon
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(
-                self.lockOverlay,
-                token.x,
-                token.y,
-                0,  -- No rotation for lock
-                overlayScale, overlayScale,
-                self.lockOverlay:getWidth()/2, self.lockOverlay:getHeight()/2
-            )
-            
-            -- Display remaining lock time if more than 1 second
-            if token.lockDuration > 1 then
-                love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.print(
-                    string.format("%.0f", token.lockDuration),
-                    token.x - 5,
-                    token.y - 25
-                )
-            end
-        end
+        ::continue_token::
     end
     
     -- No border - the pool is now completely invisible
