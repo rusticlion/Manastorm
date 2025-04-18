@@ -43,14 +43,276 @@ function ManaPool.new(x, y)
     return self
 end
 
+-- Token methods for state machine
+local TokenMethods = {}
+
+-- Set the token's state with validation
+function TokenMethods:setState(newStatus)
+    local oldStatus = self.status
+    
+    -- Validate state transitions
+    if self.status == Constants.TokenStatus.POOLED then
+        print("[TOKEN LIFECYCLE] WARNING: Cannot transition from POOLED state!")
+        return false
+    end
+    
+    -- Log the state change for debugging
+    print("[TOKEN LIFECYCLE] Token " .. (self.id or "unknown") .. " state: " .. 
+          (self.status or "nil") .. " -> " .. newStatus)
+    
+    -- Update the token's status
+    self.status = newStatus
+    
+    -- For backwards compatibility, keep the legacy state in sync with the new status
+    if newStatus == Constants.TokenStatus.FREE or 
+       newStatus == Constants.TokenStatus.CHANNELED or 
+       newStatus == Constants.TokenStatus.SHIELDING then
+        self.state = newStatus
+    elseif newStatus == Constants.TokenStatus.RETURNING then
+        self.state = self.originalStatus -- Keep original state during animation
+    elseif newStatus == Constants.TokenStatus.DISSOLVING then
+        self.state = Constants.TokenState.DESTROYED
+    elseif newStatus == Constants.TokenStatus.POOLED then
+        self.state = Constants.TokenState.DESTROYED
+    end
+    
+    return true
+end
+
+-- Request token return animation
+function TokenMethods:requestReturnAnimation()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.CHANNELED and self.status ~= Constants.TokenStatus.SHIELDING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only return tokens from CHANNELED or SHIELDING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Store the original status for later reference
+    self.originalStatus = self.status
+    
+    -- Set animation flags
+    self.isAnimating = true
+    self.returning = true  -- For backward compatibility
+    
+    -- Set animation parameters
+    self.startX = self.x
+    self.startY = self.y
+    self.animTime = 0
+    self.animDuration = 0.5 -- Half second return animation
+    
+    -- Store callback to be called when animation completes
+    self.animationCallback = function() self:finalizeReturn() end
+    
+    -- Change state to RETURNING
+    self:setState(Constants.TokenStatus.RETURNING)
+    
+    return true
+end
+
+-- Request token destruction animation
+function TokenMethods:requestDestructionAnimation()
+    -- Validate current state
+    if self.status == Constants.TokenStatus.DISSOLVING or self.status == Constants.TokenStatus.POOLED then
+        print("[TOKEN LIFECYCLE] Token is already dissolving or pooled")
+        return false
+    end
+    
+    -- Set animation flags
+    self.isAnimating = true
+    self.dissolving = true  -- For backward compatibility
+    
+    -- Set animation parameters
+    self.dissolveTime = 0
+    self.dissolveMaxTime = 0.8  -- Dissolution animation duration
+    self.dissolveScale = self.scale or 1.0
+    self.initialX = self.x
+    self.initialY = self.y
+    
+    -- Store callback to be called when animation completes
+    self.animationCallback = function() self:finalizeDestruction() end
+    
+    -- Change state to DISSOLVING
+    self:setState(Constants.TokenStatus.DISSOLVING)
+    
+    -- Create visual particle effects at the token's position if not already exploding
+    if not self.exploding and self.gameState and self.gameState.vfx then
+        self.exploding = true
+        
+        -- Get token color based on its type
+        local color = {1, 0.6, 0.2, 0.8}  -- Default orange
+        if self.type == "fire" then
+            color = {1, 0.3, 0.1, 0.8}
+        elseif self.type == "force" then
+            color = {1, 0.9, 0.3, 0.8}
+        elseif self.type == "moon" then
+            color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
+        elseif self.type == "nature" then
+            color = {0.2, 0.9, 0.1, 0.8}
+        elseif self.type == "star" then
+            color = {1, 0.8, 0.2, 0.8}
+        end
+        
+        -- Create destruction visual effect
+        self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+            duration = 0.7,
+            color = color,
+            particleCount = 15,
+            radius = 30
+        })
+    end
+    
+    return true
+end
+
+-- Finalize return to pool after animation
+function TokenMethods:finalizeReturn()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.RETURNING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize return from RETURNING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Reset animation flags
+    self.isAnimating = false
+    self.returning = false  -- For backward compatibility
+    
+    -- Clear wizard/spell references
+    self.wizardOwner = nil
+    self.spellSlot = nil
+    self.tokenIndex = nil
+    
+    -- Get the ManaPool instance from the token's game state or another reference
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token return!")
+        return false
+    end
+    
+    -- Set new state
+    self:setState(Constants.TokenStatus.FREE)
+    
+    -- Initialize orbit parameters (borrowed from ManaPool:finalizeTokenReturn)
+    -- Choose a random valence
+    local valenceIndex = math.random(1, #manaPool.valences)
+    local valence = manaPool.valences[valenceIndex]
+    self.valenceIndex = valenceIndex
+    
+    -- Calculate angle from pool center
+    local dx = self.x - manaPool.x
+    local dy = self.y - manaPool.y
+    local angle = math.atan2(dy, dx)
+    
+    -- Set orbit angle
+    self.orbitAngle = angle
+    
+    -- Calculate position based on valence
+    local newX = manaPool.x + math.cos(angle) * valence.radiusX
+    local newY = manaPool.y + math.sin(angle) * valence.radiusY
+    
+    -- Add slight position variation
+    local variationX = math.random(-2, 2)
+    local variationY = math.random(-1, 1)
+    self.x = newX + variationX
+    self.y = newY + variationY
+    
+    -- Randomize orbit direction and speed
+    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
+    self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
+    self.originalSpeed = self.orbitSpeed
+    
+    -- Set transition flags for smooth animation
+    self.transitionTime = 0
+    self.transitionDuration = 1.0
+    self.inTransition = true
+    
+    -- Initialize valence properties
+    self.valenceJumpTimer = 2 + math.random() * 8
+    self.inValenceTransition = false
+    self.valenceTransitionTime = 0
+    self.valenceTransitionDuration = 0.8
+    self.sourceValenceIndex = valenceIndex
+    self.targetValenceIndex = valenceIndex
+    self.sourceRadiusX = valence.radiusX
+    self.sourceRadiusY = valence.radiusY
+    self.targetRadiusX = valence.radiusX
+    self.targetRadiusY = valence.radiusY
+    self.currentRadiusX = valence.radiusX
+    self.currentRadiusY = valence.radiusY
+    
+    -- Visual variance
+    self.scale = 0.85 + math.random() * 0.3
+    self.zOrder = math.random()
+    
+    print("[TOKEN LIFECYCLE] Token has fully returned to the pool and is FREE")
+    
+    return true
+end
+
+-- Finalize token destruction and release to pool
+function TokenMethods:finalizeDestruction()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.DISSOLVING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize destruction from DISSOLVING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Reset animation flags
+    self.isAnimating = false
+    self.dissolving = false  -- For backward compatibility
+    
+    -- Set new state
+    self:setState(Constants.TokenStatus.POOLED)
+    
+    -- Get the token's index in the mana pool
+    local found = false
+    local manaPool = self.manaPool
+    local index = nil
+    
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token destruction!")
+        return false
+    end
+    
+    for i, t in ipairs(manaPool.tokens) do
+        if t == self then
+            index = i
+            found = true
+            break
+        end
+    end
+    
+    if found and index then
+        -- Remove the token from the mana pool's token list
+        table.remove(manaPool.tokens, index)
+    else
+        print("[TOKEN LIFECYCLE] WARNING: Token not found in manaPool.tokens during finalization!")
+    end
+    
+    -- Release the token back to the object pool
+    Pool.release("token", self)
+    
+    print("[TOKEN LIFECYCLE] Token has been released back to the object pool")
+    
+    return true
+end
+
 -- Token reset function for the pool
 function ManaPool.resetToken(token)
+    -- Remove all methods first
+    for name, _ in pairs(TokenMethods) do
+        token[name] = nil
+    end
+    
     -- Clear all references and fields
     token.type = nil
     token.image = nil
     token.x = nil
     token.y = nil
     token.state = nil
+    token.status = nil  -- New field for the state machine
+    token.isAnimating = nil  -- New field to track animation state
+    token.animationCallback = nil  -- New field for animation completion callback
+    token.originalStatus = nil  -- To store the state before transitions
     token.lockDuration = nil
     token.valenceIndex = nil
     token.orbitAngle = nil
@@ -79,6 +341,8 @@ function ManaPool.resetToken(token)
     token.spellSlot = nil
     token.dissolving = nil
     token.gameState = nil
+    token.manaPool = nil  -- New field to reference the mana pool
+    token.id = nil  -- New field for tracking tokens
     
     -- Clear animation-related fields
     token.returning = nil
@@ -147,11 +411,25 @@ function ManaPool:addToken(tokenType, imagePath)
     
     -- Create a new token with valence-based properties
     local token = Pool.acquire("token")
+    
+    -- Add methods from TokenMethods table (Lua's way of adding methods to an object)
+    for name, method in pairs(TokenMethods) do
+        token[name] = method
+    end
+    
+    -- Initialize basic properties
     token.type = tokenType
     token.image = tokenImage
     token.x = x + variationX
     token.y = y + variationY
-    token.state = Constants.TokenState.FREE  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
+    
+    -- Initialize state machine properties
+    token.status = Constants.TokenStatus.FREE  -- New state machine status
+    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
+    token.isAnimating = false
+    token.manaPool = self  -- Reference to this mana pool instance
+    token.id = #self.tokens + 1  -- Simple ID based on token position
+    
     token.lockDuration = 0 -- Duration for how long a token remains locked
     
     -- Valence-based orbit properties
@@ -193,72 +471,28 @@ function ManaPool:addToken(tokenType, imagePath)
     
     token.originalSpeed = token.orbitSpeed
     
+    -- If game state is available, store it for VFX access
+    if self.gameState then
+        token.gameState = self.gameState
+    end
+    
+    -- Add to the pool's token list
     table.insert(self.tokens, token)
+    
+    print("[TOKEN LIFECYCLE] Created new token #" .. token.id .. " of type " .. tokenType .. " in FREE state")
+    
+    return token
 end
 
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
-    -- Check for destroyed tokens and remove them from the list
+    -- Update token positions and states
     for i = #self.tokens, 1, -1 do
         local token = self.tokens[i]
-        if token.state == "DESTROYED" then
-            -- Create an explosion/dissolution visual effect if we haven't already
-            if not token.dissolving then
-                token.dissolving = true
-                token.dissolveTime = 0
-                token.dissolveMaxTime = 0.8  -- Dissolution animation duration
-                token.dissolveScale = token.scale or 1.0
-                token.initialX = token.x
-                token.initialY = token.y
-                
-                -- Create visual particle effects at the token's position
-                if token.exploding ~= true then  -- Prevent duplicate explosion effects
-                    token.exploding = true
-                    
-                    -- Get token color based on its type
-                    local color = {1, 0.6, 0.2, 0.8}  -- Default orange
-                    if token.type == "fire" then
-                        color = {1, 0.3, 0.1, 0.8}
-                    elseif token.type == "force" then
-                        color = {1, 0.9, 0.3, 0.8}
-                    elseif token.type == "moon" then
-                        color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
-                    elseif token.type == "nature" then
-                        color = {0.2, 0.9, 0.1, 0.8}
-                    elseif token.type == "star" then
-                        color = {1, 0.8, 0.2, 0.8}
-                    end
-                    
-                    -- Create destruction visual effect
-                    if token.gameState and token.gameState.vfx then
-                        -- Use game state VFX system if available
-                        token.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
-                            duration = 0.7,
-                            color = color,
-                            particleCount = 15,
-                            radius = 30
-                        })
-                    end
-                end
-            else
-                -- Update dissolution animation
-                token.dissolveTime = token.dissolveTime + dt
-                
-                -- When dissolution is complete, remove the token
-                if token.dissolveTime >= token.dissolveMaxTime then
-                    -- Return the token to the object pool instead of just removing it
-                    local removedToken = table.remove(self.tokens, i)
-                    Pool.release("token", removedToken)
-                end
-            end
-        end
-    end
-    
-    -- Update token positions and states
-    for _, token in ipairs(self.tokens) do
-        -- Update token position based on state
-        if token.state == "FREE" then
+        
+        -- Update token based on its status in the state machine
+        if token.status == Constants.TokenStatus.FREE then
             -- Handle the transition period for newly returned tokens
             if token.inTransition then
                 token.transitionTime = token.transitionTime + dt
@@ -378,7 +612,8 @@ function ManaPool:update(dt)
             if math.random() < 0.002 then  -- Small chance to reverse rotation
                 token.rotSpeed = -token.rotSpeed
             end
-        elseif token.state == "CHANNELED" or token.state == "SHIELDING" then
+            
+        elseif token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
             -- For channeled or shielding tokens, animate movement to/from their spell slot
             
             if token.animTime < token.animDuration then
@@ -452,46 +687,70 @@ function ManaPool:update(dt)
                 token.rotAngle = token.rotAngle + dt * 2  -- Continue spinning in orbit
             end
             
-            -- Check if token is returning to the pool
-            if token.returning then
-                -- Token is being animated back to the mana pool
-                token.animTime = token.animTime + dt
-                local progress = math.min(1, token.animTime / token.animDuration)
-                
-                -- Ease in-out function for smoother animation
-                progress = progress < 0.5 and 4 * progress * progress * progress 
-                            or 1 - math.pow(-2 * progress + 2, 3) / 2
-                
-                -- Calculate current position based on bezier curve for arcing motion
-                local x0 = token.startX
-                local y0 = token.startY
-                local x3 = self.x  -- Center of mana pool
-                local y3 = self.y
-                
-                -- Control points for bezier (creating an arc)
-                local midX = (x0 + x3) / 2
-                local midY = (y0 + y3) / 2 - 50  -- Arc height
-                
-                -- Quadratic bezier calculation
-                local t = progress
-                local u = 1 - t
-                token.x = u*u*x0 + 2*u*t*midX + t*t*x3
-                token.y = u*u*y0 + 2*u*t*midY + t*t*y3
-                
-                -- Update token rotation during flight - spin faster
-                token.rotAngle = token.rotAngle + dt * 8
-                
-                -- Check if animation is complete
-                if token.animTime >= token.animDuration then
-                    -- Token has reached the pool - finalize its return and perform state transition
-                    print(string.format("[MANAPOOL] Token return animation completed, finalizing state"))
-                    self:finalizeTokenReturn(token)
+            -- Update common pulse
+            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            
+        elseif token.status == Constants.TokenStatus.RETURNING then
+            -- Token is being animated back to the mana pool
+            token.animTime = token.animTime + dt
+            local progress = math.min(1, token.animTime / token.animDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startX
+            local y0 = token.startY
+            local x3 = self.x  -- Center of mana pool
+            local y3 = self.y
+            
+            -- Control points for bezier (creating an arc)
+            local midX = (x0 + x3) / 2
+            local midY = (y0 + y3) / 2 - 50  -- Arc height
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Update token rotation during flight - spin faster
+            token.rotAngle = token.rotAngle + dt * 8
+            
+            -- Check if animation is complete
+            if token.animTime >= token.animDuration then
+                -- Token has reached the pool - call the animation callback
+                print(string.format("[MANAPOOL] Token return animation completed, executing callback"))
+                if token.animationCallback then
+                    token.animationCallback()
+                else
+                    print("[MANAPOOL] WARNING: No animation callback defined for returning token")
+                    -- Fallback for backward compatibility
+                    token:setState(Constants.TokenStatus.FREE)
                 end
             end
             
             -- Update common pulse
             token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
-        elseif token.state == "LOCKED" then
+            
+        elseif token.status == Constants.TokenStatus.DISSOLVING then
+            -- Update dissolution animation
+            token.dissolveTime = token.dissolveTime + dt
+            
+            -- When dissolution is complete, call the animation callback
+            if token.dissolveTime >= token.dissolveMaxTime then
+                -- Execute the callback to finalize destruction
+                print(string.format("[MANAPOOL] Token dissolve animation completed, executing callback"))
+                if token.animationCallback then
+                    token.animationCallback()
+                else
+                    print("[MANAPOOL] WARNING: No animation callback defined for dissolving token")
+                    -- No fallback needed; token will be removed on the next frame
+                end
+            end
+            
+        elseif token.status == Constants.TokenStatus.LOCKED then
             -- For locked tokens, update the lock duration
             if token.lockDuration > 0 then
                 token.lockDuration = token.lockDuration - dt
@@ -501,8 +760,9 @@ function ManaPool:update(dt)
                 
                 -- When lock duration expires, return to FREE state
                 if token.lockDuration <= 0 then
-                    token.state = "FREE"
-                    print("A " .. token.type .. " token has been unlocked and returned to the mana pool")
+                    -- Use state machine to transition to FREE
+                    token:setState(Constants.TokenStatus.FREE)
+                    print("[TOKEN LIFECYCLE] A " .. token.type .. " token has been unlocked and returned to the mana pool")
                     
                     -- Reset position to center with some random velocity
                     token.x = self.x
@@ -515,7 +775,6 @@ function ManaPool:update(dt)
                     local valence = self.valences[token.valenceIndex]
                     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
                     token.originalSpeed = token.orbitSpeed
-                    -- No repulsion forces needed (system removed)
                 end
             end
             
@@ -825,7 +1084,7 @@ end
 function ManaPool:findFreeToken(tokenType)
     -- Find a free token of the specified type without changing its state
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.state == "FREE" then
+        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
             return token, i  -- Return token and its index without changing state
         end
     end
@@ -835,10 +1094,10 @@ end
 function ManaPool:getToken(tokenType)
     -- Find a free token of the specified type that's not in transition
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.state == "FREE" and
+        if token.type == tokenType and token.status == Constants.TokenStatus.FREE and
            not token.returning and not token.inTransition then
-            -- Mark as being used
-            token.state = "CHANNELED"  
+            -- Mark as being used (using setState for state machine)
+            token:setState(Constants.TokenStatus.CHANNELED)
             print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling", i, token.type))
             return token, i  -- Return token and its index
         end
@@ -846,13 +1105,16 @@ function ManaPool:getToken(tokenType)
     
     -- Second pass - try with less strict requirements if nothing was found
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.state == "FREE" then
+        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
             if token.returning then
                 print("[MANAPOOL] WARNING: Using token in return animation - visual glitches may occur")
             elseif token.inTransition then
                 print("[MANAPOOL] WARNING: Using token in transition state - visual glitches may occur")
             end
-            token.state = "CHANNELED"
+            
+            -- Use setState method for state machine transition
+            token:setState(Constants.TokenStatus.CHANNELED)
+            
             print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling (fallback)", i, token.type))
             -- Cancel any return animation
             token.returning = false
@@ -865,162 +1127,74 @@ function ManaPool:getToken(tokenType)
 end
 
 function ManaPool:returnToken(tokenIndex)
-    -- Return a token to the pool
+    -- Return a token to the pool using the new state machine
     if self.tokens[tokenIndex] then
         local token = self.tokens[tokenIndex]
         
-        -- Validate the token state and ownership before return
-        if token.returning then
-            print("[MANAPOOL] WARNING: Token " .. tokenIndex .. " is already being returned - ignoring duplicate return")
-            return
-        end
-        
-        -- Clear any wizard ownership immediately to prevent double-tracking
-        token.wizardOwner = nil
-        token.spellSlot = nil
-        
-        -- Ensure token is in a valid state - convert any state to valid transition state
-        local originalState = token.state
-        if token.state == "SHIELDING" or token.state == "CHANNELED" then
-            print("[MANAPOOL] Token " .. tokenIndex .. " transitioning from " .. 
-                 (token.state or "nil") .. " to return animation")
+        -- Use token's method if available, otherwise fallback to legacy behavior
+        if token.requestReturnAnimation then
+            print("[MANAPOOL] Using token state machine to return token " .. tokenIndex)
+            token:requestReturnAnimation()
+        else
+            -- Legacy fallback for tokens that don't have the state machine methods
+            print("[MANAPOOL] WARNING: Using legacy return method for token " .. tokenIndex .. " - state machine methods not found")
             
-            -- We don't set state = FREE here yet - we let the animation complete first
-            -- This prevents tokens from being reused in the middle of an animation
-        elseif token.state ~= "FREE" then
-            print("[MANAPOOL] WARNING: Returning token " .. tokenIndex .. " from unexpected state: " .. 
-                 (token.state or "nil"))
+            -- Validate the token state and ownership before return
+            if token.returning then
+                print("[MANAPOOL] WARNING: Token " .. tokenIndex .. " is already being returned - ignoring duplicate return")
+                return
+            end
+            
+            -- Clear any wizard ownership immediately to prevent double-tracking
+            token.wizardOwner = nil
+            token.spellSlot = nil
+            
+            -- Ensure token is in a valid state - convert any state to valid transition state
+            local originalState = token.state
+            if token.state == "SHIELDING" or token.state == "CHANNELED" then
+                print("[MANAPOOL] Token " .. tokenIndex .. " transitioning from " .. 
+                     (token.state or "nil") .. " to return animation")
+            elseif token.state ~= "FREE" then
+                print("[MANAPOOL] WARNING: Returning token " .. tokenIndex .. " from unexpected state: " .. 
+                     (token.state or "nil"))
+            end
+            
+            -- Store current position as start position for return animation
+            token.startX = token.x
+            token.startY = token.y
+            
+            -- Set up return animation parameters
+            token.targetX = self.x  -- Center of mana pool
+            token.targetY = self.y
+            token.animTime = 0
+            token.animDuration = 0.5 -- Half second return animation
+            token.returning = true   -- Flag that this token is returning to the pool
+            token.originalState = originalState  -- Remember what state it was in before return
+            
+            print("[MANAPOOL] Token " .. tokenIndex .. " (" .. token.type .. ") returning animation started")
         end
-        
-        -- Store current position as start position for return animation
-        token.startX = token.x
-        token.startY = token.y
-        
-        -- Pick a random valence for the token to return to
-        local valenceIndex = math.random(1, #self.valences)
-        
-        -- Initialize needed valence transition fields
-        local valence = self.valences[valenceIndex]
-        token.valenceIndex = valenceIndex
-        token.sourceValenceIndex = valenceIndex  -- Will be properly set in finalizeTokenReturn
-        token.targetValenceIndex = valenceIndex
-        token.sourceRadiusX = valence.radiusX
-        token.sourceRadiusY = valence.radiusY
-        token.targetRadiusX = valence.radiusX
-        token.targetRadiusY = valence.radiusY
-        token.currentRadiusX = valence.radiusX
-        token.currentRadiusY = valence.radiusY
-        
-        -- Set up return animation parameters
-        token.targetX = self.x  -- Center of mana pool
-        token.targetY = self.y
-        token.animTime = 0
-        token.animDuration = 0.5 -- Half second return animation
-        token.returning = true   -- Flag that this token is returning to the pool
-        token.originalState = originalState  -- Remember what state it was in before return
-        
-        -- Set direction and speed based on the valence for when it becomes FREE
-        local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
-        token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
-        token.originalSpeed = token.orbitSpeed
-        
-        -- Reset timers with some randomness
-        token.valenceJumpTimer = 2 + math.random() * 4
-        
-        -- Initialize transition state for smooth blending
-        token.inValenceTransition = false
-        token.valenceTransitionTime = 0
-        token.valenceTransitionDuration = 0.8
-        
-        print("[MANAPOOL] Token " .. tokenIndex .. " (" .. token.type .. ") returning animation started")
     else
         print("[MANAPOOL] WARNING: Attempted to return invalid token index: " .. tokenIndex)
     end
 end
 
--- Called by update method when a token finishes its return animation
+-- This method has been replaced by token:finalizeReturn
+-- Kept for backward compatibility with code that hasn't been updated yet
 function ManaPool:finalizeTokenReturn(token)
-    -- Clear all references to the spell it was used in
-    token.wizardOwner = nil
-    token.spellSlot = nil
-    token.tokenIndex = nil
+    print("[MANAPOOL] WARNING: ManaPool:finalizeTokenReturn is deprecated, use token:finalizeReturn instead")
     
-    -- Record the original state for debugging
-    local originalState = token.state
-    
-    -- ALWAYS set to FREE state when a token returns to the pool
-    token.state = "FREE"
-    
-    -- Log state change with details
-    if originalState ~= "FREE" then
-        print(string.format("[MANAPOOL] Token state changed: %s -> FREE (was %s before return animation)", 
-              originalState or "nil", token.originalState or "unknown"))
+    -- Just call the token's method if available
+    if token.finalizeReturn then
+        token:finalizeReturn()
+    else
+        -- Legacy fallback (simplified)
+        token.state = Constants.TokenState.FREE
+        token.status = Constants.TokenStatus.FREE
+        token.returning = false
+        token.wizardOwner = nil
+        token.spellSlot = nil
+        token.tokenIndex = nil
     end
-    token.originalState = nil -- Clean up
-    
-    -- Use the final position from the animation as the starting point
-    local currentX = token.x
-    local currentY = token.y
-    
-    -- Calculate angle from center
-    local dx = currentX - self.x
-    local dy = currentY - self.y
-    local angle = math.atan2(dy, dx)
-    
-    -- Assign a random valence for the returned token
-    local valenceIndex = math.random(1, #self.valences)
-    local valence = self.valences[valenceIndex]
-    token.valenceIndex = valenceIndex
-    
-    -- Calculate position based on current angle but using valence's elliptical dimensions
-    token.orbitAngle = angle
-    
-    -- Calculate initial x,y based on selected valence
-    local newX = self.x + math.cos(angle) * valence.radiusX
-    local newY = self.y + math.sin(angle) * valence.radiusY
-    
-    -- Apply minimal variation to maintain clean orbits
-    local variationX = math.random(-2, 2)
-    local variationY = math.random(-1, 1)
-    token.x = newX + variationX
-    token.y = newY + variationY
-    
-    -- Randomize orbit direction (clockwise or counter-clockwise)
-    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
-    
-    -- Set orbital speed based on the valence
-    token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
-    token.originalSpeed = token.orbitSpeed
-    
-    -- Add transition for smooth blending
-    token.transitionTime = 0
-    token.transitionDuration = 1.0  -- 1 second to blend into normal motion
-    token.inTransition = true  -- Mark token as transitioning to normal motion
-    
-    -- Add valence jump timer
-    token.valenceJumpTimer = 2 + math.random() * 8
-    
-    -- Initialize valence transition properties
-    token.inValenceTransition = false
-    token.valenceTransitionTime = 0
-    token.valenceTransitionDuration = 0.8
-    token.sourceValenceIndex = valenceIndex
-    token.targetValenceIndex = valenceIndex
-    token.sourceRadiusX = valence.radiusX
-    token.sourceRadiusY = valence.radiusY
-    token.targetRadiusX = valence.radiusX
-    token.targetRadiusY = valence.radiusY
-    token.currentRadiusX = valence.radiusX
-    token.currentRadiusY = valence.radiusY
-    
-    -- Size and z-order variation
-    token.scale = 0.85 + math.random() * 0.3
-    token.zOrder = math.random()
-    
-    -- Clear animation flags and any spell-related ownership
-    token.returning = false
-    
-    print("[MANAPOOL] Token (" .. token.type .. ") has fully returned to the pool and is FREE")
 end
 
 return ManaPool

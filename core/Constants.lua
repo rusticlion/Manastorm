@@ -21,7 +21,18 @@ Constants.TokenState = {
     CHANNELED = "CHANNELED",   -- Being used in a spell slot
     SHIELDING = "SHIELDING",   -- Being used for a shield spell
     LOCKED = "LOCKED",         -- Temporarily unavailable
-    DESTROYED = "DESTROYED"    -- Removed from play
+    DESTROYED = "DESTROYED"    -- Removed from play (legacy state for backwards compatibility)
+}
+
+-- Token status in the lifecycle state machine
+Constants.TokenStatus = {
+    FREE = "FREE",             -- Available in the pool
+    CHANNELED = "CHANNELED",   -- Being used in a spell slot
+    SHIELDING = "SHIELDING",   -- Being used for a shield spell
+    LOCKED = "LOCKED",         -- Temporarily unavailable
+    RETURNING = "RETURNING",   -- Animating back to pool (transition state)
+    DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
+    POOLED = "POOLED"          -- Released to the object pool
 }
 
 -- Range positioning between wizards

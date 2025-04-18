@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri Apr 18 13:01:02 CDT 2025
+Generated: Fri Apr 18 15:22:26 CDT 2025
 
 # Source Code
 
@@ -1414,6 +1414,36 @@ return DocGenerator```
 ```lua
 -- keywords.lua
 -- Defines all keywords and their behaviors for the spell system
+--
+-- IMPORTANT: Keyword execute functions should create and return events rather than directly modifying game state.
+-- The events are collected and processed by the EventRunner module.
+--
+-- When creating a new keyword, follow this pattern:
+--
+-- Keywords.newKeyword = {
+--     behavior = {
+--         -- Define behavior metadata here to document the effect
+--         descriptiveProperty = true,
+--         targetType = Constants.TargetType.ENEMY,
+--         category = "CATEGORY"
+--     },
+--     
+--     -- Implementation function should return events
+--     execute = function(params, caster, target, results)
+--         -- Create your event(s) here 
+--         results.myEvent = {
+--             type = "EVENT_TYPE", 
+--             source = "caster",
+--             target = "enemy",
+--             property = params.property
+--         }
+--         
+--         -- Return the results table containing events
+--         return results
+--     end
+-- }
+--
+-- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
 local Keywords = {}
@@ -1914,10 +1944,21 @@ Keywords.echo = {
         defaultDelay = 2.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - New event-based pattern
+    execute = function(params, caster, target, results, events)
+        -- Create an ECHO event directly
+        table.insert(events or {}, {
+            type = "ECHO",
+            source = "caster",
+            target = "self_slot",
+            slotIndex = results.currentSlot, -- Use the current slot or specified one
+            delay = params.delay or 2.0
+        })
+        
+        -- For backward compatibility, still add to results
         results.echo = true
         results.echoDelay = params.delay or 2.0
+        
         return results
     end
 }
@@ -3908,6 +3949,20 @@ return success```
 ```lua
 -- spellCompiler.lua
 -- Compiles spell definitions using keyword behaviors
+--
+-- IMPORTANT: This system now uses a pure event-based architecture.
+-- All keyword behaviors should create events rather than directly modifying game state.
+-- Events are processed by the EventRunner module after all behaviors have been executed.
+-- The events should follow the schema defined in docs/combat_events.md.
+--
+-- Example event structure:
+-- {
+--   type = "DAMAGE",       -- Required: Type of the event
+--   source = "caster",     -- Required: Source of the event (usually "caster")
+--   target = "enemy",      -- Required: Target of the event (e.g., "self", "enemy", "both", etc.)
+--   amount = 10,           -- Event-specific data
+--   damageType = "fire"    -- Event-specific data
+-- }
 
 local SpellCompiler = {}
 
@@ -4035,25 +4090,26 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     end
                 end
                 
-                -- Execute the behavior to get the results
-                local behaviorResults
+                -- Execute the behavior to get events
+                local behaviorResults = {}
+                
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results into the main results
+                -- Merge the behavior results into the main results for backward compatibility
                 for k, v in pairs(behaviorResults) do
                     results[k] = v
                 end
                 
-                -- Special handling for shield behaviors to maintain compatibility
+                -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
                     -- Create a CREATE_SHIELD event
                     table.insert(events, {
@@ -4075,15 +4131,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         end
         
         if useEventSystem then
-            -- Wrap event generation and processing in pcall to avoid crashing the game
+            -- Wrap event processing in pcall to avoid crashing the game
             local success, result = pcall(function()
-                -- Generate events from the results if using the event system
-                local legacyEvents = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
-                
-                -- Combine legacy events with any explicitly created events
-                for _, event in ipairs(legacyEvents) do
-                    table.insert(events, event)
-                end
+                -- We now use ONLY explicit events created during execution
+                -- No conversion from legacy result formats
                 
                 -- Debug output for events
                 if _G.DEBUG_EVENTS then
@@ -4118,12 +4169,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     -- Add method for direct event generation without execution
     -- Useful for testing and debugging
     compiledSpell.generateEvents = function(caster, target, spellSlot)
-        local results = {}
+        local events = {}
         
-        -- Execute each behavior to collect results
+        -- Execute each behavior to generate events
         for keyword, behavior in pairs(compiledSpell.behavior) do
             if behavior.execute then
                 local params = behavior.params or {}
+                local localResults = {}
                 
                 -- Process function parameters
                 for paramName, paramValue in pairs(params) do
@@ -4133,30 +4185,39 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         end)
                         
                         if success then
-                            results[keyword .. "_" .. paramName] = result
+                            localResults[keyword .. "_" .. paramName] = result
                         end
                     end
                 end
                 
-                -- Execute the behavior without modifying state
-                local behaviorResults
+                -- Execute the behavior to generate events directly
+                -- No state modification occurs
                 if behavior.enabled then
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    -- Call the keyword execute function with an empty results table
+                    -- The events parameter allows keywords to add events directly via table.insert
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results
-                for k, v in pairs(behaviorResults) do
-                    results[k] = v
+                -- Special handling for shield behaviors (block keyword)
+                if keyword == "block" then
+                    -- Create a CREATE_SHIELD event explicitly
+                    local shieldParams = localResults.shieldParams or {}
+                    table.insert(events, {
+                        type = "CREATE_SHIELD",
+                        source = "caster",
+                        target = "self",
+                        slotIndex = spellSlot,
+                        defenseType = shieldParams.defenseType or "barrier",
+                        blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
+                        reflect = shieldParams.reflect or false
+                    })
                 end
             end
         end
-        
-        -- Generate events from the results
-        local events = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
         
         return events
     end
@@ -6196,211 +6257,6 @@ EventRunner.EVENT_HANDLERS = {
         return false
     end
 }
-
--- Generate events from old-style results table for backward compatibility
-function EventRunner.generateEventsFromResults(results, caster, target, spellSlot)
-    local events = {}
-    
-    -- Handle damage events
-    if results.damage then
-        table.insert(events, {
-            type = "DAMAGE",
-            source = "caster",
-            target = "enemy",
-            amount = results.damage,
-            damageType = results.damageType
-        })
-    end
-    
-    -- Handle burn (DoT) events
-    if results.burnApplied then
-        table.insert(events, {
-            type = "APPLY_STATUS",
-            source = "caster",
-            target = "enemy",
-            statusType = "burn",
-            duration = results.burnDuration,
-            tickDamage = results.burnTickDamage,
-            tickInterval = results.burnTickInterval
-        })
-    end
-    
-    -- Handle elevation events
-    if results.setElevation then
-        table.insert(events, {
-            type = "SET_ELEVATION",
-            source = "caster",
-            target = results.elevationTarget or "self",
-            elevation = results.setElevation,
-            duration = results.elevationDuration
-        })
-    end
-    
-    -- Handle range events
-    if results.setPosition then
-        table.insert(events, {
-            type = "SET_RANGE",
-            source = "caster",
-            target = "both",
-            position = results.setPosition
-        })
-    end
-    
-    -- Handle force position events
-    if results.forcePosition then
-        table.insert(events, {
-            type = "FORCE_POSITION",
-            source = "caster",
-            target = "enemy"
-        })
-    end
-    
-    -- Handle token lock events
-    if results.lockToken then
-        table.insert(events, {
-            type = "LOCK_TOKEN",
-            source = "caster",
-            target = "pool",
-            duration = results.lockDuration,
-            amount = 1,
-            tokenType = "any"
-        })
-    end
-    
-    -- Handle token shift events
-    if results.tokenShift then
-        table.insert(events, {
-            type = "SHIFT_TOKEN",
-            source = "caster",
-            target = "pool",
-            tokenType = results.tokenShiftType,
-            amount = results.tokenShiftAmount
-        })
-    end
-    
-    -- Handle dissipate events
-    if results.dissipate then
-        table.insert(events, {
-            type = "DISSIPATE_TOKEN",
-            source = "caster",
-            target = "pool",
-            tokenType = results.dissipateType,
-            amount = results.dissipateAmount
-        })
-    end
-    
-    -- Handle delay events
-    if results.delayApplied then
-        table.insert(events, {
-            type = "DELAY_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            amount = results.delayAmount
-        })
-    end
-    
-    -- Handle accelerate events
-    if results.accelerate then
-        table.insert(events, {
-            type = "ACCELERATE_SPELL",
-            source = "caster",
-            target = "self_slot",
-            slotIndex = results.targetSlot,
-            amount = results.accelerateAmount
-        })
-    end
-    
-    -- Handle dispel events
-    if results.dispel then
-        table.insert(events, {
-            type = "CANCEL_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            returnMana = true
-        })
-    end
-    
-    -- Handle disjoint events
-    if results.disjoint then
-        table.insert(events, {
-            type = "CANCEL_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            returnMana = false
-        })
-    end
-    
-    -- Handle freeze events
-    if results.freezeApplied then
-        table.insert(events, {
-            type = "FREEZE_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            duration = results.freezeDuration
-        })
-    end
-    
-    -- Handle shield creation
-    if results.shieldParams and results.shieldParams.createShield then
-        table.insert(events, {
-            type = "CREATE_SHIELD",
-            source = "caster",
-            target = "self", -- Use "self" instead of "self_slot" for consistency with keywords
-            slotIndex = spellSlot,
-            defenseType = results.shieldParams.defenseType or "barrier",
-            blocksAttackTypes = results.shieldParams.blocksAttackTypes or {"projectile"},
-            reflect = results.shieldParams.reflect or false
-        })
-    end
-    
-    -- Handle reflect events
-    if results.reflect then
-        table.insert(events, {
-            type = "REFLECT",
-            source = "caster",
-            target = "self",
-            duration = results.reflectDuration
-        })
-    end
-    
-    -- Handle echo events
-    if results.echo then
-        table.insert(events, {
-            type = "ECHO",
-            source = "caster",
-            target = "self_slot",
-            slotIndex = spellSlot,
-            delay = results.echoDelay
-        })
-    end
-    
-    -- Handle zone anchor events
-    if results.zoneAnchor then
-        table.insert(events, {
-            type = "ZONE_ANCHOR",
-            source = "caster",
-            target = "self",
-            anchorRange = results.anchorRange,
-            anchorElevation = results.anchorElevation,
-            requireAll = results.anchorRequireAll
-        })
-    end
-    
-    -- Handle zone multi events
-    if results.zoneMulti then
-        table.insert(events, {
-            type = "ZONE_MULTI",
-            source = "caster",
-            target = "self"
-        })
-    end
-    
-    return events
-end
 
 -- Debug function to print all events
 function EventRunner.debugPrintEvents(events)
@@ -16054,7 +15910,7 @@ centralizes the shield creation logic previously duplicated or bypassed.~
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri Apr 18 13:01:02 CDT 2025
+Generated: Fri Apr 18 15:22:26 CDT 2025
 
 # Source Code
 
@@ -17469,6 +17325,36 @@ return DocGenerator```
 ```lua
 -- keywords.lua
 -- Defines all keywords and their behaviors for the spell system
+--
+-- IMPORTANT: Keyword execute functions should create and return events rather than directly modifying game state.
+-- The events are collected and processed by the EventRunner module.
+--
+-- When creating a new keyword, follow this pattern:
+--
+-- Keywords.newKeyword = {
+--     behavior = {
+--         -- Define behavior metadata here to document the effect
+--         descriptiveProperty = true,
+--         targetType = Constants.TargetType.ENEMY,
+--         category = "CATEGORY"
+--     },
+--     
+--     -- Implementation function should return events
+--     execute = function(params, caster, target, results)
+--         -- Create your event(s) here 
+--         results.myEvent = {
+--             type = "EVENT_TYPE", 
+--             source = "caster",
+--             target = "enemy",
+--             property = params.property
+--         }
+--         
+--         -- Return the results table containing events
+--         return results
+--     end
+-- }
+--
+-- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
 local Keywords = {}
@@ -17969,10 +17855,21 @@ Keywords.echo = {
         defaultDelay = 2.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - New event-based pattern
+    execute = function(params, caster, target, results, events)
+        -- Create an ECHO event directly
+        table.insert(events or {}, {
+            type = "ECHO",
+            source = "caster",
+            target = "self_slot",
+            slotIndex = results.currentSlot, -- Use the current slot or specified one
+            delay = params.delay or 2.0
+        })
+        
+        -- For backward compatibility, still add to results
         results.echo = true
         results.echoDelay = params.delay or 2.0
+        
         return results
     end
 }
@@ -19963,6 +19860,20 @@ return success```
 ```lua
 -- spellCompiler.lua
 -- Compiles spell definitions using keyword behaviors
+--
+-- IMPORTANT: This system now uses a pure event-based architecture.
+-- All keyword behaviors should create events rather than directly modifying game state.
+-- Events are processed by the EventRunner module after all behaviors have been executed.
+-- The events should follow the schema defined in docs/combat_events.md.
+--
+-- Example event structure:
+-- {
+--   type = "DAMAGE",       -- Required: Type of the event
+--   source = "caster",     -- Required: Source of the event (usually "caster")
+--   target = "enemy",      -- Required: Target of the event (e.g., "self", "enemy", "both", etc.)
+--   amount = 10,           -- Event-specific data
+--   damageType = "fire"    -- Event-specific data
+-- }
 
 local SpellCompiler = {}
 
@@ -20090,25 +20001,26 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     end
                 end
                 
-                -- Execute the behavior to get the results
-                local behaviorResults
+                -- Execute the behavior to get events
+                local behaviorResults = {}
+                
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results into the main results
+                -- Merge the behavior results into the main results for backward compatibility
                 for k, v in pairs(behaviorResults) do
                     results[k] = v
                 end
                 
-                -- Special handling for shield behaviors to maintain compatibility
+                -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
                     -- Create a CREATE_SHIELD event
                     table.insert(events, {
@@ -20130,15 +20042,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         end
         
         if useEventSystem then
-            -- Wrap event generation and processing in pcall to avoid crashing the game
+            -- Wrap event processing in pcall to avoid crashing the game
             local success, result = pcall(function()
-                -- Generate events from the results if using the event system
-                local legacyEvents = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
-                
-                -- Combine legacy events with any explicitly created events
-                for _, event in ipairs(legacyEvents) do
-                    table.insert(events, event)
-                end
+                -- We now use ONLY explicit events created during execution
+                -- No conversion from legacy result formats
                 
                 -- Debug output for events
                 if _G.DEBUG_EVENTS then
@@ -20173,12 +20080,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     -- Add method for direct event generation without execution
     -- Useful for testing and debugging
     compiledSpell.generateEvents = function(caster, target, spellSlot)
-        local results = {}
+        local events = {}
         
-        -- Execute each behavior to collect results
+        -- Execute each behavior to generate events
         for keyword, behavior in pairs(compiledSpell.behavior) do
             if behavior.execute then
                 local params = behavior.params or {}
+                local localResults = {}
                 
                 -- Process function parameters
                 for paramName, paramValue in pairs(params) do
@@ -20188,30 +20096,39 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         end)
                         
                         if success then
-                            results[keyword .. "_" .. paramName] = result
+                            localResults[keyword .. "_" .. paramName] = result
                         end
                     end
                 end
                 
-                -- Execute the behavior without modifying state
-                local behaviorResults
+                -- Execute the behavior to generate events directly
+                -- No state modification occurs
                 if behavior.enabled then
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    -- Call the keyword execute function with an empty results table
+                    -- The events parameter allows keywords to add events directly via table.insert
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results
-                for k, v in pairs(behaviorResults) do
-                    results[k] = v
+                -- Special handling for shield behaviors (block keyword)
+                if keyword == "block" then
+                    -- Create a CREATE_SHIELD event explicitly
+                    local shieldParams = localResults.shieldParams or {}
+                    table.insert(events, {
+                        type = "CREATE_SHIELD",
+                        source = "caster",
+                        target = "self",
+                        slotIndex = spellSlot,
+                        defenseType = shieldParams.defenseType or "barrier",
+                        blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
+                        reflect = shieldParams.reflect or false
+                    })
                 end
             end
         end
-        
-        -- Generate events from the results
-        local events = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
         
         return events
     end
@@ -22251,211 +22168,6 @@ EventRunner.EVENT_HANDLERS = {
         return false
     end
 }
-
--- Generate events from old-style results table for backward compatibility
-function EventRunner.generateEventsFromResults(results, caster, target, spellSlot)
-    local events = {}
-    
-    -- Handle damage events
-    if results.damage then
-        table.insert(events, {
-            type = "DAMAGE",
-            source = "caster",
-            target = "enemy",
-            amount = results.damage,
-            damageType = results.damageType
-        })
-    end
-    
-    -- Handle burn (DoT) events
-    if results.burnApplied then
-        table.insert(events, {
-            type = "APPLY_STATUS",
-            source = "caster",
-            target = "enemy",
-            statusType = "burn",
-            duration = results.burnDuration,
-            tickDamage = results.burnTickDamage,
-            tickInterval = results.burnTickInterval
-        })
-    end
-    
-    -- Handle elevation events
-    if results.setElevation then
-        table.insert(events, {
-            type = "SET_ELEVATION",
-            source = "caster",
-            target = results.elevationTarget or "self",
-            elevation = results.setElevation,
-            duration = results.elevationDuration
-        })
-    end
-    
-    -- Handle range events
-    if results.setPosition then
-        table.insert(events, {
-            type = "SET_RANGE",
-            source = "caster",
-            target = "both",
-            position = results.setPosition
-        })
-    end
-    
-    -- Handle force position events
-    if results.forcePosition then
-        table.insert(events, {
-            type = "FORCE_POSITION",
-            source = "caster",
-            target = "enemy"
-        })
-    end
-    
-    -- Handle token lock events
-    if results.lockToken then
-        table.insert(events, {
-            type = "LOCK_TOKEN",
-            source = "caster",
-            target = "pool",
-            duration = results.lockDuration,
-            amount = 1,
-            tokenType = "any"
-        })
-    end
-    
-    -- Handle token shift events
-    if results.tokenShift then
-        table.insert(events, {
-            type = "SHIFT_TOKEN",
-            source = "caster",
-            target = "pool",
-            tokenType = results.tokenShiftType,
-            amount = results.tokenShiftAmount
-        })
-    end
-    
-    -- Handle dissipate events
-    if results.dissipate then
-        table.insert(events, {
-            type = "DISSIPATE_TOKEN",
-            source = "caster",
-            target = "pool",
-            tokenType = results.dissipateType,
-            amount = results.dissipateAmount
-        })
-    end
-    
-    -- Handle delay events
-    if results.delayApplied then
-        table.insert(events, {
-            type = "DELAY_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            amount = results.delayAmount
-        })
-    end
-    
-    -- Handle accelerate events
-    if results.accelerate then
-        table.insert(events, {
-            type = "ACCELERATE_SPELL",
-            source = "caster",
-            target = "self_slot",
-            slotIndex = results.targetSlot,
-            amount = results.accelerateAmount
-        })
-    end
-    
-    -- Handle dispel events
-    if results.dispel then
-        table.insert(events, {
-            type = "CANCEL_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            returnMana = true
-        })
-    end
-    
-    -- Handle disjoint events
-    if results.disjoint then
-        table.insert(events, {
-            type = "CANCEL_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            returnMana = false
-        })
-    end
-    
-    -- Handle freeze events
-    if results.freezeApplied then
-        table.insert(events, {
-            type = "FREEZE_SPELL",
-            source = "caster",
-            target = "enemy_slot",
-            slotIndex = results.targetSlot,
-            duration = results.freezeDuration
-        })
-    end
-    
-    -- Handle shield creation
-    if results.shieldParams and results.shieldParams.createShield then
-        table.insert(events, {
-            type = "CREATE_SHIELD",
-            source = "caster",
-            target = "self", -- Use "self" instead of "self_slot" for consistency with keywords
-            slotIndex = spellSlot,
-            defenseType = results.shieldParams.defenseType or "barrier",
-            blocksAttackTypes = results.shieldParams.blocksAttackTypes or {"projectile"},
-            reflect = results.shieldParams.reflect or false
-        })
-    end
-    
-    -- Handle reflect events
-    if results.reflect then
-        table.insert(events, {
-            type = "REFLECT",
-            source = "caster",
-            target = "self",
-            duration = results.reflectDuration
-        })
-    end
-    
-    -- Handle echo events
-    if results.echo then
-        table.insert(events, {
-            type = "ECHO",
-            source = "caster",
-            target = "self_slot",
-            slotIndex = spellSlot,
-            delay = results.echoDelay
-        })
-    end
-    
-    -- Handle zone anchor events
-    if results.zoneAnchor then
-        table.insert(events, {
-            type = "ZONE_ANCHOR",
-            source = "caster",
-            target = "self",
-            anchorRange = results.anchorRange,
-            anchorElevation = results.anchorElevation,
-            requireAll = results.anchorRequireAll
-        })
-    end
-    
-    -- Handle zone multi events
-    if results.zoneMulti then
-        table.insert(events, {
-            type = "ZONE_MULTI",
-            source = "caster",
-            target = "self"
-        })
-    end
-    
-    return events
-end
 
 -- Debug function to print all events
 function EventRunner.debugPrintEvents(events)

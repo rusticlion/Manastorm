@@ -1,6 +1,7 @@
 -- EventRunner.lua
 -- Processes spell events and applies them to game state
 
+local Constants = require("core.Constants")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -468,9 +469,18 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Logic to find and mark tokens for removal
         for i, token in ipairs(manaPool.tokens) do
-            if token.state == "FREE" and (event.tokenType == "any" or token.type == event.tokenType) then
-                -- Mark token for destruction
-                token.state = "DESTROYED"
+            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+            local matchesType = (event.tokenType == "any" or token.type == event.tokenType)
+            
+            if isFree and matchesType then
+                -- Request destruction animation using state machine if available
+                if token.requestDestructionAnimation then
+                    token:requestDestructionAnimation()
+                else
+                    -- Fallback to legacy direct state setting
+                    token.state = "DESTROYED"
+                end
+                
                 tokensRemoved = tokensRemoved + 1
                 results.tokensAffected = results.tokensAffected + 1
                 
@@ -706,14 +716,24 @@ EventRunner.EVENT_HANDLERS = {
                 -- Return tokens to the pool (dispel)
                 for _, tokenData in ipairs(slot.tokens) do
                     if tokenData.token then
-                        tokenData.token.state = "FREE"
+                        if tokenData.token.requestReturnAnimation then
+                            tokenData.token:requestReturnAnimation()
+                        else
+                            -- Fallback to legacy direct state setting
+                            tokenData.token.state = "FREE"
+                        end
                     end
                 end
             else
                 -- Destroy tokens (disjoint)
                 for _, tokenData in ipairs(slot.tokens) do
                     if tokenData.token then
-                        tokenData.token.state = "DESTROYED"
+                        if tokenData.token.requestDestructionAnimation then
+                            tokenData.token:requestDestructionAnimation()
+                        else
+                            -- Fallback to legacy direct state setting
+                            tokenData.token.state = "DESTROYED"
+                        end
                     end
                 end
             end

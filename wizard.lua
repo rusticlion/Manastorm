@@ -592,8 +592,13 @@ function Wizard:update(dt)
                     -- Start return animation for tokens
                     if #slot.tokens > 0 then
                         for _, tokenData in ipairs(slot.tokens) do
-                            -- Trigger animation to return token to the mana pool
-                            self.manaPool:returnToken(tokenData.index)
+                            -- Request return animation directly on the token
+                            if tokenData.token and tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method if token doesn't have the method
+                                self.manaPool:returnToken(tokenData.index)
+                            end
                         end
                         
                         -- Clear token list (tokens still exist in the mana pool)
@@ -765,13 +770,16 @@ function Wizard:handleShieldBlock(slotIndex, blockedSpell)
                 print("[SHIELD WARNING] Token has no token data object")
             end
             
-            -- Trigger animation to return this token to the mana pool
-            -- The manaPool:returnToken handles all state changes properly
-            if self.manaPool then
-                print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
+            -- Use token state machine to request return animation
+            if tokenData.token and tokenData.token.requestReturnAnimation then
+                print(string.format("[SHIELD DEBUG] Requesting return animation for token %d", tokenData.index))
+                tokenData.token:requestReturnAnimation()
+            elseif self.manaPool then
+                -- Fallback to legacy method
+                print(string.format("[SHIELD DEBUG] Returning token %d to mana pool (legacy method)", tokenData.index))
                 self.manaPool:returnToken(tokenData.index)
             else
-                print("[SHIELD ERROR] Could not return token - mana pool not found")
+                print("[SHIELD ERROR] Could not return token - no token object or mana pool found")
             end
             
             -- Remove this token from the slot's token list
@@ -1467,8 +1475,12 @@ function Wizard:queueSpell(spell)
                 for _, reservation in ipairs(tokenReservations) do
                     local token = self.manaPool.tokens[reservation.index]
                     
-                    -- Mark the token as being channeled
-                    token.state = "CHANNELED"
+                    -- Mark the token as being channeled using state machine if available
+                    if token.setState then
+                        token:setState(Constants.TokenStatus.CHANNELED)
+                    else
+                        token.state = "CHANNELED"
+                    end
                     
                     -- Store original position for animation
                     token.startX = token.x
@@ -1572,7 +1584,13 @@ local function createShield(wizard, spellSlot, shieldParams)
     -- Mark tokens as SHIELDING
     for _, tokenData in ipairs(slot.tokens) do
         if tokenData.token then
-            tokenData.token.state = "SHIELDING"
+            -- Use state machine if available
+            if tokenData.token.setState then
+                tokenData.token:setState(Constants.TokenStatus.SHIELDING)
+            else
+                -- Fallback to legacy direct state setting
+                tokenData.token.state = "SHIELDING"
+            end
             -- Add specific shield type info to the token for visual effects
             tokenData.token.shieldType = slot.defenseType
         end
@@ -1615,8 +1633,13 @@ function Wizard:freeAllSpells()
             -- Return tokens to the mana pool
             if #slot.tokens > 0 then
                 for _, tokenData in ipairs(slot.tokens) do
-                    -- Trigger animation to return token to the mana pool
-                    self.manaPool:returnToken(tokenData.index)
+                    -- Use token state machine to request return animation
+                    if tokenData.token and tokenData.token.requestReturnAnimation then
+                        tokenData.token:requestReturnAnimation()
+                    else
+                        -- Fallback to legacy method
+                        self.manaPool:returnToken(tokenData.index)
+                    end
                 end
                 
                 -- Clear token list (tokens still exist in the mana pool)
@@ -1855,7 +1878,12 @@ function Wizard:payManaCost(cost)
                     for i = 1, costCount do
                         local tokenData = availableTokens[i]
                         local token = self.manaPool.tokens[tokenData.index]
-                        token.state = "CHANNELED" -- Mark as being used
+                        -- Mark as being channeled using state machine if available
+                        if token.setState then
+                            token:setState(Constants.TokenStatus.CHANNELED)
+                        else
+                            token.state = "CHANNELED"
+                        end
                         table.insert(tokens, {token = token, index = tokenData.index})
                         usedIndices[tokenData.index] = true -- Mark as used
                     end
@@ -1895,7 +1923,12 @@ function Wizard:payManaCost(cost)
                     -- Use the first token after shuffling
                     local tokenData = availableTokens[1]
                     local token = self.manaPool.tokens[tokenData.index]
-                    token.state = "CHANNELED" -- Mark as being used
+                    -- Mark as being channeled using state machine if available
+                    if token.setState then
+                        token:setState(Constants.TokenStatus.CHANNELED)
+                    else
+                        token.state = "CHANNELED"
+                    end
                     table.insert(tokens, {token = token, index = tokenData.index})
                     usedIndices[tokenData.index] = true -- Mark as used
                 else
@@ -1929,7 +1962,12 @@ function Wizard:payManaCost(cost)
             for i = 1, costCount do
                 local tokenData = availableTokens[i]
                 local token = self.manaPool.tokens[tokenData.index]
-                token.state = "CHANNELED"  -- Mark as being used
+                -- Mark as being channeled using state machine if available
+                if token.setState then
+                    token:setState(Constants.TokenStatus.CHANNELED)
+                else
+                    token.state = "CHANNELED"
+                end
                 table.insert(tokens, {token = token, index = tokenData.index})
                 usedIndices[tokenData.index] = true -- Mark as used
             end
@@ -2787,8 +2825,13 @@ function Wizard:castSpell(spellSlot)
         -- Start return animation for tokens
         if #slot.tokens > 0 then
             for _, tokenData in ipairs(slot.tokens) do
-                -- Trigger animation to return token to the mana pool
-                self.manaPool:returnToken(tokenData.index)
+                -- Request return animation directly on the token
+                if tokenData.token and tokenData.token.requestReturnAnimation then
+                    tokenData.token:requestReturnAnimation()
+                else
+                    -- Fallback to legacy method if token doesn't have the method
+                    self.manaPool:returnToken(tokenData.index)
+                end
             end
             
             -- Clear token list (tokens still exist in the mana pool)
@@ -3071,7 +3114,11 @@ function Wizard:castSpell(spellSlot)
         -- Force tokens to SHIELDING state
         for _, tokenData in ipairs(slot.tokens) do
             if tokenData.token then
-                tokenData.token.state = "SHIELDING"
+                if tokenData.token.setState then
+                    tokenData.token:setState(Constants.TokenStatus.SHIELDING)
+                else
+                    tokenData.token.state = "SHIELDING"
+                end
             end
         end
         print("DEBUG: SPECIAL CASE - Enforcing Mist Veil shield behavior")
@@ -3093,8 +3140,13 @@ function Wizard:castSpell(spellSlot)
             if not hasShieldingTokens then
                 -- Safe to return tokens
                 for _, tokenData in ipairs(slot.tokens) do
-                    -- Trigger animation to return token to the mana pool
-                    self.manaPool:returnToken(tokenData.index)
+                    -- Request return animation directly on the token
+                    if tokenData.token and tokenData.token.requestReturnAnimation then
+                        tokenData.token:requestReturnAnimation()
+                    else
+                        -- Fallback to legacy method if token doesn't have the method
+                        self.manaPool:returnToken(tokenData.index)
+                    end
                 end
                 
                 -- Clear token list (tokens still exist in the mana pool)

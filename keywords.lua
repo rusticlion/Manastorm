@@ -290,9 +290,17 @@ Keywords.dissipate = {
         
         -- Logic to find and mark tokens for removal
         for i, token in ipairs(targetWizard.manaPool.tokens) do
-            if token.state == "FREE" and (tokenType == "any" or token.type == tokenType) then
-                -- Mark token for destruction
-                token.state = "DESTROYED"
+            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+            local matchesType = (tokenType == "any" or token.type == tokenType)
+            
+            if isFree and matchesType then
+                -- Request destruction animation using state machine if available
+                if token.requestDestructionAnimation then
+                    token:requestDestructionAnimation()
+                else
+                    -- Fallback to legacy direct state setting
+                    token.state = "DESTROYED"
+                end
                 tokensFound = tokensFound + 1
                 
                 -- Stop once we've marked enough tokens
