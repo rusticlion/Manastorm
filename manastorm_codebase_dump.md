@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Thu Apr 17 18:34:02 CDT 2025
+Generated: Fri Apr 18 09:46:27 CDT 2025
 
 # Source Code
 
@@ -3095,7 +3095,6 @@ Spells.mist = {
         block = {
             type = "ward",
             blocks = {"projectile", "remote"},
-            reflect = false  -- Explicitly state it doesn't reflect
             -- All shields are mana-linked now (consume tokens when blocking)
             -- Token count is the source of truth for shield strength
         },
@@ -3108,11 +3107,7 @@ Spells.mist = {
     blockableBy = {},  -- Utility spell, can't be blocked
     
     -- Mark this as a shield (important for shield mechanics)
-    isShield = true
-    
-    -- No longer need the custom executeAll function - the spell compiler
-    -- will handle both the block and elevate keywords properly using the
-    -- new modular system
+    -- isShield = true
 }
 
 Spells.tidalforce = {
@@ -10115,7 +10110,7 @@ centralizes the shield creation logic previously duplicated or bypassed.~
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Thu Apr 17 18:34:02 CDT 2025
+Generated: Fri Apr 18 09:46:27 CDT 2025
 
 # Source Code
 
@@ -13211,7 +13206,6 @@ Spells.mist = {
         block = {
             type = "ward",
             blocks = {"projectile", "remote"},
-            reflect = false  -- Explicitly state it doesn't reflect
             -- All shields are mana-linked now (consume tokens when blocking)
             -- Token count is the source of truth for shield strength
         },
@@ -13224,11 +13218,7 @@ Spells.mist = {
     blockableBy = {},  -- Utility spell, can't be blocked
     
     -- Mark this as a shield (important for shield mechanics)
-    isShield = true
-    
-    -- No longer need the custom executeAll function - the spell compiler
-    -- will handle both the block and elevate keywords properly using the
-    -- new modular system
+    -- isShield = true
 }
 
 Spells.tidalforce = {
