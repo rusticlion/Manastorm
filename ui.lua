@@ -809,11 +809,56 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     for _, mapping in ipairs(keyMappings) do
         local spell = wizard.spellbook[mapping.keyName]
         if spell then
-            love.graphics.setColor(0.2, 0.2, 0.3, 0.7)
+            -- Check if this is the currently keyed spell
+            local isCurrentSpell = wizard.currentKeyedSpell and wizard.currentKeyedSpell.name == spell.name
+            
+            -- Use a different background color to highlight the currently keyed spell
+            if isCurrentSpell then
+                -- Glowing highlight effect for the active spell
+                -- Draw multiple layers with decreasing alpha for a glow effect
+                for i = 3, 1, -1 do
+                    local alpha = 0.15 * (4-i) / 3
+                    local padding = i * 2
+                    love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, alpha)
+                    love.graphics.rectangle("fill", 
+                        modalX + 10 - padding, 
+                        y - padding, 
+                        380 + padding*2, 
+                        40 + padding*2, 
+                        5, 5)
+                end
+                
+                -- Brighter inner background for current spell
+                love.graphics.setColor(0.25, 0.25, 0.35, 0.9)
+            else
+                -- Standard background for other spells
+                love.graphics.setColor(0.2, 0.2, 0.3, 0.7)
+            end
+            
+            -- Draw the spell entry background
             love.graphics.rectangle("fill", modalX + 10, y, 380, 40)
-            love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.9)
+            
+            -- Add a subtle border for the currently keyed spell
+            if isCurrentSpell then
+                love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.7)
+                love.graphics.rectangle("line", modalX + 10, y, 380, 40)
+            end
+            
+            -- Draw spell name with brighter color if it's the current spell
+            if isCurrentSpell then
+                love.graphics.setColor(1, 1, 0.8, 1.0)  -- Brighter color for active spell
+            else
+                love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.9)
+            end
             love.graphics.print(keyPrefix[mapping.index] .. ": " .. spell.name, modalX + 20, y + 5)
-            love.graphics.setColor(0.8, 0.8, 0.8, 0.8)
+            
+            -- Draw spell details with appropriate color
+            if isCurrentSpell then
+                love.graphics.setColor(0.9, 0.9, 0.9, 1.0)  -- Brighter text for active spell
+            else
+                love.graphics.setColor(0.8, 0.8, 0.8, 0.8)
+            end
+            
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
             love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
