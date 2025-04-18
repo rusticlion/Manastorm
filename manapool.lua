@@ -1,6 +1,11 @@
 -- ManaPool class
 -- Represents the shared pool of mana tokens in the center
 
+-- Import modules at module level so they're available to all methods
+local AssetCache = require("core.AssetCache")
+local Constants = require("core.Constants")
+local Pool = require("core.Pool")
+
 local ManaPool = {}
 ManaPool.__index = ManaPool
 
@@ -26,13 +31,85 @@ function ManaPool.new(x, y)
     self.valenceJumpChance = 0.002  -- Per frame chance of switching
     
     -- Load lock overlay image
-    self.lockOverlay = love.graphics.newImage("assets/sprites/token-lock.png")
+    self.lockOverlay = AssetCache.getImage("assets/sprites/token-lock.png")
+    
+    -- Initialize the token pool if not already done
+    if not Pool.pools["token"] then
+        Pool.create("token", 50, function() 
+            return {} -- Simple factory function that creates an empty table
+        end, ManaPool.resetToken) -- Use our custom token reset function
+    end
     
     return self
 end
 
+-- Token reset function for the pool
+function ManaPool.resetToken(token)
+    -- Clear all references and fields
+    token.type = nil
+    token.image = nil
+    token.x = nil
+    token.y = nil
+    token.state = nil
+    token.lockDuration = nil
+    token.valenceIndex = nil
+    token.orbitAngle = nil
+    token.orbitSpeed = nil
+    token.pulsePhase = nil
+    token.pulseSpeed = nil
+    token.rotAngle = nil
+    token.rotSpeed = nil
+    token.valenceJumpTimer = nil
+    token.inValenceTransition = nil
+    token.valenceTransitionTime = nil
+    token.valenceTransitionDuration = nil
+    token.sourceValenceIndex = nil
+    token.targetValenceIndex = nil
+    token.sourceRadiusX = nil
+    token.sourceRadiusY = nil
+    token.targetRadiusX = nil
+    token.targetRadiusY = nil
+    token.currentRadiusX = nil
+    token.currentRadiusY = nil
+    token.lockPulse = nil
+    token.scale = nil
+    token.zOrder = nil
+    token.originalSpeed = nil
+    token.wizardOwner = nil
+    token.spellSlot = nil
+    token.dissolving = nil
+    token.gameState = nil
+    
+    -- Clear animation-related fields
+    token.returning = nil
+    token.animTime = nil
+    token.animDuration = nil
+    token.startX = nil
+    token.startY = nil
+    token.targetX = nil
+    token.targetY = nil
+    token.tokenIndex = nil
+    token.inTransition = nil
+    token.transitionTime = nil
+    token.transitionDuration = nil
+    token.originalState = nil
+    token.dissolveTime = nil
+    token.dissolveMaxTime = nil
+    token.dissolveScale = nil
+    token.initialX = nil
+    token.initialY = nil
+    token.exploding = nil
+    
+    return token
+end
+
 -- Clear all tokens from the mana pool
 function ManaPool:clear()
+    -- Release all tokens back to the pool
+    for _, token in ipairs(self.tokens) do
+        Pool.release("token", token)
+    end
+    
     self.tokens = {}
     self.reservedTokens = {}
 end
@@ -56,54 +133,63 @@ function ManaPool:addToken(tokenType, imagePath)
     -- Randomize orbit direction (clockwise or counter-clockwise)
     local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
     
+    -- Get image from cache, with fallback
+    local tokenImage = AssetCache.getImage(imagePath)
+    if not tokenImage then
+        print("WARNING: Failed to load token image: " .. imagePath .. " - using placeholder")
+        -- Create a placeholder image using LÖVE's built-in canvas
+        tokenImage = love.graphics.newCanvas(32, 32)
+        love.graphics.setCanvas(tokenImage)
+        love.graphics.clear(0.8, 0.2, 0.8, 1) -- Bright color to make missing textures obvious
+        love.graphics.rectangle("fill", 0, 0, 32, 32)
+        love.graphics.setCanvas()
+    end
+    
     -- Create a new token with valence-based properties
-    local token = {
-        type = tokenType,
-        image = love.graphics.newImage(imagePath),
-        x = x + variationX,
-        y = y + variationY,
-        state = "FREE",  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
-        lockDuration = 0, -- Duration for how long a token remains locked
-        
-        -- Valence-based orbit properties
-        valenceIndex = valenceIndex,
-        orbitAngle = angle,
-        -- Speed varies by token but influenced by valence's base speed
-        orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction,
-        
-        -- Visual effects
-        pulsePhase = math.random() * math.pi * 2,
-        pulseSpeed = 2 + math.random() * 3,
-        rotAngle = math.random() * math.pi * 2,
-        rotSpeed = math.random(-2, 2) * 0.5, -- Varying rotation speeds
-        
-        -- Valence jump timer (occasional orbit changes)
-        valenceJumpTimer = 2 + math.random() * 8, -- Random time until possible valence change
-        
-        -- Valence transition properties (for smooth valence changes)
-        inValenceTransition = false,
-        valenceTransitionTime = 0,
-        valenceTransitionDuration = 0.8,
-        sourceValenceIndex = valenceIndex,
-        targetValenceIndex = valenceIndex,
-        sourceRadiusX = valence.radiusX,
-        sourceRadiusY = valence.radiusY,
-        targetRadiusX = valence.radiusX,
-        targetRadiusY = valence.radiusY,
-        currentRadiusX = valence.radiusX,
-        currentRadiusY = valence.radiusY,
-        
-        -- Visual effect for locked state
-        lockPulse = 0, -- For pulsing animation when locked
-        
-        -- Size variation for visual interest
-        scale = 0.85 + math.random() * 0.3, -- Slight size variation
-        
-        -- Depth/z-order variation
-        zOrder = math.random(),  -- Used for layering tokens
-        
-        -- We've intentionally removed token repulsion to return to clean orbital motion
-    }
+    local token = Pool.acquire("token")
+    token.type = tokenType
+    token.image = tokenImage
+    token.x = x + variationX
+    token.y = y + variationY
+    token.state = Constants.TokenState.FREE  -- FREE, CHANNELED, SHIELDING, LOCKED, DESTROYED
+    token.lockDuration = 0 -- Duration for how long a token remains locked
+    
+    -- Valence-based orbit properties
+    token.valenceIndex = valenceIndex
+    token.orbitAngle = angle
+    -- Speed varies by token but influenced by valence's base speed
+    token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
+    
+    -- Visual effects
+    token.pulsePhase = math.random() * math.pi * 2
+    token.pulseSpeed = 2 + math.random() * 3
+    token.rotAngle = math.random() * math.pi * 2
+    token.rotSpeed = math.random(-2, 2) * 0.5 -- Varying rotation speeds
+    
+    -- Valence jump timer (occasional orbit changes)
+    token.valenceJumpTimer = 2 + math.random() * 8 -- Random time until possible valence change
+    
+    -- Valence transition properties (for smooth valence changes)
+    token.inValenceTransition = false
+    token.valenceTransitionTime = 0
+    token.valenceTransitionDuration = 0.8
+    token.sourceValenceIndex = valenceIndex
+    token.targetValenceIndex = valenceIndex
+    token.sourceRadiusX = valence.radiusX
+    token.sourceRadiusY = valence.radiusY
+    token.targetRadiusX = valence.radiusX
+    token.targetRadiusY = valence.radiusY
+    token.currentRadiusX = valence.radiusX
+    token.currentRadiusY = valence.radiusY
+    
+    -- Visual effect for locked state
+    token.lockPulse = 0 -- For pulsing animation when locked
+    
+    -- Size variation for visual interest
+    token.scale = 0.85 + math.random() * 0.3 -- Slight size variation
+    
+    -- Depth/z-order variation
+    token.zOrder = math.random()  -- Used for layering tokens
     
     token.originalSpeed = token.orbitSpeed
     
@@ -161,7 +247,9 @@ function ManaPool:update(dt)
                 
                 -- When dissolution is complete, remove the token
                 if token.dissolveTime >= token.dissolveMaxTime then
-                    table.remove(self.tokens, i)
+                    -- Return the token to the object pool instead of just removing it
+                    local removedToken = table.remove(self.tokens, i)
+                    Pool.release("token", removedToken)
                 end
             end
         end

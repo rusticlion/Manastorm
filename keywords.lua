@@ -1,6 +1,7 @@
 -- keywords.lua
 -- Defines all keywords and their behaviors for the spell system
 
+local Constants = require("core.Constants")
 local Keywords = {}
 
 -- Keyword categories for organization
@@ -16,15 +17,8 @@ Keywords.categories = {
     ZONE = "Zone Mechanics"
 }
 
--- Target types for keywords
-Keywords.targetTypes = {
-    SELF = "self",               -- The caster
-    ENEMY = "enemy",             -- The opponent
-    SLOT_SELF = "slot_self",     -- Caster's spell slots
-    SLOT_ENEMY = "slot_enemy",   -- Opponent's spell slots
-    POOL_SELF = "pool_self",     -- Shared mana pool (from caster's perspective)
-    POOL_ENEMY = "pool_enemy"    -- Shared mana pool (from opponent's perspective)
-}
+-- Target types for keywords (legacy support - new code should use Constants.TargetType directly)
+Keywords.targetTypes = Constants.TargetType
 
 -- ===== Core Combat Keywords =====
 
@@ -33,12 +27,12 @@ Keywords.damage = {
     -- Behavior definition
     behavior = {
         dealsDamage = true,
-        targetType = "ENEMY",
+        targetType = Constants.TargetType.ENEMY,
         category = "DAMAGE",
         
         -- Default parameters
         defaultAmount = 0,
-        defaultType = "generic"
+        defaultType = Constants.DamageType.GENERIC
     },
     
     -- Implementation function
@@ -72,7 +66,7 @@ Keywords.burn = {
         appliesStatusEffect = true,
         statusType = "burn",
         dealsDamageOverTime = true,
-        targetType = "ENEMY",
+        targetType = Constants.TargetType.ENEMY,
         category = "DOT",
         
         -- Default parameters
@@ -119,9 +113,9 @@ Keywords.stagger = {
 Keywords.elevate = {
     -- Behavior definition
     behavior = {
-        setsElevationState = "AERIAL",
+        setsElevationState = Constants.ElevationState.AERIAL,
         hasDefaultDuration = true,
-        targetType = "SELF",
+        targetType = Constants.TargetType.SELF,
         category = "MOVEMENT",
         
         -- Default parameters
@@ -131,10 +125,10 @@ Keywords.elevate = {
     
     -- Implementation function
     execute = function(params, caster, target, results)
-        results.setElevation = "AERIAL"
+        results.setElevation = Constants.ElevationState.AERIAL
         results.elevationDuration = params.duration or 5.0
         -- Store the target that should receive this effect
-        results.elevationTarget = params.target or "SELF" -- Default to SELF
+        results.elevationTarget = params.target or Constants.TargetType.SELF -- Default to SELF
         -- Store the visual effect to use
         results.elevationVfx = params.vfx or "emberlift"
         return results
@@ -145,9 +139,9 @@ Keywords.elevate = {
 Keywords.ground = {
     -- Behavior definition
     behavior = {
-        setsElevationState = "GROUNDED",
+        setsElevationState = Constants.ElevationState.GROUNDED,
         canBeConditional = true,
-        targetType = "ENEMY",
+        targetType = Constants.TargetType.ENEMY,
         category = "MOVEMENT"
     },
     
@@ -157,14 +151,14 @@ Keywords.ground = {
         if params.conditional and type(params.conditional) == "function" then
             -- Only apply grounding if the condition is met
             if params.conditional(caster, target) then
-                results.setElevation = "GROUNDED"
+                results.setElevation = Constants.ElevationState.GROUNDED
                 -- Store the target that should receive this effect
-                results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+                results.elevationTarget = params.target or Constants.TargetType.ENEMY -- Default to ENEMY
             end
         else
             -- No condition, apply grounding unconditionally
-            results.setElevation = "GROUNDED"
-            results.elevationTarget = params.target or "ENEMY" -- Default to ENEMY
+            results.setElevation = Constants.ElevationState.GROUNDED
+            results.elevationTarget = params.target or Constants.TargetType.ENEMY -- Default to ENEMY
         end
         
         return results
@@ -176,16 +170,16 @@ Keywords.rangeShift = {
     -- Behavior definition
     behavior = {
         setsRangeState = true,
-        targetType = "SELF",
+        targetType = Constants.TargetType.SELF,
         category = "MOVEMENT",
         
         -- Default parameters
-        defaultPosition = "NEAR" 
+        defaultPosition = Constants.RangeState.NEAR 
     },
     
     -- Implementation function
     execute = function(params, caster, target, results)
-        results.setPosition = params.position or "NEAR"
+        results.setPosition = params.position or Constants.RangeState.NEAR
         return results
     end
 }
@@ -195,7 +189,7 @@ Keywords.forcePull = {
     -- Behavior definition
     behavior = {
         forcesOpponentPosition = true,
-        targetType = "ENEMY",
+        targetType = Constants.TargetType.ENEMY,
         category = "MOVEMENT"
     },
     

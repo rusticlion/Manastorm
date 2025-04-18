@@ -56,13 +56,12 @@ function UI.drawHelpText(font)
 end
 
 -- Toggle spellbook visibility for a player
+-- Each player can now independently toggle their spellbook without affecting the other
 function UI.toggleSpellbook(player)
     if player == 1 then
         UI.spellbookVisible.player1 = not UI.spellbookVisible.player1
-        UI.spellbookVisible.player2 = false -- Close other spellbook
     elseif player == 2 then
         UI.spellbookVisible.player2 = not UI.spellbookVisible.player2
-        UI.spellbookVisible.player1 = false -- Close other spellbook
     end
 end
 
@@ -312,13 +311,12 @@ function UI.drawPlayerSpellbook(playerNum, x, y)
         helpY - helpSize - smallFont:getHeight() - 2,  -- Position much higher above the button
         0, 0.7, 0.7)  -- Make it larger
     
-    -- Highlight when active
+    -- Highlight when active - just color tint, no white outline
     if (playerNum == 1 and UI.spellbookVisible.player1) or 
        (playerNum == 2 and UI.spellbookVisible.player2) then
         love.graphics.setColor(color[1], color[2], color[3], 0.4)
         love.graphics.rectangle("fill", x, y, width, height)
-        love.graphics.setColor(1, 1, 1, 0.8)
-        love.graphics.rectangle("line", x - 2, y - 2, width + 4, height + 4)
+        -- Removed white outline rectangle
     end
 end
 
@@ -330,38 +328,135 @@ function UI.drawSpellInfo(wizards)
         end
         
         -- Handle both old and new cost formats
-        local costText = ""
-        local tokenCounts = {}  -- For new array-style format
+        local regularTokens = {}
+        local anyTokens = {}
         
         -- Check if this is the new array-style format (simple array of strings)
         local isNewFormat = type(cost[1]) == "string"
         
         if isNewFormat then
-            -- Count each token type
+            -- Collect each token individually, separating "any" tokens
             for _, tokenType in ipairs(cost) do
-                tokenCounts[tokenType] = (tokenCounts[tokenType] or 0) + 1
-            end
-            
-            -- Format the counts
-            for tokenType, count in pairs(tokenCounts) do
-                costText = costText .. count .. " " .. tokenType .. ", "
+                if tokenType:lower() == "any" then
+                    table.insert(anyTokens, tokenType)
+                else
+                    table.insert(regularTokens, tokenType)
+                end
             end
         else
             -- Old format with type and count properties
             for _, component in ipairs(cost) do
                 local typeText = component.type
+                local isAnyToken = false
+                
                 if type(typeText) == "table" then
                     typeText = table.concat(typeText, "/")
                 end
-                costText = costText .. component.count .. " " .. typeText .. ", "
+                
+                if typeText:lower() == "any" then
+                    isAnyToken = true
+                end
+                
+                -- Add the token the appropriate number of times
+                for i = 1, component.count do
+                    if isAnyToken then
+                        table.insert(anyTokens, typeText)
+                    else
+                        table.insert(regularTokens, typeText)
+                    end
+                end
             end
         end
         
-        return costText:sub(1, -3)  -- Remove trailing comma and space
+        -- Combine regular tokens and any tokens (any tokens always last)
+        local allTokens = {}
+        for _, token in ipairs(regularTokens) do
+            table.insert(allTokens, token)
+        end
+        for _, token in ipairs(anyTokens) do
+            table.insert(allTokens, token)
+        end
+        
+        -- Build the final cost text
+        if #allTokens == 0 then
+            return "Free"
+        else
+            return table.concat(allTokens, ", ")
+        end
     end
     
     -- Draw the fighting game style health bars
     UI.drawHealthBars(wizards)
+    
+    -- Note: spellbook modals are now drawn separately to ensure proper z-ordering
+    -- Spell notification is now handled by the wizard's castSpell function
+end
+
+-- Function to draw spellbook modals (now separated to ensure proper z-ordering)
+function UI.drawSpellbookModals(wizards)
+    -- Local function to format costs for spellbook display
+    local function formatCost(cost)
+        if not cost or #cost == 0 then
+            return "Free"
+        end
+        
+        -- Handle both old and new cost formats
+        local regularTokens = {}
+        local anyTokens = {}
+        
+        -- Check if this is the new array-style format (simple array of strings)
+        local isNewFormat = type(cost[1]) == "string"
+        
+        if isNewFormat then
+            -- Collect each token individually, separating "any" tokens
+            for _, tokenType in ipairs(cost) do
+                if tokenType:lower() == "any" then
+                    table.insert(anyTokens, tokenType)
+                else
+                    table.insert(regularTokens, tokenType)
+                end
+            end
+        else
+            -- Old format with type and count properties
+            for _, component in ipairs(cost) do
+                local typeText = component.type
+                local isAnyToken = false
+                
+                if type(typeText) == "table" then
+                    typeText = table.concat(typeText, "/")
+                end
+                
+                if typeText:lower() == "any" then
+                    isAnyToken = true
+                end
+                
+                -- Add the token the appropriate number of times
+                for i = 1, component.count do
+                    if isAnyToken then
+                        table.insert(anyTokens, typeText)
+                    else
+                        table.insert(regularTokens, typeText)
+                    end
+                end
+            end
+        end
+        
+        -- Combine regular tokens and any tokens (any tokens always last)
+        local allTokens = {}
+        for _, token in ipairs(regularTokens) do
+            table.insert(allTokens, token)
+        end
+        for _, token in ipairs(anyTokens) do
+            table.insert(allTokens, token)
+        end
+        
+        -- Build the final cost text
+        if #allTokens == 0 then
+            return "Free"
+        else
+            return table.concat(allTokens, ", ")
+        end
+    end
     
     -- Draw spellbook popups if visible
     if UI.spellbookVisible.player1 then
@@ -371,9 +466,6 @@ function UI.drawSpellInfo(wizards)
     if UI.spellbookVisible.player2 then
         UI.drawSpellbookModal(wizards[2], 2, formatCost)
     end
-    
-    -- Spell notification is now handled by the wizard's castSpell function
-    -- No longer drawing active spells list - relying on visual representation
 end
 
 -- Draw dramatic fighting game style health bars
@@ -580,9 +672,6 @@ function UI.drawHealthBars(wizards)
     end
 end
 
--- [Removed drawActiveSpells function - now using visual representation instead]
-
--- Draw a full spellbook modal for a player
 -- Update the health display animation
 function UI.updateHealthDisplays(dt, wizards)
     local currentTime = love.timer.getTime()
@@ -633,37 +722,59 @@ end
 
 function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
     
     -- Determine position based on player number
-    local modalX, modalTitle, keyPrefix
+    local modalX, keyPrefix
     if playerNum == 1 then
         modalX = 0  -- Pinned to left edge
-        modalTitle = "Ashgar's Spellbook"
-        keyPrefix = {"Q", "W", "E", "Q+W", "Q+E", "W+E", "Q+W+E"}
+        keyPrefix = {"Q", "W", "E", "QW", "QE", "WE", "QWE"}
     else
         modalX = screenWidth - 400  -- Pinned to right edge
-        modalTitle = "Selene's Spellbook"
-        keyPrefix = {"I", "O", "P", "I+O", "I+P", "O+P", "I+O+P"}
+        keyPrefix = {"I", "O", "P", "IO", "IP", "OP", "IOP"}
     end
     
-    -- Modal background
-    love.graphics.setColor(0.1, 0.1, 0.2, 0.9)
-    love.graphics.rectangle("fill", modalX, 50, 400, 450)
-    love.graphics.setColor(0.4, 0.4, 0.6, 0.8)
-    love.graphics.rectangle("line", modalX, 50, 400, 450)
+    -- Define the key combinations and their corresponding keyNames
+    local keyMappings = {
+        {index = 1, keyName = "1"}, -- Q or I
+        {index = 2, keyName = "2"}, -- W or O
+        {index = 3, keyName = "3"}, -- E or P
+        {index = 4, keyName = "12"}, -- QW or IO
+        {index = 5, keyName = "13"}, -- QE or IP
+        {index = 6, keyName = "23"}, -- WE or OP
+        {index = 7, keyName = "123"} -- QWE or IOP
+    }
     
-    -- Modal title
+    -- Count spells to calculate modal height dynamically
+    local spellCount = 0
+    for _, mapping in ipairs(keyMappings) do
+        if wizard.spellbook[mapping.keyName] then
+            spellCount = spellCount + 1
+        end
+    end
+    
+    -- Calculate modal height based on fixed components plus variable spell entries
+    -- Components: title(30) + controls(120) + heading(25) + spellEntries(45 each) + no extra padding
+    -- We end the component right after the last entry, letting the standard spacing between entries provide the visual margin
+    local modalHeight = 175 + (spellCount * 45)
+    
+    -- Modal background - fully opaque to properly obscure what's behind it
+    love.graphics.setColor(0.1, 0.1, 0.2, 1.0)  -- Fully opaque
+    love.graphics.rectangle("fill", modalX, 50, 400, modalHeight)
+    love.graphics.setColor(0.4, 0.4, 0.6, 1.0)  -- Fully opaque border
+    love.graphics.rectangle("line", modalX, 50, 400, modalHeight)
+    
+    -- Modal title - simplified to just wizard name
     love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.9)
     love.graphics.rectangle("fill", modalX, 50, 400, 30)
     love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.print(modalTitle, modalX + 150, 60)
+    love.graphics.print(wizard.name, modalX + 190, 60)
     
-    -- Close button
-    love.graphics.setColor(0.8, 0.2, 0.2, 0.8)
+    -- Close button with appropriate hotkey instead of X
+    local closeKey = (playerNum == 1) and "B" or "M"
+    love.graphics.setColor(0.3, 0.3, 0.5, 0.8)
     love.graphics.rectangle("fill", modalX + 370, 50, 30, 30)
     love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.print("X", modalX + 380, 60)
+    love.graphics.print(closeKey, modalX + 380, 60)
     
     -- Controls help section at the top of the modal
     love.graphics.setColor(0.2, 0.2, 0.4, 0.8)
@@ -672,13 +783,13 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     
     if playerNum == 1 then
         love.graphics.print("Controls:", modalX + 20, 95)
-        love.graphics.print("Q/W/E: Key different spell inputs", modalX + 30, 115)
+        love.graphics.print("QWE: Key different spell inputs", modalX + 30, 115)
         love.graphics.print("F: Cast the currently keyed spell", modalX + 30, 135)
         love.graphics.print("G: Free all active spells and return mana", modalX + 30, 155)
         love.graphics.print("B: Toggle spellbook visibility", modalX + 30, 175)
     else
         love.graphics.print("Controls:", modalX + 20, 95)
-        love.graphics.print("I/O/P: Key different spell inputs", modalX + 30, 115)
+        love.graphics.print("IOP: Key different spell inputs", modalX + 30, 115)
         love.graphics.print("J: Cast the currently keyed spell", modalX + 30, 135)
         love.graphics.print("H: Free all active spells and return mana", modalX + 30, 155)
         love.graphics.print("M: Toggle spellbook visibility", modalX + 30, 175)
@@ -687,55 +798,28 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     -- Spells section
     local y = 200
     
-    -- Single key spells heading
+    -- Spells heading
     love.graphics.setColor(1, 1, 0.7, 0.9)
     love.graphics.rectangle("fill", modalX + 10, y, 380, 25)
     love.graphics.setColor(0.2, 0.2, 0.4, 0.9)
-    love.graphics.print("Single Key Spells", modalX + 150, y + 5)
+    love.graphics.print("Spellbook", modalX + 170, y + 5)
     y = y + 30
     
-    -- Display single key spells
-    for i = 1, 3 do
-        local keyName = tostring(i)
-        local spell = wizard.spellbook[keyName]
+    -- Display all spells in a single unified list
+    for _, mapping in ipairs(keyMappings) do
+        local spell = wizard.spellbook[mapping.keyName]
         if spell then
             love.graphics.setColor(0.2, 0.2, 0.3, 0.7)
             love.graphics.rectangle("fill", modalX + 10, y, 380, 40)
             love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.9)
-            love.graphics.print(keyPrefix[i] .. ": " .. spell.name, modalX + 20, y + 5)
+            love.graphics.print(keyPrefix[mapping.index] .. ": " .. spell.name, modalX + 20, y + 5)
             love.graphics.setColor(0.8, 0.8, 0.8, 0.8)
-            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. spell.castTime .. "s", modalX + 30, y + 25)
-            y = y + 45
-        end
-    end
-    
-    -- Multi-key spells heading
-    love.graphics.setColor(1, 1, 0.7, 0.9)
-    love.graphics.rectangle("fill", modalX + 10, y, 380, 25)
-    love.graphics.setColor(0.2, 0.2, 0.4, 0.9)
-    love.graphics.print("Multi-Key Spells", modalX + 150, y + 5)
-    y = y + 30
-    
-    -- Display multi-key spells
-    for i = 4, 7 do  -- 4=combo "12", 5=combo "13", 6=combo "23", 7=combo "123"
-        local keyName
-        if i == 4 then keyName = "12"
-        elseif i == 5 then keyName = "13"
-        elseif i == 6 then keyName = "23"
-        else keyName = "123" end
-        
-        local spell = wizard.spellbook[keyName]
-        if spell then
-            love.graphics.setColor(0.2, 0.2, 0.3, 0.7)
-            love.graphics.rectangle("fill", modalX + 10, y, 380, 40)
-            love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.9)
-            love.graphics.print(keyPrefix[i] .. ": " .. spell.name, modalX + 20, y + 5)
-            love.graphics.setColor(0.8, 0.8, 0.8, 0.8)
-            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. spell.castTime .. "s", modalX + 30, y + 25)
-            y = y + 45
+            -- Convert cast time to "x" characters instead of numbers
+            local castTimeVisual = string.rep("x", spell.castTime)
+            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+            y = y + 45  -- Restore original spacing between spell entries
         end
     end
 end
-
 
 return UI

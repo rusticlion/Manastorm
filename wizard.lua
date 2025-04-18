@@ -3,7 +3,8 @@
 local Wizard = {}
 Wizard.__index = Wizard
 
--- Load spells module with the new keyword system
+-- Load required modules
+local Constants = require("core.Constants")
 local SpellsModule = require("spells")
 local Spells = SpellsModule.spells  -- For backwards compatibility
 
@@ -336,7 +337,8 @@ function Wizard.new(name, x, y, color)
     end
     
     -- Load wizard sprite
-    self.sprite = love.graphics.newImage("assets/sprites/wizard.png")
+    local AssetCache = require("core.AssetCache")
+    self.sprite = AssetCache.getImage("assets/sprites/wizard.png")
     self.scale = 2.0  -- Scale factor for the sprite
     
     return self
@@ -352,10 +354,10 @@ function Wizard:update(dt)
     end
     
     -- Update elevation timer
-    if self.elevationTimer > 0 and self.elevation == "AERIAL" then
+    if self.elevationTimer > 0 and self.elevation == Constants.ElevationState.AERIAL then
         self.elevationTimer = math.max(0, self.elevationTimer - dt)
         if self.elevationTimer == 0 then
-            self.elevation = "GROUNDED"
+            self.elevation = Constants.ElevationState.GROUNDED
             print(self.name .. " returned to GROUNDED elevation")
             
             -- Create landing effect using VFX system

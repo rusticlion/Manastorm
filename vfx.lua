@@ -4,27 +4,36 @@
 local VFX = {}
 VFX.__index = VFX
 
+-- Import pool module
+local Pool = require("core.Pool")
+
 -- Table to store active effects
 VFX.activeEffects = {}
 
 -- Initialize the VFX system
 function VFX.init()
+    -- Import AssetCache
+    local AssetCache = require("core.AssetCache")
+    
     -- Load any necessary assets for effects
     VFX.assets = {
         -- Fire effects
-        fireParticle = love.graphics.newImage("assets/sprites/fire-particle.png"),
-        fireGlow = love.graphics.newImage("assets/sprites/fire-glow.png"),
+        fireParticle = AssetCache.getImage("assets/sprites/fire-particle.png"),
+        fireGlow = AssetCache.getImage("assets/sprites/fire-glow.png"),
         
         -- Force effects
-        forceWave = love.graphics.newImage("assets/sprites/force-wave.png"),
+        forceWave = AssetCache.getImage("assets/sprites/force-wave.png"),
         
         -- Moon effects
-        moonGlow = love.graphics.newImage("assets/sprites/moon-glow.png"),
+        moonGlow = AssetCache.getImage("assets/sprites/moon-glow.png"),
         
         -- Generic effects
-        sparkle = love.graphics.newImage("assets/sprites/sparkle.png"),
-        impactRing = love.graphics.newImage("assets/sprites/impact-ring.png"),
+        sparkle = AssetCache.getImage("assets/sprites/sparkle.png"),
+        impactRing = AssetCache.getImage("assets/sprites/impact-ring.png"),
     }
+    
+    -- Initialize particle pools
+    Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
@@ -254,9 +263,9 @@ function VFX.init()
         }
     }
     
-    -- Initialize sound effects (placeholders)
+    -- Initialize sound effects
     VFX.sounds = {
-        firebolt = nil, -- Will load actual sound files when available
+        firebolt = nil, -- Sound files will be loaded when available
         meteor = nil,
         mist = nil,
         whoosh = nil,
@@ -265,7 +274,70 @@ function VFX.init()
         shield = nil
     }
     
+    -- Preload sound effects when they become available
+    -- Example of how to load sounds with AssetCache:
+    -- VFX.sounds.firebolt = AssetCache.getSound("assets/sounds/firebolt.wav")
+    
+    -- Create effect pool - each effect is a container object
+    Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
+    
     return VFX
+end
+
+-- Reset function for particle objects
+function VFX.resetParticle(particle)
+    -- Clear all fields
+    for k, _ in pairs(particle) do
+        particle[k] = nil
+    end
+    return particle
+end
+
+-- Reset function for effect objects
+function VFX.resetEffect(effect)
+    -- Release all particles back to their pool
+    for _, particle in ipairs(effect.particles) do
+        Pool.release("vfx_particle", particle)
+    end
+    
+    -- Clear all fields except particles
+    effect.name = nil
+    effect.type = nil
+    effect.sourceX = nil
+    effect.sourceY = nil
+    effect.targetX = nil
+    effect.targetY = nil
+    effect.duration = nil
+    effect.timer = nil
+    effect.progress = nil
+    effect.isComplete = nil
+    effect.particleCount = nil
+    effect.startScale = nil
+    effect.endScale = nil
+    effect.color = nil
+    effect.trailPoints = nil
+    effect.sound = nil
+    effect.radius = nil
+    effect.beamWidth = nil
+    effect.height = nil
+    effect.pulseRate = nil
+    effect.trailLength = nil
+    effect.impactSize = nil
+    effect.spreadRadius = nil
+    effect.options = nil
+    effect.beamProgress = nil
+    effect.beamLength = nil
+    effect.beamAngle = nil
+    effect.impactCreated = nil
+    effect.manaPoolX = nil
+    effect.manaPoolY = nil
+    effect.sourceGlow = nil
+    effect.poolGlow = nil
+    
+    -- Reset particles array but don't delete it
+    effect.particles = {}
+    
+    return effect
 end
 
 -- Create a new effect instance
@@ -277,46 +349,45 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         return nil
     end
     
-    -- Create a new effect instance
-    local effect = {
-        name = effectName,
-        type = template.type,
-        sourceX = sourceX,
-        sourceY = sourceY,
-        targetX = targetX or sourceX,
-        targetY = targetY or sourceY,
-        
-        -- Timing
-        duration = template.duration,
-        timer = 0,
-        progress = 0,
-        isComplete = false,
-        
-        -- Visual properties (copied from template)
-        particleCount = template.particleCount,
-        startScale = template.startScale,
-        endScale = template.endScale,
-        color = {template.color[1], template.color[2], template.color[3], template.color[4]},
-        
-        -- Effect specific properties
-        particles = {},
-        trailPoints = {},
-        
-        -- Sound
-        sound = template.sound,
-        
-        -- Additional properties based on effect type
-        radius = template.radius,
-        beamWidth = template.beamWidth,
-        height = template.height,
-        pulseRate = template.pulseRate,
-        trailLength = template.trailLength,
-        impactSize = template.impactSize,
-        spreadRadius = template.spreadRadius,
-        
-        -- Optional overrides
-        options = options or {}
-    }
+    -- Create a new effect instance from pool
+    local effect = Pool.acquire("vfx_effect")
+    effect.name = effectName
+    effect.type = template.type
+    effect.sourceX = sourceX
+    effect.sourceY = sourceY
+    effect.targetX = targetX or sourceX
+    effect.targetY = targetY or sourceY
+    
+    -- Timing
+    effect.duration = template.duration
+    effect.timer = 0
+    effect.progress = 0
+    effect.isComplete = false
+    
+    -- Visual properties (copied from template)
+    effect.particleCount = template.particleCount
+    effect.startScale = template.startScale
+    effect.endScale = template.endScale
+    effect.color = {template.color[1], template.color[2], template.color[3], template.color[4]}
+    
+    -- Effect specific properties
+    effect.particles = {}
+    effect.trailPoints = {}
+    
+    -- Sound
+    effect.sound = template.sound
+    
+    -- Additional properties based on effect type
+    effect.radius = template.radius
+    effect.beamWidth = template.beamWidth
+    effect.height = template.height
+    effect.pulseRate = template.pulseRate
+    effect.trailLength = template.trailLength
+    effect.impactSize = template.impactSize
+    effect.spreadRadius = template.spreadRadius
+    
+    -- Optional overrides
+    effect.options = options or {}
     
     -- Initialize particles based on effect type
     VFX.initializeParticles(effect)
@@ -338,15 +409,15 @@ function VFX.initializeParticles(effect)
     if effect.type == "projectile" then
         -- For projectiles, create a trail of particles
         for i = 1, effect.particleCount do
-            local particle = {
-                x = effect.sourceX,
-                y = effect.sourceY,
-                scale = effect.startScale,
-                alpha = 1.0,
-                rotation = 0,
-                delay = i / effect.particleCount * 0.3, -- Stagger particle start
-                active = false
-            }
+            local particle = Pool.acquire("vfx_particle")
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+            particle.scale = effect.startScale
+            particle.alpha = 1.0
+            particle.rotation = 0
+            particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
+            particle.active = false
+            
             table.insert(effect.particles, particle)
         end
         
@@ -356,18 +427,19 @@ function VFX.initializeParticles(effect)
             local angle = (i / effect.particleCount) * math.pi * 2
             local distance = math.random(10, effect.radius)
             local speed = math.random(50, 200)
-            local particle = {
-                x = effect.targetX,
-                y = effect.targetY,
-                targetX = effect.targetX + math.cos(angle) * distance,
-                targetY = effect.targetY + math.sin(angle) * distance,
-                speed = speed,
-                scale = effect.startScale,
-                alpha = 1.0,
-                rotation = angle,
-                delay = math.random() * 0.2, -- Slight random delay
-                active = false
-            }
+            
+            local particle = Pool.acquire("vfx_particle")
+            particle.x = effect.targetX
+            particle.y = effect.targetY
+            particle.targetX = effect.targetX + math.cos(angle) * distance
+            particle.targetY = effect.targetY + math.sin(angle) * distance
+            particle.speed = speed
+            particle.scale = effect.startScale
+            particle.alpha = 1.0
+            particle.rotation = angle
+            particle.delay = math.random() * 0.2 -- Slight random delay
+            particle.active = false
+            
             table.insert(effect.particles, particle)
         end
         
@@ -377,16 +449,17 @@ function VFX.initializeParticles(effect)
             local angle = (i / effect.particleCount) * math.pi * 2
             local distance = math.random(effect.radius * 0.6, effect.radius)
             local orbitalSpeed = math.random(0.5, 2.0)
-            local particle = {
-                angle = angle,
-                distance = distance,
-                orbitalSpeed = orbitalSpeed,
-                scale = effect.startScale,
-                alpha = 0, -- Start invisible and fade in
-                rotation = 0,
-                delay = i / effect.particleCount * 0.5,
-                active = false
-            }
+            
+            local particle = Pool.acquire("vfx_particle")
+            particle.angle = angle
+            particle.distance = distance
+            particle.orbitalSpeed = orbitalSpeed
+            particle.scale = effect.startScale
+            particle.alpha = 0 -- Start invisible and fade in
+            particle.rotation = 0
+            particle.delay = i / effect.particleCount * 0.5
+            particle.active = false
+            
             table.insert(effect.particles, particle)
         end
         
@@ -396,16 +469,17 @@ function VFX.initializeParticles(effect)
             local offsetX = math.random(-30, 30)
             local startY = math.random(0, 40)
             local speed = math.random(70, 150)
-            local particle = {
-                x = effect.sourceX + offsetX,
-                y = effect.sourceY + startY,
-                speed = speed,
-                scale = effect.startScale,
-                alpha = 1.0,
-                rotation = math.random() * math.pi * 2,
-                delay = i / effect.particleCount * 0.8,
-                active = false
-            }
+            
+            local particle = Pool.acquire("vfx_particle")
+            particle.x = effect.sourceX + offsetX
+            particle.y = effect.sourceY + startY
+            particle.speed = speed
+            particle.scale = effect.startScale
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.delay = i / effect.particleCount * 0.8
+            particle.active = false
+            
             table.insert(effect.particles, particle)
         end
         
@@ -420,15 +494,16 @@ function VFX.initializeParticles(effect)
         for i = 1, effect.particleCount do
             local position = math.random()
             local offset = math.random(-10, 10)
-            local particle = {
-                position = position, -- 0 to 1 along beam
-                offset = offset, -- Perpendicular to beam
-                scale = effect.startScale * math.random(0.7, 1.3),
-                alpha = 0.8,
-                rotation = math.random() * math.pi * 2,
-                delay = math.random() * 0.3,
-                active = false
-            }
+            
+            local particle = Pool.acquire("vfx_particle")
+            particle.position = position -- 0 to 1 along beam
+            particle.offset = offset -- Perpendicular to beam
+            particle.scale = effect.startScale * math.random(0.7, 1.3)
+            particle.alpha = 0.8
+            particle.rotation = math.random() * math.pi * 2
+            particle.delay = math.random() * 0.3
+            particle.active = false
+            
             table.insert(effect.particles, particle)
         end
         
@@ -464,20 +539,20 @@ function VFX.initializeParticles(effect)
             local pathDirX = dirX + pathVariance / 100
             local pathDirY = dirY + pathVariance / 100
             
-            local particle = {
-                x = startX,
-                y = startY,
-                speedX = pathDirX * speed,
-                speedY = pathDirY * speed,
-                scale = effect.startScale,
-                alpha = 0, -- Start transparent and fade in
-                rotation = math.random() * math.pi * 2,
-                rotSpeed = math.random(-3, 3),
-                delay = delay,
-                active = false,
-                finalPulse = false,
-                finalPulseTime = 0
-            }
+            local particle = Pool.acquire("vfx_particle")
+            particle.x = startX
+            particle.y = startY
+            particle.speedX = pathDirX * speed
+            particle.speedY = pathDirY * speed
+            particle.scale = effect.startScale
+            particle.alpha = 0 -- Start transparent and fade in
+            particle.rotation = math.random() * math.pi * 2
+            particle.rotSpeed = math.random(-3, 3)
+            particle.delay = delay
+            particle.active = false
+            particle.finalPulse = false
+            particle.finalPulseTime = 0
+            
             table.insert(effect.particles, particle)
         end
     end
@@ -510,7 +585,9 @@ function VFX.update(dt)
         
         -- Remove effect if complete
         if effect.progress >= 1.0 then
-            table.remove(VFX.activeEffects, i)
+            -- Release the effect and its particles back to their pools
+            local removedEffect = table.remove(VFX.activeEffects, i)
+            Pool.release("vfx_effect", removedEffect)
         else
             i = i + 1
         end
@@ -1253,6 +1330,16 @@ function VFX.createSpellEffect(spell, caster, target)
             end
         end
     end
+end
+
+-- Show Pool stats in debug mode
+function VFX.showPoolStats()
+    print("\n=== VFX POOLS STATS ===")
+    print(string.format("Active Effects: %d", #VFX.activeEffects))
+    print(string.format("Particle Pool Size: %d (Available: %d, Active: %d)", 
+        Pool.size("vfx_particle"), Pool.available("vfx_particle"), Pool.activeCount("vfx_particle")))
+    print(string.format("Effect Pool Size: %d (Available: %d, Active: %d)",
+        Pool.size("vfx_effect"), Pool.available("vfx_effect"), Pool.activeCount("vfx_effect")))
 end
 
 return VFX

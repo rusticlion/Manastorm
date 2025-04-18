@@ -1,7 +1,8 @@
 -- Spells.lua
 -- Contains data for all spells in the game
 
--- Import the keyword system
+-- Import the keyword system and constants
+local Constants = require("core.Constants")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 
@@ -11,13 +12,13 @@ local Spells = {}
 -- id: Unique identifier for the spell (string)
 -- name: Display name of the spell (string)
 -- description: Text description of what the spell does (string)
--- attackType: How the spell is delivered - "projectile", "remote", "zone", "utility" (string)
---   * projectile: Physical projectile attacks - can be blocked by barriers and wards
---   * remote:     Magical attacks at a distance - can only be blocked by wards
---   * zone:       Area effect attacks - can be blocked by barriers and fields
---   * utility:    Non-offensive spells that affect the caster - cannot be blocked
+-- attackType: How the spell is delivered - Constants.AttackType.PROJECTILE, REMOTE, ZONE, UTILITY
+--   * PROJECTILE: Physical projectile attacks - can be blocked by barriers and wards
+--   * REMOTE:     Magical attacks at a distance - can only be blocked by wards
+--   * ZONE:       Area effect attacks - can be blocked by barriers and fields
+--   * UTILITY:    Non-offensive spells that affect the caster - cannot be blocked
 -- castTime: Duration in seconds to cast the spell (number)
--- cost: Array of token types required (simple array of strings like {"fire", "fire", "moon"})
+-- cost: Array of token types required (array using Constants.TokenType.FIRE, etc.)
 -- keywords: Table of effect keywords and their parameters (table)
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
@@ -136,12 +137,12 @@ Spells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
-    attackType = "utility",
+    attackType = Constants.AttackType.UTILITY,
     castTime = 5.0,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
-            token = "fire",
+            token = Constants.TokenType.FIRE,
             amount = 1
         }
     },
@@ -157,7 +158,7 @@ Spells.conjurefire = {
         local fireCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == "fire" and token.state == "FREE" then
+                if token.type == Constants.TokenType.FIRE and token.state == Constants.TokenState.FREE then
                     fireCount = fireCount + 1
                 end
             end
@@ -176,21 +177,21 @@ Spells.firebolt = {
     description = "Quick ranged hit, more damage against AERIAL opponents",
     castTime = 5.0,
     attackType = "projectile",
-    cost = {"fire", "any"},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
             amount = function(caster, target)
                 if target and target.elevation then
-                    return target.elevation == "AERIAL" and 15 or 10
+                    return target.elevation == Constants.ElevationState.AERIAL and 15 or 10
                 end
                 return 10
             end,
-            type = "fire"
+            type = Constants.DamageType.FIRE
         }
     },
     vfx = "fire_bolt",
     sfx = "fire_whoosh",
-    blockableBy = {"barrier", "ward"}
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 Spells.meteor = {
@@ -198,25 +199,25 @@ Spells.meteor = {
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
     castTime = 8.0,
-    attackType = "zone",
-    cost = {"fire", "force", "star"},
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE, Constants.TokenType.STAR},
     keywords = {
         damage = {
             amount = function(caster, target)
                 if target and target.elevation then
-                    return target.elevation == "GROUNDED" and 20 or 0
+                    return target.elevation == Constants.ElevationState.GROUNDED and 20 or 0
                 end
                 return 0 -- Default damage if target is nil
             end,
-            type = "fire"
+            type = Constants.DamageType.FIRE
         },
         rangeShift = {
-            position = "NEAR"
+            position = Constants.RangeState.NEAR
         }
     },
     vfx = "meteor_dive",
     sfx = "meteor_impact",
-    blockableBy = {"barrier", "field"}
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }
 
 Spells.combust = {
@@ -224,8 +225,8 @@ Spells.combust = {
     name = "Combust Lock",
     description = "Locks opponent mana token, punishes overqueueing",
     castTime = 6.0,
-    attackType = "remote",
-    cost = {"fire", "force"},
+    attackType = Constants.AttackType.REMOTE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
     keywords = {
         lock = {
             duration = 10.0

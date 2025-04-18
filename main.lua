@@ -2,6 +2,11 @@
 -- Main game file
 
 -- Load dependencies
+local AssetCache = require("core.AssetCache")
+local AssetPreloader = require("core.assetPreloader")
+local Constants = require("core.Constants")
+local Input = require("core.Input")
+local Pool = require("core.Pool")
 local Wizard = require("wizard")
 local ManaPool = require("manapool")
 local UI = require("ui")
@@ -22,7 +27,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
-    rangeState = "FAR",  -- Initial range state (NEAR or FAR)
+    rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
     winScreenTimer = 0,
@@ -38,13 +43,19 @@ game = {
 }
 
 -- Define token types and images (globally available for consistency)
-game.tokenTypes = {"fire", "force", "moon", "nature", "star"}
+game.tokenTypes = {
+    Constants.TokenType.FIRE, 
+    Constants.TokenType.FORCE, 
+    Constants.TokenType.MOON, 
+    Constants.TokenType.NATURE, 
+    Constants.TokenType.STAR
+}
 game.tokenImages = {
-    fire = "assets/sprites/fire-token.png",
-    force = "assets/sprites/force-token.png",
-    moon = "assets/sprites/moon-token.png",
-    nature = "assets/sprites/nature-token.png",
-    star = "assets/sprites/star-token.png"
+    [Constants.TokenType.FIRE] = "assets/sprites/fire-token.png",
+    [Constants.TokenType.FORCE] = "assets/sprites/force-token.png",
+    [Constants.TokenType.MOON] = "assets/sprites/moon-token.png",
+    [Constants.TokenType.NATURE] = "assets/sprites/nature-token.png",
+    [Constants.TokenType.STAR] = "assets/sprites/star-token.png"
 }
 
 -- Helper function to add a random token to the mana pool
@@ -101,8 +112,29 @@ function love.load()
     -- Calculate initial scaling
     calculateScaling()
     
-    -- Use system font for now
-    game.font = love.graphics.newFont(16)  -- Default system font
+    -- Preload all assets to prevent in-game loading hitches
+    print("Preloading game assets...")
+    local preloadStats = AssetPreloader.preloadAllAssets()
+    print(string.format("Asset preloading complete: %d images, %d sounds in %.2f seconds",
+                        preloadStats.imageCount,
+                        preloadStats.soundCount,
+                        preloadStats.loadTime))
+    
+    -- Set up game object to have calculateScaling function that can be called by Input
+    game.calculateScaling = calculateScaling
+    
+    -- Load game font
+    -- For now, fall back to system font if custom font isn't available
+    local fontPath = "assets/fonts/Lionscript-Regular.ttf"
+    local fontExists = love.filesystem.getInfo(fontPath)
+    
+    if fontExists then
+        game.font = love.graphics.newFont(fontPath, 16)
+        print("Using custom game font: " .. fontPath)
+    else
+        game.font = love.graphics.newFont(16)  -- Default system font
+        print("Custom font not found, using system font")
+    end
     
     -- Set default font for normal rendering
     love.graphics.setFont(game.font)
@@ -203,6 +235,76 @@ function love.load()
     
     -- Log which token was added
     print("Starting the game with a single " .. tokenType .. " token")
+    
+    -- Initialize input system with game state reference
+    Input.init(game)
+    print("Input system initialized")
+end
+
+-- Display hotkey help overlay
+function drawHotkeyHelp()
+    local x = baseWidth - 300
+    local y = 50
+    local lineHeight = 20
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", x - 10, y - 10, 290, 500)
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print("HOTKEY REFERENCE", x, y)
+    y = y + lineHeight * 2
+    
+    -- System keys
+    love.graphics.setColor(0.8, 0.8, 1, 1)
+    love.graphics.print("SYSTEM:", x, y)
+    y = y + lineHeight
+    love.graphics.setColor(1, 1, 1, 0.8)
+    for i, key in ipairs(Input.reservedKeys.system) do
+        love.graphics.print("  " .. key, x, y)
+        y = y + lineHeight
+    end
+    y = y + lineHeight/2
+    
+    -- Player 1 keys
+    love.graphics.setColor(1, 0.5, 0.5, 1)
+    love.graphics.print("PLAYER 1:", x, y)
+    y = y + lineHeight
+    love.graphics.setColor(1, 1, 1, 0.8)
+    for i, key in ipairs(Input.reservedKeys.player1) do
+        love.graphics.print("  " .. key, x, y)
+        y = y + lineHeight
+    end
+    y = y + lineHeight/2
+    
+    -- Player 2 keys
+    love.graphics.setColor(0.5, 0.5, 1, 1)
+    love.graphics.print("PLAYER 2:", x, y)
+    y = y + lineHeight
+    love.graphics.setColor(1, 1, 1, 0.8)
+    for i, key in ipairs(Input.reservedKeys.player2) do
+        love.graphics.print("  " .. key, x, y)
+        y = y + lineHeight
+    end
+    y = y + lineHeight/2
+    
+    -- Debug keys
+    love.graphics.setColor(0.8, 1, 0.8, 1)
+    love.graphics.print("DEBUG:", x, y)
+    y = y + lineHeight
+    love.graphics.setColor(1, 1, 1, 0.8)
+    for i, key in ipairs(Input.reservedKeys.debug) do
+        love.graphics.print("  " .. key, x, y)
+        y = y + lineHeight
+    end
+    
+    -- Testing keys
+    y = y + lineHeight/2
+    love.graphics.setColor(1, 0.8, 0.5, 1)
+    love.graphics.print("TESTING:", x, y)
+    y = y + lineHeight
+    love.graphics.setColor(1, 1, 1, 0.8)
+    for i, key in ipairs(Input.reservedKeys.testing) do
+        love.graphics.print("  " .. key, x, y)
+        y = y + lineHeight
+    end
 end
 
 -- Reset the game
@@ -253,7 +355,7 @@ function resetGame()
     end
     
     -- Reset range state
-    game.rangeState = "FAR"
+    game.rangeState = Constants.RangeState.FAR
     
     -- Clear mana pool and add a single token to start
     game.manaPool:clear()
@@ -271,24 +373,9 @@ function resetGame()
     print("Game reset! Starting with a single " .. tokenType .. " token")
 end
 
--- Handle keybindings for window size adjustments
-function love.keypressed(key, scancode, isrepeat)
-    -- Scale adjustments
-    if love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then
-        if key == "1" then
-            love.window.setMode(baseWidth, baseHeight)
-            calculateScaling()
-        elseif key == "2" then
-            love.window.setMode(baseWidth * 2, baseHeight * 2)
-            calculateScaling()
-        elseif key == "3" then
-            love.window.setMode(baseWidth * 3, baseHeight * 3)
-            calculateScaling()
-        elseif key == "f" then
-            love.window.setFullscreen(not love.window.getFullscreen())
-            calculateScaling()
-        end
-    end
+-- Add resetGame function to game state so Input system can call it
+function game.resetGame()
+    resetGame()
 end
 
 function love.update(dt)
@@ -388,14 +475,17 @@ function love.draw()
     -- Draw visual effects layer (between wizards and UI)
     game.vfx.draw()
     
-    -- Draw UI (health bars and wizard names are handled in UI.drawSpellInfo)
+    -- Draw UI elements in proper z-order
     love.graphics.setColor(1, 1, 1)
     
-    -- Always draw spellbook components
+    -- First draw health bars and basic UI components
+    UI.drawSpellInfo(game.wizards)
+    
+    -- Then draw spellbook buttons (the input feedback bar)
     UI.drawSpellbookButtons()
     
-    -- Draw spell info (health bars, etc.)
-    UI.drawSpellInfo(game.wizards)
+    -- Finally draw spellbook modals on top of everything else
+    UI.drawSpellbookModals(game.wizards)
     
     -- Draw win screen if game is over
     if game.gameOver and game.winner then
@@ -410,6 +500,28 @@ function love.draw()
         
         -- Show scaling info in debug mode
         love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 30)
+        
+        -- Show asset cache stats in debug mode
+        local stats = AssetCache.dumpStats()
+        love.graphics.print(string.format("Assets: %d images, %d sounds loaded", 
+                            stats.images.loaded, stats.sounds.loaded), 10, 50)
+
+        -- Show Pool stats in debug mode
+        if love.keyboard.isDown("p") then
+            -- Draw pool statistics overlay
+            Pool.drawDebugOverlay()
+            -- Also show VFX-specific stats
+            game.vfx.showPoolStats()
+        else
+            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 70)
+        end
+        
+        -- Show hotkey summary when debug overlay is active
+        if love.keyboard.isDown("tab") then
+            drawHotkeyHelp()
+        else
+            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 90)
+        end
     else
         -- Always show a small hint about the debug key
         love.graphics.setColor(0.6, 0.6, 0.6, 0.4)
@@ -611,186 +723,14 @@ function drawRangeIndicator()
     love.graphics.setLineWidth(1)
 end
 
-function love.keypressed(key)
-    -- Debug all key presses to isolate input issues
-    print("DEBUG: Key pressed: '" .. key .. "'")
-    
-    -- Check for game over state first
-    if game.gameOver then
-        -- Reset game on space bar press during game over
-        if key == "space" then
-            resetGame()
-        end
-        return
-    end
-    
-    if key == "escape" then
-        love.event.quit()
-    end
-    
-    -- Player 1 (Ashgar) key handling for spell combinations
-    if key == "q" then
-        game.wizards[1]:keySpell(1, true)
-    elseif key == "w" then
-        game.wizards[1]:keySpell(2, true)
-    elseif key == "e" then
-        game.wizards[1]:keySpell(3, true)
-    elseif key == "f" then
-        -- Cast key for Player 1
-        game.wizards[1]:castKeyedSpell()
-    elseif key == "g" then
-        -- Free key for Player 1
-        game.wizards[1]:freeAllSpells()
-    elseif key == "b" then
-        -- Toggle spellbook for Player 1
-        UI.toggleSpellbook(1)
-    end
-    
-    -- Player 2 (Selene) key handling for spell combinations
-    if key == "i" then
-        game.wizards[2]:keySpell(1, true)
-    elseif key == "o" then
-        game.wizards[2]:keySpell(2, true)
-    elseif key == "p" then
-        game.wizards[2]:keySpell(3, true)
-    elseif key == "j" then
-        -- Cast key for Player 2
-        game.wizards[2]:castKeyedSpell()
-    elseif key == "h" then
-        -- Free key for Player 2
-        game.wizards[2]:freeAllSpells()
-    elseif key == "m" then
-        -- Toggle spellbook for Player 2
-        UI.toggleSpellbook(2)
-    end
-    
-    -- Debug: Add a single random token with T key
-    if key == "t" then
-        local tokenType = game.addRandomToken()
-        print("Added a " .. tokenType .. " token to the mana pool")
-    end
-    
-    -- Debug: Add specific tokens for testing shield spells
-    if key == "z" then
-        local tokenType = "moon"
-        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
-    elseif key == "x" then
-        local tokenType = "star"
-        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
-    elseif key == "c" then
-        local tokenType = "force"
-        game.manaPool:addToken(tokenType, game.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
-    end
-    
-    -- Direct keys for casting shield spells, bypassing keying and issue in cast key "l"
-    if key == "1" then
-        -- Force cast Moon Ward for Selene
-        print("DEBUG: Directly casting Moon Ward for Selene")
-        local result = game.wizards[2]:queueSpell(game.customSpells.moonWard)
-        print("DEBUG: Moon Ward cast result: " .. tostring(result))
-    elseif key == "2" then
-        -- Force cast Mirror Shield for Selene
-        print("DEBUG: Directly casting Mirror Shield for Selene")
-        local result = game.wizards[2]:queueSpell(game.customSpells.mirrorShield)
-        print("DEBUG: Mirror Shield cast result: " .. tostring(result))
-    end
-    
-    -- Debug: Position/elevation test controls
-    -- Toggle range state with R key
-    if key == "r" then
-        if game.rangeState == "NEAR" then
-            game.rangeState = "FAR"
-        else
-            game.rangeState = "NEAR"
-        end
-        print("Range state toggled to: " .. game.rangeState)
-    end
-    
-    -- Toggle Ashgar's elevation with A key
-    if key == "a" then
-        if game.wizards[1].elevation == "GROUNDED" then
-            game.wizards[1].elevation = "AERIAL"
-        else
-            game.wizards[1].elevation = "GROUNDED"
-        end
-        print("Ashgar elevation toggled to: " .. game.wizards[1].elevation)
-    end
-    
-    -- Toggle Selene's elevation with S key
-    if key == "s" then
-        if game.wizards[2].elevation == "GROUNDED" then
-            game.wizards[2].elevation = "AERIAL"
-        else
-            game.wizards[2].elevation = "GROUNDED"
-        end
-        print("Selene elevation toggled to: " .. game.wizards[2].elevation)
-    end
-    
-    -- Debug: Test VFX effects with number keys
-    if key == "1" then
-        -- Test firebolt effect
-        game.vfx.createEffect("firebolt", game.wizards[1].x, game.wizards[1].y, game.wizards[2].x, game.wizards[2].y)
-        print("Testing firebolt VFX")
-    elseif key == "2" then
-        -- Test meteor effect 
-        game.vfx.createEffect("meteor", game.wizards[2].x, game.wizards[2].y - 100, game.wizards[2].x, game.wizards[2].y)
-        print("Testing meteor VFX")
-    elseif key == "3" then
-        -- Test mist veil effect
-        game.vfx.createEffect("mistveil", game.wizards[1].x, game.wizards[1].y)
-        print("Testing mist veil VFX")
-    elseif key == "4" then
-        -- Test emberlift effect
-        game.vfx.createEffect("emberlift", game.wizards[2].x, game.wizards[2].y)
-        print("Testing emberlift VFX") 
-    elseif key == "5" then
-        -- Test full moon beam effect
-        game.vfx.createEffect("fullmoonbeam", game.wizards[2].x, game.wizards[2].y, game.wizards[1].x, game.wizards[1].y)
-        print("Testing full moon beam VFX")
-    elseif key == "6" then
-        -- Test conjure fire effect
-        game.vfx.createEffect("conjurefire", game.wizards[1].x, game.wizards[1].y, nil, nil, {
-            manaPoolX = game.manaPool.x,
-            manaPoolY = game.manaPool.y
-        })
-        print("Testing conjure fire VFX")
-    elseif key == "7" then
-        -- Test conjure moonlight effect
-        game.vfx.createEffect("conjuremoonlight", game.wizards[2].x, game.wizards[2].y, nil, nil, {
-            manaPoolX = game.manaPool.x,
-            manaPoolY = game.manaPool.y
-        })
-        print("Testing conjure moonlight VFX")
-    elseif key == "8" then
-        -- Test volatile conjuring effect
-        game.vfx.createEffect("volatileconjuring", game.wizards[1].x, game.wizards[1].y, nil, nil, {
-            manaPoolX = game.manaPool.x,
-            manaPoolY = game.manaPool.y
-        })
-        print("Testing volatile conjuring VFX")
-    end
+-- Unified key handler using the Input module
+function love.keypressed(key, scancode, isrepeat)
+    -- Forward all key presses to the Input module
+    return Input.handleKey(key, scancode, isrepeat)
 end
 
--- Add key release handling to clear key combinations
-function love.keyreleased(key)
-    -- Player 1 key releases
-    if key == "q" then
-        game.wizards[1]:keySpell(1, false)
-    elseif key == "w" then
-        game.wizards[1]:keySpell(2, false)
-    elseif key == "e" then
-        game.wizards[1]:keySpell(3, false)
-    end
-    
-    -- Player 2 key releases
-    if key == "i" then
-        game.wizards[2]:keySpell(1, false)
-    elseif key == "o" then
-        game.wizards[2]:keySpell(2, false)
-    elseif key == "p" then
-        game.wizards[2]:keySpell(3, false)
-    end
+-- Unified key release handler
+function love.keyreleased(key, scancode)
+    -- Forward all key releases to the Input module
+    return Input.handleKeyReleased(key, scancode)
 end
