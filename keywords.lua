@@ -1,5 +1,35 @@
 -- keywords.lua
 -- Defines all keywords and their behaviors for the spell system
+--
+-- IMPORTANT: Keyword execute functions should create and return events rather than directly modifying game state.
+-- The events are collected and processed by the EventRunner module.
+--
+-- When creating a new keyword, follow this pattern:
+--
+-- Keywords.newKeyword = {
+--     behavior = {
+--         -- Define behavior metadata here to document the effect
+--         descriptiveProperty = true,
+--         targetType = Constants.TargetType.ENEMY,
+--         category = "CATEGORY"
+--     },
+--     
+--     -- Implementation function should return events
+--     execute = function(params, caster, target, results)
+--         -- Create your event(s) here 
+--         results.myEvent = {
+--             type = "EVENT_TYPE", 
+--             source = "caster",
+--             target = "enemy",
+--             property = params.property
+--         }
+--         
+--         -- Return the results table containing events
+--         return results
+--     end
+-- }
+--
+-- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
 local Keywords = {}
@@ -500,10 +530,21 @@ Keywords.echo = {
         defaultDelay = 2.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - New event-based pattern
+    execute = function(params, caster, target, results, events)
+        -- Create an ECHO event directly
+        table.insert(events or {}, {
+            type = "ECHO",
+            source = "caster",
+            target = "self_slot",
+            slotIndex = results.currentSlot, -- Use the current slot or specified one
+            delay = params.delay or 2.0
+        })
+        
+        -- For backward compatibility, still add to results
         results.echo = true
         results.echoDelay = params.delay or 2.0
+        
         return results
     end
 }

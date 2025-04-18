@@ -1,5 +1,19 @@
 -- spellCompiler.lua
 -- Compiles spell definitions using keyword behaviors
+--
+-- IMPORTANT: This system now uses a pure event-based architecture.
+-- All keyword behaviors should create events rather than directly modifying game state.
+-- Events are processed by the EventRunner module after all behaviors have been executed.
+-- The events should follow the schema defined in docs/combat_events.md.
+--
+-- Example event structure:
+-- {
+--   type = "DAMAGE",       -- Required: Type of the event
+--   source = "caster",     -- Required: Source of the event (usually "caster")
+--   target = "enemy",      -- Required: Target of the event (e.g., "self", "enemy", "both", etc.)
+--   amount = 10,           -- Event-specific data
+--   damageType = "fire"    -- Event-specific data
+-- }
 
 local SpellCompiler = {}
 
@@ -127,25 +141,26 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     end
                 end
                 
-                -- Execute the behavior to get the results
-                local behaviorResults
+                -- Execute the behavior to get events
+                local behaviorResults = {}
+                
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results into the main results
+                -- Merge the behavior results into the main results for backward compatibility
                 for k, v in pairs(behaviorResults) do
                     results[k] = v
                 end
                 
-                -- Special handling for shield behaviors to maintain compatibility
+                -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
                     -- Create a CREATE_SHIELD event
                     table.insert(events, {
@@ -167,15 +182,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         end
         
         if useEventSystem then
-            -- Wrap event generation and processing in pcall to avoid crashing the game
+            -- Wrap event processing in pcall to avoid crashing the game
             local success, result = pcall(function()
-                -- Generate events from the results if using the event system
-                local legacyEvents = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
-                
-                -- Combine legacy events with any explicitly created events
-                for _, event in ipairs(legacyEvents) do
-                    table.insert(events, event)
-                end
+                -- We now use ONLY explicit events created during execution
+                -- No conversion from legacy result formats
                 
                 -- Debug output for events
                 if _G.DEBUG_EVENTS then
@@ -210,12 +220,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     -- Add method for direct event generation without execution
     -- Useful for testing and debugging
     compiledSpell.generateEvents = function(caster, target, spellSlot)
-        local results = {}
+        local events = {}
         
-        -- Execute each behavior to collect results
+        -- Execute each behavior to generate events
         for keyword, behavior in pairs(compiledSpell.behavior) do
             if behavior.execute then
                 local params = behavior.params or {}
+                local localResults = {}
                 
                 -- Process function parameters
                 for paramName, paramValue in pairs(params) do
@@ -225,30 +236,39 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         end)
                         
                         if success then
-                            results[keyword .. "_" .. paramName] = result
+                            localResults[keyword .. "_" .. paramName] = result
                         end
                     end
                 end
                 
-                -- Execute the behavior without modifying state
-                local behaviorResults
+                -- Execute the behavior to generate events directly
+                -- No state modification occurs
                 if behavior.enabled then
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    -- Call the keyword execute function with an empty results table
+                    -- The events parameter allows keywords to add events directly via table.insert
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 elseif behavior.value ~= nil then
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {}, spellSlot)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
                 else
-                    behaviorResults = behavior.execute(params, caster, target, {}, spellSlot)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
                 end
                 
-                -- Merge the behavior results
-                for k, v in pairs(behaviorResults) do
-                    results[k] = v
+                -- Special handling for shield behaviors (block keyword)
+                if keyword == "block" then
+                    -- Create a CREATE_SHIELD event explicitly
+                    local shieldParams = localResults.shieldParams or {}
+                    table.insert(events, {
+                        type = "CREATE_SHIELD",
+                        source = "caster",
+                        target = "self",
+                        slotIndex = spellSlot,
+                        defenseType = shieldParams.defenseType or "barrier",
+                        blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
+                        reflect = shieldParams.reflect or false
+                    })
                 end
             end
         end
-        
-        -- Generate events from the results
-        local events = getEventRunner().generateEventsFromResults(results, caster, target, spellSlot)
         
         return events
     end
