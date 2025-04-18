@@ -491,6 +491,11 @@ function ManaPool:update(dt)
     for i = #self.tokens, 1, -1 do
         local token = self.tokens[i]
         
+        -- Skip updating POOLED tokens, they've been reset and their properties are nil
+        if token.status == Constants.TokenStatus.POOLED then
+            goto continue_token
+        end
+        
         -- Update token based on its status in the state machine
         if token.status == Constants.TokenStatus.FREE then
             -- Handle the transition period for newly returned tokens
@@ -587,7 +592,9 @@ function ManaPool:update(dt)
             
             -- Common behavior for all FREE tokens
             -- Update pulse phase
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
             -- Calculate new position based on elliptical orbit - maintain perfect elliptical path
             if token.inValenceTransition then
@@ -608,9 +615,11 @@ function ManaPool:update(dt)
             token.y = token.y + wobbleY
             
             -- Rotate token itself for visual interest, occasionally reversing direction
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt
-            if math.random() < 0.002 then  -- Small chance to reverse rotation
-                token.rotSpeed = -token.rotSpeed
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt
+                if math.random() < 0.002 then  -- Small chance to reverse rotation
+                    token.rotSpeed = -token.rotSpeed
+                end
             end
             
         elseif token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
@@ -688,7 +697,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Token is being animated back to the mana pool
@@ -732,7 +743,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
@@ -779,15 +792,23 @@ function ManaPool:update(dt)
             end
             
             -- Even locked tokens should move a bit, but more constrained
-            token.x = token.x + math.sin(token.lockPulse) * 0.3
-            token.y = token.y + math.cos(token.lockPulse) * 0.3
+            if token.x and token.y and token.lockPulse then
+                token.x = token.x + math.sin(token.lockPulse) * 0.3
+                token.y = token.y + math.cos(token.lockPulse) * 0.3
+            end
             
-            -- Slight rotation
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            -- Slight rotation (with safety check)
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            end
         end
         
-        -- Update common properties for all tokens
-        token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        -- Update common properties for all tokens (moved inside the token loop)
+        if token.pulsePhase and token.pulseSpeed then
+            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        end
+        
+        ::continue_token::
     end
 end
 

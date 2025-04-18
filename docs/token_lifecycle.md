@@ -92,6 +92,28 @@ token:requestDestructionAnimation()
 -- Animation will play, then token will be released to pool
 ```
 
+### Canceling a Spell with Disjoint (Event-based)
+```lua
+-- In keywords.lua, the disjoint keyword creates a CANCEL_SPELL event
+table.insert(events, {
+    type = "CANCEL_SPELL",
+    source = "caster",
+    target = "enemy_slot", -- Use string that EventRunner understands
+    slotIndex = targetSlotIndex,
+    returnMana = false -- Key difference for disjoint
+})
+
+-- The EventRunner handles the CANCEL_SPELL event and destroys tokens
+for _, tokenData in ipairs(slot.tokens) do
+    if tokenData.token then
+        tokenData.token:requestDestructionAnimation()
+    end
+end
+
+-- Then it resets the slot without manipulating token states
+wizard:resetSpellSlot(slotIndex)
+```
+
 ## Benefits
 
 1. Encapsulation: Token manages its own lifecycle
@@ -99,6 +121,26 @@ token:requestDestructionAnimation()
 3. Animation/Logic Separation: Animation logic is clearly separated from state transition logic
 4. Safety: Invalid state transitions are prevented and logged
 5. Unified approach: All token handling follows the same pattern
+6. Event System Integration: Token lifecycle integrates with the game's event system
+
+## Event System Integration
+
+The token lifecycle system integrates with the event-driven architecture:
+
+1. **CANCEL_SPELL Events**: Handle spell cancellation
+   - With `returnMana = true`: Tokens are returned to the pool (dispel)
+   - With `returnMana = false`: Tokens are destroyed (disjoint)
+
+2. **Direct vs. Event-Driven Manipulation**:
+   - Old approach: Set `token.state = "DESTROYED"` directly
+   - New approach: Generate events that call appropriate token methods
+   
+3. **Decoupled Spell Slot Reset**:
+   - `resetSpellSlot` no longer manipulates token states directly
+   - All slot resets across the codebase use a centralized method
+   - Token animations are requested first, then slot references are cleared later 
+   - Clean separation between token state management and slot reset
+   - Unified handling of all slot properties (basic, shield, zone, etc.)
 
 ## Animation System
 

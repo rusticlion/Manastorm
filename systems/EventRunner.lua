@@ -202,6 +202,8 @@ function EventRunner.handleEvent(event, caster, target, spellSlot, results)
 end
 
 -- Resolve the actual target entity for an event
+-- This function handles both raw string target types (like "enemy_slot") 
+-- and Constants.TargetType enum values (like Constants.TargetType.SLOT_ENEMY)
 function EventRunner.resolveTarget(event, caster, target)
     -- Validate inputs
     if not event then
@@ -222,44 +224,59 @@ function EventRunner.resolveTarget(event, caster, target)
         return caster
     end
     
-    -- Convert uppercase target types to lowercase for consistent handling
+    -- Normalize target types to handle both string literals and Constants.TargetType values
+    local normalizedTargetType = ""
     if type(targetType) == "string" then
-        targetType = string.lower(targetType)
+        normalizedTargetType = string.lower(targetType)
     else
         print("WARNING: Non-string target type: " .. type(targetType) .. ", defaulting to 'self'")
         return caster
     end
     
-    if targetType == "self" then
+    -- Handle Constants.TargetType values
+    if targetType == "SLOT_ENEMY" then
+        normalizedTargetType = "enemy_slot"
+    elseif targetType == "SLOT_SELF" then
+        normalizedTargetType = "self_slot"
+    elseif targetType == "SELF" then
+        normalizedTargetType = "self"
+    elseif targetType == "ENEMY" then
+        normalizedTargetType = "enemy"
+    elseif targetType == "POOL_SELF" or targetType == "POOL_ENEMY" then
+        normalizedTargetType = "pool"
+    end
+    
+    -- Process normalized target types
+    if normalizedTargetType == "self" then
         return caster
-    elseif targetType == "enemy" then
+    elseif normalizedTargetType == "enemy" then
         -- Check if target exists
         if not target then
             print("WARNING: Event targets 'enemy' but target is nil, defaulting to caster")
             return caster
         end
         return target
-    elseif targetType == "both" then
+    elseif normalizedTargetType == "both" then
         -- Handle case where target doesn't exist
         if not target then
             return {caster}
         end
         return {caster, target}
-    elseif targetType == "pool" then
+    elseif normalizedTargetType == "pool" then
         -- For token events, target is the shared mana pool
         if not caster.manaPool then
             print("WARNING: Event targets 'pool' but caster.manaPool is nil")
             return nil
         end
         return caster.manaPool
-    elseif targetType == "self_slot" then
+    elseif normalizedTargetType == "self_slot" then
         -- For slot events targeting caster
         if not event.slotIndex and not event.slotIndex == 0 then
             -- Try to use the provided spellSlot as fallback in the handler
             return {wizard = caster, slotIndex = nil}
         end
         return {wizard = caster, slotIndex = event.slotIndex}
-    elseif targetType == "enemy_slot" then
+    elseif normalizedTargetType == "enemy_slot" then
         -- For slot events targeting enemy
         if not target then
             print("WARNING: Event targets 'enemy_slot' but target is nil")

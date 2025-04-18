@@ -605,11 +605,8 @@ function Wizard:update(dt)
                         slot.tokens = {}
                     end
                     
-                    -- Reset slot
-                    slot.active = false
-                    slot.progress = 0
-                    slot.spellType = nil
-                    slot.castTime = 0
+                    -- Reset slot using unified method
+                    self:resetSpellSlot(slotIndex)
                 end
             end
             
@@ -809,17 +806,9 @@ function Wizard:handleShieldBlock(slotIndex, blockedSpell)
         print(string.format("[SHIELD BREAK] %s's %s shield has been broken!", 
             self.name, slot.defenseType))
         
-        -- Reset slot completely to avoid half-broken shield state
+        -- Reset slot completely using unified method
         print("[SHIELD DEBUG] Resetting slot " .. slotIndex .. " to empty state")
-        slot.active = false
-        slot.isShield = false
-        slot.defenseType = nil
-        slot.blocksAttackTypes = nil
-        slot.blockTypes = nil  -- Clear block types array too
-        slot.progress = 0
-        slot.spellType = nil
-        slot.spell = nil  -- Clear spell reference too
-        slot.castTime = 0
+        self:resetSpellSlot(slotIndex)
         slot.tokens = {}  -- Ensure it's empty
         
         -- Create shield break effect
@@ -1658,26 +1647,8 @@ function Wizard:freeAllSpells()
                 slot.tokens = {}
             end
             
-            -- Reset slot properties
-            slot.active = false
-            slot.progress = 0
-            slot.spellType = nil
-            slot.castTime = 0
-            slot.spell = nil
-            
-            -- Reset shield-specific properties if applicable
-            if slot.isShield then
-                slot.isShield = false
-                slot.defenseType = nil
-                slot.blocksAttackTypes = nil
-                slot.shieldStrength = 0
-            end
-            
-            -- Reset any frozen state
-            if slot.frozen then
-                slot.frozen = false
-                slot.freezeTimer = 0
-            end
+            -- Reset all slot properties using unified method
+            self:resetSpellSlot(i)
             
             print("Freed spell in slot " .. i)
         end
@@ -2092,11 +2063,8 @@ function Wizard:castSpell(spellSlot)
             slot.tokens = {}
         end
         
-        -- Reset our slot
-        slot.active = false
-        slot.progress = 0
-        slot.spellType = nil
-        slot.castTime = 0
+        -- Reset our slot using unified method
+        self:resetSpellSlot(spellSlot)
         
         -- Skip further execution and return the effect
         return effect
@@ -2289,82 +2257,6 @@ function Wizard:castSpell(spellSlot)
             end
         else
             print("No active spell found in slot " .. targetSlot .. " to freeze")
-        end
-    end
-    
-    -- Handle disjoint effect (spell cancellation with mana destruction)
-    if effect.disjoint then
-        local targetSlot = effect.targetSlot or 0
-        
-        -- Handle the case where targetSlot is a function (from the compiled spell)
-        if type(targetSlot) == "function" then
-            -- Call the function with proper parameters
-            local slot_func_result = targetSlot(self, target, spellSlot)
-            -- Convert the result to a number (in case it returns a string)
-            targetSlot = tonumber(slot_func_result) or 0
-            print("Disjoint slot function returned: " .. targetSlot)
-        end
-        
-        -- If targetSlot is 0 or invalid, find the first active slot
-        if targetSlot == 0 or type(targetSlot) ~= "number" then
-            for i, slot in ipairs(target.spellSlots) do
-                if slot.active then
-                    targetSlot = i
-                    break
-                end
-            end
-        end
-        
-        -- Ensure targetSlot is a valid number before comparison
-        targetSlot = tonumber(targetSlot) or 0
-        
-        -- Check if the target slot exists and is active
-        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
-            local slot = target.spellSlots[targetSlot]
-            
-            -- Store data for feedback
-            local spellName = slot.spellType or "spell"
-            local tokenCount = #slot.tokens
-            
-            -- Destroy the mana tokens instead of returning them to the pool
-            for _, tokenData in ipairs(slot.tokens) do
-                local token = tokenData.token
-                if token then
-                    -- Mark the token as destroyed
-                    token.state = "DESTROYED"
-                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
-                    
-                    -- Create immediate destruction VFX
-                    if self.gameState.vfx then
-                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
-                            duration = 0.5,
-                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
-                            particleCount = 10,
-                            radius = 20
-                        })
-                    end
-                end
-            end
-            
-            -- Cancel the spell, emptying the slot
-            slot.active = false
-            slot.progress = 0
-            slot.tokens = {}
-            
-            -- Create visual effect at the spell slot position
-            if self.gameState.vfx then
-                -- Calculate position of the targeted spell slot
-                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                local slotY = target.y + slotYOffsets[targetSlot]
-                
-                -- Create a visual effect for the disjunction
-                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
-            end
-            
-            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
-                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
-        else
-            print("No active spell found in slot " .. targetSlot .. " to disjoint")
         end
     end
     
@@ -2685,16 +2577,23 @@ function Wizard:castSpell(spellSlot)
                         print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
                             tokenData.index, i, tokensToConsume))
                         
-                        -- First make sure token state is updated
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                            end
                         else
                             print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Trigger animation to return this token to the mana pool
+                        -- Fallback: Trigger animation via mana pool if we didn't use requestReturnAnimation
                         if target and target.manaPool then
                             print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
                             target.manaPool:returnToken(tokenData.index)
@@ -2756,18 +2655,32 @@ function Wizard:castSpell(spellSlot)
                     for _, tokenData in ipairs(tokensToReturn) do
                         print(string.format("[SHIELD DEBUG] Returning token %d to pool during shield destruction", tokenData.index))
                         
-                        -- Make sure token state is FREE
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                                
+                                -- Return to mana pool via legacy method
+                                if target and target.manaPool then
+                                    target.manaPool:returnToken(tokenData.index)
+                                end
+                            end
+                        else
+                            print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Return to mana pool
-                        if target and target.manaPool then
+                        -- Fallback for tokens without requestReturnAnimation
+                        if (not tokenData.token or not tokenData.token.requestReturnAnimation) and target and target.manaPool then
                             target.manaPool:returnToken(tokenData.index)
                         else
-                            print("[SHIELD ERROR] Could not return token - mana pool not found")
+                            print("[SHIELD ERROR] Could not return token - mana pool not found or token already handled")
                         end
                     end
                     
@@ -3185,6 +3098,48 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+end
+
+-- Reset a spell slot to its default state
+-- This function can be used to clear a slot when a spell is cast, canceled, or a shield is destroyed
+function Wizard:resetSpellSlot(slotIndex)
+    local slot = self.spellSlots[slotIndex]
+    if not slot then return end
+
+    -- Reset the basic slot properties
+    slot.active = false
+    slot.spell = nil
+    slot.spellType = nil
+    slot.castTime = 0
+    slot.castProgress = 0
+    slot.progress = 0 -- Used in many places instead of castProgress
+    slot.castTimeRemaining = 0
+    
+    -- Reset shield-specific properties
+    slot.isShield = false
+    slot.willBecomeShield = false
+    slot.defenseType = nil
+    slot.blocksAttackTypes = nil
+    slot.blockTypes = nil
+    slot.reflect = nil
+    slot.shieldStrength = 0
+    
+    -- Reset spell status properties
+    slot.frozen = false
+    slot.freezeTimer = 0
+    
+    -- Reset zone-specific properties
+    slot.zoneAnchored = nil
+    slot.anchorRange = nil
+    slot.anchorElevation = nil
+    slot.anchorRequireAll = nil
+    slot.affectsBothRanges = nil
+    
+    -- Reset spell properties
+    slot.attackType = nil
+    
+    -- Clear token references *after* animations have been requested
+    slot.tokens = {}
 end
 
 return Wizard

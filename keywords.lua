@@ -445,10 +445,30 @@ Keywords.disjoint = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        results.disjoint = true
-        results.targetSlot = params.slot or 0
-        return results
+    execute = function(params, caster, target, results, events)
+        local targetSlotIndex = 0
+        if params.slot and type(params.slot) == "function" then
+            -- Evaluate the slot function if provided
+            targetSlotIndex = params.slot(caster, target, results.currentSlot)
+        elseif params.slot then
+            targetSlotIndex = params.slot
+        end
+        targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
+        
+        -- Create a CANCEL_SPELL event with returnMana = false
+        table.insert(events or {}, {
+            type = "CANCEL_SPELL",
+            source = "caster",
+            target = "enemy_slot", -- Use string that EventRunner.resolveTarget understands
+            slotIndex = targetSlotIndex, -- 0 means random active slot handled by EventRunner
+            returnMana = false -- Key difference for disjoint
+        })
+        
+        -- Remove legacy flag setting (for backward compatibility in transition)
+        results.disjoint = nil
+        results.targetSlot = nil
+        
+        return results -- Return results for backward compatibility
     end
 }
 

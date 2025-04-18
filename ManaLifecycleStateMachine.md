@@ -62,10 +62,12 @@ The token object itself will manage state transitions through a set of well-defi
 5. **Animation/Logic Separation**: Animation logic is clearly separated from state transition logic
 
 ## Implementation Plan
-The implementation is broken down into 4 tickets:
+The implementation is broken down into 6 tickets:
 1. Define token state machine and methods
 2. Refactor ManaPool:update to drive animations based on the new states
 3. Update all token acquisition and return points to use the new methods
 4. Refine animations and visual states
+5. Ensure disjoint keyword uses event system
+6. Decouple Wizard:resetSpellSlot from token state
 
 This approach will ensure a smooth, incremental transition to the new architecture.
