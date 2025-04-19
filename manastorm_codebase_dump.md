@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri Apr 18 16:15:26 CDT 2025
+Generated: Sat Apr 19 02:16:12 CDT 2025
 
 # Source Code
 
@@ -1514,6 +1514,144 @@ Keywords.damage = {
     end
 }
 
+-- scalingDamage: Deals damage that scales based on conditions like cast time or token count
+Keywords.scalingDamage = {
+    -- Behavior definition
+    behavior = {
+        dealsDamage = true,
+        scalesWithConditions = true,
+        targetType = Constants.TargetType.ENEMY,
+        category = "DAMAGE",
+        
+        -- Default parameters
+        defaultBaseAmount = 5,
+        defaultScalingFactor = 2,
+        defaultScalingType = "castTime", -- Default scaling with cast time
+        defaultMaxBonus = 25,            -- Cap on scaling bonus
+        defaultType = Constants.DamageType.GENERIC
+    },
+    
+    -- Implementation function
+    execute = function(params, caster, target, results, events)
+        -- Base damage amount
+        local baseDamage = params.baseAmount or 5
+        
+        -- Scaling factor (additional damage per scaling unit)
+        local scalingFactor = params.scalingFactor or 2
+        
+        -- Maximum bonus from scaling (to prevent excessive scaling)
+        local maxBonus = params.maxBonus or 25
+        
+        -- Type of scaling to use
+        local scalingType = params.scalingType or "castTime"
+        
+        -- Value to scale with (cast time, token count, etc.)
+        local scalingValue = 0
+        local originalValue = 0  -- For logging/display
+        local valueLabel = ""    -- Description of what we're scaling with
+        
+        -- Check which condition to scale with
+        if scalingType == "castTime" then
+            -- Scale with total cast time of the spell
+            if results.currentSlot and caster and caster.spellSlots then
+                local slot = caster.spellSlots[results.currentSlot]
+                if slot then
+                    -- Get the original cast time
+                    local originalCastTime = slot.castTime or 3.0
+                    
+                    -- Use the existing progress value - represents actual time spent casting
+                    local actualCastTime = slot.progress
+                    
+                    -- Calculate how much longer than normal this took (in seconds)
+                    -- If spell normally takes 3s but took 5s, that's 2s of "extra" time
+                    local extraTime = math.max(0, actualCastTime - originalCastTime)
+                    scalingValue = extraTime
+                    originalValue = actualCastTime
+                    valueLabel = "extra cast seconds"
+                end
+            end
+        elseif scalingType == "moon" or scalingType == "fire" or scalingType == "force" 
+               or scalingType == "nature" or scalingType == "star" then
+            -- Scale with token count in pool
+            if caster and caster.manaPool then
+                for _, token in ipairs(caster.manaPool.tokens) do
+                    local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+                    if isFree and token.type == scalingType then
+                        scalingValue = scalingValue + 1
+                    end
+                end
+                originalValue = scalingValue
+                valueLabel = scalingType .. " tokens"
+            end
+        elseif scalingType == "allTokens" then
+            -- Scale with all token types
+            if caster and caster.manaPool then
+                for _, token in ipairs(caster.manaPool.tokens) do
+                    local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+                    if isFree then
+                        scalingValue = scalingValue + 1
+                    end
+                end
+                originalValue = scalingValue
+                valueLabel = "total tokens"
+            end
+        elseif scalingType == "health" then
+            -- Scale with caster's health percentage
+            if caster then
+                local healthPercent = caster.health / caster.maxHealth
+                scalingValue = math.floor(healthPercent * 10) -- 0-10 scaling factor
+                originalValue = healthPercent * 100
+                valueLabel = "health percent"
+            end
+        end
+        
+        -- Calculate bonus damage from scaling
+        local bonusDamage = math.min(maxBonus, scalingValue * scalingFactor)
+        
+        -- Calculate total damage: base + bonus from scaling
+        local totalDamage = math.floor(baseDamage + bonusDamage)
+        
+        -- Create DAMAGE event
+        table.insert(events or {}, {
+            type = "DAMAGE",
+            source = "caster",
+            target = "enemy",
+            amount = totalDamage,
+            damageType = params.type or Constants.DamageType.GENERIC,
+            scaledBy = {
+                type = scalingType,
+                value = scalingValue,
+                originalValue = originalValue,
+                valueLabel = valueLabel,
+                base = baseDamage,
+                bonus = bonusDamage,
+                factor = scalingFactor,
+                maxBonus = maxBonus
+            }
+        })
+        
+        -- For backward compatibility
+        results.damage = totalDamage
+        results.damageType = params.type
+        results.scalingInfo = {
+            type = scalingType,
+            value = scalingValue,
+            originalValue = originalValue,
+            valueLabel = valueLabel,
+            baseDamage = baseDamage,
+            bonusDamage = bonusDamage,
+            scalingFactor = scalingFactor,
+            maxBonus = maxBonus
+        }
+        
+        -- Log the scaling for debugging
+        print(string.format("Scaling damage: %d base + %d bonus (from %s: %.1f, factor: %d) = %d total", 
+              baseDamage, bonusDamage, valueLabel, scalingValue, scalingFactor, totalDamage))
+        
+        return results
+    end
+}
+
 -- burn: Applies damage over time effect
 Keywords.burn = {
     -- Behavior definition
@@ -1786,13 +1924,32 @@ Keywords.lock = {
         category = "TOKEN",
         
         -- Default parameters
-        defaultDuration = 5.0
+        defaultDuration = 5.0,
+        defaultAmount = 1
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - Using event-based pattern
+    execute = function(params, caster, target, results, events)
+        local tokenType = params.type or "any"  -- Type of token to lock
+        local amount = params.amount or 1       -- Number of tokens to lock
+        local duration = params.duration or 5.0 -- Lock duration
+        
+        -- Create a LOCK_TOKEN event
+        table.insert(events or {}, {
+            type = "LOCK_TOKEN",
+            source = "caster",
+            target = "enemy", -- Target the enemy's mana pool
+            tokenType = tokenType,
+            amount = amount,
+            duration = duration
+        })
+        
+        -- For backward compatibility, still set the results
         results.lockToken = true
-        results.lockDuration = params.duration or 5.0
+        results.lockDuration = duration
+        results.lockAmount = amount
+        results.lockType = tokenType
+        
         return results
     end
 }
@@ -1870,10 +2027,30 @@ Keywords.disjoint = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        results.disjoint = true
-        results.targetSlot = params.slot or 0
-        return results
+    execute = function(params, caster, target, results, events)
+        local targetSlotIndex = 0
+        if params.slot and type(params.slot) == "function" then
+            -- Evaluate the slot function if provided
+            targetSlotIndex = params.slot(caster, target, results.currentSlot)
+        elseif params.slot then
+            targetSlotIndex = params.slot
+        end
+        targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
+        
+        -- Create a CANCEL_SPELL event with returnMana = false
+        table.insert(events or {}, {
+            type = "CANCEL_SPELL",
+            source = "caster",
+            target = "enemy_slot", -- Use string that EventRunner.resolveTarget understands
+            slotIndex = targetSlotIndex, -- 0 means random active slot handled by EventRunner
+            returnMana = false -- Key difference for disjoint
+        })
+        
+        -- Remove legacy flag setting (for backward compatibility in transition)
+        results.disjoint = nil
+        results.targetSlot = nil
+        
+        return results -- Return results for backward compatibility
     end
 }
 
@@ -3279,6 +3456,11 @@ function ManaPool:update(dt)
     for i = #self.tokens, 1, -1 do
         local token = self.tokens[i]
         
+        -- Skip updating POOLED tokens, they've been reset and their properties are nil
+        if token.status == Constants.TokenStatus.POOLED then
+            goto continue_token
+        end
+        
         -- Update token based on its status in the state machine
         if token.status == Constants.TokenStatus.FREE then
             -- Handle the transition period for newly returned tokens
@@ -3375,7 +3557,9 @@ function ManaPool:update(dt)
             
             -- Common behavior for all FREE tokens
             -- Update pulse phase
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
             -- Calculate new position based on elliptical orbit - maintain perfect elliptical path
             if token.inValenceTransition then
@@ -3396,9 +3580,11 @@ function ManaPool:update(dt)
             token.y = token.y + wobbleY
             
             -- Rotate token itself for visual interest, occasionally reversing direction
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt
-            if math.random() < 0.002 then  -- Small chance to reverse rotation
-                token.rotSpeed = -token.rotSpeed
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt
+                if math.random() < 0.002 then  -- Small chance to reverse rotation
+                    token.rotSpeed = -token.rotSpeed
+                end
             end
             
         elseif token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
@@ -3476,7 +3662,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Token is being animated back to the mana pool
@@ -3520,7 +3708,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
@@ -3567,15 +3757,23 @@ function ManaPool:update(dt)
             end
             
             -- Even locked tokens should move a bit, but more constrained
-            token.x = token.x + math.sin(token.lockPulse) * 0.3
-            token.y = token.y + math.cos(token.lockPulse) * 0.3
+            if token.x and token.y and token.lockPulse then
+                token.x = token.x + math.sin(token.lockPulse) * 0.3
+                token.y = token.y + math.cos(token.lockPulse) * 0.3
+            end
             
-            -- Slight rotation
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            -- Slight rotation (with safety check)
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            end
         end
         
-        -- Update common properties for all tokens
-        token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        -- Update common properties for all tokens (moved inside the token loop)
+        if token.pulsePhase and token.pulseSpeed then
+            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        end
+        
+        ::continue_token::
     end
 end
 
@@ -4792,7 +4990,9 @@ Spells.combust = {
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
     keywords = {
         lock = {
-            duration = 10.0
+            duration = 10.0,
+            type = "any", -- Lock any type of token
+            amount = 1    -- Lock 1 token at a time
         },
         damage = {
             amount = function(caster, target)
@@ -5037,26 +5237,12 @@ Spells.fullmoonbeam = {
     castTime = 7.0,
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
-        damage = {
-            amount = function(caster, target, slot)
-                -- Find the slot this spell was cast from to get its actual cast time
-                local actualCastTime = 7.0  -- Default/base cast time
-                
-                -- If we know which slot this spell was cast from
-                if slot and caster.spellSlots[slot] then
-                    -- Use the actual cast time of the spell which may have been modified
-                    actualCastTime = caster.spellSlots[slot].castTime
-                end
-                
-                -- Calculate damage based on cast time (roughly 3.5 damage per second)
-                local damage = math.floor(actualCastTime * 3.5)
-                
-                -- Log the damage calculation
-                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
-                
-                return damage
-            end,
-            type = "moon"
+        scalingDamage = {
+            baseAmount = 7, -- Base damage (roughly what it would deal at minimum cast time)
+            scalingFactor = 3.5, -- Damage per second of casting (matches previous implementation)
+            scalingType = "castTime", -- Scale based on actual cast time
+            maxBonus = 25, -- Cap the bonus damage at 25
+            type = "moon" -- Damage type
         }
     },
     vfx = "moon_beam",
@@ -5754,6 +5940,8 @@ function EventRunner.handleEvent(event, caster, target, spellSlot, results)
 end
 
 -- Resolve the actual target entity for an event
+-- This function handles both raw string target types (like "enemy_slot") 
+-- and Constants.TargetType enum values (like Constants.TargetType.SLOT_ENEMY)
 function EventRunner.resolveTarget(event, caster, target)
     -- Validate inputs
     if not event then
@@ -5774,44 +5962,59 @@ function EventRunner.resolveTarget(event, caster, target)
         return caster
     end
     
-    -- Convert uppercase target types to lowercase for consistent handling
+    -- Normalize target types to handle both string literals and Constants.TargetType values
+    local normalizedTargetType = ""
     if type(targetType) == "string" then
-        targetType = string.lower(targetType)
+        normalizedTargetType = string.lower(targetType)
     else
         print("WARNING: Non-string target type: " .. type(targetType) .. ", defaulting to 'self'")
         return caster
     end
     
-    if targetType == "self" then
+    -- Handle Constants.TargetType values
+    if targetType == "SLOT_ENEMY" then
+        normalizedTargetType = "enemy_slot"
+    elseif targetType == "SLOT_SELF" then
+        normalizedTargetType = "self_slot"
+    elseif targetType == "SELF" then
+        normalizedTargetType = "self"
+    elseif targetType == "ENEMY" then
+        normalizedTargetType = "enemy"
+    elseif targetType == "POOL_SELF" or targetType == "POOL_ENEMY" then
+        normalizedTargetType = "pool"
+    end
+    
+    -- Process normalized target types
+    if normalizedTargetType == "self" then
         return caster
-    elseif targetType == "enemy" then
+    elseif normalizedTargetType == "enemy" then
         -- Check if target exists
         if not target then
             print("WARNING: Event targets 'enemy' but target is nil, defaulting to caster")
             return caster
         end
         return target
-    elseif targetType == "both" then
+    elseif normalizedTargetType == "both" then
         -- Handle case where target doesn't exist
         if not target then
             return {caster}
         end
         return {caster, target}
-    elseif targetType == "pool" then
+    elseif normalizedTargetType == "pool" then
         -- For token events, target is the shared mana pool
         if not caster.manaPool then
             print("WARNING: Event targets 'pool' but caster.manaPool is nil")
             return nil
         end
         return caster.manaPool
-    elseif targetType == "self_slot" then
+    elseif normalizedTargetType == "self_slot" then
         -- For slot events targeting caster
         if not event.slotIndex and not event.slotIndex == 0 then
             -- Try to use the provided spellSlot as fallback in the handler
             return {wizard = caster, slotIndex = nil}
         end
         return {wizard = caster, slotIndex = event.slotIndex}
-    elseif targetType == "enemy_slot" then
+    elseif normalizedTargetType == "enemy_slot" then
         -- For slot events targeting enemy
         if not target then
             print("WARNING: Event targets 'enemy_slot' but target is nil")
@@ -5845,7 +6048,38 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create damage number VFX if available
         if caster.gameState and caster.gameState.vfx then
-            caster.gameState.vfx.createDamageNumber(targetEntity.x, targetEntity.y, event.amount, event.damageType)
+            local params = {}
+            
+            -- Add scaling info for visual effects if available
+            if event.scaledBy then
+                params = {
+                    scaledBy = event.scaledBy,
+                    isScaled = true
+                }
+                
+                -- Log scaling info for debugging
+                if event.scaledBy.valueLabel then
+                    -- New format with detailed scaling info
+                    print(string.format("Scaled damage: %d total = %d base + %d bonus (from %s: %.1f)", 
+                        event.amount, 
+                        event.scaledBy.base,
+                        event.scaledBy.bonus or 0,
+                        event.scaledBy.valueLabel,
+                        event.scaledBy.value or 0
+                    ))
+                else
+                    -- Legacy format
+                    print(string.format("Scaled damage: %d - Base: %d, Scaling: %s x %d (factor %d)", 
+                        event.amount, 
+                        event.scaledBy.base,
+                        event.scaledBy.type,
+                        event.scaledBy.count or 0,
+                        event.scaledBy.factor
+                    ))
+                end
+            end
+            
+            caster.gameState.vfx.createDamageNumber(targetEntity.x, targetEntity.y, event.amount, event.damageType, params)
         end
         
         return true
@@ -6099,17 +6333,43 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     LOCK_TOKEN = function(event, caster, target, spellSlot, results)
-        local manaPool = caster.manaPool
-        if not manaPool then return false end
+        -- For locking tokens, we need to target the enemy mana pool, not the caster's
+        local targetWizard = target
+        if not targetWizard then 
+            print("WARNING: LOCK_TOKEN event target is nil, defaulting to caster")
+            targetWizard = caster
+        end
+        
+        local manaPool = targetWizard.manaPool
+        if not manaPool then 
+            print("WARNING: Target manaPool is nil for LOCK_TOKEN event")
+            return false 
+        end
+        
+        print(string.format("Attempting to lock %d token(s) in %s's mana pool", 
+            event.amount or 1,
+            targetWizard.name or "unknown wizard"))
         
         -- Find tokens to lock
         local tokensLocked = 0
         
         for i, token in ipairs(manaPool.tokens) do
-            if token.state == "FREE" and (not event.tokenType or event.tokenType == "any" or token.type == event.tokenType) then
-                -- Lock token
-                token.state = "LOCKED"
+            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+            local matchesType = (not event.tokenType or event.tokenType == "any" or token.type == event.tokenType)
+            
+            if isFree and matchesType then
+                -- Lock token using state machine if available
+                if token.setState then
+                    token:setState(Constants.TokenStatus.LOCKED)
+                else
+                    -- Fallback to legacy state setting
+                    token.state = "LOCKED"
+                end
+                
                 token.lockTimer = event.duration
+                token.lockDuration = event.duration
+                token.lockPulse = token.lockPulse or 0 -- Initialize if not present
+                
                 tokensLocked = tokensLocked + 1
                 results.tokensAffected = results.tokensAffected + 1
                 
@@ -6130,11 +6390,22 @@ EventRunner.EVENT_HANDLERS = {
                     )
                 end
                 
-                -- Stop once we've locked enough tokens
+                        -- Stop once we've locked enough tokens
                 if tokensLocked >= event.amount then
+                    print(string.format("Successfully locked %d token(s) of type '%s' in %s's mana pool", 
+                        tokensLocked, 
+                        token.type,
+                        targetWizard.name or "unknown wizard"))
                     break
                 end
             end
+        end
+        
+        -- Log if we couldn't find any tokens to lock
+        if tokensLocked == 0 then
+            print(string.format("WARNING: Could not find any FREE tokens to lock in %s's mana pool (looking for type: %s)", 
+                targetWizard.name or "unknown wizard",
+                event.tokenType or "any"))
         end
         
         return true
@@ -12498,11 +12769,8 @@ function Wizard:update(dt)
                         slot.tokens = {}
                     end
                     
-                    -- Reset slot
-                    slot.active = false
-                    slot.progress = 0
-                    slot.spellType = nil
-                    slot.castTime = 0
+                    -- Reset slot using unified method
+                    self:resetSpellSlot(slotIndex)
                 end
             end
             
@@ -12702,17 +12970,9 @@ function Wizard:handleShieldBlock(slotIndex, blockedSpell)
         print(string.format("[SHIELD BREAK] %s's %s shield has been broken!", 
             self.name, slot.defenseType))
         
-        -- Reset slot completely to avoid half-broken shield state
+        -- Reset slot completely using unified method
         print("[SHIELD DEBUG] Resetting slot " .. slotIndex .. " to empty state")
-        slot.active = false
-        slot.isShield = false
-        slot.defenseType = nil
-        slot.blocksAttackTypes = nil
-        slot.blockTypes = nil  -- Clear block types array too
-        slot.progress = 0
-        slot.spellType = nil
-        slot.spell = nil  -- Clear spell reference too
-        slot.castTime = 0
+        self:resetSpellSlot(slotIndex)
         slot.tokens = {}  -- Ensure it's empty
         
         -- Create shield break effect
@@ -13430,6 +13690,8 @@ function Wizard:queueSpell(spell)
                     self.spellSlots[i].castTime = spellToUse.castTime
                 end
                 
+                -- Progress is already initialized to 0 above
+                
                 self.spellSlots[i].spell = spellToUse
                 self.spellSlots[i].tokens = tokens
                 
@@ -13551,26 +13813,8 @@ function Wizard:freeAllSpells()
                 slot.tokens = {}
             end
             
-            -- Reset slot properties
-            slot.active = false
-            slot.progress = 0
-            slot.spellType = nil
-            slot.castTime = 0
-            slot.spell = nil
-            
-            -- Reset shield-specific properties if applicable
-            if slot.isShield then
-                slot.isShield = false
-                slot.defenseType = nil
-                slot.blocksAttackTypes = nil
-                slot.shieldStrength = 0
-            end
-            
-            -- Reset any frozen state
-            if slot.frozen then
-                slot.frozen = false
-                slot.freezeTimer = 0
-            end
+            -- Reset all slot properties using unified method
+            self:resetSpellSlot(i)
             
             print("Freed spell in slot " .. i)
         end
@@ -13985,11 +14229,8 @@ function Wizard:castSpell(spellSlot)
             slot.tokens = {}
         end
         
-        -- Reset our slot
-        slot.active = false
-        slot.progress = 0
-        slot.spellType = nil
-        slot.castTime = 0
+        -- Reset our slot using unified method
+        self:resetSpellSlot(spellSlot)
         
         -- Skip further execution and return the effect
         return effect
@@ -14182,82 +14423,6 @@ function Wizard:castSpell(spellSlot)
             end
         else
             print("No active spell found in slot " .. targetSlot .. " to freeze")
-        end
-    end
-    
-    -- Handle disjoint effect (spell cancellation with mana destruction)
-    if effect.disjoint then
-        local targetSlot = effect.targetSlot or 0
-        
-        -- Handle the case where targetSlot is a function (from the compiled spell)
-        if type(targetSlot) == "function" then
-            -- Call the function with proper parameters
-            local slot_func_result = targetSlot(self, target, spellSlot)
-            -- Convert the result to a number (in case it returns a string)
-            targetSlot = tonumber(slot_func_result) or 0
-            print("Disjoint slot function returned: " .. targetSlot)
-        end
-        
-        -- If targetSlot is 0 or invalid, find the first active slot
-        if targetSlot == 0 or type(targetSlot) ~= "number" then
-            for i, slot in ipairs(target.spellSlots) do
-                if slot.active then
-                    targetSlot = i
-                    break
-                end
-            end
-        end
-        
-        -- Ensure targetSlot is a valid number before comparison
-        targetSlot = tonumber(targetSlot) or 0
-        
-        -- Check if the target slot exists and is active
-        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
-            local slot = target.spellSlots[targetSlot]
-            
-            -- Store data for feedback
-            local spellName = slot.spellType or "spell"
-            local tokenCount = #slot.tokens
-            
-            -- Destroy the mana tokens instead of returning them to the pool
-            for _, tokenData in ipairs(slot.tokens) do
-                local token = tokenData.token
-                if token then
-                    -- Mark the token as destroyed
-                    token.state = "DESTROYED"
-                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
-                    
-                    -- Create immediate destruction VFX
-                    if self.gameState.vfx then
-                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
-                            duration = 0.5,
-                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
-                            particleCount = 10,
-                            radius = 20
-                        })
-                    end
-                end
-            end
-            
-            -- Cancel the spell, emptying the slot
-            slot.active = false
-            slot.progress = 0
-            slot.tokens = {}
-            
-            -- Create visual effect at the spell slot position
-            if self.gameState.vfx then
-                -- Calculate position of the targeted spell slot
-                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                local slotY = target.y + slotYOffsets[targetSlot]
-                
-                -- Create a visual effect for the disjunction
-                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
-            end
-            
-            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
-                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
-        else
-            print("No active spell found in slot " .. targetSlot .. " to disjoint")
         end
     end
     
@@ -14578,16 +14743,23 @@ function Wizard:castSpell(spellSlot)
                         print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
                             tokenData.index, i, tokensToConsume))
                         
-                        -- First make sure token state is updated
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                            end
                         else
                             print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Trigger animation to return this token to the mana pool
+                        -- Fallback: Trigger animation via mana pool if we didn't use requestReturnAnimation
                         if target and target.manaPool then
                             print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
                             target.manaPool:returnToken(tokenData.index)
@@ -14649,18 +14821,32 @@ function Wizard:castSpell(spellSlot)
                     for _, tokenData in ipairs(tokensToReturn) do
                         print(string.format("[SHIELD DEBUG] Returning token %d to pool during shield destruction", tokenData.index))
                         
-                        -- Make sure token state is FREE
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                                
+                                -- Return to mana pool via legacy method
+                                if target and target.manaPool then
+                                    target.manaPool:returnToken(tokenData.index)
+                                end
+                            end
+                        else
+                            print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Return to mana pool
-                        if target and target.manaPool then
+                        -- Fallback for tokens without requestReturnAnimation
+                        if (not tokenData.token or not tokenData.token.requestReturnAnimation) and target and target.manaPool then
                             target.manaPool:returnToken(tokenData.index)
                         else
-                            print("[SHIELD ERROR] Could not return token - mana pool not found")
+                            print("[SHIELD ERROR] Could not return token - mana pool not found or token already handled")
                         end
                     end
                     
@@ -15078,6 +15264,48 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+end
+
+-- Reset a spell slot to its default state
+-- This function can be used to clear a slot when a spell is cast, canceled, or a shield is destroyed
+function Wizard:resetSpellSlot(slotIndex)
+    local slot = self.spellSlots[slotIndex]
+    if not slot then return end
+
+    -- Reset the basic slot properties
+    slot.active = false
+    slot.spell = nil
+    slot.spellType = nil
+    slot.castTime = 0
+    slot.castProgress = 0
+    slot.progress = 0 -- Used in many places instead of castProgress
+    slot.castTimeRemaining = 0
+    
+    -- Reset shield-specific properties
+    slot.isShield = false
+    slot.willBecomeShield = false
+    slot.defenseType = nil
+    slot.blocksAttackTypes = nil
+    slot.blockTypes = nil
+    slot.reflect = nil
+    slot.shieldStrength = 0
+    
+    -- Reset spell status properties
+    slot.frozen = false
+    slot.freezeTimer = 0
+    
+    -- Reset zone-specific properties
+    slot.zoneAnchored = nil
+    slot.anchorRange = nil
+    slot.anchorElevation = nil
+    slot.anchorRequireAll = nil
+    slot.affectsBothRanges = nil
+    
+    -- Reset spell properties
+    slot.attackType = nil
+    
+    -- Clear token references *after* animations have been requested
+    slot.tokens = {}
 end
 
 return Wizard```
@@ -15826,6 +16054,28 @@ token:requestDestructionAnimation()
 -- Animation will play, then token will be released to pool
 ```
 
+### Canceling a Spell with Disjoint (Event-based)
+```lua
+-- In keywords.lua, the disjoint keyword creates a CANCEL_SPELL event
+table.insert(events, {
+    type = "CANCEL_SPELL",
+    source = "caster",
+    target = "enemy_slot", -- Use string that EventRunner understands
+    slotIndex = targetSlotIndex,
+    returnMana = false -- Key difference for disjoint
+})
+
+-- The EventRunner handles the CANCEL_SPELL event and destroys tokens
+for _, tokenData in ipairs(slot.tokens) do
+    if tokenData.token then
+        tokenData.token:requestDestructionAnimation()
+    end
+end
+
+-- Then it resets the slot without manipulating token states
+wizard:resetSpellSlot(slotIndex)
+```
+
 ## Benefits
 
 1. Encapsulation: Token manages its own lifecycle
@@ -15833,6 +16083,26 @@ token:requestDestructionAnimation()
 3. Animation/Logic Separation: Animation logic is clearly separated from state transition logic
 4. Safety: Invalid state transitions are prevented and logged
 5. Unified approach: All token handling follows the same pattern
+6. Event System Integration: Token lifecycle integrates with the game's event system
+
+## Event System Integration
+
+The token lifecycle system integrates with the event-driven architecture:
+
+1. **CANCEL_SPELL Events**: Handle spell cancellation
+   - With `returnMana = true`: Tokens are returned to the pool (dispel)
+   - With `returnMana = false`: Tokens are destroyed (disjoint)
+
+2. **Direct vs. Event-Driven Manipulation**:
+   - Old approach: Set `token.state = "DESTROYED"` directly
+   - New approach: Generate events that call appropriate token methods
+   
+3. **Decoupled Spell Slot Reset**:
+   - `resetSpellSlot` no longer manipulates token states directly
+   - All slot resets across the codebase use a centralized method
+   - Token animations are requested first, then slot references are cleared later 
+   - Clean separation between token state management and slot reset
+   - Unified handling of all slot properties (basic, shield, zone, etc.)
 
 ## Animation System
 
@@ -16019,6 +16289,156 @@ This document will evolve, but this version represents the intended
 holistic vision of the gameplay experience, tone, and structure of 
 Manastorm.
 
+## ./DisjointBugFixPlan.md
+~The core issue is indeed a clash between the old direct state 
+manipulation and the new (partially implemented) animation-driven state 
+machine, particularly around the disjoint mechanic.
+Root Cause Analysis:
+disjoint Keyword Not Updated: As suspected, the keywords.lua file in the 
+latest dump still has the old disjoint.execute function. It sets 
+results.disjoint = true but does not generate a CANCEL_SPELL event. This 
+is the primary bug. The system isn't even trying to use the new state 
+machine for disjointed tokens.
+Legacy Wizard:castSpell Handling: Because the disjoint keyword doesn't 
+generate an event, the legacy handling block within Wizard:castSpell kicks 
+in:
+-- Handle disjoint effect (spell cancellation with mana destruction)
+    if effect.disjoint then
+        -- ... finds targetSlot ...
+        if targetSlot > 0 and targetSlot <= #target.spellSlots and 
+target.spellSlots[targetSlot].active then
+            local slot = target.spellSlots[targetSlot]
+            -- ...
+            -- Destroy the mana tokens instead of returning them to the 
+pool
+            for _, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                if token then
+                    -- Mark the token as destroyed (LEGACY STATE)
+                    token.state = "DESTROYED" -- << PROBLEM 1: Sets legacy 
+state, not new status
+                    token.gameState = self.gameState -- Give the token 
+access to gameState for VFX
+                    -- ... VFX ...
+                end
+            end
+            -- Cancel the spell, emptying the slot
+            slot.active = false
+            slot.progress = 0
+            slot.tokens = {} -- << PROBLEM 2: Clears slot's token list 
+immediately
+            -- ... VFX ...
+            print(...)
+        else
+            print("No active spell found in slot " .. targetSlot .. " to 
+disjoint")
+        end
+    end
+Use code with caution.
+Lua
+State Mismatch & No Cleanup Trigger:
+The tokens' legacy state is set to DESTROYED.
+Their new status (from the state machine) likely remains CHANNELED because 
+token:setState() was never called.
+Crucially, token:requestDestructionAnimation() is never called.
+The ManaPool:update loop now primarily checks token.status. It doesn't 
+have specific logic to handle the legacy state == "DESTROYED" anymore 
+(that was removed in favor of the DISSOLVING status check).
+Because requestDestructionAnimation wasn't called, the DISSOLVING 
+animation never starts, and finalizeDestruction (which releases the token 
+to the pool) is never reached.
+Visual Freezing:
+The Wizard:castSpell function immediately clears the slot.tokens table for 
+the disjointed slot.
+Wizard:drawSpellSlots iterates slot.tokens to draw orbiting tokens. Since 
+this list is now empty, the disjointed tokens are no longer drawn by the 
+slot.
+However, these tokens still exist in the main ManaPool.tokens list. They 
+are likely drawn one last time by ManaPool:draw in their final calculated 
+position (from their previous CHANNELED state orbit) before the slot was 
+cleared, and then never updated or redrawn again, appearing frozen.
+Solution: Fully Commit to the State Machine
+We need to eliminate the legacy handling for disjoint and ensure it uses 
+the new state machine correctly.
+Update keywords.lua for disjoint: Modify keywords.disjoint.execute to 
+generate the correct event instead of setting flags.
+File: keywords.lua
+Change: Replace the execute function for Keywords.disjoint with:
+execute = function(params, caster, target, results, events) -- Add 
+'events' parameter
+    local targetSlotIndex = 0
+    if params.slot and type(params.slot) == "function" then
+        -- Evaluate the slot function if provided
+        targetSlotIndex = params.slot(caster, target, results.currentSlot)
+    elseif params.slot then
+        targetSlotIndex = params.slot
+    end
+    targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a 
+number, default to 0
+
+    -- Create a CANCEL_SPELL event with returnMana = false
+    table.insert(events or {}, {
+        type = "CANCEL_SPELL",
+        source = "caster",
+        target = Constants.TargetType.SLOT_ENEMY, -- Use constant
+        slotIndex = targetSlotIndex, -- 0 means random active slot handled 
+by EventRunner
+        returnMana = false -- Key difference for disjoint
+    })
+
+    -- Remove legacy flag setting if present (results.disjoint, 
+results.targetSlot)
+    results.disjoint = nil
+    results.targetSlot = nil
+
+    return results -- Return results for backward compatibility if needed, 
+though events are primary now
+end,
+Use code with caution.
+Lua
+Remove Legacy disjoint Handling in Wizard:castSpell: Delete the entire if 
+effect.disjoint then ... end block from Wizard:castSpell. The EventRunner 
+will now handle this via the CANCEL_SPELL event.
+Modify Wizard:resetSpellSlot: Prevent it from interfering with token state 
+transitions requested by the EventRunner.
+File: wizard.lua
+Change: Update the resetSpellSlot function:
+resetSpellSlot = function(self, slotIndex)
+    local slot = self.spellSlots[slotIndex]
+    if not slot then return end
+
+    --[[ REMOVE THIS BLOCK - Token state should be managed by token 
+methods called by EventRunner
+    if not slot.isShield then
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                tokenData.token.state = "FREE" -- DO NOT DO THIS HERE
+            end
+        end
+    end
+    ]]--
+
+    -- Reset the slot properties
+    slot.active = false
+    slot.spell = nil
+    slot.spellType = nil -- Added for completeness
+    slot.castTime = 0 -- Added for completeness
+    slot.castProgress = 0
+    slot.tokens = {} -- Clear the reference list *after* animations have 
+been requested
+    slot.frozen = false
+    slot.freezeTimer = 0
+    slot.isShield = false
+    slot.willBecomeShield = false
+    -- Reset any other slot-specific flags if needed
+end,
+Use code with caution.
+Lua
+Verify EventRunner CANCEL_SPELL Handler: Double-check the CANCEL_SPELL 
+handler in systems/EventRunner.lua ensures it correctly calls 
+token:requestDestructionAnimation() when event.returnMana is false. (The 
+current code looks correct, but verify).~
+
 ## ./ManaLifecycleStateMachine.md
 # Mana Token Lifecycle State Machine
 
@@ -16084,11 +16504,13 @@ The token object itself will manage state transitions through a set of well-defi
 5. **Animation/Logic Separation**: Animation logic is clearly separated from state transition logic
 
 ## Implementation Plan
-The implementation is broken down into 4 tickets:
+The implementation is broken down into 6 tickets:
 1. Define token state machine and methods
 2. Refactor ManaPool:update to drive animations based on the new states
 3. Update all token acquisition and return points to use the new methods
 4. Refine animations and visual states
+5. Ensure disjoint keyword uses event system
+6. Decouple Wizard:resetSpellSlot from token state
 
 This approach will ensure a smooth, incremental transition to the new architecture.
 
@@ -16469,7 +16891,7 @@ centralizes the shield creation logic previously duplicated or bypassed.~
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri Apr 18 16:15:26 CDT 2025
+Generated: Sat Apr 19 02:16:12 CDT 2025
 
 # Source Code
 
@@ -17984,6 +18406,144 @@ Keywords.damage = {
     end
 }
 
+-- scalingDamage: Deals damage that scales based on conditions like cast time or token count
+Keywords.scalingDamage = {
+    -- Behavior definition
+    behavior = {
+        dealsDamage = true,
+        scalesWithConditions = true,
+        targetType = Constants.TargetType.ENEMY,
+        category = "DAMAGE",
+        
+        -- Default parameters
+        defaultBaseAmount = 5,
+        defaultScalingFactor = 2,
+        defaultScalingType = "castTime", -- Default scaling with cast time
+        defaultMaxBonus = 25,            -- Cap on scaling bonus
+        defaultType = Constants.DamageType.GENERIC
+    },
+    
+    -- Implementation function
+    execute = function(params, caster, target, results, events)
+        -- Base damage amount
+        local baseDamage = params.baseAmount or 5
+        
+        -- Scaling factor (additional damage per scaling unit)
+        local scalingFactor = params.scalingFactor or 2
+        
+        -- Maximum bonus from scaling (to prevent excessive scaling)
+        local maxBonus = params.maxBonus or 25
+        
+        -- Type of scaling to use
+        local scalingType = params.scalingType or "castTime"
+        
+        -- Value to scale with (cast time, token count, etc.)
+        local scalingValue = 0
+        local originalValue = 0  -- For logging/display
+        local valueLabel = ""    -- Description of what we're scaling with
+        
+        -- Check which condition to scale with
+        if scalingType == "castTime" then
+            -- Scale with total cast time of the spell
+            if results.currentSlot and caster and caster.spellSlots then
+                local slot = caster.spellSlots[results.currentSlot]
+                if slot then
+                    -- Get the original cast time
+                    local originalCastTime = slot.castTime or 3.0
+                    
+                    -- Use the existing progress value - represents actual time spent casting
+                    local actualCastTime = slot.progress
+                    
+                    -- Calculate how much longer than normal this took (in seconds)
+                    -- If spell normally takes 3s but took 5s, that's 2s of "extra" time
+                    local extraTime = math.max(0, actualCastTime - originalCastTime)
+                    scalingValue = extraTime
+                    originalValue = actualCastTime
+                    valueLabel = "extra cast seconds"
+                end
+            end
+        elseif scalingType == "moon" or scalingType == "fire" or scalingType == "force" 
+               or scalingType == "nature" or scalingType == "star" then
+            -- Scale with token count in pool
+            if caster and caster.manaPool then
+                for _, token in ipairs(caster.manaPool.tokens) do
+                    local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+                    if isFree and token.type == scalingType then
+                        scalingValue = scalingValue + 1
+                    end
+                end
+                originalValue = scalingValue
+                valueLabel = scalingType .. " tokens"
+            end
+        elseif scalingType == "allTokens" then
+            -- Scale with all token types
+            if caster and caster.manaPool then
+                for _, token in ipairs(caster.manaPool.tokens) do
+                    local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+                    if isFree then
+                        scalingValue = scalingValue + 1
+                    end
+                end
+                originalValue = scalingValue
+                valueLabel = "total tokens"
+            end
+        elseif scalingType == "health" then
+            -- Scale with caster's health percentage
+            if caster then
+                local healthPercent = caster.health / caster.maxHealth
+                scalingValue = math.floor(healthPercent * 10) -- 0-10 scaling factor
+                originalValue = healthPercent * 100
+                valueLabel = "health percent"
+            end
+        end
+        
+        -- Calculate bonus damage from scaling
+        local bonusDamage = math.min(maxBonus, scalingValue * scalingFactor)
+        
+        -- Calculate total damage: base + bonus from scaling
+        local totalDamage = math.floor(baseDamage + bonusDamage)
+        
+        -- Create DAMAGE event
+        table.insert(events or {}, {
+            type = "DAMAGE",
+            source = "caster",
+            target = "enemy",
+            amount = totalDamage,
+            damageType = params.type or Constants.DamageType.GENERIC,
+            scaledBy = {
+                type = scalingType,
+                value = scalingValue,
+                originalValue = originalValue,
+                valueLabel = valueLabel,
+                base = baseDamage,
+                bonus = bonusDamage,
+                factor = scalingFactor,
+                maxBonus = maxBonus
+            }
+        })
+        
+        -- For backward compatibility
+        results.damage = totalDamage
+        results.damageType = params.type
+        results.scalingInfo = {
+            type = scalingType,
+            value = scalingValue,
+            originalValue = originalValue,
+            valueLabel = valueLabel,
+            baseDamage = baseDamage,
+            bonusDamage = bonusDamage,
+            scalingFactor = scalingFactor,
+            maxBonus = maxBonus
+        }
+        
+        -- Log the scaling for debugging
+        print(string.format("Scaling damage: %d base + %d bonus (from %s: %.1f, factor: %d) = %d total", 
+              baseDamage, bonusDamage, valueLabel, scalingValue, scalingFactor, totalDamage))
+        
+        return results
+    end
+}
+
 -- burn: Applies damage over time effect
 Keywords.burn = {
     -- Behavior definition
@@ -18256,13 +18816,32 @@ Keywords.lock = {
         category = "TOKEN",
         
         -- Default parameters
-        defaultDuration = 5.0
+        defaultDuration = 5.0,
+        defaultAmount = 1
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - Using event-based pattern
+    execute = function(params, caster, target, results, events)
+        local tokenType = params.type or "any"  -- Type of token to lock
+        local amount = params.amount or 1       -- Number of tokens to lock
+        local duration = params.duration or 5.0 -- Lock duration
+        
+        -- Create a LOCK_TOKEN event
+        table.insert(events or {}, {
+            type = "LOCK_TOKEN",
+            source = "caster",
+            target = "enemy", -- Target the enemy's mana pool
+            tokenType = tokenType,
+            amount = amount,
+            duration = duration
+        })
+        
+        -- For backward compatibility, still set the results
         results.lockToken = true
-        results.lockDuration = params.duration or 5.0
+        results.lockDuration = duration
+        results.lockAmount = amount
+        results.lockType = tokenType
+        
         return results
     end
 }
@@ -18340,10 +18919,30 @@ Keywords.disjoint = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        results.disjoint = true
-        results.targetSlot = params.slot or 0
-        return results
+    execute = function(params, caster, target, results, events)
+        local targetSlotIndex = 0
+        if params.slot and type(params.slot) == "function" then
+            -- Evaluate the slot function if provided
+            targetSlotIndex = params.slot(caster, target, results.currentSlot)
+        elseif params.slot then
+            targetSlotIndex = params.slot
+        end
+        targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
+        
+        -- Create a CANCEL_SPELL event with returnMana = false
+        table.insert(events or {}, {
+            type = "CANCEL_SPELL",
+            source = "caster",
+            target = "enemy_slot", -- Use string that EventRunner.resolveTarget understands
+            slotIndex = targetSlotIndex, -- 0 means random active slot handled by EventRunner
+            returnMana = false -- Key difference for disjoint
+        })
+        
+        -- Remove legacy flag setting (for backward compatibility in transition)
+        results.disjoint = nil
+        results.targetSlot = nil
+        
+        return results -- Return results for backward compatibility
     end
 }
 
@@ -19749,6 +20348,11 @@ function ManaPool:update(dt)
     for i = #self.tokens, 1, -1 do
         local token = self.tokens[i]
         
+        -- Skip updating POOLED tokens, they've been reset and their properties are nil
+        if token.status == Constants.TokenStatus.POOLED then
+            goto continue_token
+        end
+        
         -- Update token based on its status in the state machine
         if token.status == Constants.TokenStatus.FREE then
             -- Handle the transition period for newly returned tokens
@@ -19845,7 +20449,9 @@ function ManaPool:update(dt)
             
             -- Common behavior for all FREE tokens
             -- Update pulse phase
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
             -- Calculate new position based on elliptical orbit - maintain perfect elliptical path
             if token.inValenceTransition then
@@ -19866,9 +20472,11 @@ function ManaPool:update(dt)
             token.y = token.y + wobbleY
             
             -- Rotate token itself for visual interest, occasionally reversing direction
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt
-            if math.random() < 0.002 then  -- Small chance to reverse rotation
-                token.rotSpeed = -token.rotSpeed
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt
+                if math.random() < 0.002 then  -- Small chance to reverse rotation
+                    token.rotSpeed = -token.rotSpeed
+                end
             end
             
         elseif token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
@@ -19946,7 +20554,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Token is being animated back to the mana pool
@@ -19990,7 +20600,9 @@ function ManaPool:update(dt)
             end
             
             -- Update common pulse
-            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
             
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
@@ -20037,15 +20649,23 @@ function ManaPool:update(dt)
             end
             
             -- Even locked tokens should move a bit, but more constrained
-            token.x = token.x + math.sin(token.lockPulse) * 0.3
-            token.y = token.y + math.cos(token.lockPulse) * 0.3
+            if token.x and token.y and token.lockPulse then
+                token.x = token.x + math.sin(token.lockPulse) * 0.3
+                token.y = token.y + math.cos(token.lockPulse) * 0.3
+            end
             
-            -- Slight rotation
-            token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            -- Slight rotation (with safety check)
+            if token.rotAngle and token.rotSpeed then
+                token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
+            end
         end
         
-        -- Update common properties for all tokens
-        token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        -- Update common properties for all tokens (moved inside the token loop)
+        if token.pulsePhase and token.pulseSpeed then
+            token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+        end
+        
+        ::continue_token::
     end
 end
 
@@ -21262,7 +21882,9 @@ Spells.combust = {
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
     keywords = {
         lock = {
-            duration = 10.0
+            duration = 10.0,
+            type = "any", -- Lock any type of token
+            amount = 1    -- Lock 1 token at a time
         },
         damage = {
             amount = function(caster, target)
@@ -21507,26 +22129,12 @@ Spells.fullmoonbeam = {
     castTime = 7.0,
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
-        damage = {
-            amount = function(caster, target, slot)
-                -- Find the slot this spell was cast from to get its actual cast time
-                local actualCastTime = 7.0  -- Default/base cast time
-                
-                -- If we know which slot this spell was cast from
-                if slot and caster.spellSlots[slot] then
-                    -- Use the actual cast time of the spell which may have been modified
-                    actualCastTime = caster.spellSlots[slot].castTime
-                end
-                
-                -- Calculate damage based on cast time (roughly 3.5 damage per second)
-                local damage = math.floor(actualCastTime * 3.5)
-                
-                -- Log the damage calculation
-                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
-                
-                return damage
-            end,
-            type = "moon"
+        scalingDamage = {
+            baseAmount = 7, -- Base damage (roughly what it would deal at minimum cast time)
+            scalingFactor = 3.5, -- Damage per second of casting (matches previous implementation)
+            scalingType = "castTime", -- Scale based on actual cast time
+            maxBonus = 25, -- Cap the bonus damage at 25
+            type = "moon" -- Damage type
         }
     },
     vfx = "moon_beam",
@@ -22224,6 +22832,8 @@ function EventRunner.handleEvent(event, caster, target, spellSlot, results)
 end
 
 -- Resolve the actual target entity for an event
+-- This function handles both raw string target types (like "enemy_slot") 
+-- and Constants.TargetType enum values (like Constants.TargetType.SLOT_ENEMY)
 function EventRunner.resolveTarget(event, caster, target)
     -- Validate inputs
     if not event then
@@ -22244,44 +22854,59 @@ function EventRunner.resolveTarget(event, caster, target)
         return caster
     end
     
-    -- Convert uppercase target types to lowercase for consistent handling
+    -- Normalize target types to handle both string literals and Constants.TargetType values
+    local normalizedTargetType = ""
     if type(targetType) == "string" then
-        targetType = string.lower(targetType)
+        normalizedTargetType = string.lower(targetType)
     else
         print("WARNING: Non-string target type: " .. type(targetType) .. ", defaulting to 'self'")
         return caster
     end
     
-    if targetType == "self" then
+    -- Handle Constants.TargetType values
+    if targetType == "SLOT_ENEMY" then
+        normalizedTargetType = "enemy_slot"
+    elseif targetType == "SLOT_SELF" then
+        normalizedTargetType = "self_slot"
+    elseif targetType == "SELF" then
+        normalizedTargetType = "self"
+    elseif targetType == "ENEMY" then
+        normalizedTargetType = "enemy"
+    elseif targetType == "POOL_SELF" or targetType == "POOL_ENEMY" then
+        normalizedTargetType = "pool"
+    end
+    
+    -- Process normalized target types
+    if normalizedTargetType == "self" then
         return caster
-    elseif targetType == "enemy" then
+    elseif normalizedTargetType == "enemy" then
         -- Check if target exists
         if not target then
             print("WARNING: Event targets 'enemy' but target is nil, defaulting to caster")
             return caster
         end
         return target
-    elseif targetType == "both" then
+    elseif normalizedTargetType == "both" then
         -- Handle case where target doesn't exist
         if not target then
             return {caster}
         end
         return {caster, target}
-    elseif targetType == "pool" then
+    elseif normalizedTargetType == "pool" then
         -- For token events, target is the shared mana pool
         if not caster.manaPool then
             print("WARNING: Event targets 'pool' but caster.manaPool is nil")
             return nil
         end
         return caster.manaPool
-    elseif targetType == "self_slot" then
+    elseif normalizedTargetType == "self_slot" then
         -- For slot events targeting caster
         if not event.slotIndex and not event.slotIndex == 0 then
             -- Try to use the provided spellSlot as fallback in the handler
             return {wizard = caster, slotIndex = nil}
         end
         return {wizard = caster, slotIndex = event.slotIndex}
-    elseif targetType == "enemy_slot" then
+    elseif normalizedTargetType == "enemy_slot" then
         -- For slot events targeting enemy
         if not target then
             print("WARNING: Event targets 'enemy_slot' but target is nil")
@@ -22315,7 +22940,38 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create damage number VFX if available
         if caster.gameState and caster.gameState.vfx then
-            caster.gameState.vfx.createDamageNumber(targetEntity.x, targetEntity.y, event.amount, event.damageType)
+            local params = {}
+            
+            -- Add scaling info for visual effects if available
+            if event.scaledBy then
+                params = {
+                    scaledBy = event.scaledBy,
+                    isScaled = true
+                }
+                
+                -- Log scaling info for debugging
+                if event.scaledBy.valueLabel then
+                    -- New format with detailed scaling info
+                    print(string.format("Scaled damage: %d total = %d base + %d bonus (from %s: %.1f)", 
+                        event.amount, 
+                        event.scaledBy.base,
+                        event.scaledBy.bonus or 0,
+                        event.scaledBy.valueLabel,
+                        event.scaledBy.value or 0
+                    ))
+                else
+                    -- Legacy format
+                    print(string.format("Scaled damage: %d - Base: %d, Scaling: %s x %d (factor %d)", 
+                        event.amount, 
+                        event.scaledBy.base,
+                        event.scaledBy.type,
+                        event.scaledBy.count or 0,
+                        event.scaledBy.factor
+                    ))
+                end
+            end
+            
+            caster.gameState.vfx.createDamageNumber(targetEntity.x, targetEntity.y, event.amount, event.damageType, params)
         end
         
         return true
@@ -22569,17 +23225,43 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     LOCK_TOKEN = function(event, caster, target, spellSlot, results)
-        local manaPool = caster.manaPool
-        if not manaPool then return false end
+        -- For locking tokens, we need to target the enemy mana pool, not the caster's
+        local targetWizard = target
+        if not targetWizard then 
+            print("WARNING: LOCK_TOKEN event target is nil, defaulting to caster")
+            targetWizard = caster
+        end
+        
+        local manaPool = targetWizard.manaPool
+        if not manaPool then 
+            print("WARNING: Target manaPool is nil for LOCK_TOKEN event")
+            return false 
+        end
+        
+        print(string.format("Attempting to lock %d token(s) in %s's mana pool", 
+            event.amount or 1,
+            targetWizard.name or "unknown wizard"))
         
         -- Find tokens to lock
         local tokensLocked = 0
         
         for i, token in ipairs(manaPool.tokens) do
-            if token.state == "FREE" and (not event.tokenType or event.tokenType == "any" or token.type == event.tokenType) then
-                -- Lock token
-                token.state = "LOCKED"
+            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+            local matchesType = (not event.tokenType or event.tokenType == "any" or token.type == event.tokenType)
+            
+            if isFree and matchesType then
+                -- Lock token using state machine if available
+                if token.setState then
+                    token:setState(Constants.TokenStatus.LOCKED)
+                else
+                    -- Fallback to legacy state setting
+                    token.state = "LOCKED"
+                end
+                
                 token.lockTimer = event.duration
+                token.lockDuration = event.duration
+                token.lockPulse = token.lockPulse or 0 -- Initialize if not present
+                
                 tokensLocked = tokensLocked + 1
                 results.tokensAffected = results.tokensAffected + 1
                 
@@ -22600,11 +23282,22 @@ EventRunner.EVENT_HANDLERS = {
                     )
                 end
                 
-                -- Stop once we've locked enough tokens
+                        -- Stop once we've locked enough tokens
                 if tokensLocked >= event.amount then
+                    print(string.format("Successfully locked %d token(s) of type '%s' in %s's mana pool", 
+                        tokensLocked, 
+                        token.type,
+                        targetWizard.name or "unknown wizard"))
                     break
                 end
             end
+        end
+        
+        -- Log if we couldn't find any tokens to lock
+        if tokensLocked == 0 then
+            print(string.format("WARNING: Could not find any FREE tokens to lock in %s's mana pool (looking for type: %s)", 
+                targetWizard.name or "unknown wizard",
+                event.tokenType or "any"))
         end
         
         return true
@@ -28968,11 +29661,8 @@ function Wizard:update(dt)
                         slot.tokens = {}
                     end
                     
-                    -- Reset slot
-                    slot.active = false
-                    slot.progress = 0
-                    slot.spellType = nil
-                    slot.castTime = 0
+                    -- Reset slot using unified method
+                    self:resetSpellSlot(slotIndex)
                 end
             end
             
@@ -29172,17 +29862,9 @@ function Wizard:handleShieldBlock(slotIndex, blockedSpell)
         print(string.format("[SHIELD BREAK] %s's %s shield has been broken!", 
             self.name, slot.defenseType))
         
-        -- Reset slot completely to avoid half-broken shield state
+        -- Reset slot completely using unified method
         print("[SHIELD DEBUG] Resetting slot " .. slotIndex .. " to empty state")
-        slot.active = false
-        slot.isShield = false
-        slot.defenseType = nil
-        slot.blocksAttackTypes = nil
-        slot.blockTypes = nil  -- Clear block types array too
-        slot.progress = 0
-        slot.spellType = nil
-        slot.spell = nil  -- Clear spell reference too
-        slot.castTime = 0
+        self:resetSpellSlot(slotIndex)
         slot.tokens = {}  -- Ensure it's empty
         
         -- Create shield break effect
@@ -29900,6 +30582,8 @@ function Wizard:queueSpell(spell)
                     self.spellSlots[i].castTime = spellToUse.castTime
                 end
                 
+                -- Progress is already initialized to 0 above
+                
                 self.spellSlots[i].spell = spellToUse
                 self.spellSlots[i].tokens = tokens
                 
@@ -30021,26 +30705,8 @@ function Wizard:freeAllSpells()
                 slot.tokens = {}
             end
             
-            -- Reset slot properties
-            slot.active = false
-            slot.progress = 0
-            slot.spellType = nil
-            slot.castTime = 0
-            slot.spell = nil
-            
-            -- Reset shield-specific properties if applicable
-            if slot.isShield then
-                slot.isShield = false
-                slot.defenseType = nil
-                slot.blocksAttackTypes = nil
-                slot.shieldStrength = 0
-            end
-            
-            -- Reset any frozen state
-            if slot.frozen then
-                slot.frozen = false
-                slot.freezeTimer = 0
-            end
+            -- Reset all slot properties using unified method
+            self:resetSpellSlot(i)
             
             print("Freed spell in slot " .. i)
         end
@@ -30455,11 +31121,8 @@ function Wizard:castSpell(spellSlot)
             slot.tokens = {}
         end
         
-        -- Reset our slot
-        slot.active = false
-        slot.progress = 0
-        slot.spellType = nil
-        slot.castTime = 0
+        -- Reset our slot using unified method
+        self:resetSpellSlot(spellSlot)
         
         -- Skip further execution and return the effect
         return effect
@@ -30652,82 +31315,6 @@ function Wizard:castSpell(spellSlot)
             end
         else
             print("No active spell found in slot " .. targetSlot .. " to freeze")
-        end
-    end
-    
-    -- Handle disjoint effect (spell cancellation with mana destruction)
-    if effect.disjoint then
-        local targetSlot = effect.targetSlot or 0
-        
-        -- Handle the case where targetSlot is a function (from the compiled spell)
-        if type(targetSlot) == "function" then
-            -- Call the function with proper parameters
-            local slot_func_result = targetSlot(self, target, spellSlot)
-            -- Convert the result to a number (in case it returns a string)
-            targetSlot = tonumber(slot_func_result) or 0
-            print("Disjoint slot function returned: " .. targetSlot)
-        end
-        
-        -- If targetSlot is 0 or invalid, find the first active slot
-        if targetSlot == 0 or type(targetSlot) ~= "number" then
-            for i, slot in ipairs(target.spellSlots) do
-                if slot.active then
-                    targetSlot = i
-                    break
-                end
-            end
-        end
-        
-        -- Ensure targetSlot is a valid number before comparison
-        targetSlot = tonumber(targetSlot) or 0
-        
-        -- Check if the target slot exists and is active
-        if targetSlot > 0 and targetSlot <= #target.spellSlots and target.spellSlots[targetSlot].active then
-            local slot = target.spellSlots[targetSlot]
-            
-            -- Store data for feedback
-            local spellName = slot.spellType or "spell"
-            local tokenCount = #slot.tokens
-            
-            -- Destroy the mana tokens instead of returning them to the pool
-            for _, tokenData in ipairs(slot.tokens) do
-                local token = tokenData.token
-                if token then
-                    -- Mark the token as destroyed
-                    token.state = "DESTROYED"
-                    token.gameState = self.gameState  -- Give the token access to gameState for VFX
-                    
-                    -- Create immediate destruction VFX
-                    if self.gameState.vfx then
-                        self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
-                            duration = 0.5,
-                            color = {0.8, 0.6, 1.0, 0.7},  -- Purple for lunar theme
-                            particleCount = 10,
-                            radius = 20
-                        })
-                    end
-                end
-            end
-            
-            -- Cancel the spell, emptying the slot
-            slot.active = false
-            slot.progress = 0
-            slot.tokens = {}
-            
-            -- Create visual effect at the spell slot position
-            if self.gameState.vfx then
-                -- Calculate position of the targeted spell slot
-                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                local slotY = target.y + slotYOffsets[targetSlot]
-                
-                -- Create a visual effect for the disjunction
-                self.gameState.vfx.createEffect("disjoint_cancel", target.x, slotY, nil, nil)
-            end
-            
-            print(self.name .. " disjointed " .. target.name .. "'s " .. spellName .. 
-                  " in slot " .. targetSlot .. ", destroying " .. tokenCount .. " mana tokens")
-        else
-            print("No active spell found in slot " .. targetSlot .. " to disjoint")
         end
     end
     
@@ -31048,16 +31635,23 @@ function Wizard:castSpell(spellSlot)
                         print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
                             tokenData.index, i, tokensToConsume))
                         
-                        -- First make sure token state is updated
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                            end
                         else
                             print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Trigger animation to return this token to the mana pool
+                        -- Fallback: Trigger animation via mana pool if we didn't use requestReturnAnimation
                         if target and target.manaPool then
                             print(string.format("[SHIELD DEBUG] Returning token %d to mana pool", tokenData.index))
                             target.manaPool:returnToken(tokenData.index)
@@ -31119,18 +31713,32 @@ function Wizard:castSpell(spellSlot)
                     for _, tokenData in ipairs(tokensToReturn) do
                         print(string.format("[SHIELD DEBUG] Returning token %d to pool during shield destruction", tokenData.index))
                         
-                        -- Make sure token state is FREE
+                        -- Request token return animation
                         if tokenData.token then
-                            print(string.format("[SHIELD DEBUG] Setting token %d state to FREE from %s", 
-                                tokenData.index, tokenData.token.state or "unknown"))
-                            tokenData.token.state = "FREE"
+                            print(string.format("[SHIELD DEBUG] Requesting return animation for token %d from %s", 
+                                tokenData.index, tokenData.token.status or tokenData.token.state or "unknown"))
+                            
+                            -- Use token lifecycle method if available
+                            if tokenData.token.requestReturnAnimation then
+                                tokenData.token:requestReturnAnimation()
+                            else
+                                -- Fallback to legacy method
+                                tokenData.token.state = "FREE"
+                                
+                                -- Return to mana pool via legacy method
+                                if target and target.manaPool then
+                                    target.manaPool:returnToken(tokenData.index)
+                                end
+                            end
+                        else
+                            print("[SHIELD WARNING] Token has no token data object")
                         end
                         
-                        -- Return to mana pool
-                        if target and target.manaPool then
+                        -- Fallback for tokens without requestReturnAnimation
+                        if (not tokenData.token or not tokenData.token.requestReturnAnimation) and target and target.manaPool then
                             target.manaPool:returnToken(tokenData.index)
                         else
-                            print("[SHIELD ERROR] Could not return token - mana pool not found")
+                            print("[SHIELD ERROR] Could not return token - mana pool not found or token already handled")
                         end
                     end
                     
@@ -31548,6 +32156,48 @@ function Wizard:castSpell(spellSlot)
             end
         end
     end
+end
+
+-- Reset a spell slot to its default state
+-- This function can be used to clear a slot when a spell is cast, canceled, or a shield is destroyed
+function Wizard:resetSpellSlot(slotIndex)
+    local slot = self.spellSlots[slotIndex]
+    if not slot then return end
+
+    -- Reset the basic slot properties
+    slot.active = false
+    slot.spell = nil
+    slot.spellType = nil
+    slot.castTime = 0
+    slot.castProgress = 0
+    slot.progress = 0 -- Used in many places instead of castProgress
+    slot.castTimeRemaining = 0
+    
+    -- Reset shield-specific properties
+    slot.isShield = false
+    slot.willBecomeShield = false
+    slot.defenseType = nil
+    slot.blocksAttackTypes = nil
+    slot.blockTypes = nil
+    slot.reflect = nil
+    slot.shieldStrength = 0
+    
+    -- Reset spell status properties
+    slot.frozen = false
+    slot.freezeTimer = 0
+    
+    -- Reset zone-specific properties
+    slot.zoneAnchored = nil
+    slot.anchorRange = nil
+    slot.anchorElevation = nil
+    slot.anchorRequireAll = nil
+    slot.affectsBothRanges = nil
+    
+    -- Reset spell properties
+    slot.attackType = nil
+    
+    -- Clear token references *after* animations have been requested
+    slot.tokens = {}
 end
 
 return Wizard```
@@ -32296,6 +32946,28 @@ token:requestDestructionAnimation()
 -- Animation will play, then token will be released to pool
 ```
 
+### Canceling a Spell with Disjoint (Event-based)
+```lua
+-- In keywords.lua, the disjoint keyword creates a CANCEL_SPELL event
+table.insert(events, {
+    type = "CANCEL_SPELL",
+    source = "caster",
+    target = "enemy_slot", -- Use string that EventRunner understands
+    slotIndex = targetSlotIndex,
+    returnMana = false -- Key difference for disjoint
+})
+
+-- The EventRunner handles the CANCEL_SPELL event and destroys tokens
+for _, tokenData in ipairs(slot.tokens) do
+    if tokenData.token then
+        tokenData.token:requestDestructionAnimation()
+    end
+end
+
+-- Then it resets the slot without manipulating token states
+wizard:resetSpellSlot(slotIndex)
+```
+
 ## Benefits
 
 1. Encapsulation: Token manages its own lifecycle
@@ -32303,6 +32975,26 @@ token:requestDestructionAnimation()
 3. Animation/Logic Separation: Animation logic is clearly separated from state transition logic
 4. Safety: Invalid state transitions are prevented and logged
 5. Unified approach: All token handling follows the same pattern
+6. Event System Integration: Token lifecycle integrates with the game's event system
+
+## Event System Integration
+
+The token lifecycle system integrates with the event-driven architecture:
+
+1. **CANCEL_SPELL Events**: Handle spell cancellation
+   - With `returnMana = true`: Tokens are returned to the pool (dispel)
+   - With `returnMana = false`: Tokens are destroyed (disjoint)
+
+2. **Direct vs. Event-Driven Manipulation**:
+   - Old approach: Set `token.state = "DESTROYED"` directly
+   - New approach: Generate events that call appropriate token methods
+   
+3. **Decoupled Spell Slot Reset**:
+   - `resetSpellSlot` no longer manipulates token states directly
+   - All slot resets across the codebase use a centralized method
+   - Token animations are requested first, then slot references are cleared later 
+   - Clean separation between token state management and slot reset
+   - Unified handling of all slot properties (basic, shield, zone, etc.)
 
 ## Animation System
 
@@ -32489,6 +33181,156 @@ This document will evolve, but this version represents the intended
 holistic vision of the gameplay experience, tone, and structure of 
 Manastorm.
 
+## ./DisjointBugFixPlan.md
+~The core issue is indeed a clash between the old direct state 
+manipulation and the new (partially implemented) animation-driven state 
+machine, particularly around the disjoint mechanic.
+Root Cause Analysis:
+disjoint Keyword Not Updated: As suspected, the keywords.lua file in the 
+latest dump still has the old disjoint.execute function. It sets 
+results.disjoint = true but does not generate a CANCEL_SPELL event. This 
+is the primary bug. The system isn't even trying to use the new state 
+machine for disjointed tokens.
+Legacy Wizard:castSpell Handling: Because the disjoint keyword doesn't 
+generate an event, the legacy handling block within Wizard:castSpell kicks 
+in:
+-- Handle disjoint effect (spell cancellation with mana destruction)
+    if effect.disjoint then
+        -- ... finds targetSlot ...
+        if targetSlot > 0 and targetSlot <= #target.spellSlots and 
+target.spellSlots[targetSlot].active then
+            local slot = target.spellSlots[targetSlot]
+            -- ...
+            -- Destroy the mana tokens instead of returning them to the 
+pool
+            for _, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                if token then
+                    -- Mark the token as destroyed (LEGACY STATE)
+                    token.state = "DESTROYED" -- << PROBLEM 1: Sets legacy 
+state, not new status
+                    token.gameState = self.gameState -- Give the token 
+access to gameState for VFX
+                    -- ... VFX ...
+                end
+            end
+            -- Cancel the spell, emptying the slot
+            slot.active = false
+            slot.progress = 0
+            slot.tokens = {} -- << PROBLEM 2: Clears slot's token list 
+immediately
+            -- ... VFX ...
+            print(...)
+        else
+            print("No active spell found in slot " .. targetSlot .. " to 
+disjoint")
+        end
+    end
+Use code with caution.
+Lua
+State Mismatch & No Cleanup Trigger:
+The tokens' legacy state is set to DESTROYED.
+Their new status (from the state machine) likely remains CHANNELED because 
+token:setState() was never called.
+Crucially, token:requestDestructionAnimation() is never called.
+The ManaPool:update loop now primarily checks token.status. It doesn't 
+have specific logic to handle the legacy state == "DESTROYED" anymore 
+(that was removed in favor of the DISSOLVING status check).
+Because requestDestructionAnimation wasn't called, the DISSOLVING 
+animation never starts, and finalizeDestruction (which releases the token 
+to the pool) is never reached.
+Visual Freezing:
+The Wizard:castSpell function immediately clears the slot.tokens table for 
+the disjointed slot.
+Wizard:drawSpellSlots iterates slot.tokens to draw orbiting tokens. Since 
+this list is now empty, the disjointed tokens are no longer drawn by the 
+slot.
+However, these tokens still exist in the main ManaPool.tokens list. They 
+are likely drawn one last time by ManaPool:draw in their final calculated 
+position (from their previous CHANNELED state orbit) before the slot was 
+cleared, and then never updated or redrawn again, appearing frozen.
+Solution: Fully Commit to the State Machine
+We need to eliminate the legacy handling for disjoint and ensure it uses 
+the new state machine correctly.
+Update keywords.lua for disjoint: Modify keywords.disjoint.execute to 
+generate the correct event instead of setting flags.
+File: keywords.lua
+Change: Replace the execute function for Keywords.disjoint with:
+execute = function(params, caster, target, results, events) -- Add 
+'events' parameter
+    local targetSlotIndex = 0
+    if params.slot and type(params.slot) == "function" then
+        -- Evaluate the slot function if provided
+        targetSlotIndex = params.slot(caster, target, results.currentSlot)
+    elseif params.slot then
+        targetSlotIndex = params.slot
+    end
+    targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a 
+number, default to 0
+
+    -- Create a CANCEL_SPELL event with returnMana = false
+    table.insert(events or {}, {
+        type = "CANCEL_SPELL",
+        source = "caster",
+        target = Constants.TargetType.SLOT_ENEMY, -- Use constant
+        slotIndex = targetSlotIndex, -- 0 means random active slot handled 
+by EventRunner
+        returnMana = false -- Key difference for disjoint
+    })
+
+    -- Remove legacy flag setting if present (results.disjoint, 
+results.targetSlot)
+    results.disjoint = nil
+    results.targetSlot = nil
+
+    return results -- Return results for backward compatibility if needed, 
+though events are primary now
+end,
+Use code with caution.
+Lua
+Remove Legacy disjoint Handling in Wizard:castSpell: Delete the entire if 
+effect.disjoint then ... end block from Wizard:castSpell. The EventRunner 
+will now handle this via the CANCEL_SPELL event.
+Modify Wizard:resetSpellSlot: Prevent it from interfering with token state 
+transitions requested by the EventRunner.
+File: wizard.lua
+Change: Update the resetSpellSlot function:
+resetSpellSlot = function(self, slotIndex)
+    local slot = self.spellSlots[slotIndex]
+    if not slot then return end
+
+    --[[ REMOVE THIS BLOCK - Token state should be managed by token 
+methods called by EventRunner
+    if not slot.isShield then
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                tokenData.token.state = "FREE" -- DO NOT DO THIS HERE
+            end
+        end
+    end
+    ]]--
+
+    -- Reset the slot properties
+    slot.active = false
+    slot.spell = nil
+    slot.spellType = nil -- Added for completeness
+    slot.castTime = 0 -- Added for completeness
+    slot.castProgress = 0
+    slot.tokens = {} -- Clear the reference list *after* animations have 
+been requested
+    slot.frozen = false
+    slot.freezeTimer = 0
+    slot.isShield = false
+    slot.willBecomeShield = false
+    -- Reset any other slot-specific flags if needed
+end,
+Use code with caution.
+Lua
+Verify EventRunner CANCEL_SPELL Handler: Double-check the CANCEL_SPELL 
+handler in systems/EventRunner.lua ensures it correctly calls 
+token:requestDestructionAnimation() when event.returnMana is false. (The 
+current code looks correct, but verify).~
+
 ## ./ManaLifecycleStateMachine.md
 # Mana Token Lifecycle State Machine
 
@@ -32554,11 +33396,13 @@ The token object itself will manage state transitions through a set of well-defi
 5. **Animation/Logic Separation**: Animation logic is clearly separated from state transition logic
 
 ## Implementation Plan
-The implementation is broken down into 4 tickets:
+The implementation is broken down into 6 tickets:
 1. Define token state machine and methods
 2. Refactor ManaPool:update to drive animations based on the new states
 3. Update all token acquisition and return points to use the new methods
 4. Refine animations and visual states
+5. Ensure disjoint keyword uses event system
+6. Decouple Wizard:resetSpellSlot from token state
 
 This approach will ensure a smooth, incremental transition to the new architecture.
 
@@ -33681,6 +34525,72 @@ The Mana Pool update loop should no longer directly manage timers like lockDurat
 
 ## Design Notes
 This separates animation driving (in ManaPool) from state finalization (in the token callback).
+
+## Tickets/4-3-1-ensure-disjoint-keyword-uses-event-system.md
+# Ticket #TLC-3.1: Ensure Disjoint Keyword Uses Event System
+
+## Goal
+Modify the disjoint keyword to generate a CANCEL_SPELL event instead of setting legacy flags.
+
+## Description
+The current disjoint keyword implementation bypasses the event system and the new token state machine. This needs to be updated to correctly trigger the DISSOLVING state via an event.
+
+## Tasks
+
+1. In keywords.lua, replace the execute function for Keywords.disjoint with the event-generating version:
+   - Update the function to generate a CANCEL_SPELL event with returnMana = false
+   - Remove direct token state manipulation
+   - Ensure the event includes all necessary context (spellIndex, caster, etc.)
+
+2. In wizard.lua, remove the legacy if effect.disjoint then ... end block from the castSpell function:
+   - Identify and remove code blocks that directly handle disjoint effects
+   - Ensure the spellCancellation logic in the event system properly handles the disjoint case
+
+## Acceptance Criteria
+- Casting a spell with the disjoint keyword generates a CANCEL_SPELL event with returnMana = false
+- The legacy disjoint handling logic is removed from Wizard:castSpell
+- Tokens affected by disjoint correctly transition to DISSOLVING state through the event system
+- The full lifecycle from disjoint keyword → CANCEL_SPELL event → token:requestDestructionAnimation() → DISSOLVING → POOLED works correctly
+
+## Related Tickets
+- TLC-1: Define Token State Machine & Encapsulated Methods
+- TLC-3: Refactor Token Acquisition & Return Points
+
+## Tickets/4-3-2-decouple-resetspellslot-from-token-state.md
+# Ticket #TLC-3.2: Decouple Wizard:resetSpellSlot from Token State
+
+## Goal
+Prevent resetSpellSlot from prematurely altering token states or interfering with state transitions managed by the token itself or the EventRunner.
+
+## Description
+resetSpellSlot currently sets token states to FREE which conflicts with the state machine's handling, especially for disjoint (which should lead to DISSOLVING -> POOLED). It should only reset the slot's properties.
+
+## Tasks
+
+1. In wizard.lua, modify resetSpellSlot to remove the loop that sets tokenData.token.state = "FREE":
+   - Identify the current implementation that directly modifies token.state
+   - Remove this direct manipulation while preserving other functionality
+   - Add comments explaining that token state is now managed by the token object itself
+
+2. Ensure resetSpellSlot still clears the slot.tokens = {} table:
+   - The slot should no longer reference the tokens after cancellation
+   - This is important because the tokens will either return to FREE state or be POOLED
+   - Verify the slot's other properties are correctly reset
+
+3. Review related methods that might be affected:
+   - Check if freeAllSpells or other methods have similar direct state manipulation
+   - Ensure they are refactored to use token:requestReturnAnimation() or token:requestDestructionAnimation()
+
+## Acceptance Criteria
+- resetSpellSlot no longer modifies token.state or token.status
+- resetSpellSlot correctly clears the slot's tokens table
+- Disjointed tokens correctly enter the DISSOLVING state via the EventRunner and are eventually pooled
+- Tokens returning to the mana pool correctly enter the RETURNING state and eventually FREE
+
+## Related Tickets
+- TLC-1: Define Token State Machine & Encapsulated Methods
+- TLC-3: Refactor Token Acquisition & Return Points
+- TLC-3.1: Ensure Disjoint Keyword Uses Event System
 
 ## Tickets/4-3-refactor-token-acquisition-return-points.md
 # Ticket #TLC-3: Refactor Token Acquisition & Return Points
