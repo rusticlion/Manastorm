@@ -235,6 +235,36 @@ Spells.combustMana = {
     vfx = "combust_lock",
 }
 
+Spells.conjureforce = {
+    id = "conjureforce",
+    name = "Conjure Force",
+    description = "Creates a new Force mana token",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = 5.0,  -- Base cast time
+    cost = {},
+    keywords = {
+        conjure = {
+            token = Constants.TokenType.FORCE,
+            amount = 1
+        }
+    },
+    vfx = "force_conjure", -- Assuming a VFX name
+    blockableBy = {},
+
+    getCastTime = function(caster)
+        local baseCastTime = 5.0
+        local forceCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == Constants.TokenType.FORCE and token.state == Constants.TokenState.FREE then
+                    forceCount = forceCount + 1
+                end
+            end
+        end
+        return baseCastTime + (forceCount * 5.0)
+    end
+}
+
 Spells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
@@ -293,6 +323,36 @@ Spells.conjuremoonlight = {
         local adjustedCastTime = baseCastTime + (moonCount * 5.0)
         
         return adjustedCastTime
+    end
+}
+
+Spells.conjurestars = {
+    id = "conjurestars",
+    name = "Conjure Stars",
+    description = "Creates a new Star mana token",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = 5.0,  -- Base cast time
+    cost = {},
+    keywords = {
+        conjure = {
+            token = Constants.TokenType.STAR,
+            amount = 1
+        }
+    },
+    vfx = "star_conjure", -- Assuming a VFX name
+    blockableBy = {},
+
+    getCastTime = function(caster)
+        local baseCastTime = 5.0
+        local starCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == Constants.TokenType.STAR and token.state == Constants.TokenState.FREE then
+                    starCount = starCount + 1
+                end
+            end
+        end
+        return baseCastTime + (starCount * 5.0)
     end
 }
 

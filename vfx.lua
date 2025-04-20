@@ -236,6 +236,32 @@ function VFX.init()
             sound = "conjure"
         },
         
+        -- Conjure Force effect
+        force_conjure = {
+            type = "conjure",
+            duration = 1.5,
+            particleCount = 20,
+            startScale = 0.3,
+            endScale = 0.8,
+            color = {0.3, 0.5, 1.0, 0.9}, -- Blue-ish
+            height = 140,
+            spreadRadius = 40,
+            sound = "conjure"
+        },
+
+        -- Conjure Star effect
+        star_conjure = {
+            type = "conjure",
+            duration = 1.5,
+            particleCount = 20,
+            startScale = 0.3,
+            endScale = 0.8,
+            color = {0.9, 0.9, 0.2, 0.9}, -- Yellow-ish
+            height = 140,
+            spreadRadius = 40,
+            sound = "conjure"
+        },
+        
         -- Volatile Conjuring effect (random mana)
         volatileconjuring = {
             type = "conjure",
@@ -1281,6 +1307,16 @@ function VFX.createSpellEffect(spell, caster, target)
         })
     elseif spellName == "conjuremoonlight" then
         return VFX.createEffect("conjuremoonlight", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "conjureforce" then
+        return VFX.createEffect("force_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "conjurestars" then
+        return VFX.createEffect("star_conjure", sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
