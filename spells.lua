@@ -162,6 +162,8 @@ Spells.conjurefire = {
                     fireCount = fireCount + 1
                 end
             end
+        else
+            print("WARN: ConjureFire getCastTime - caster.manaPool is nil!")
         end
         
         -- Increase cast time by 5 seconds per existing fire token
@@ -203,16 +205,19 @@ Spells.meteor = {
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE, Constants.TokenType.STAR},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.GROUNDED and 20 or 0
-                end
-                return 0 -- Default damage if target is nil
-            end,
-            type = Constants.DamageType.FIRE
+            amount = 20,
+            type = Constants.DamageType.FIRE,
+            condition = function(caster, target, slot)
+                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
+                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
+                return casterIsAerial and targetIsGrounded
+            end
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
+        },
+        ground = {
+            target = Constants.TargetType.SELF 
         }
     },
     vfx = "meteor_dive",
@@ -379,6 +384,52 @@ Spells.volatileconjuring = {
     blockableBy = {}  -- Unblockable
 }
 
+-- Nova Conjuring (Fire, Force, Star)
+Spells.novaconjuring = {
+    id = "novaconjuring",
+    name = "Nova Conjuring",
+    description = "Conjures FIRE, FORCE, and STAR tokens.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = 15.0,  -- Fixed cast time
+    cost = {"fire", "fire"},  -- Needs some basic fire
+    keywords = {
+        conjure = {
+            token = { 
+                Constants.TokenType.FIRE, 
+                Constants.TokenType.FORCE, 
+                Constants.TokenType.STAR 
+            },
+            amount = 1 -- Conjures 1 of each listed type
+        }
+    },
+    vfx = "nova_conjure",
+    sfx = "conjure_nova",
+    blockableBy = {}  -- Unblockable
+}
+
+-- Witch Conjuring (Moon, Force, Nature)
+Spells.witchconjuring = {
+    id = "witchconjuring",
+    name = "Witch Conjuring",
+    description = "Conjures MOON, FORCE, and NATURE tokens.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = 15.0,  -- Fixed cast time
+    cost = {"moon", "moon", "moon"},  -- Needs some basic moon
+    keywords = {
+        conjure = {
+            token = { 
+                Constants.TokenType.MOON, 
+                Constants.TokenType.FORCE, 
+                Constants.TokenType.NATURE 
+            },
+            amount = 1 -- Conjures 1 of each listed type
+        }
+    },
+    vfx = "witch_conjure",
+    sfx = "conjure_witch",
+    blockableBy = {}  -- Unblockable
+}
+
 Spells.mist = {
     id = "mist",
     name = "Mist Veil",
@@ -411,7 +462,7 @@ Spells.tidalforce = {
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = "remote",
     castTime = 5.0,
-    cost = {"moon", "any"},
+    cost = {"moon", "nature"},
     keywords = {
         damage = {
             amount = 5,

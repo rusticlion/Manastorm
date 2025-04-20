@@ -67,37 +67,46 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local damageAmountFuncOrValue = params.amount or 0
-        local calculatedDamage = 0
-        local damageType = params.type or Constants.DamageType.GENERIC
-
-        if type(damageAmountFuncOrValue) == "function" then
-            -- It's a function, call it
-            local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-            local success, funcResult = pcall(function()
-                -- Call the function stored in damageAmountFuncOrValue
-                -- Pass caster, target, and the local slot index
-                return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-            end)
-
-            if success then
-                calculatedDamage = funcResult
-            else
-                print("Error evaluating damage function: " .. tostring(funcResult))
-                calculatedDamage = 0 -- Default on error
-            end
-        else
-            -- It's a static value
-            calculatedDamage = damageAmountFuncOrValue
+        local applyDamage = true
+        -- Check for conditional function
+        if params.condition and type(params.condition) == "function" then
+            applyDamage = params.condition(caster, target, results.currentSlot)
         end
 
-        -- Generate event
-        table.insert(events or {}, {
-            type = "DAMAGE", source = "caster", target = "enemy",
-            amount = calculatedDamage, damageType = damageType,
-            scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
-        })
+        -- Only generate event if condition passed (or no condition)
+        if applyDamage then
+            local damageAmountFuncOrValue = params.amount or 0
+            local calculatedDamage = 0
+            local damageType = params.type or Constants.DamageType.GENERIC
+
+            if type(damageAmountFuncOrValue) == "function" then
+                -- It's a function, call it
+                local currentSlotIndex = results.currentSlot -- Assign to local variable
+
+                local success, funcResult = pcall(function()
+                    -- Call the function stored in damageAmountFuncOrValue
+                    -- Pass caster, target, and the local slot index
+                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
+                end)
+
+                if success then
+                    calculatedDamage = funcResult
+                else
+                    print("Error evaluating damage function: " .. tostring(funcResult))
+                    calculatedDamage = 0 -- Default on error
+                end
+            else
+                -- It's a static value
+                calculatedDamage = damageAmountFuncOrValue
+            end
+
+            -- Generate event
+            table.insert(events or {}, {
+                type = "DAMAGE", source = "caster", target = "enemy",
+                amount = calculatedDamage, damageType = damageType,
+                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+            })
+        end
 
         -- Keep legacy results for now (might still be used elsewhere)
         -- results.damage = calculatedDamage 
@@ -296,27 +305,43 @@ Keywords.conjure = {
         defaultAmount = 1
     },
     
-    -- Implementation function - Generates CONJURE_TOKEN event(s)
+    -- Implementation function
     execute = function(params, caster, target, results, events)
-        local tokenTypeOrFunc = params.token or "fire"
+        local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
-        
-        for i = 1, amount do
-            local finalTokenType = tokenTypeOrFunc
-            -- Resolve token type if it's a function
-            if type(tokenTypeOrFunc) == "function" then
-                finalTokenType = tokenTypeOrFunc(caster, target)
+        local targetPool = params.target or "POOL_SELF" -- Default target pool
+
+        events = events or {} -- Ensure events table exists
+
+        if type(tokenTypeParam) == "table" then
+            -- Handle array of token types
+            for _, specificTokenType in ipairs(tokenTypeParam) do
+                for i = 1, amount do -- Assuming amount applies per token type
+                    table.insert(events, {
+                        type = "CONJURE_TOKEN",
+                        source = "caster",
+                        target = targetPool,
+                        tokenType = specificTokenType,
+                        amount = 1 -- Conjure one of this specific type
+                    })
+                end
             end
-            
-            table.insert(events or {}, {
-                type = "CONJURE_TOKEN",
-                source = "caster",
-                target = "pool", -- Target the shared pool
-                tokenType = finalTokenType,
-                amount = 1 -- Generate one event per token
-            })
+        elseif type(tokenTypeParam) == "string" then
+             -- Handle single token type string (original behavior)
+             for i = 1, amount do
+                 table.insert(events, {
+                     type = "CONJURE_TOKEN",
+                     source = "caster",
+                     target = targetPool,
+                     tokenType = tokenTypeParam,
+                     amount = 1 -- Conjure one of this specific type
+                 })
+             end
+        else
+            print("WARN: Conjure keyword received unexpected token type: " .. type(tokenTypeParam))
         end
         
+        -- Event-based system, no direct modification or legacy results needed
         return results
     end
 }

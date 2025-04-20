@@ -275,6 +275,32 @@ function VFX.init()
             sound = "conjure"
         },
         
+        -- Nova Conjuring effect (Fire, Force, Star)
+        nova_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = {0.9, 0.7, 0.5, 0.95}, -- Mixed color base (orange/gold)
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_nova" -- Assumed sound effect
+        },
+
+        -- Witch Conjuring effect (Moon, Force, Nature)
+        witch_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = {0.6, 0.4, 0.9, 0.95}, -- Mixed color base (purple/indigo)
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_witch" -- Assumed sound effect
+        },
+        
         -- Shield effect (used for barrier, ward, and field shield activation)
         shield = {
             type = "aura",
@@ -1322,6 +1348,16 @@ function VFX.createSpellEffect(spell, caster, target)
         })
     elseif spellName == "volatileconjuring" then
         return VFX.createEffect("volatileconjuring", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "novaconjuring" then
+        return VFX.createEffect("nova_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "witchconjuring" then
+        return VFX.createEffect("witch_conjure", sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })

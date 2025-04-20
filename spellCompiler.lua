@@ -54,6 +54,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         behavior = {}
     }
     
+    -- >>> ADDED: Also copy the getCastTime function if it exists
+    if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
+        compiledSpell.getCastTime = spellDef.getCastTime
+    end
+    
     -- Process keywords if they exist
     if spellDef.keywords then
         for keyword, params in pairs(spellDef.keywords) do

@@ -98,7 +98,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjurefire,
-            ["2"] = Spells.conjureforce,
+            ["2"] = Spells.novaconjuring,
             ["3"] = Spells.firebolt,
 
             -- Two key combos
@@ -113,7 +113,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.conjurestars,
+            ["2"] = Spells.witchconjuring,
             ["3"] = Spells.mist,
             
             -- Two key combos

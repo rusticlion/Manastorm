@@ -518,7 +518,7 @@ function WizardVisuals.drawWizard(wizard)
                 love.graphics.ellipse(
                     "fill", 
                     wizard.x + xOffset + cloudOffset, 
-                    wizard.y + 30, 
+                    wizard.y + yOffset + 30, -- Add yOffset here
                     45 + i * 5, 
                     10
                 )
@@ -532,8 +532,8 @@ function WizardVisuals.drawWizard(wizard)
             wizard.x + xOffset, 
             wizard.y + yOffset, 
             0, -- No rotation
-            adjustedScale, 
-            wizard.scale, 
+            adjustedScale * 2, -- Double scale
+            wizard.scale * 2, -- Double scale
             wizard.sprite:getWidth() / 2, 
             wizard.sprite:getHeight() / 2
         )
