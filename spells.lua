@@ -220,35 +220,19 @@ Spells.meteor = {
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }
 
-Spells.combust = {
-    id = "combust",
-    name = "Combust Lock",
-    description = "Locks opponent mana token, punishes overqueueing",
+Spells.combustMana = {
+    id = "combustMana",
+    name = "Combust Mana",
+    description = "Disrupts opponent channeling, converting one token to Fire",
     castTime = 6.0,
-    attackType = Constants.AttackType.REMOTE,
+    attackType = Constants.AttackType.UTILITY,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
     keywords = {
-        lock = {
-            duration = 10.0
-        },
-        damage = {
-            amount = function(caster, target)
-                -- Count active spell slots
-                local activeSlots = 0
-                if target and target.spellSlots then
-                    for _, slot in ipairs(target.spellSlots) do
-                        if slot.active then
-                            activeSlots = activeSlots + 1
-                        end
-                    end
-                end
-                return activeSlots * 3
-            end,
-            type = "fire"
+        disruptAndShift = {
+            targetType = "fire"
         }
     },
     vfx = "combust_lock",
-    blockableBy = {"ward", "field"}
 }
 
 Spells.emberlift = {

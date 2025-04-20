@@ -281,6 +281,7 @@ function VFX.init()
     -- Create effect pool - each effect is a container object
     Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
     
+    -- Return the VFX table itself
     return VFX
 end
 

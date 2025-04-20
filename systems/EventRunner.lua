@@ -307,11 +307,6 @@ EventRunner.EVENT_HANDLERS = {
         -- Track damage for results
         results.damageDealt = results.damageDealt + event.amount
         
-        -- Create damage number VFX if available
-        if caster.gameState and caster.gameState.vfx then
-            caster.gameState.vfx.createDamageNumber(targetEntity.x, targetEntity.y, event.amount, event.damageType)
-        end
-        
         return true
     end,
     
@@ -571,45 +566,64 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     LOCK_TOKEN = function(event, caster, target, spellSlot, results)
-        local manaPool = caster.manaPool
-        if not manaPool then return false end
+        -- Target the SHARED mana pool via gameState
+        local manaPool = caster.gameState.manaPool 
+        if not manaPool then 
+            print("ERROR: LOCK_TOKEN handler could not find shared manaPool via caster.gameState")
+            return false 
+        end
         
-        -- Find tokens to lock
-        local tokensLocked = 0
-        
+        -- Find all FREE tokens matching the type (or 'any')
+        local freeTokens = {}
         for i, token in ipairs(manaPool.tokens) do
-            if token.state == "FREE" and (not event.tokenType or event.tokenType == "any" or token.type == event.tokenType) then
-                -- Lock token
-                token.state = "LOCKED"
-                token.lockTimer = event.duration
-                tokensLocked = tokensLocked + 1
-                results.tokensAffected = results.tokensAffected + 1
-                
-                -- Create lock visual effect if VFX system available
-                if caster.gameState and caster.gameState.vfx then
-                    local params = {
-                        duration = event.duration,
-                        tokenType = token.type
-                    }
-                    
-                    safeCreateVFX(
-                        caster.gameState.vfx,
-                        "createTokenLockEffect",
-                        "token_lock",
-                        token.x,
-                        token.y,
-                        params
-                    )
-                end
-                
-                -- Stop once we've locked enough tokens
-                if tokensLocked >= event.amount then
-                    break
-                end
+            if token.state == "FREE" and (event.tokenType == "any" or token.type == event.tokenType) then
+                table.insert(freeTokens, token)
             end
         end
         
-        return true
+        -- If no free tokens found, do nothing
+        if #freeTokens == 0 then
+            print("DEBUG: LOCK_TOKEN found no free tokens of type " .. event.tokenType .. " to lock.")
+            return false -- Indicate event didn't successfully apply
+        end
+        
+        -- Lock the specified amount (usually 1) of random free tokens
+        local tokensLocked = 0
+        local lockAmount = event.amount or 1
+        
+        while tokensLocked < lockAmount and #freeTokens > 0 do
+            -- Select a random token from the list
+            local randomIndex = math.random(#freeTokens)
+            local tokenToLock = table.remove(freeTokens, randomIndex)
+            
+            -- Lock the selected token
+            tokenToLock.state = "LOCKED"
+            tokenToLock.lockTimer = event.duration
+            tokensLocked = tokensLocked + 1
+            results.tokensAffected = results.tokensAffected + 1
+            
+            print(string.format("[TOKEN LIFECYCLE] Token (%s) state: FREE -> LOCKED for %.1fs", 
+                tostring(tokenToLock.type), event.duration))
+            
+            -- Create lock visual effect if VFX system available
+            if caster.gameState and caster.gameState.vfx then
+                local params = {
+                    duration = event.duration,
+                    tokenType = tokenToLock.type
+                }
+                
+                safeCreateVFX(
+                    caster.gameState.vfx,
+                    "createTokenLockEffect",
+                    "token_lock",
+                    tokenToLock.x,
+                    tokenToLock.y,
+                    params
+                )
+            end
+        end
+        
+        return tokensLocked > 0 -- Return true if at least one token was locked
     end,
     
     -- ===== Spell Timing Events =====
@@ -793,6 +807,97 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         return false
+    end,
+    
+    -- NEW HANDLER: Disrupts channeling, shifts token type, returns it to pool
+    DISRUPT_AND_SHIFT = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local wizard = targetInfo.wizard
+        local slotIndex = targetInfo.slotIndex
+        
+        -- If slotIndex is 0 or nil, pick a random active slot (including shields)
+        if not slotIndex or slotIndex == 0 then
+            local activeSlots = {}
+            for i, slot in ipairs(wizard.spellSlots) do
+                if slot.active then 
+                    table.insert(activeSlots, i)
+                end
+            end
+            
+            if #activeSlots > 0 then
+                slotIndex = activeSlots[math.random(#activeSlots)]
+            else
+                print("DEBUG: DISRUPT_AND_SHIFT found no active slots on " .. wizard.name)
+                return false -- No valid target slot
+            end
+        end
+        
+        -- Get the target slot
+        local slot = wizard.spellSlots[slotIndex]
+        if not slot or not slot.active or not slot.tokens or #slot.tokens == 0 then
+            print(string.format("DEBUG: DISRUPT_AND_SHIFT cannot target slot %d on %s (inactive or no tokens)", slotIndex, wizard.name))
+            return false -- Invalid target slot
+        end
+        
+        -- Select 1 random token from the slot's tokens
+        local tokenIndexToRemove = math.random(#slot.tokens)
+        local tokenDataToRemove = slot.tokens[tokenIndexToRemove]
+        local removedTokenObject = tokenDataToRemove.token
+        local originalType = removedTokenObject and removedTokenObject.type or "unknown"
+
+        -- Remove the token data reference from the slot
+        table.remove(slot.tokens, tokenIndexToRemove)
+        print(string.format("[DISRUPT] Removed token %s from %s's slot %d (%s)", 
+            tostring(originalType), wizard.name, slotIndex,
+            slot.isShield and "Shield" or "Spell"))
+
+        -- Shift the REMOVED token object's type and request return animation
+        if removedTokenObject then
+            local newType = event.newType or "fire"
+            local oldType = removedTokenObject.type
+            removedTokenObject.type = newType
+            removedTokenObject.image = love.graphics.newImage("assets/sprites/" .. newType .. "-token.png")
+            results.tokensAffected = (results.tokensAffected or 0) + 1
+            print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) type shifted: %s -> %s", 
+                tostring(tokenDataToRemove.index or '?'), oldType, newType))
+            
+            -- Request token return animation
+            if removedTokenObject.requestReturnAnimation then
+                 removedTokenObject:requestReturnAnimation()
+                 print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) state: CHANNELED -> RETURNING (as %s)",
+                     tostring(tokenDataToRemove.index or '?'), newType))
+            else
+                 removedTokenObject.state = "FREE" -- Fallback if no animation method
+                 print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) state: CHANNELED -> FREE (as %s, no animation)",
+                     tostring(tokenDataToRemove.index or '?'), newType))
+            end
+
+            -- Trigger a VFX for the type shift
+            if caster.gameState and caster.gameState.vfx then
+                local params = {
+                    duration = 0.8,
+                    oldType = oldType,
+                    newType = newType
+                }
+                safeCreateVFX(
+                    caster.gameState.vfx,
+                    "createTokenShiftEffect", -- Need to add this VFX method
+                    "token_shift",
+                    removedTokenObject.x, 
+                    removedTokenObject.y,
+                    params
+                )
+            end
+        else
+             print("WARNING: Could not find token object to shift after removal from slot.")
+        end
+
+        -- Call the centralized Law of Completion check on the target wizard
+        wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
+        
+        return true -- Event succeeded
     end,
     
     -- ===== Defense Events =====

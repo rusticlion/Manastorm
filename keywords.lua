@@ -372,37 +372,40 @@ Keywords.tokenShift = {
     end
 }
 
--- lock: Locks tokens in the shared mana pool, preventing their use for a duration
-Keywords.lock = {
-    -- Behavior definition
+-- NEW KEYWORD: disruptAndShift
+-- Removes a token from an opponent's channeling slot and changes its type
+Keywords.disruptAndShift = {
     behavior = {
-        locksTokensInSharedPool = true,
-        hasDefaultDuration = true,
-        targetType = "POOL_ENEMY", -- Indicates which tokens to target, not separate pools
+        disruptsChanneling = true,
+        transformsTokens = true, -- Indicates it changes token type
+        targetType = "SLOT_ENEMY", -- Targets an enemy spell slot
         category = "TOKEN",
         
         -- Default parameters
-        defaultDuration = 5.0
+        defaultTargetType = "fire" -- Default type to shift to
     },
     
-    -- Implementation function
+    -- Implementation function - Generates DISRUPT_AND_SHIFT event
     execute = function(params, caster, target, results, events)
-        -- Generate LOCK_TOKEN event instead of setting results
+        -- Determine target slot (using same logic as disjoint/cancel)
+        local targetSlotIndex = 0
+        if params.slot and type(params.slot) == "function" then
+            targetSlotIndex = params.slot(caster, target, results.currentSlot)
+        elseif params.slot then
+            targetSlotIndex = params.slot
+        end
+        targetSlotIndex = tonumber(targetSlotIndex) or 0 -- 0 means random active
+
+        -- Generate DISRUPT_AND_SHIFT event
         table.insert(events or {}, {
-            type = "LOCK_TOKEN",
+            type = "DISRUPT_AND_SHIFT",
             source = "caster",
-            target = "POOL_ENEMY", -- Target opponent's pool
-            duration = params.duration or 5.0,
-            tokenType = "any", -- Default to locking any token type
-            amount = 1 -- Default to locking 1 token
-            -- Optional: Could add params.tokenType or params.amount if needed
+            target = "enemy_slot", -- Target opponent's slot
+            slotIndex = targetSlotIndex, -- 0 means random active slot handled by EventRunner
+            newType = params.targetType or "fire" -- Type to shift the removed token to
         })
         
-        -- Keep legacy results for compatibility during transition (optional)
-        -- results.lockToken = true
-        -- results.lockDuration = params.duration or 5.0
-        
-        return results -- Return legacy results for now
+        return results
     end
 }
 

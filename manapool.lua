@@ -30,9 +30,6 @@ function ManaPool.new(x, y)
     -- Chance for a token to switch valences
     self.valenceJumpChance = 0.002  -- Per frame chance of switching
     
-    -- Load lock overlay image
-    self.lockOverlay = AssetCache.getImage("assets/sprites/token-lock.png")
-    
     -- Initialize the token pool if not already done
     if not Pool.pools["token"] then
         Pool.create("token", 50, function() 
@@ -313,7 +310,6 @@ function ManaPool.resetToken(token)
     token.isAnimating = nil  -- New field to track animation state
     token.animationCallback = nil  -- New field for animation completion callback
     token.originalStatus = nil  -- To store the state before transitions
-    token.lockDuration = nil
     token.valenceIndex = nil
     token.orbitAngle = nil
     token.orbitSpeed = nil
@@ -333,7 +329,6 @@ function ManaPool.resetToken(token)
     token.targetRadiusY = nil
     token.currentRadiusX = nil
     token.currentRadiusY = nil
-    token.lockPulse = nil
     token.scale = nil
     token.zOrder = nil
     token.originalSpeed = nil
@@ -430,24 +425,21 @@ function ManaPool:addToken(tokenType, imagePath)
     token.manaPool = self  -- Reference to this mana pool instance
     token.id = #self.tokens + 1  -- Simple ID based on token position
     
-    token.lockDuration = 0 -- Duration for how long a token remains locked
-    
     -- Valence-based orbit properties
     token.valenceIndex = valenceIndex
     token.orbitAngle = angle
-    -- Speed varies by token but influenced by valence's base speed
     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
     
     -- Visual effects
     token.pulsePhase = math.random() * math.pi * 2
     token.pulseSpeed = 2 + math.random() * 3
     token.rotAngle = math.random() * math.pi * 2
-    token.rotSpeed = math.random(-2, 2) * 0.5 -- Varying rotation speeds
+    token.rotSpeed = math.random(-2, 2) * 0.5
     
-    -- Valence jump timer (occasional orbit changes)
-    token.valenceJumpTimer = 2 + math.random() * 8 -- Random time until possible valence change
+    -- Valence jump timer
+    token.valenceJumpTimer = 2 + math.random() * 8
     
-    -- Valence transition properties (for smooth valence changes)
+    -- Valence transition properties
     token.inValenceTransition = false
     token.valenceTransitionTime = 0
     token.valenceTransitionDuration = 0.8
@@ -460,14 +452,11 @@ function ManaPool:addToken(tokenType, imagePath)
     token.currentRadiusX = valence.radiusX
     token.currentRadiusY = valence.radiusY
     
-    -- Visual effect for locked state
-    token.lockPulse = 0 -- For pulsing animation when locked
-    
     -- Size variation for visual interest
-    token.scale = 0.85 + math.random() * 0.3 -- Slight size variation
+    token.scale = 0.85 + math.random() * 0.3
     
     -- Depth/z-order variation
-    token.zOrder = math.random()  -- Used for layering tokens
+    token.zOrder = math.random()
     
     token.originalSpeed = token.orbitSpeed
     
@@ -763,44 +752,6 @@ function ManaPool:update(dt)
                 end
             end
             
-        elseif token.status == Constants.TokenStatus.LOCKED then
-            -- For locked tokens, update the lock duration
-            if token.lockDuration > 0 then
-                token.lockDuration = token.lockDuration - dt
-                
-                -- Update lock pulse for animation
-                token.lockPulse = (token.lockPulse + dt * 3) % (math.pi * 2)
-                
-                -- When lock duration expires, return to FREE state
-                if token.lockDuration <= 0 then
-                    -- Use state machine to transition to FREE
-                    token:setState(Constants.TokenStatus.FREE)
-                    print("[TOKEN LIFECYCLE] A " .. token.type .. " token has been unlocked and returned to the mana pool")
-                    
-                    -- Reset position to center with some random velocity
-                    token.x = self.x
-                    token.y = self.y
-                    -- Pick a random valence for the formerly locked token
-                    token.valenceIndex = math.random(1, #self.valences)
-                    token.orbitAngle = math.random() * math.pi * 2
-                    -- Set direction and speed based on the valence
-                    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
-                    local valence = self.valences[token.valenceIndex]
-                    token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
-                    token.originalSpeed = token.orbitSpeed
-                end
-            end
-            
-            -- Even locked tokens should move a bit, but more constrained
-            if token.x and token.y and token.lockPulse then
-                token.x = token.x + math.sin(token.lockPulse) * 0.3
-                token.y = token.y + math.cos(token.lockPulse) * 0.3
-            end
-            
-            -- Slight rotation (with safety check)
-            if token.rotAngle and token.rotSpeed then
-                token.rotAngle = token.rotAngle + token.rotSpeed * dt * 0.2
-            end
         end
         
         -- Update common properties for all tokens (moved inside the token loop)
@@ -989,9 +940,6 @@ function ManaPool:draw()
             else
                 love.graphics.setColor(1, 1, 1, 1)  -- Default
             end
-        elseif token.status == Constants.TokenStatus.LOCKED then
-            -- Locked tokens have a red tint
-            love.graphics.setColor(1, 0.5, 0.5, 0.7)
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Returning tokens have a bright, energetic glow
             local returnGlow = 0.3 + 0.7 * math.sin(token.animTime * 15)
@@ -1122,38 +1070,6 @@ function ManaPool:draw()
                             )
                         end
                     end
-                end
-            end
-            
-            -- Draw lock overlay for locked tokens
-            if token.status == Constants.TokenStatus.LOCKED then
-                -- Draw the lock overlay
-                local pulseScale = 0.9 + math.sin(token.lockPulse) * 0.2  -- Pulsing effect
-                local overlayScale = 1.2 * pulseScale * token.scale  -- Scale for the lock overlay
-                
-                -- Pulsing red glow behind the lock
-                love.graphics.setColor(1, 0, 0, 0.3 + 0.2 * math.sin(token.lockPulse))
-                love.graphics.circle("fill", token.x, token.y, 12 * pulseScale * token.scale)
-                
-                -- Lock icon
-                love.graphics.setColor(1, 1, 1, 1)
-                love.graphics.draw(
-                    self.lockOverlay,
-                    token.x,
-                    token.y,
-                    0,  -- No rotation for lock
-                    overlayScale, overlayScale,
-                    self.lockOverlay:getWidth()/2, self.lockOverlay:getHeight()/2
-                )
-                
-                -- Display remaining lock time if more than 1 second
-                if token.lockDuration > 1 then
-                    love.graphics.setColor(1, 1, 1, 0.8)
-                    love.graphics.print(
-                        string.format("%.0f", token.lockDuration),
-                        token.x - 5,
-                        token.y - 25
-                    )
                 end
             end
         end

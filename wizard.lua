@@ -278,7 +278,7 @@ function Wizard.new(name, x, y, color)
             
             -- Multi-key combinations
             ["12"] = Spells.eruption,      -- Zone spell with range anchoring 
-            ["13"] = Spells.combust, -- Mana denial spell
+            ["13"] = Spells.combustMana, -- Mana denial spell
             ["23"] = Spells.emberlift,     -- Movement spell
             ["123"] = Spells.meteor  -- Zone dependent nuke
         }
@@ -729,124 +729,8 @@ function Wizard:draw()
         love.graphics.setColor(1, 1, 1, progress)
         love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y + 70)
     end
-    
-    -- Health bars will now be drawn in the UI system for a more dramatic fighting game style
-    
-    -- Keyed spell display has been moved to the UI spellbook component
-    
-    -- Handle shield block and token consumption
-function Wizard:handleShieldBlock(slotIndex, blockedSpell)
-    -- Get the shield slot
-    local slot = self.spellSlots[slotIndex]
-    
-    -- Check if slot exists and is a valid shield
-    if not slot or not slot.isShield then
-        print("[SHIELD ERROR] Invalid shield slot: " .. tostring(slotIndex))
-        return false
-    end
-    
-    -- Check if shield has tokens
-    if #slot.tokens <= 0 then
-        print("[SHIELD ERROR] Shield has no tokens to consume")
-        return false
-    end
-    
-    -- Determine how many tokens to consume
-    local tokensToConsume = 1 -- Default: consume 1 token per hit
-    
-    -- Shield breaker spells can consume more tokens
-    if blockedSpell.shieldBreaker and blockedSpell.shieldBreaker > 1 then
-        tokensToConsume = math.min(blockedSpell.shieldBreaker, #slot.tokens)
-        print(string.format("[SHIELD BREAKER] Shield breaker consuming up to %d tokens", tokensToConsume))
-    end
-    
-    -- Debug output to track token removal
-    print(string.format("[SHIELD DEBUG] Before token removal: Shield has %d tokens", #slot.tokens))
-    print(string.format("[SHIELD DEBUG] Will remove %d token(s)", tokensToConsume))
-    
-    -- Only consume tokens up to the number we have
-    tokensToConsume = math.min(tokensToConsume, #slot.tokens)
-    
-    -- Return tokens back to the mana pool - ONE AT A TIME
-    for i = 1, tokensToConsume do
-        if #slot.tokens > 0 then
-            -- Get the last token
-            local lastTokenIndex = #slot.tokens
-            local tokenData = slot.tokens[lastTokenIndex]
-            
-            print(string.format("[SHIELD DEBUG] Consuming token %d from shield (token %d of %d)", 
-                tokenData.index, i, tokensToConsume))
-            
-            -- Important: We DO NOT directly set the token state here
-            -- Instead, let the manaPool:returnToken method handle the state transition properly
-            
-            -- First check token state for debugging
-            if tokenData.token then
-                print(string.format("[SHIELD DEBUG] Token %d current state: %s", 
-                    tokenData.index, tokenData.token.state or "unknown"))
-            else
-                print("[SHIELD WARNING] Token has no token data object")
-            end
-            
-            -- Use token state machine to request return animation
-            if tokenData.token and tokenData.token.requestReturnAnimation then
-                print(string.format("[SHIELD DEBUG] Requesting return animation for token %d", tokenData.index))
-                tokenData.token:requestReturnAnimation()
-            elseif self.manaPool then
-                -- Fallback to legacy method
-                print(string.format("[SHIELD DEBUG] Returning token %d to mana pool (legacy method)", tokenData.index))
-                self.manaPool:returnToken(tokenData.index)
-            else
-                print("[SHIELD ERROR] Could not return token - no token object or mana pool found")
-            end
-            
-            -- Remove this token from the slot's token list
-            table.remove(slot.tokens, lastTokenIndex)
-            print(string.format("[SHIELD DEBUG] Token %d removed from shield token list (%d tokens remaining)", 
-                tokenData.index, #slot.tokens))
-        else
-            print("[SHIELD ERROR] Tried to consume token but shield has no more tokens!")
-            break -- Stop trying to consume tokens if there are none left
-        end
-    end
-    
-    print("[SHIELD DEBUG] After token removal: Shield has " .. #slot.tokens .. " tokens left")
-    
-    -- Create token release VFX
-    if self.gameState and self.gameState.vfx then
-        self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
-            duration = 0.5,
-            color = {0.8, 0.8, 0.2, 0.7},
-            particleCount = 8,
-            radius = 30
-        })
-    end
-    
-    -- Check if the shield is depleted (no tokens left)
-    if #slot.tokens <= 0 then
-        print(string.format("[SHIELD BREAK] %s's %s shield has been broken!", 
-            self.name, slot.defenseType))
-        
-        -- Reset slot completely using unified method
-        print("[SHIELD DEBUG] Resetting slot " .. slotIndex .. " to empty state")
-        self:resetSpellSlot(slotIndex)
-        slot.tokens = {}  -- Ensure it's empty
-        
-        -- Create shield break effect
-        if self.gameState and self.gameState.vfx then
-            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
-                duration = 0.7,
-                color = {1.0, 0.5, 0.5, 0.8},
-                particleCount = 15,
-                radius = 50
-            })
-        end
-    end
-    
-    return true
-end
 
--- Draw spell cast notification (temporary until proper VFX)
+    -- Draw spell cast notification (temporary until proper VFX)
     if self.spellCastNotification then
         -- Fade out towards the end
         local alpha = math.min(1.0, self.spellCastNotification.timer)
@@ -2811,6 +2695,96 @@ function Wizard:resetSpellSlot(slotIndex)
     
     -- Clear token references *after* animations have been requested
     slot.tokens = {}
+end
+
+-- Add method to check for spell fizzle/shield collapse when a token is removed
+function Wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject) -- removedTokenObject is now just for logging context
+    local slot = self.spellSlots[slotIndex]
+    
+    -- Only proceed if the slot exists and is active 
+    if not slot or not slot.active then
+        return
+    end
+
+    -- Law of Completion Check
+    if #slot.tokens == 0 then
+        local effectType = slot.isShield and "Shield" or "Spell"
+        local fizzleMessage = string.format("[%s FIZZLE] Last token removed from %s's slot %d! %s collapsed.", 
+            effectType:upper(), self.name, slotIndex, effectType)
+        print(fizzleMessage)
+        
+        -- Reset the slot immediately (cancels the spell/shield)
+        self:resetSpellSlot(slotIndex)
+        
+        -- REMOVED: Code that set removedTokenObject.state to DESTROYED
+        -- REMOVED: Code that attempted to call safeCreateVFX for fizzle effect
+        
+        -- Log the fizzle action clearly
+        print(string.format("[WIZARD RULE] Slot %d reset due to Law of Completion.", slotIndex))
+
+    end
+end
+
+-- Handle the effects of a spell being blocked by a shield in a specific slot
+function Wizard:handleShieldBlock(slotIndex, incomingSpell)
+    local slot = self.spellSlots[slotIndex]
+    if not slot or not slot.active or not slot.isShield then
+        print(string.format("WARNING: handleShieldBlock called on invalid or non-shield slot %d for %s", slotIndex, self.name))
+        return false
+    end
+
+    -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
+    local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
+    local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
+
+    print(string.format("[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).", 
+        self.name, slot.defenseType, slotIndex, incomingSpell.name, shieldBreakPower, tokensToConsume))
+
+    -- Consume the tokens
+    for i = 1, tokensToConsume do
+        if #slot.tokens > 0 then
+            -- Remove token data from the end (doesn't matter which one for shields)
+            local removedTokenData = table.remove(slot.tokens)
+            local removedTokenObject = removedTokenData.token
+            
+            print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                tostring(removedTokenObject.type)))
+                
+            -- Mark the consumed token for destruction
+            if removedTokenObject then
+                if removedTokenObject.requestDestructionAnimation then
+                    removedTokenObject:requestDestructionAnimation()
+                else
+                    removedTokenObject.state = "DESTROYED"
+                end
+                
+                -- IMPORTANT: Call the centralized check *after* removing the token
+                self:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
+            else
+                print("WARNING: Shield block consumed a token reference that had no token object.")
+                -- Still need to check fizzle even if token object missing
+                self:checkFizzleOnTokenRemoval(slotIndex, nil)
+            end
+        else
+            -- Should not happen if tokensToConsume calculation is correct, but break just in case
+            print("WARNING: Tried to consume more tokens than available in shield slot.")
+            break 
+        end
+    end
+    
+    -- Trigger shield hit VFX
+    if self.gameState and self.gameState.vfx then
+        self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+            duration = 0.5,
+            color = {0.8, 0.8, 0.2, 0.7},
+            particleCount = 8,
+            radius = 30
+        })
+    end
+    
+    -- The checkFizzleOnTokenRemoval method now handles the actual shield breaking (slot reset)
+    
+    return true
 end
 
 return Wizard
