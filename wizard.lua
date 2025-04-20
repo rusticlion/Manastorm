@@ -8,6 +8,7 @@ local Constants = require("core.Constants")
 local SpellsModule = require("spells")
 local Spells = SpellsModule.spells  -- For backwards compatibility
 local ShieldSystem = require("systems.ShieldSystem")
+local WizardVisuals = require("systems.WizardVisuals")
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -96,7 +97,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjurefire,
-            ["2"] = Spells.volatileconjuring,
+            ["2"] = Spells.conjureforce,
             ["3"] = Spells.firebolt,
             
             -- Multi-key combinations
@@ -109,7 +110,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.volatileconjuring,
+            ["2"] = Spells.conjurestars,
             ["3"] = Spells.mist,
             
             -- Multi-key combinations
@@ -463,123 +464,8 @@ function Wizard:update(dt)
 end
 
 function Wizard:draw()
-    -- Calculate position adjustments based on elevation and range state
-    local yOffset = 0
-    local xOffset = 0
-    
-    -- Vertical adjustment for AERIAL state - increased for more dramatic effect
-    if self.elevation == "AERIAL" then
-        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
-    end
-    
-    -- Horizontal adjustment for NEAR/FAR state
-    local isNear = self.gameState and self.gameState.rangeState == "NEAR"
-    local centerX = love.graphics.getWidth() / 2
-    
-    -- Push wizards closer to center in NEAR mode, further in FAR mode
-    if self.name == "Ashgar" then -- Player 1 (left side)
-        xOffset = isNear and 60 or 0 -- Move right when NEAR
-    else -- Player 2 (right side)
-        xOffset = isNear and -60 or 0 -- Move left when NEAR
-    end
-    
-    -- Set color and draw wizard
-    if self.stunTimer > 0 then
-        -- Apply a yellow/white flash for stunned wizards
-        local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
-        love.graphics.setColor(1, 1, flashIntensity)
-    else
-        love.graphics.setColor(1, 1, 1)
-    end
-    
-    -- Draw elevation effect (GROUNDED or AERIAL)
-    if self.elevation == "GROUNDED" then
-        -- Draw ground indicator below wizard, applying the x offset
-        love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
-        love.graphics.ellipse("fill", self.x + xOffset, self.y + 30, 40, 10)  -- Simple shadow/ground indicator
-    end
-    
-    -- Store current offsets for other functions to use
-    self.currentXOffset = xOffset
-    self.currentYOffset = yOffset
-    
-    -- Draw the wizard with appropriate elevation and position
-    love.graphics.setColor(1, 1, 1)
-    
-    -- Flip Selene's sprite horizontally if she's player 2
-    local scaleX = self.scale
-    if self.name == "Selene" then
-        -- Mirror the sprite by using negative scale for the second player
-        scaleX = -self.scale
-    end
-    
-    love.graphics.draw(
-        self.sprite, 
-        self.x + xOffset, self.y + yOffset,  -- Apply both offsets
-        0,  -- Rotation
-        scaleX, self.scale,  -- Scale x, Scale y (negative x scale for Selene)
-        self.sprite:getWidth()/2, self.sprite:getHeight()/2  -- Origin at center
-    )
-    
-    -- Draw aerial effect if applicable
-    if self.elevation == "AERIAL" then
-        -- Draw aerial effect (clouds, wind lines, etc.)
-        love.graphics.setColor(0.8, 0.8, 1, 0.3)
-        
-        -- Draw cloud-like puffs, applying the xOffset
-        for i = 1, 3 do
-            local cloudXOffset = math.sin(love.timer.getTime() * 1.5 + i) * 8
-            local cloudY = self.y + yOffset + 40 + math.sin(love.timer.getTime() + i) * 3
-            love.graphics.circle("fill", self.x + xOffset - 15 + cloudXOffset, cloudY, 8)
-            love.graphics.circle("fill", self.x + xOffset + cloudXOffset, cloudY, 10)
-            love.graphics.circle("fill", self.x + xOffset + 15 + cloudXOffset, cloudY, 8)
-        end
-        
-        -- No visual timer display here - moved to drawStatusEffects function
-    end
-    
-    -- No longer drawing text elevation indicator - using visual representation only
-    
-    -- Draw status effects with durations using the new horizontal bar system
-    self:drawStatusEffects()
-    
-    -- Draw block effect when projectile is blocked
-    if self.blockVFX.active then
-        -- Draw block flash animation
-        local progress = self.blockVFX.timer / 0.5  -- Normalize to 0-1
-        local size = 80 * (1 - progress)
-        love.graphics.setColor(0.7, 0.7, 1, progress * 0.8)
-        love.graphics.circle("fill", self.x + xOffset, self.y, size)
-        love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.circle("line", self.x + xOffset, self.y, size)
-        love.graphics.setColor(1, 1, 1, progress)
-        love.graphics.print("BLOCKED!", self.x + xOffset - 30, self.y + 70)
-    end
-
-    -- Draw spell cast notification (temporary until proper VFX)
-    if self.spellCastNotification then
-        -- Fade out towards the end
-        local alpha = math.min(1.0, self.spellCastNotification.timer)
-        local color = self.spellCastNotification.color
-        love.graphics.setColor(color[1], color[2], color[3], alpha)
-        
-        -- Draw with a subtle rise effect
-        local notifYOffset = 10 * (1 - alpha)  -- Rise up as it fades
-        love.graphics.print(self.spellCastNotification.text, 
-                           self.spellCastNotification.x + xOffset - 60, 
-                           self.spellCastNotification.y - notifYOffset, 
-                           0, -- rotation
-                           1.5, 1.5) -- scale
-    end
-    
-    -- We'll remove the key indicators from here as they'll be drawn in the UI's spellbook component
-    
-    -- Save current xOffset and yOffset for other drawing functions
-    self.currentXOffset = xOffset
-    self.currentYOffset = yOffset
-    
-    -- Draw spell slots (orbits)
-    self:drawSpellSlots()
+    -- Use WizardVisuals module for drawing
+    WizardVisuals.drawWizard(self)
 end
 
 -- Helper function to draw an ellipse
