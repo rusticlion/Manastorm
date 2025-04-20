@@ -53,12 +53,16 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- No longer tracking shield strength separately - token count is the source of truth
     
-    -- Slow down token orbiting speed for shield tokens if they exist
+    -- Get TokenManager module
+    local TokenManager = require("systems.TokenManager")
+    
+    -- Mark tokens as shielding using TokenManager
+    TokenManager.markTokensAsShielding(slot.tokens)
+    
+    -- Add additional shield-specific properties to tokens
     for _, tokenData in ipairs(slot.tokens) do
         local token = tokenData.token
         if token then
-            -- Set token to "SHIELDING" state
-            token.state = "SHIELDING"
             -- Add specific shield type info to the token for visual effects
             token.shieldType = slot.defenseType
             -- Slow down the rotation speed for shield tokens
@@ -214,13 +218,18 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
                 tostring(removedTokenObject.type)))
                 
-            -- Mark the consumed token for destruction
+            -- Mark the consumed token for destruction using TokenManager
             if removedTokenObject then
-                if removedTokenObject.requestDestructionAnimation then
-                    removedTokenObject:requestDestructionAnimation()
-                else
-                    removedTokenObject.state = "DESTROYED"
-                end
+                -- Get TokenManager
+                local TokenManager = require("systems.TokenManager")
+                
+                -- Create a token array for TokenManager to handle
+                local tokenToDestroy = {
+                    {token = removedTokenObject, index = 1}
+                }
+                
+                -- Use TokenManager to destroy the token
+                TokenManager.destroyTokens(tokenToDestroy)
                 
                 -- Call the wizard's centralized check *after* removing the token
                 wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)

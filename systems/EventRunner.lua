@@ -203,11 +203,12 @@ end
 -- Resolve the actual target entity for an event
 -- This function handles both raw string target types (like "enemy_slot") 
 -- and Constants.TargetType enum values (like Constants.TargetType.SLOT_ENEMY)
+-- Always returns a table like { wizard, slotIndex } or nil
 function EventRunner.resolveTarget(event, caster, target)
     -- Validate inputs
     if not event then
         print("WARNING: Nil event in resolveTarget")
-        return caster -- Default to caster as fallback
+        return {wizard = caster, slotIndex = nil} -- Default to caster as fallback
     end
     
     if not caster then
@@ -216,11 +217,12 @@ function EventRunner.resolveTarget(event, caster, target)
     end
     
     local targetType = event.target
+    local slotIndex = event.slotIndex -- Extract slotIndex from event
     
     -- Handle nil target type
     if targetType == nil then
         print("WARNING: Nil target type in event, defaulting to 'self'")
-        return caster
+        return {wizard = caster, slotIndex = slotIndex}
     end
     
     -- Normalize target types to handle both string literals and Constants.TargetType values
@@ -229,67 +231,45 @@ function EventRunner.resolveTarget(event, caster, target)
         normalizedTargetType = string.lower(targetType)
     else
         print("WARNING: Non-string target type: " .. type(targetType) .. ", defaulting to 'self'")
-        return caster
+        return {wizard = caster, slotIndex = slotIndex}
     end
     
-    -- Handle Constants.TargetType values
-    if targetType == "SLOT_ENEMY" then
+    -- Handle Constants.TargetType values (mapping to strings)
+    if targetType == Constants.TargetType.SLOT_ENEMY then
         normalizedTargetType = "enemy_slot"
-    elseif targetType == "SLOT_SELF" then
+    elseif targetType == Constants.TargetType.SLOT_SELF then
         normalizedTargetType = "self_slot"
-    elseif targetType == "SELF" then
+    elseif targetType == Constants.TargetType.SELF then
         normalizedTargetType = "self"
-    elseif targetType == "ENEMY" then
+    elseif targetType == Constants.TargetType.ENEMY then
         normalizedTargetType = "enemy"
-    elseif targetType == "POOL_SELF" or targetType == "POOL_ENEMY" then
-        normalizedTargetType = "pool"
+    elseif targetType == Constants.TargetType.POOL_SELF or targetType == Constants.TargetType.POOL_ENEMY then
+        -- Pool targets are handled differently, return nil for wizard/slot structure
+        -- The handler must specifically check for pool targets
+        return nil 
     end
     
     -- Process normalized target types
     if normalizedTargetType == "self" then
-        return caster
+        return {wizard = caster, slotIndex = slotIndex}
     elseif normalizedTargetType == "enemy" then
-        -- Check if target exists
         if not target then
-            print("WARNING: Event targets 'enemy' but target is nil, defaulting to caster")
-            return caster
-        end
-        return target
-    elseif normalizedTargetType == "both" then
-        -- Handle case where target doesn't exist
-        if not target then
-            return {caster}
-        end
-        return {caster, target}
-    elseif normalizedTargetType == "pool" then
-        -- For token events, target is the shared mana pool
-        if not caster.manaPool then
-            print("WARNING: Event targets 'pool' but caster.manaPool is nil")
+            print("WARNING: Event targets 'enemy' but target is nil, cannot resolve")
             return nil
         end
-        return caster.manaPool
+        return {wizard = target, slotIndex = slotIndex}
     elseif normalizedTargetType == "self_slot" then
-        -- For slot events targeting caster
-        if not event.slotIndex and not event.slotIndex == 0 then
-            -- Try to use the provided spellSlot as fallback in the handler
-            return {wizard = caster, slotIndex = nil}
-        end
-        return {wizard = caster, slotIndex = event.slotIndex}
+        return {wizard = caster, slotIndex = slotIndex}
     elseif normalizedTargetType == "enemy_slot" then
-        -- For slot events targeting enemy
         if not target then
-            print("WARNING: Event targets 'enemy_slot' but target is nil")
+            print(string.format("WARNING: Event targets 'enemy_slot' but target is nil (event: %s)", event and event.type or "nil"))
             return nil
         end
-        if not event.slotIndex and not event.slotIndex == 0 then
-            -- Try to use a random slot later
-            return {wizard = target, slotIndex = nil}
-        end
-        return {wizard = target, slotIndex = event.slotIndex}
+        return {wizard = target, slotIndex = slotIndex}
     else
-        -- Default case
+        -- Default case for unrecognized types
         print("WARNING: Unrecognized target type: " .. tostring(event.target) .. ", defaulting to 'self'")
-        return caster
+        return {wizard = caster, slotIndex = slotIndex}
     end
 end
 
@@ -298,11 +278,27 @@ EventRunner.EVENT_HANDLERS = {
     -- ===== Damage Events =====
     
     DAMAGE = function(event, caster, target, spellSlot, results)
-        local targetEntity = EventRunner.resolveTarget(event, caster, target)
-        if not targetEntity then return false end
+        -- Resolve target, expecting { wizard, slotIndex } table or nil
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
         
-        -- Apply damage to the target
-        targetEntity.health = targetEntity.health - event.amount
+        -- Check if target resolution failed OR if the wizard object is missing
+        if not targetInfo or not targetInfo.wizard then 
+            print("ERROR: DAMAGE handler could not resolve target wizard")
+            return false 
+        end
+        
+        -- Get the actual wizard object
+        local targetWizard = targetInfo.wizard
+        
+        -- Apply damage to the target wizard's health
+        targetWizard.health = targetWizard.health - event.amount
+        
+        -- Ensure health doesn't go below zero
+        if targetWizard.health < 0 then targetWizard.health = 0 end
+        
+        -- Debug log damage application
+        print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
+            event.amount, targetWizard.name, targetWizard.health))
         
         -- Track damage for results
         results.damageDealt = results.damageDealt + event.amount
@@ -313,14 +309,18 @@ EventRunner.EVENT_HANDLERS = {
     -- ===== Status Effect Events =====
     
     APPLY_STATUS = function(event, caster, target, spellSlot, results)
-        local targetEntity = EventRunner.resolveTarget(event, caster, target)
-        if not targetEntity then return false end
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then 
+            print("ERROR: APPLY_STATUS handler could not resolve target wizard")
+            return false 
+        end
+        local targetWizard = targetInfo.wizard
         
         -- Initialize status effects table if it doesn't exist
-        targetEntity.statusEffects = targetEntity.statusEffects or {}
+        targetWizard.statusEffects = targetWizard.statusEffects or {}
         
         -- Add or update the status effect - Store relevant fields from the event
-        targetEntity.statusEffects[event.statusType] = {
+        targetWizard.statusEffects[event.statusType] = {
             active = true, -- Mark as active
             duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
             tickDamage = event.tickDamage, -- For DoTs like burn
@@ -334,14 +334,15 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Log the application
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
-            event.statusType, targetEntity.name, event.duration or 0, tostring(event.magnitude), tostring(event.targetSlot)))
+            event.statusType, targetWizard.name, event.duration or 0, tostring(event.magnitude), tostring(event.targetSlot)))
 
         -- Track applied status for results
         table.insert(results.statusEffectsApplied, event.statusType)
         
         -- Create status effect VFX if available
         if caster.gameState and caster.gameState.vfx then
-            caster.gameState.vfx.createStatusEffect(targetEntity, event.statusType)
+            -- Assuming createStatusEffect takes the wizard object
+            caster.gameState.vfx.createStatusEffect(targetWizard, event.statusType)
         end
         
         return true
@@ -350,20 +351,24 @@ EventRunner.EVENT_HANDLERS = {
     -- ===== Elevation Events =====
     
     SET_ELEVATION = function(event, caster, target, spellSlot, results)
-        local targetEntity = EventRunner.resolveTarget(event, caster, target)
-        if not targetEntity then return false end
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then 
+             print("ERROR: SET_ELEVATION handler could not resolve target wizard")
+             return false
+        end
+        local targetWizard = targetInfo.wizard
         
         -- Set elevation state
-        targetEntity.elevation = event.elevation
+        targetWizard.elevation = event.elevation
         
         -- Set duration if provided
         if event.duration then
-            targetEntity.elevationEffects = targetEntity.elevationEffects or {}
-            targetEntity.elevationEffects[event.elevation] = {
+            targetWizard.elevationEffects = targetWizard.elevationEffects or {}
+            targetWizard.elevationEffects[event.elevation] = {
                 duration = event.duration,
                 expireAction = function()
                     -- When effect expires, return to default elevation (usually GROUNDED)
-                    targetEntity.elevation = "GROUNDED"
+                    targetWizard.elevation = "GROUNDED"
                 end
             }
         end
@@ -383,13 +388,13 @@ EventRunner.EVENT_HANDLERS = {
                 source = caster.name
             }
             
-            -- Use our safe VFX creation helper
+            -- Use our safe VFX creation helper, targeting the wizard's coords
             safeCreateVFX(
                 caster.gameState.vfx, 
                 "createElevationEffect", 
                 effectType, 
-                targetEntity.x, 
-                targetEntity.y, 
+                targetWizard.x, 
+                targetWizard.y, 
                 params
             )
         end
@@ -583,7 +588,6 @@ EventRunner.EVENT_HANDLERS = {
         
         -- If no free tokens found, do nothing
         if #freeTokens == 0 then
-            print("DEBUG: LOCK_TOKEN found no free tokens of type " .. event.tokenType .. " to lock.")
             return false -- Indicate event didn't successfully apply
         end
         
@@ -601,9 +605,6 @@ EventRunner.EVENT_HANDLERS = {
             tokenToLock.lockTimer = event.duration
             tokensLocked = tokensLocked + 1
             results.tokensAffected = results.tokensAffected + 1
-            
-            print(string.format("[TOKEN LIFECYCLE] Token (%s) state: FREE -> LOCKED for %.1fs", 
-                tostring(tokenToLock.type), event.duration))
             
             -- Create lock visual effect if VFX system available
             if caster.gameState and caster.gameState.vfx then
@@ -643,7 +644,7 @@ EventRunner.EVENT_HANDLERS = {
         -- Apply acceleration to the slot
         local slot = wizard.spellSlots[slotIndex]
         if slot and slot.active and not slot.isShield then
-            slot.castTimeRemaining = math.max(0.1, slot.castTimeRemaining - event.amount)
+            slot.progress = slot.progress + event.amount
             
             -- Create acceleration VFX if available
             if caster.gameState and caster.gameState.vfx then
@@ -751,37 +752,68 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     FREEZE_SPELL = function(event, caster, target, spellSlot, results)
-        local targetInfo = EventRunner.resolveTarget(event, caster, target)
-        if not targetInfo or not targetInfo.wizard then return false end
+        local resolvedTarget = EventRunner.resolveTarget(event, caster, target)
         
-        local wizard = targetInfo.wizard
-        local slotIndex = targetInfo.slotIndex
+        -- Determine the actual wizard and slot index
+        local wizardToFreeze = nil
+        local slotIndexToFreeze = event.slotIndex or 2 -- Get slot from event, default to 2
         
-        -- If slotIndex is not specified, pick a random active slot or the middle slot
-        if not slotIndex or slotIndex == 0 then
-            -- Default to middle slot (2)
-            slotIndex = 2
+        if not resolvedTarget then
+            print("ERROR: FREEZE_SPELL target resolution failed.")
+            return false
+        end
+        
+        -- Check the type of the resolved target
+        if type(resolvedTarget) == "table" then
+            if resolvedTarget.wizard then 
+                -- It's a slot target table: {wizard, slotIndex}
+                wizardToFreeze = resolvedTarget.wizard
+                -- Use slot index from table if provided, otherwise stick to event/default
+                slotIndexToFreeze = resolvedTarget.slotIndex or slotIndexToFreeze 
+            elseif resolvedTarget.name then 
+                -- It's likely a direct wizard object (check for 'name' as indicator)
+                wizardToFreeze = resolvedTarget
+            else
+                -- It's some other table type (e.g., manaPool), which is invalid for FREEZE
+                 print("ERROR: FREEZE_SPELL resolved target is an unexpected table type.")
+                 return false
+            end
+        else
+            -- Should not happen if resolveTarget is working, but handle unexpected types
+            print("ERROR: FREEZE_SPELL resolved target is not a table (wizard or slot table expected).")
+            return false
+        end
+
+        -- Final check for wizard object
+        if not wizardToFreeze then
+            print("ERROR: FREEZE_SPELL could not determine target wizard.")
+            return false
+        end
+
+        -- Handle case where slot index is nil or 0 (needs default/random logic)
+        if not slotIndexToFreeze or slotIndexToFreeze == 0 then
+            slotIndexToFreeze = 2 -- Default to middle slot
             
-            -- But if it's not active, find any active slot
-            if not wizard.spellSlots[slotIndex].active then
+            -- If default slot 2 is not active, find *any* active, non-shield slot
+            if not wizardToFreeze.spellSlots[slotIndexToFreeze] or not wizardToFreeze.spellSlots[slotIndexToFreeze].active or wizardToFreeze.spellSlots[slotIndexToFreeze].isShield then
                 local activeSlots = {}
-                for i, slot in ipairs(wizard.spellSlots) do
-                    if slot.active and not slot.isShield then
+                for i, slotData in ipairs(wizardToFreeze.spellSlots) do
+                    if slotData.active and not slotData.isShield then
                         table.insert(activeSlots, i)
                     end
                 end
                 
                 if #activeSlots > 0 then
-                    slotIndex = activeSlots[math.random(#activeSlots)]
+                    slotIndexToFreeze = activeSlots[math.random(#activeSlots)]
                 else
-                    -- No active slots, nothing to freeze
-                    return false
+                    return false -- No valid target slot
                 end
             end
         end
         
-        -- Apply freeze to the slot
-        local slot = wizard.spellSlots[slotIndex]
+        -- Apply freeze to the determined wizard and slot index
+        local slot = wizardToFreeze.spellSlots[slotIndexToFreeze]
+
         if slot and slot.active and not slot.isShield then
             slot.frozen = true
             slot.freezeTimer = event.duration
@@ -790,19 +822,23 @@ EventRunner.EVENT_HANDLERS = {
             if caster.gameState and caster.gameState.vfx then
                 local params = {
                     duration = event.duration,
-                    slotIndex = slotIndex
+                    slotIndex = slotIndexToFreeze
                 }
                 
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createSpellFreezeEffect",
                     "spell_freeze",
-                    wizard.x,
-                    wizard.y,
+                    wizardToFreeze.x,
+                    wizardToFreeze.y,
                     params
                 )
             end
             
+            -- Return true and results structure
+            results.freezeApplied = true
+            results.frozenSlot = slotIndexToFreeze
+            results.freezeDuration = event.duration
             return true
         end
         
@@ -829,7 +865,6 @@ EventRunner.EVENT_HANDLERS = {
             if #activeSlots > 0 then
                 slotIndex = activeSlots[math.random(#activeSlots)]
             else
-                print("DEBUG: DISRUPT_AND_SHIFT found no active slots on " .. wizard.name)
                 return false -- No valid target slot
             end
         end
@@ -837,7 +872,6 @@ EventRunner.EVENT_HANDLERS = {
         -- Get the target slot
         local slot = wizard.spellSlots[slotIndex]
         if not slot or not slot.active or not slot.tokens or #slot.tokens == 0 then
-            print(string.format("DEBUG: DISRUPT_AND_SHIFT cannot target slot %d on %s (inactive or no tokens)", slotIndex, wizard.name))
             return false -- Invalid target slot
         end
         
@@ -849,9 +883,6 @@ EventRunner.EVENT_HANDLERS = {
 
         -- Remove the token data reference from the slot
         table.remove(slot.tokens, tokenIndexToRemove)
-        print(string.format("[DISRUPT] Removed token %s from %s's slot %d (%s)", 
-            tostring(originalType), wizard.name, slotIndex,
-            slot.isShield and "Shield" or "Spell"))
 
         -- Shift the REMOVED token object's type and request return animation
         if removedTokenObject then
@@ -860,18 +891,12 @@ EventRunner.EVENT_HANDLERS = {
             removedTokenObject.type = newType
             removedTokenObject.image = love.graphics.newImage("assets/sprites/" .. newType .. "-token.png")
             results.tokensAffected = (results.tokensAffected or 0) + 1
-            print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) type shifted: %s -> %s", 
-                tostring(tokenDataToRemove.index or '?'), oldType, newType))
             
             -- Request token return animation
             if removedTokenObject.requestReturnAnimation then
                  removedTokenObject:requestReturnAnimation()
-                 print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) state: CHANNELED -> RETURNING (as %s)",
-                     tostring(tokenDataToRemove.index or '?'), newType))
             else
                  removedTokenObject.state = "FREE" -- Fallback if no animation method
-                 print(string.format("[TOKEN LIFECYCLE] Disrupted Token (%s) state: CHANNELED -> FREE (as %s, no animation)",
-                     tostring(tokenDataToRemove.index or '?'), newType))
             end
 
             -- Trigger a VFX for the type shift
@@ -976,12 +1001,16 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     REFLECT = function(event, caster, target, spellSlot, results)
-        local targetEntity = EventRunner.resolveTarget(event, caster, target)
-        if not targetEntity then return false end
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then 
+             print("ERROR: REFLECT handler could not resolve target wizard")
+            return false
+        end
+        local targetWizard = targetInfo.wizard
         
         -- Set reflect property on the wizard
-        targetEntity.reflectActive = true
-        targetEntity.reflectDuration = event.duration
+        targetWizard.reflectActive = true
+        targetWizard.reflectDuration = event.duration
         
         -- Create reflect VFX if available
         if caster.gameState and caster.gameState.vfx then
@@ -993,8 +1022,8 @@ EventRunner.EVENT_HANDLERS = {
                 caster.gameState.vfx,
                 "createReflectEffect",
                 "reflect",
-                targetEntity.x,
-                targetEntity.y,
+                targetWizard.x,
+                targetWizard.y,
                 params
             )
         end

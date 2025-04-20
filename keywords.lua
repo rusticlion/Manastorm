@@ -67,8 +67,6 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        print(string.format("DEBUG_DAMAGE_EXEC: Slot %d castTimeModifier=%.4f", results.currentSlot, caster.spellSlots[results.currentSlot].castTimeModifier))
-
         local damageAmountFuncOrValue = params.amount or 0
         local calculatedDamage = 0
         local damageType = params.type or Constants.DamageType.GENERIC
@@ -76,7 +74,6 @@ Keywords.damage = {
         if type(damageAmountFuncOrValue) == "function" then
             -- It's a function, call it
             local currentSlotIndex = results.currentSlot -- Assign to local variable
-            print(string.format("DEBUG_DAMAGE_EXEC_PCALL: Calling function with slot=%s", tostring(currentSlotIndex))) -- Log before pcall
 
             local success, funcResult = pcall(function()
                 -- Call the function stored in damageAmountFuncOrValue
@@ -102,8 +99,8 @@ Keywords.damage = {
             scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
         })
 
-        -- Keep legacy results for now
-        -- results.damage = calculatedDamage -- Store final calculated damage
+        -- Keep legacy results for now (might still be used elsewhere)
+        -- results.damage = calculatedDamage 
         -- results.damageType = damageType
         -- results.scaledDamage = (type(params.amount) == "function")
         return results
@@ -126,12 +123,17 @@ Keywords.burn = {
         defaultTickInterval = 1.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.burnApplied = true
-        results.burnDuration = params.duration or 3.0
-        results.burnTickDamage = params.tickDamage or 2
-        results.burnTickInterval = params.tickInterval or 1.0  -- Default to 1 second between ticks
+    -- Implementation function - Generates APPLY_STATUS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = "enemy",
+            statusType = "burn",
+            duration = params.duration or 3.0,
+            tickDamage = params.tickDamage or 2,
+            tickInterval = params.tickInterval or 1.0
+        })
         return results
     end
 }
@@ -140,20 +142,29 @@ Keywords.burn = {
 Keywords.stagger = {
     -- Behavior definition
     behavior = {
-        interruptsSpell = true,
-        preventsRecasting = true,
-        targetType = "SLOT_ENEMY",
+        appliesStatusEffect = true, -- Assuming stagger applies a stun/daze status
+        statusType = "stun",      -- Using "stun" status for simplicity
+        interruptsSpell = true,    -- Stagger implies interruption
+        targetType = "ENEMY",     -- Typically targets enemy
         category = "TIMING",
         
         -- Default parameters
         defaultDuration = 3.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.stagger = true
-        results.targetSlot = params.slot or 0
-        results.staggerDuration = params.duration or 3.0
+    -- Implementation function - Generates APPLY_STATUS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = "enemy",
+            statusType = "stun", -- Using "stun" as the status effect
+            duration = params.duration or 3.0
+        })
+        
+        -- Optionally, could also add a CANCEL_SPELL event if stagger should interrupt
+        -- table.insert(events or {}, { type = "CANCEL_SPELL", target = "enemy_slot", ... })
+        
         return results
     end
 }
@@ -174,14 +185,16 @@ Keywords.elevate = {
         defaultVfx = "emberlift"
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.setElevation = Constants.ElevationState.AERIAL
-        results.elevationDuration = params.duration or 5.0
-        -- Store the target that should receive this effect
-        results.elevationTarget = params.target or Constants.TargetType.SELF -- Default to SELF
-        -- Store the visual effect to use
-        results.elevationVfx = params.vfx or "emberlift"
+    -- Implementation function - Generates SET_ELEVATION event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "SET_ELEVATION",
+            source = "caster",
+            target = params.target or "self", -- Use specified target or default to self
+            elevation = Constants.ElevationState.AERIAL,
+            duration = params.duration or 5.0,
+            vfx = params.vfx or "emberlift"
+        })
         return results
     end
 }
@@ -193,25 +206,27 @@ Keywords.ground = {
         setsElevationState = Constants.ElevationState.GROUNDED,
         canBeConditional = true,
         targetType = Constants.TargetType.ENEMY,
-        category = "MOVEMENT"
+        category = "MOVEMENT",
+        defaultVfx = "tidal_force_ground" -- Add default VFX for ground
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
+    -- Implementation function - Generates SET_ELEVATION event
+    execute = function(params, caster, target, results, events)
+        local applyGrounding = true
         -- Check if there's a conditional function
         if params.conditional and type(params.conditional) == "function" then
-            -- Only apply grounding if the condition is met
-            if params.conditional(caster, target) then
-                results.setElevation = Constants.ElevationState.GROUNDED
-                -- Store the target that should receive this effect
-                results.elevationTarget = params.target or Constants.TargetType.ENEMY -- Default to ENEMY
-            end
-        else
-            -- No condition, apply grounding unconditionally
-            results.setElevation = Constants.ElevationState.GROUNDED
-            results.elevationTarget = params.target or Constants.TargetType.ENEMY -- Default to ENEMY
+            applyGrounding = params.conditional(caster, target)
         end
         
+        if applyGrounding then
+            table.insert(events or {}, {
+                type = "SET_ELEVATION",
+                source = "caster",
+                target = params.target or "enemy", -- Use specified target or default to enemy
+                elevation = Constants.ElevationState.GROUNDED,
+                vfx = params.vfx or "tidal_force_ground"
+            })
+        end
         return results
     end
 }
@@ -228,9 +243,20 @@ Keywords.rangeShift = {
         defaultPosition = Constants.RangeState.NEAR 
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.setPosition = params.position or Constants.RangeState.NEAR
+    -- Implementation function - Generates SET_RANGE event
+    execute = function(params, caster, target, results, events)
+        local targetPosition = params.position or Constants.RangeState.NEAR
+        -- If position is a function, resolve it
+        if type(targetPosition) == "function" then
+             targetPosition = targetPosition(caster, target)
+        end
+        
+        table.insert(events or {}, {
+            type = "SET_RANGE",
+            source = "caster",
+            target = params.target or "self", -- Usually affects both, but can be targeted
+            position = targetPosition
+        })
         return results
     end
 }
@@ -244,10 +270,13 @@ Keywords.forcePull = {
         category = "MOVEMENT"
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        -- Force opponent to move to caster's range
-        results.forcePosition = true
+    -- Implementation function - Generates FORCE_POSITION event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "FORCE_POSITION",
+            source = "caster",
+            target = "enemy" -- Force position applies to the enemy relative to caster
+        })
         return results
     end
 }
@@ -267,14 +296,25 @@ Keywords.conjure = {
         defaultAmount = 1
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        local tokenType = params.token or "fire"
+    -- Implementation function - Generates CONJURE_TOKEN event(s)
+    execute = function(params, caster, target, results, events)
+        local tokenTypeOrFunc = params.token or "fire"
         local amount = params.amount or 1
         
         for i = 1, amount do
-            local assetPath = "assets/sprites/" .. tokenType .. "-token.png"
-            caster.manaPool:addToken(tokenType, assetPath)
+            local finalTokenType = tokenTypeOrFunc
+            -- Resolve token type if it's a function
+            if type(tokenTypeOrFunc) == "function" then
+                finalTokenType = tokenTypeOrFunc(caster, target)
+            end
+            
+            table.insert(events or {}, {
+                type = "CONJURE_TOKEN",
+                source = "caster",
+                target = "pool", -- Target the shared pool
+                tokenType = finalTokenType,
+                amount = 1 -- Generate one event per token
+            })
         end
         
         return results
@@ -294,45 +334,16 @@ Keywords.dissipate = {
         defaultAmount = 1
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        local tokenType = params.token or "any"
-        local amount = params.amount or 1
-        local targetWizard = params.target == "caster" and caster or target
-        
-        -- Find and remove tokens from the target's mana pool
-        results.dissipate = true
-        results.dissipateType = tokenType
-        results.dissipateAmount = amount
-        results.dissipateTarget = targetWizard
-        
-        -- Keep track of how many tokens were successfully found to remove
-        local tokensFound = 0
-        
-        -- Logic to find and mark tokens for removal
-        for i, token in ipairs(targetWizard.manaPool.tokens) do
-            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
-            local matchesType = (tokenType == "any" or token.type == tokenType)
-            
-            if isFree and matchesType then
-                -- Request destruction animation using state machine if available
-                if token.requestDestructionAnimation then
-                    token:requestDestructionAnimation()
-                else
-                    -- Fallback to legacy direct state setting
-                    token.state = "DESTROYED"
-                end
-                tokensFound = tokensFound + 1
-                
-                -- Stop once we've marked enough tokens
-                if tokensFound >= amount then
-                    break
-                end
-            end
-        end
-        
-        results.tokensDestroyed = tokensFound
-        
+    -- Implementation function - Generates DISSIPATE_TOKEN event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "DISSIPATE_TOKEN",
+            source = "caster",
+            target = "pool", -- Target the shared pool
+            tokenType = params.token or "any",
+            amount = params.amount or 1,
+            dissipateTarget = params.target or "enemy" -- Specify whose tokens to target within the pool
+        })
         return results
     end
 }
@@ -351,23 +362,16 @@ Keywords.tokenShift = {
         supportedTypes = {"fire", "force", "moon", "nature", "star", "random"}
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        local tokenType = params.type or "fire"
-        local amount = params.amount or 1
-        
-        if tokenType == "random" then
-            -- Implement random token shifting
-            results.tokenShift = true
-            results.tokenShiftType = "random"
-            results.tokenShiftAmount = amount
-        else
-            -- Implement specific token shifting
-            results.tokenShift = true
-            results.tokenShiftType = tokenType
-            results.tokenShiftAmount = amount
-        end
-        
+    -- Implementation function - Generates SHIFT_TOKEN event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "SHIFT_TOKEN",
+            source = "caster",
+            target = "pool",
+            tokenType = params.type or "fire",
+            amount = params.amount or 1,
+            shiftTarget = params.target or "self" -- Whose tokens to target within the pool
+        })
         return results
     end
 }
@@ -437,9 +441,7 @@ Keywords.slow = {
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
         })
-        
-        -- No legacy results needed for this new approach
-        return results -- Return empty results or results potentially modified by other keywords
+        return results
     end
 }
 
@@ -455,11 +457,15 @@ Keywords.accelerate = {
         defaultAmount = 1.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.accelerate = true
-        results.targetSlot = params.slot or 0  -- 0 means self or current slot
-        results.accelerateAmount = params.amount or 1.0
+    -- Implementation function - Generates ACCELERATE_SPELL event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "ACCELERATE_SPELL",
+            source = "caster",
+            target = "self_slot", -- Target own spell slot
+            slotIndex = params.slot or 0, -- 0 means current/last cast slot
+            amount = params.amount or 1.0
+        })
         return results
     end
 }
@@ -474,10 +480,23 @@ Keywords.dispel = {
         category = "TIMING"
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.dispel = true
-        results.targetSlot = params.slot or 0  -- 0 means random active slot
+    -- Implementation function - Generates CANCEL_SPELL event
+    execute = function(params, caster, target, results, events)
+        local targetSlotIndex = 0
+        if params.slot and type(params.slot) == "function" then
+            targetSlotIndex = params.slot(caster, target, results.currentSlot)
+        elseif params.slot then
+            targetSlotIndex = params.slot
+        end
+        targetSlotIndex = tonumber(targetSlotIndex) or 0
+
+        table.insert(events or {}, {
+            type = "CANCEL_SPELL",
+            source = "caster",
+            target = "enemy_slot",
+            slotIndex = targetSlotIndex,
+            returnMana = true -- Key difference for dispel
+        })
         return results
     end
 }
@@ -511,12 +530,7 @@ Keywords.disjoint = {
             slotIndex = targetSlotIndex, -- 0 means random active slot handled by EventRunner
             returnMana = false -- Key difference for disjoint
         })
-        
-        -- Remove legacy flag setting (for backward compatibility in transition)
-        results.disjoint = nil
-        results.targetSlot = nil
-        
-        return results -- Return results for backward compatibility
+        return results
     end
 }
 
@@ -525,7 +539,7 @@ Keywords.freeze = {
     -- Behavior definition
     behavior = {
         pausesSpellProgress = true,
-        targetType = "SLOT_ENEMY",
+        targetType = "SLOT_ENEMY", -- Can be overridden by spell
         category = "TIMING",
         
         -- Default parameters
@@ -534,10 +548,24 @@ Keywords.freeze = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        results.freezeApplied = true
-        results.targetSlot = params.slot or 2  -- Default to middle slot
-        results.freezeDuration = params.duration or 2.0
+    execute = function(params, caster, target, results, events)
+        -- Get the slot to target (default to middle slot)
+        local targetSlot = params.slot or 2  
+        
+        -- Determine the target entity (caster or enemy)
+        local targetEntity = params.target or "enemy_slot" -- Default to enemy if not specified
+        
+        -- Make sure we have an events table
+        events = events or {}
+        
+        -- Create a FREEZE_SPELL event directly, using the targetEntity
+        table.insert(events, {
+            type = "FREEZE_SPELL",
+            source = "caster",
+            target = targetEntity, -- Use the resolved target (e.g., "self" or "enemy_slot")
+            slotIndex = targetSlot, -- Use specified slot or default 2
+            duration = params.duration or 2.0
+        })
         return results
     end
 }
@@ -557,17 +585,17 @@ Keywords.block = {
         attackTypes = {"projectile", "remote", "zone"}
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        -- Create a structured shieldParams table within the results
-        results.shieldParams = {
-            createShield = true,
+    -- Implementation function - Generates CREATE_SHIELD event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "CREATE_SHIELD",
+            source = "caster",
+            target = "self_slot", -- Shields are created in the caster's slot
+            slotIndex = results.currentSlot, -- Use the slot the spell was cast from
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
             reflect = params.reflect or false
-            -- Mana-linking is now the default, no need for a flag
-        }
-        
+        })
         return results
     end
 }
@@ -576,7 +604,8 @@ Keywords.block = {
 Keywords.reflect = {
     -- Behavior definition
     behavior = {
-        reflectsSpells = true,
+        appliesStatusEffect = true, -- Reflect handled as a status effect
+        statusType = "reflect",
         targetType = "SELF",
         category = "DEFENSE",
         
@@ -584,10 +613,15 @@ Keywords.reflect = {
         defaultDuration = 3.0
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.reflect = true
-        results.reflectDuration = params.duration or 3.0
+    -- Implementation function - Generates APPLY_STATUS event
+    execute = function(params, caster, target, results, events)
+         table.insert(events or {}, {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = "self",
+            statusType = "reflect",
+            duration = params.duration or 3.0
+        })
         return results
     end
 }
@@ -616,11 +650,6 @@ Keywords.echo = {
             slotIndex = results.currentSlot, -- Use the current slot or specified one
             delay = params.delay or 2.0
         })
-        
-        -- For backward compatibility, still add to results
-        results.echo = true
-        results.echoDelay = params.delay or 2.0
-        
         return results
     end
 }
@@ -639,33 +668,35 @@ Keywords.zoneAnchor = {
         conditionTypes = {"range", "elevation"}
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.zoneAnchor = true
+    -- Implementation function - Generates ZONE_ANCHOR event
+    execute = function(params, caster, target, results, events)
+        local anchorRange = "ANY"
+        local anchorElevation = "ANY"
         
-        -- Store the anchor parameters
         if params.range then
-            -- Range can be "NEAR", "FAR", or "ANY"
-            results.anchorRange = params.range
+            anchorRange = params.range
         elseif caster and caster.gameState then
-            -- If not explicitly set, anchor to current range state
-            results.anchorRange = caster.gameState.rangeState
+            anchorRange = caster.gameState.rangeState
         end
         
         if params.elevation then
-            -- Elevation can be "AERIAL", "GROUNDED", or "ANY"
-            results.anchorElevation = params.elevation
+            anchorElevation = params.elevation
         elseif target then
-            -- If not explicitly set, anchor to current target elevation
-            results.anchorElevation = target.elevation
+            anchorElevation = target.elevation
         end
         
-        -- Store requirement for matching all conditions or just one
-        results.anchorRequireAll = params.requireAll
-        if results.anchorRequireAll == nil then
-            results.anchorRequireAll = true  -- Default to requiring all conditions
-        end
+        local requireAll = params.requireAll
+        if requireAll == nil then requireAll = true end
         
+        table.insert(events or {}, {
+            type = "ZONE_ANCHOR",
+            source = "caster",
+            target = "self_slot",
+            slotIndex = results.currentSlot,
+            anchorRange = anchorRange,
+            anchorElevation = anchorElevation,
+            requireAll = requireAll
+        })
         return results
     end
 }
@@ -679,9 +710,14 @@ Keywords.zoneMulti = {
         category = "ZONE"
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.zoneMulti = true
+    -- Implementation function - Generates ZONE_MULTI event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "ZONE_MULTI",
+            source = "caster",
+            target = "self_slot",
+            slotIndex = results.currentSlot
+        })
         return results
     end
 }

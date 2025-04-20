@@ -495,19 +495,20 @@ Spells.gravity = {
 Spells.eclipse = {
     id = "eclipse",
     name = "Eclipse Echo",
-    description = "Freezes caster's central queued spell for 2 seconds",
-    attackType = "remote",
-    castTime = 6.0,
+    description = "Halts the caster's channeled spell in slot 2", -- Simplified description
+    attackType = "utility", 
+    castTime = 2.5,
     cost = {"moon", "force"},
     keywords = {
         freeze = {
-            slot = 2,  -- Middle spell slot
-            duration = 2.0
+            duration = 5.0,
+            target = "self" -- Explicitly target the caster
         }
+        -- Removed damage and cancelSpell keywords
     },
-    vfx = "eclipse_echo",
-    sfx = "time_stop",
-    blockableBy = {"ward", "field"}
+    vfx = "eclipse_burst", -- Keep visual/sound for now
+    sfx = "eclipse_shatter",
+    blockableBy = {} -- Utility spells are not blockable
 }
 
 Spells.fullmoonbeam = {

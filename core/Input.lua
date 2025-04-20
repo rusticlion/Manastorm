@@ -252,10 +252,18 @@ function Input.setupRoutes()
     end
     
     -- DEBUG CONTROLS
-    -- Add a single random token with T key
+    -- Add 30 random tokens with T key
     Input.Routes.debug["t"] = function()
-        local tokenType = gameState.addRandomToken()
-        print("Added a " .. tokenType .. " token to the mana pool")
+        local addedTokens = {}
+        for i = 1, 30 do
+            local tokenType = gameState.addRandomToken()
+            addedTokens[tokenType] = (addedTokens[tokenType] or 0) + 1
+        end
+        
+        -- Print summary of added tokens
+        for tokenType, count in pairs(addedTokens) do
+            print("Added " .. count .. " " .. tokenType .. " tokens to the mana pool")
+        end
         return true
     end
     

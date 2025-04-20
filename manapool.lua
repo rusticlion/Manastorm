@@ -53,10 +53,6 @@ function TokenMethods:setState(newStatus)
         return false
     end
     
-    -- Log the state change for debugging
-    print("[TOKEN LIFECYCLE] Token " .. (self.id or "unknown") .. " state: " .. 
-          (self.status or "nil") .. " -> " .. newStatus)
-    
     -- Update the token's status
     self.status = newStatus
     
@@ -240,8 +236,6 @@ function TokenMethods:finalizeReturn()
     self.scale = 0.85 + math.random() * 0.3
     self.zOrder = math.random()
     
-    print("[TOKEN LIFECYCLE] Token has fully returned to the pool and is FREE")
-    
     return true
 end
 
@@ -287,8 +281,6 @@ function TokenMethods:finalizeDestruction()
     
     -- Release the token back to the object pool
     Pool.release("token", self)
-    
-    print("[TOKEN LIFECYCLE] Token has been released back to the object pool")
     
     return true
 end
@@ -467,8 +459,6 @@ function ManaPool:addToken(tokenType, imagePath)
     
     -- Add to the pool's token list
     table.insert(self.tokens, token)
-    
-    print("[TOKEN LIFECYCLE] Created new token #" .. token.id .. " of type " .. tokenType .. " in FREE state")
     
     return token
 end
@@ -721,7 +711,6 @@ function ManaPool:update(dt)
             -- Check if animation is complete
             if token.animTime >= token.animDuration then
                 -- Token has reached the pool - call the animation callback
-                print(string.format("[MANAPOOL] Token return animation completed, executing callback"))
                 if token.animationCallback then
                     token.animationCallback()
                 else
@@ -743,7 +732,6 @@ function ManaPool:update(dt)
             -- When dissolution is complete, call the animation callback
             if token.dissolveTime >= token.dissolveMaxTime then
                 -- Execute the callback to finalize destruction
-                print(string.format("[MANAPOOL] Token dissolve animation completed, executing callback"))
                 if token.animationCallback then
                     token.animationCallback()
                 else
@@ -1121,7 +1109,6 @@ function ManaPool:getToken(tokenType)
            not token.returning and not token.inTransition then
             -- Mark as being used (using setState for state machine)
             token:setState(Constants.TokenStatus.CHANNELED)
-            print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling", i, token.type))
             return token, i  -- Return token and its index
         end
     end
@@ -1138,7 +1125,6 @@ function ManaPool:getToken(tokenType)
             -- Use setState method for state machine transition
             token:setState(Constants.TokenStatus.CHANNELED)
             
-            print(string.format("[MANAPOOL] Token %d (%s) reserved for channeling (fallback)", i, token.type))
             -- Cancel any return animation
             token.returning = false
             token.inTransition = false
@@ -1156,7 +1142,6 @@ function ManaPool:returnToken(tokenIndex)
         
         -- Use token's method if available, otherwise fallback to legacy behavior
         if token.requestReturnAnimation then
-            print("[MANAPOOL] Using token state machine to return token " .. tokenIndex)
             token:requestReturnAnimation()
         else
             -- Legacy fallback for tokens that don't have the state machine methods
@@ -1175,8 +1160,6 @@ function ManaPool:returnToken(tokenIndex)
             -- Ensure token is in a valid state - convert any state to valid transition state
             local originalState = token.state
             if token.state == "SHIELDING" or token.state == "CHANNELED" then
-                print("[MANAPOOL] Token " .. tokenIndex .. " transitioning from " .. 
-                     (token.state or "nil") .. " to return animation")
             elseif token.state ~= "FREE" then
                 print("[MANAPOOL] WARNING: Returning token " .. tokenIndex .. " from unexpected state: " .. 
                      (token.state or "nil"))
@@ -1193,8 +1176,6 @@ function ManaPool:returnToken(tokenIndex)
             token.animDuration = 0.5 -- Half second return animation
             token.returning = true   -- Flag that this token is returning to the pool
             token.originalState = originalState  -- Remember what state it was in before return
-            
-            print("[MANAPOOL] Token " .. tokenIndex .. " (" .. token.type .. ") returning animation started")
         end
     else
         print("[MANAPOOL] WARNING: Attempted to return invalid token index: " .. tokenIndex)

@@ -239,39 +239,89 @@ function WizardVisuals.drawSpellSlots(wizard)
         local radiusX = horizontalRadii[i]
         local radiusY = verticalRadii[i]
         
-        -- Draw tokens that should appear "behind" the character first
-        -- Skip drawing here for shields as those are handled in update
-        if slot.active and #slot.tokens > 0 and not slot.isShield then
-            local progressAngle = slot.progress / slot.castTime * math.pi * 2
+        -- Calculate base position and animation values for all tokens
+        -- This is crucial for both normal and shield tokens to get consistent positions
+        if slot.active and #slot.tokens > 0 then
+            -- For normal spells, angle based on cast progress
+            -- For shields, use time-based constant rotation
+            local baseAngle
+            if slot.isShield then
+                -- Shield rotation is time-based and continuous
+                baseAngle = love.timer.getTime() * 0.3  -- Slightly faster to make orbiting more visible
+            else
+                -- Normal spell rotation is based on cast progress
+                baseAngle = slot.progress / slot.castTime * math.pi * 2
+            end
             
+            -- Pre-calculate token positions for ALL tokens in this slot
+            -- This ensures consistent positioning regardless of front/back rendering order
+            local tokenCount = #slot.tokens
+            local anglePerToken = math.pi * 2 / tokenCount
+            
+            -- First pass: calculate positions for all tokens
             for j, tokenData in ipairs(slot.tokens) do
                 local token = tokenData.token
-                -- Skip tokens that are returning or dissolving or in animation
-                if token and 
-                   (token.status == nil or (token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING)) and
-                   (token.isAnimating ~= true) and
-                   (token.animTime >= token.animDuration and not token.returning) then
-                    local tokenCount = #slot.tokens
-                    local anglePerToken = math.pi * 2 / tokenCount
-                    local tokenAngle = progressAngle + anglePerToken * (j - 1)
-                    
-                    -- Only draw tokens that are in the back half (π to 2π)
-                    local normalizedAngle = tokenAngle % (math.pi * 2)
-                    if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
-                        -- Calculate 3D position with elliptical projection
-                        token.x = slotX + math.cos(tokenAngle) * radiusX
-                        token.y = slotY + math.sin(tokenAngle) * radiusY
-                        
-                        -- Draw the token at this position (handled by mana pool's draw)
-                    end
+                
+                -- Skip invalid or transitioning tokens
+                if not token or 
+                   token.status == Constants.TokenStatus.RETURNING or 
+                   token.status == Constants.TokenStatus.DISSOLVING then
+                    goto continue_token_positioning
                 end
+                
+                -- Calculate angle for each token based on its index
+                local tokenAngle = baseAngle + anglePerToken * (j - 1)
+                
+                -- Store the token's orbit angle (for continuity)
+                token.orbitAngle = tokenAngle
+                
+                -- Calculate position - used for both rendering and token state
+                token.x = slotX + math.cos(tokenAngle) * radiusX
+                token.y = slotY + math.sin(tokenAngle) * radiusY
+                
+                ::continue_token_positioning::
+            end
+            
+            -- Draw tokens in the "back" half of the orbit
+            for j, tokenData in ipairs(slot.tokens) do
+                local token = tokenData.token
+                
+                -- Skip invalid or transitioning tokens
+                if not token or 
+                   token.status == Constants.TokenStatus.RETURNING or 
+                   token.status == Constants.TokenStatus.DISSOLVING then
+                    goto continue_token_back_drawing
+                end
+                
+                -- Only draw tokens in the back half (π to 2π)
+                local normalizedAngle = token.orbitAngle % (math.pi * 2)
+                if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
+                    -- Token is drawn at its calculated position by ManaPool
+                    -- We don't need to do anything else here
+                end
+                
+                ::continue_token_back_drawing::
             end
         end
         
         -- Draw the elliptical orbit paths
-        if wizard.activeKeys[i] then
-            -- Highlight active spell slots
-            love.graphics.setColor(0.8, 0.8, 0.2, 0.7) -- Yellow highlight for active keys
+        if wizard.currentKeyedSpell and not slot.active then
+            -- Highlight slot that would be used for the current keyed spell
+            -- This is always the first available slot, which we need to calculate
+            local wouldUseThisSlot = true
+            for j = 1, i-1 do
+                if not wizard.spellSlots[j].active then
+                    wouldUseThisSlot = false
+                    break
+                end
+            end
+            
+            if wouldUseThisSlot then
+                love.graphics.setColor(0.8, 0.8, 0.2, 0.7) -- Yellow highlight for slot that would be used
+            else
+                -- Inactive slot
+                love.graphics.setColor(0.6, 0.6, 0.6, 0.3) -- Gray for inactive slot
+            end
         elseif slot.active then
             if slot.isShield then
                 -- Use shield color from ShieldSystem
@@ -371,38 +421,28 @@ function WizardVisuals.drawSpellSlots(wizard)
         
         -- Draw tokens that should appear "in front" of the character
         if slot.active and #slot.tokens > 0 then
-            local progressAngle = slot.progress / slot.castTime * math.pi * 2
+            -- Note: We already calculated all token positions in the first pass above.
+            -- Here we just need to handle front-half rendering
             
+            -- Draw tokens in the "front" half of the orbit (facing the camera) on top of everything else
             for j, tokenData in ipairs(slot.tokens) do
                 local token = tokenData.token
-                -- Skip tokens that are returning or dissolving or in animation
-                if token and 
-                   (token.status == nil or (token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING)) and
-                   (token.isAnimating ~= true) and
-                   (token.animTime >= token.animDuration and not token.returning) then
-                    local tokenCount = #slot.tokens
-                    local anglePerToken = math.pi * 2 / tokenCount
-                    
-                    -- Calculate angle differently for shields (fixed positions) vs casting (rotating)
-                    local tokenAngle
-                    if slot.isShield then
-                        -- For shields, distribute evenly around the orbit (fixed)
-                        tokenAngle = (j-1) * anglePerToken
-                    else
-                        -- For normal casting, tokens rotate around the orbit
-                        tokenAngle = progressAngle + anglePerToken * (j - 1)
-                    end
-                    
-                    -- Only draw tokens that are in the front half (0 to π)
-                    local normalizedAngle = tokenAngle % (math.pi * 2)
-                    if normalizedAngle >= 0 and normalizedAngle <= math.pi then
-                        -- Calculate 3D position with elliptical projection
-                        token.x = slotX + math.cos(tokenAngle) * radiusX
-                        token.y = slotY + math.sin(tokenAngle) * radiusY
-                        
-                        -- Draw the token at this position (handled by mana pool's draw)
-                    end
+                
+                -- Skip invalid or transitioning tokens
+                if not token or 
+                   token.status == Constants.TokenStatus.RETURNING or 
+                   token.status == Constants.TokenStatus.DISSOLVING then
+                    goto continue_token_front_drawing
                 end
+                
+                -- Only draw tokens in the front half (0 to π)
+                local normalizedAngle = token.orbitAngle % (math.pi * 2)
+                if normalizedAngle >= 0 and normalizedAngle <= math.pi then
+                    -- Token is drawn at its calculated position by ManaPool
+                    -- All positioning is already done in the first pass above
+                end
+                
+                ::continue_token_front_drawing::
             end
         end
     end

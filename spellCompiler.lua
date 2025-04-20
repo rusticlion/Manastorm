@@ -107,8 +107,15 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     
     -- Add a method to execute all behaviors for this spell
     compiledSpell.executeAll = function(caster, target, results, spellSlot)
-        -- LOGGING:
-        print(string.format("DEBUG_EXECUTE_ALL: Slot %d castTimeModifier=%.4f", spellSlot, caster.spellSlots[spellSlot].castTimeModifier))
+        -- LOGGING with safety checks
+        if caster and caster.spellSlots and spellSlot and caster.spellSlots[spellSlot] then
+            print(string.format("DEBUG_EXECUTE_ALL: Slot %d castTimeModifier=%.4f", 
+                spellSlot, caster.spellSlots[spellSlot].castTimeModifier or 0))
+        else
+            -- Safe fallback logging
+            print(string.format("DEBUG_EXECUTE_ALL: Slot %s (safety check failed, some values are nil)", 
+                tostring(spellSlot)))
+        end
 
         results = results or {}
         
@@ -130,18 +137,25 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Execute the behavior to get events
                 local behaviorResults = {}
+                local results = {currentSlot = spellSlot}  -- Base results with slot info
                 
                 -- The keyword's execute function is now solely responsible 
                 -- for handling its params, including function evaluation.
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute({}, caster, target, {currentSlot = spellSlot}, events) -- Pass empty params
+                    behaviorResults = behavior.execute({}, caster, target, results, events) -- Pass empty params
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behaviorResults = behavior.execute(params, caster, target, results, events)
+                end
+                
+                -- Debug output for events immediately after execute
+                if keyword == "freeze" then
+                    print(string.format("DEBUG: After executing %s keyword, events table has %d entries", 
+                        keyword, events and #events or 0))
                 end
                 
                 -- Merge the behavior results into the main results for backward compatibility
@@ -152,15 +166,24 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
                     -- Create a CREATE_SHIELD event
-                    table.insert(events, {
+                    local shieldEvent = {
                         type = "CREATE_SHIELD",
                         source = "caster",
                         target = "self", -- Use "self" to be consistent with Keywords.block targetType
                         slotIndex = spellSlot,
-                        defenseType = behaviorResults.shieldParams and behaviorResults.shieldParams.defenseType or "barrier",
-                        blocksAttackTypes = behaviorResults.shieldParams and behaviorResults.shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = behaviorResults.shieldParams and behaviorResults.shieldParams.reflect or false
-                    })
+                        defenseType = "barrier",
+                        blocksAttackTypes = {"projectile"},
+                        reflect = false
+                    }
+                    
+                    -- Safely add shield parameters if available
+                    if behaviorResults and behaviorResults.shieldParams then
+                        shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
+                        shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
+                        shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
+                    end
+                    
+                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -182,7 +205,20 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 end
                 
                 -- Process the events to apply them to the game state
-                local eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+                local eventResults = {}
+                if events and #events > 0 then
+                    print(string.format("DEBUG_EVENTS: Processing %d events for spell %s", 
+                        #events, compiledSpell.id or "unknown"))
+                    
+                    -- Print type of first event as sanity check
+                    if events[1] and events[1].type then
+                        print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
+                    end
+                    
+                    eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+                else
+                    print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
+                end
                 
                 -- Add event processing results to the main results
                 results.events = events
