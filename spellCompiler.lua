@@ -107,6 +107,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     
     -- Add a method to execute all behaviors for this spell
     compiledSpell.executeAll = function(caster, target, results, spellSlot)
+        -- LOGGING:
+        print(string.format("DEBUG_EXECUTE_ALL: Slot %d castTimeModifier=%.4f", spellSlot, caster.spellSlots[spellSlot].castTimeModifier))
+
         results = results or {}
         
         -- Check if this spell has shield behavior (block keyword)
@@ -125,28 +128,14 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             if behavior.execute then
                 local params = behavior.params or {}
                 
-                -- Process function parameters
-                for paramName, paramValue in pairs(params) do
-                    if type(paramValue) == "function" then
-                        local success, result = pcall(function()
-                            return paramValue(caster, target, spellSlot)
-                        end)
-                        
-                        if success then
-                            -- Copy the function result to results for easy access later
-                            results[keyword .. "_" .. paramName] = result
-                        else
-                            print("Error executing function parameter " .. paramName .. " for keyword " .. keyword .. ": " .. tostring(result))
-                        end
-                    end
-                end
-                
                 -- Execute the behavior to get events
                 local behaviorResults = {}
                 
+                -- The keyword's execute function is now solely responsible 
+                -- for handling its params, including function evaluation.
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behaviorResults = behavior.execute({}, caster, target, {currentSlot = spellSlot}, events) -- Pass empty params
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
                     behaviorResults = behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
@@ -227,19 +216,6 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             if behavior.execute then
                 local params = behavior.params or {}
                 local localResults = {}
-                
-                -- Process function parameters
-                for paramName, paramValue in pairs(params) do
-                    if type(paramValue) == "function" then
-                        local success, result = pcall(function()
-                            return paramValue(caster, target, spellSlot)
-                        end)
-                        
-                        if success then
-                            localResults[keyword .. "_" .. paramName] = result
-                        end
-                    end
-                end
                 
                 -- Execute the behavior to generate events directly
                 -- No state modification occurs

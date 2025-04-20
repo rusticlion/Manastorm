@@ -66,25 +66,46 @@ Keywords.damage = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        -- Handle damage amount that could be a function or a value
-        local damageAmount = params.amount or 0
-        
-        -- If damage is a function, evaluate it with nil checks
-        if type(damageAmount) == "function" then
-            if target ~= nil then
-                -- Normal case, we have a target
-                results.damage = damageAmount(caster, target)
+    execute = function(params, caster, target, results, events)
+        print(string.format("DEBUG_DAMAGE_EXEC: Slot %d castTimeModifier=%.4f", results.currentSlot, caster.spellSlots[results.currentSlot].castTimeModifier))
+
+        local damageAmountFuncOrValue = params.amount or 0
+        local calculatedDamage = 0
+        local damageType = params.type or Constants.DamageType.GENERIC
+
+        if type(damageAmountFuncOrValue) == "function" then
+            -- It's a function, call it
+            local currentSlotIndex = results.currentSlot -- Assign to local variable
+            print(string.format("DEBUG_DAMAGE_EXEC_PCALL: Calling function with slot=%s", tostring(currentSlotIndex))) -- Log before pcall
+
+            local success, funcResult = pcall(function()
+                -- Call the function stored in damageAmountFuncOrValue
+                -- Pass caster, target, and the local slot index
+                return damageAmountFuncOrValue(caster, target, currentSlotIndex)
+            end)
+
+            if success then
+                calculatedDamage = funcResult
             else
-                -- No target, use 0 damage as default
-                results.damage = 0
+                print("Error evaluating damage function: " .. tostring(funcResult))
+                calculatedDamage = 0 -- Default on error
             end
         else
-            -- Static damage value
-            results.damage = damageAmount
+            -- It's a static value
+            calculatedDamage = damageAmountFuncOrValue
         end
-        
-        results.damageType = params.type
+
+        -- Generate event
+        table.insert(events or {}, {
+            type = "DAMAGE", source = "caster", target = "enemy",
+            amount = calculatedDamage, damageType = damageType,
+            scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+        })
+
+        -- Keep legacy results for now
+        -- results.damage = calculatedDamage -- Store final calculated damage
+        -- results.damageType = damageType
+        -- results.scaledDamage = (type(params.amount) == "function")
         return results
     end
 }
@@ -365,33 +386,57 @@ Keywords.lock = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results)
-        results.lockToken = true
-        results.lockDuration = params.duration or 5.0
-        return results
+    execute = function(params, caster, target, results, events)
+        -- Generate LOCK_TOKEN event instead of setting results
+        table.insert(events or {}, {
+            type = "LOCK_TOKEN",
+            source = "caster",
+            target = "POOL_ENEMY", -- Target opponent's pool
+            duration = params.duration or 5.0,
+            tokenType = "any", -- Default to locking any token type
+            amount = 1 -- Default to locking 1 token
+            -- Optional: Could add params.tokenType or params.amount if needed
+        })
+        
+        -- Keep legacy results for compatibility during transition (optional)
+        -- results.lockToken = true
+        -- results.lockDuration = params.duration or 5.0
+        
+        return results -- Return legacy results for now
     end
 }
 
 -- ===== Cast Time Keywords =====
 
--- delay: Adds time to opponent's spell cast
-Keywords.delay = {
+-- slow: Applies a status effect that increases the cast time of the opponent's next spell
+Keywords.slow = {
     -- Behavior definition
     behavior = {
-        increasesSpellCastTime = true,
-        targetType = "SLOT_ENEMY",
+        appliesStatusEffect = true,
+        statusType = "slow",
+        targetType = Constants.TargetType.ENEMY, -- Applies status to enemy wizard
         category = "TIMING",
         
         -- Default parameters
-        defaultDuration = 1.0
+        defaultMagnitude = 1.0, -- How much to increase cast time by
+        defaultDuration = 10.0, -- How long the slow effect waits for a cast
+        defaultSlot = nil -- nil or 0 means next cast in any slot, 1/2/3 targets specific slot
     },
     
-    -- Implementation function
-    execute = function(params, caster, target, results)
-        results.delayApplied = true
-        results.targetSlot = params.slot or 0  -- 0 means random or auto-select
-        results.delayAmount = params.duration or 1.0
-        return results
+    -- Implementation function - Generates an APPLY_STATUS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = "enemy", -- Target the enemy wizard entity
+            statusType = "slow",
+            magnitude = params.magnitude or 1.0, -- How much time to add
+            duration = params.duration or 10.0, -- How long effect persists waiting for cast
+            targetSlot = params.slot or nil -- Which slot to affect (nil for any)
+        })
+        
+        -- No legacy results needed for this new approach
+        return results -- Return empty results or results potentially modified by other keywords
     end
 }
 

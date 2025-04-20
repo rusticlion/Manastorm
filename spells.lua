@@ -475,21 +475,35 @@ Spells.fullmoonbeam = {
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
         damage = {
-            amount = function(caster, target, slot)
-                -- Find the slot this spell was cast from to get its actual cast time
-                local actualCastTime = 7.0  -- Default/base cast time
+            amount = function(caster, target, slot) -- slot is the spellSlot index
+                local baseCastTime = 7.0  -- Default/base cast time
+                local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
                 if slot and caster.spellSlots[slot] then
-                    -- Use the actual cast time of the spell which may have been modified
-                    actualCastTime = caster.spellSlots[slot].castTime
+                    local spellSlotData = caster.spellSlots[slot]
+                    -- LOGGING: Check multiple fields of the slot data
+                    print(string.format("DEBUG_FMB_SLOT_CHECK: Slot=%d, Active=%s, Progress=%.2f, CastTime=%.1f, Modifier=%.4f, Frozen=%s",
+                        slot, tostring(spellSlotData.active), spellSlotData.progress or -1, spellSlotData.castTime or -1, spellSlotData.castTimeModifier or -99, tostring(spellSlotData.frozen)))
+                    
+                    baseCastTime = spellSlotData.castTime 
+                    accruedModifier = spellSlotData.castTimeModifier or 0
+                    -- LOGGING:
+                    print(string.format("DEBUG_FMB: Read castTimeModifier=%.4f from spellSlotData", accruedModifier))
+                else
+                     print(string.format("DEBUG_FMB_WARN: Slot %s or caster.spellSlots[%s] is nil!", tostring(slot), tostring(slot)))
                 end
                 
-                -- Calculate damage based on cast time (roughly 3.5 damage per second)
-                local damage = math.floor(actualCastTime * 3.5)
+                -- Calculate effective cast time including modifier
+                -- Ensure effective time doesn't go below some minimum (e.g., 0.1s)
+                local effectiveCastTime = math.max(0.1, baseCastTime + accruedModifier)
                 
-                -- Log the damage calculation
-                print("Full Moon Beam cast time: " .. actualCastTime .. "s, dealing " .. damage .. " damage")
+                -- Calculate damage based on effective cast time (roughly 3.5 damage per second)
+                local damage = math.floor(effectiveCastTime * 3.5)
+                
+                -- Log the damage calculation with details
+                print(string.format("Full Moon Beam: Base Cast=%.1fs, Modifier=%.1fs, Effective=%.1fs => Damage=%d", 
+                    baseCastTime, accruedModifier, effectiveCastTime, damage))
                 
                 return damage
             end,
@@ -733,9 +747,10 @@ Spells.cosmicRift = {
             amount = 12,
             type = "star"
         },
-        delay = {
-            slot = 1,  -- Target opponent's first spell slot
-            duration = 2.0
+        slow = { -- Changed back from freeze to slow
+            magnitude = 2.0, -- Increase cast time by 2.0s
+            duration = 10.0, -- Effect persists for 10s waiting for a cast
+            slot = nil -- Affects the next spell cast from any slot
         },
         zoneMulti = true  -- Affects both NEAR and FAR
     },

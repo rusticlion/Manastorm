@@ -19,7 +19,6 @@ local PROCESSING_PRIORITY = {
     LOCK_TOKEN = 130,
     
     -- Spell timeline events (third)
-    DELAY_SPELL = 200,
     ACCELERATE_SPELL = 210,
     CANCEL_SPELL = 220,
     FREEZE_SPELL = 230,
@@ -325,15 +324,23 @@ EventRunner.EVENT_HANDLERS = {
         -- Initialize status effects table if it doesn't exist
         targetEntity.statusEffects = targetEntity.statusEffects or {}
         
-        -- Add or update the status effect
+        -- Add or update the status effect - Store relevant fields from the event
         targetEntity.statusEffects[event.statusType] = {
-            duration = event.duration,
-            tickDamage = event.tickDamage,
-            tickInterval = event.tickInterval,
-            tickTimer = 0,
-            source = caster
+            active = true, -- Mark as active
+            duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
+            tickDamage = event.tickDamage, -- For DoTs like burn
+            tickInterval = event.tickInterval, -- For DoTs like burn
+            magnitude = event.magnitude, -- For effects like slow (cast time increase)
+            targetSlot = event.targetSlot, -- For effects like slow (specific slot)
+            elapsed = 0, -- Timer for DoT ticks
+            totalTime = 0, -- Timer for overall duration
+            source = caster -- Who applied the status
         }
         
+        -- Log the application
+        print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
+            event.statusType, targetEntity.name, event.duration or 0, tostring(event.magnitude), tostring(event.targetSlot)))
+
         -- Track applied status for results
         table.insert(results.statusEffectsApplied, event.statusType)
         
@@ -606,59 +613,6 @@ EventRunner.EVENT_HANDLERS = {
     end,
     
     -- ===== Spell Timing Events =====
-    
-    DELAY_SPELL = function(event, caster, target, spellSlot, results)
-        local targetInfo = EventRunner.resolveTarget(event, caster, target)
-        if not targetInfo or not targetInfo.wizard then return false end
-        
-        local wizard = targetInfo.wizard
-        local slotIndex = targetInfo.slotIndex
-        
-        -- If slotIndex is not specified, pick a random active slot
-        if not slotIndex or slotIndex == 0 then
-            local activeSlots = {}
-            for i, slot in ipairs(wizard.spellSlots) do
-                if slot.active and not slot.isShield then
-                    table.insert(activeSlots, i)
-                end
-            end
-            
-            if #activeSlots > 0 then
-                slotIndex = activeSlots[math.random(#activeSlots)]
-            else
-                -- No active slots, nothing to delay
-                return false
-            end
-        end
-        
-        -- Apply delay to the slot
-        local slot = wizard.spellSlots[slotIndex]
-        if slot and slot.active and not slot.isShield then
-            slot.castTimeRemaining = slot.castTimeRemaining + event.amount
-            
-            -- Create delay VFX if available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = 1.0,
-                    amount = event.amount,
-                    slotIndex = slotIndex
-                }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createSpellDelayEffect",
-                    "spell_delay",
-                    wizard.x,
-                    wizard.y,
-                    params
-                )
-            end
-            
-            return true
-        end
-        
-        return false
-    end,
     
     ACCELERATE_SPELL = function(event, caster, target, spellSlot, results)
         local targetInfo = EventRunner.resolveTarget(event, caster, target)

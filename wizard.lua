@@ -332,13 +332,25 @@ function Wizard.new(name, x, y, color)
             isShield = false,
             defenseType = nil,  -- "barrier", "ward", or "field"
             shieldStrength = 0, -- How many hits the shield can take
-            blocksAttackTypes = nil  -- Table of attack types this shield blocks
+            blocksAttackTypes = nil,  -- Table of attack types this shield blocks
+
+            -- Spell status properties
+            frozen = false,
+            freezeTimer = 0,
+            castTimeModifier = 0 -- Renamed from frozenTimeAccrued
         }
     end
     
-    -- Load wizard sprite
+    -- Load wizard sprite based on name
     local AssetCache = require("core.AssetCache")
-    self.sprite = AssetCache.getImage("assets/sprites/wizard.png")
+    local spritePath
+    if self.name == "Ashgar" then
+        spritePath = "assets/sprites/ashgar.png"
+    else
+        -- Default or other wizards use the placeholder
+        spritePath = "assets/sprites/wizard.png" 
+    end
+    self.sprite = AssetCache.getImage(spritePath)
     self.scale = 2.0  -- Scale factor for the sprite
     
     return self
@@ -372,49 +384,53 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update burn status effect
-    if self.statusEffects.burn.active then
-        -- Update total time
-        self.statusEffects.burn.totalTime = self.statusEffects.burn.totalTime + dt
-        
-        -- Update elapsed time since last tick
-        self.statusEffects.burn.elapsed = self.statusEffects.burn.elapsed + dt
-        
-        -- Check if it's time for damage tick
-        if self.statusEffects.burn.elapsed >= self.statusEffects.burn.tickInterval then
-            -- Apply burn damage
-            local damage = self.statusEffects.burn.tickDamage
-            self.health = math.max(0, self.health - damage)
-            
-            -- Reset elapsed time
-            self.statusEffects.burn.elapsed = 0
-            
-            -- Log damage
-            print(string.format("[BURN] %s takes %d burn damage! (health: %d)", 
-                self.name, damage, self.health))
-            
-            -- Create burn effect using VFX system
-            if self.gameState and self.gameState.vfx then
-                -- Random position around the wizard for the burn effect
-                local angle = math.random() * math.pi * 2
-                local distance = math.random(10, 30)
-                local effectX = self.x + math.cos(angle) * distance
-                local effectY = self.y + math.sin(angle) * distance
+    -- Update status effects generically
+    if self.statusEffects then
+        for effectType, effectData in pairs(self.statusEffects) do
+            if effectData.active then
+                -- Increment total time the effect has been active
+                effectData.totalTime = effectData.totalTime + dt
+
+                -- Handle DoT ticking (like burn)
+                if effectData.tickDamage and effectData.tickInterval then
+                    effectData.elapsed = effectData.elapsed + dt
+                    if effectData.elapsed >= effectData.tickInterval then
+                        -- Apply damage
+                        local damage = effectData.tickDamage
+                        self.health = math.max(0, self.health - damage)
+                        effectData.elapsed = 0 -- Reset tick timer
+                        
+                        print(string.format("[%s] %s takes %d damage! (health: %d)", 
+                            effectType:upper(), self.name, damage, self.health))
+                        
+                        -- Create tick VFX (e.g., small burn flash)
+                        if self.gameState and self.gameState.vfx then
+                           -- Generic impact or specific effect type?
+                           local vfxType = effectType == "burn" and "impact" or "status_tick"
+                           local color = effectType == "burn" and {1.0, 0.4, 0.1, 0.6} or {0.8, 0.8, 0.8, 0.5}
+                           local angle = math.random() * math.pi * 2
+                           local distance = math.random(10, 30)
+                           local effectX = self.x + math.cos(angle) * distance
+                           local effectY = self.y + math.sin(angle) * distance
+                           self.gameState.vfx.createEffect(vfxType, effectX, effectY, nil, nil, {
+                                duration = 0.3, color = color, particleCount = 3, radius = 10
+                           })
+                        end
+                    end
+                end
                 
-                self.gameState.vfx.createEffect("impact", effectX, effectY, nil, nil, {
-                    duration = 0.3,
-                    color = {1.0, 0.4, 0.1, 0.6},
-                    particleCount = 3,
-                    radius = 10
-                })
+                -- Check if the effect duration has expired
+                if effectData.duration > 0 and effectData.totalTime >= effectData.duration then
+                    effectData.active = false
+                    print(string.format("[STATUS] %s effect expired on %s", effectType:upper(), self.name))
+                    
+                    -- Clear specific fields when expired (optional, depends on effect needs)
+                    if effectType == "slow" then
+                       effectData.magnitude = nil
+                       effectData.targetSlot = nil
+                    end
+                end
             end
-        end
-        
-        -- Check if the effect has expired
-        if self.statusEffects.burn.totalTime >= self.statusEffects.burn.duration then
-            -- Deactivate the effect
-            self.statusEffects.burn.active = false
-            print(string.format("[STATUS] %s is no longer burning", self.name))
         end
     end
     
@@ -529,6 +545,9 @@ function Wizard:update(dt)
             if slot.frozen then
                 -- Update freeze timer
                 slot.freezeTimer = slot.freezeTimer - dt
+                slot.castTimeModifier = slot.castTimeModifier + dt -- Accumulate frozen time
+                -- LOGGING:
+                print(string.format("DEBUG_UPDATE: Slot %d FROZEN. dt=%.4f, new castTimeModifier=%.4f", i, dt, slot.castTimeModifier))
                 
                 -- Check if the freeze duration has elapsed
                 if slot.freezeTimer <= 0 then
@@ -579,6 +598,8 @@ function Wizard:update(dt)
             
             -- If spell finished casting
             if slot.progress >= slot.castTime then
+                -- LOGGING:
+                print(string.format("DEBUG_UPDATE: Slot %d FINISHED CASTING. castTimeModifier=%.4f", i, slot.castTimeModifier))
                 -- Shield state is now handled in the castSpell function via the 
                 -- block keyword's shieldParams and the createShield function
                 
@@ -1518,13 +1539,39 @@ function Wizard:queueSpell(spell)
                 self.spellSlots[i].progress = 0
                 self.spellSlots[i].spellType = spellToUse.name
                 
-                -- Use dynamic cast time if available, otherwise use static cast time
+                -- Calculate base cast time (handling dynamic function)
+                local baseCastTime
                 if spellToUse.getCastTime and type(spellToUse.getCastTime) == "function" then
-                    self.spellSlots[i].castTime = spellToUse.getCastTime(self)
-                    print(self.name .. " is using dynamic cast time: " .. self.spellSlots[i].castTime .. "s")
+                    baseCastTime = spellToUse.getCastTime(self)
+                    print(self.name .. " is using dynamic base cast time: " .. baseCastTime .. "s")
                 else
-                    self.spellSlots[i].castTime = spellToUse.castTime
+                    baseCastTime = spellToUse.castTime
                 end
+
+                -- Check for and apply Slow status effect
+                local finalCastTime = baseCastTime
+                if self.statusEffects and self.statusEffects.slow and self.statusEffects.slow.active then
+                    local slowEffect = self.statusEffects.slow
+                    local targetSlot = slowEffect.targetSlot -- Slot the slow effect targets (nil for any)
+                    local queueingSlot = i -- Slot we are currently queueing into
+
+                    -- Check if the slow effect applies to this specific slot or any slot
+                    if targetSlot == nil or targetSlot == 0 or targetSlot == queueingSlot then
+                        local slowMagnitude = slowEffect.magnitude or 0
+                        finalCastTime = baseCastTime + slowMagnitude
+                        print(string.format("[STATUS] Slow effect applied! Base cast: %.1fs, Slowed cast: %.1fs (Slot %s)",
+                            baseCastTime, finalCastTime, tostring(targetSlot or "Any")))
+                        
+                        -- Consume the slow effect
+                        slowEffect.active = false
+                        slowEffect.magnitude = nil
+                        slowEffect.targetSlot = nil 
+                        -- Keep duration timer running so it eventually clears from statusEffects table if update loop doesn't
+                    end
+                end
+                
+                -- Store the final cast time (potentially modified by slow)
+                self.spellSlots[i].castTime = finalCastTime
                 
                 self.spellSlots[i].spell = spellToUse
                 self.spellSlots[i].tokens = tokens
@@ -1818,6 +1865,9 @@ function Wizard:canPayManaCost(cost)
 end
 
 function Wizard:castSpell(spellSlot)
+    -- LOGGING:
+    print(string.format("DEBUG_CAST_START: Slot %d castTimeModifier=%.4f", spellSlot, self.spellSlots[spellSlot].castTimeModifier))
+
     local slot = self.spellSlots[spellSlot]
     if not slot or not slot.active or not slot.spell then return end
     
@@ -2669,150 +2719,6 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
-    -- Apply token lock
-    if effect.lockToken and #target.manaPool.tokens > 0 then
-        -- Get lock duration from effect or use default
-        local lockDuration = effect.lockDuration or 5.0  -- Default to 5 seconds if not specified
-        
-        -- Find a random free token to lock
-        local freeTokens = {}
-        for i, token in ipairs(target.manaPool.tokens) do
-            if token.state == "FREE" then
-                table.insert(freeTokens, i)
-            end
-        end
-        
-        if #freeTokens > 0 then
-            local tokenIndex = freeTokens[math.random(#freeTokens)]
-            local token = target.manaPool.tokens[tokenIndex]
-            
-            -- Set token to locked state
-            token.state = "LOCKED"
-            token.lockDuration = lockDuration
-            token.lockPulse = 0  -- Reset lock pulse animation
-            
-            -- Record the token type for better feedback
-            local tokenType = token.type
-            print("Locked a " .. tokenType .. " token in " .. target.name .. "'s mana pool for " .. lockDuration .. " seconds")
-            
-            -- Create lock effect at token position
-            if self.gameState.vfx then
-                self.gameState.vfx.createEffect("impact", token.x, token.y, nil, nil, {
-                    duration = 0.5,
-                    color = {0.8, 0.2, 0.2, 0.7},
-                    particleCount = 10,
-                    radius = 30
-                })
-            end
-        end
-    end
-    
-    -- Apply spell delay (to target's spell)
-    if effect.delaySpell and target.spellSlots[effect.delaySpell] and target.spellSlots[effect.delaySpell].active then
-        -- Get the target spell slot
-        local slot = target.spellSlots[effect.delaySpell]
-        
-        -- Calculate how much progress has been made (as a percentage)
-        local progressPercent = slot.progress / slot.castTime
-        
-        -- Add additional time to the spell
-        local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
-        local newCastTime = slot.castTime + delayTime
-        
-        -- Update the castTime and adjust the progress proportionally
-        -- This effectively "pushes back" the progress bar
-        slot.castTime = newCastTime
-        slot.progress = progressPercent * slot.castTime
-        
-        print("Delayed " .. target.name .. "'s spell in slot " .. effect.delaySpell .. " by " .. delayTime .. " seconds")
-        
-        -- Create delay effect near the targeted spell slot
-        if self.gameState.vfx then
-            -- Calculate position of the targeted spell slot
-            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-            local slotY = target.y + slotYOffsets[effect.delaySpell]
-            
-            -- Create a more distinctive delay visual effect
-            self.gameState.vfx.createEffect("impact", target.x, slotY, nil, nil, {
-                duration = 0.9,
-                color = {0.3, 0.3, 0.8, 0.7},
-                particleCount = 15,
-                radius = 40
-            })
-        end
-    end
-    
-    -- Apply spell delay (to caster's own spell)
-    if effect.delaySelfSpell then
-        print("DEBUG - Eclipse Echo effect triggered with delaySelfSpell = " .. effect.delaySelfSpell)
-        print("DEBUG - Caster: " .. self.name)
-        print("DEBUG - Spell slots status:")
-        for i, slot in ipairs(self.spellSlots) do
-            print("DEBUG - Slot " .. i .. ": " .. (slot.active and "ACTIVE - " .. (slot.spellType or "unknown") or "INACTIVE"))
-            if slot.active then
-                print("DEBUG - Progress: " .. slot.progress .. " / " .. slot.castTime)
-            end
-        end
-        
-        -- When Eclipse Echo resolves, we need to target the middle spell slot
-        -- Which in Lua is index 2 (1-based indexing)
-        local targetSlotIndex = effect.delaySelfSpell  -- Should be 2 for the middle slot
-        print("DEBUG - Targeting slot index: " .. targetSlotIndex)
-        local targetSlot = self.spellSlots[targetSlotIndex]
-        
-        if targetSlot and targetSlot.active then
-            -- Get the caster's spell slot
-            local slot = targetSlot
-            print("DEBUG - Found active spell in target slot: " .. (slot.spellType or "unknown"))
-            
-            -- Calculate how much progress has been made (as a percentage)
-            local progressPercent = slot.progress / slot.castTime
-            
-            -- Add additional time to the spell
-            local delayTime = effect.delayAmount or 2.0  -- Use specified delay amount or default to 2.0 seconds
-            local newCastTime = slot.castTime + delayTime
-            
-            -- Update the castTime and adjust the progress proportionally
-            -- This effectively "pushes back" the progress bar
-            slot.castTime = newCastTime
-            slot.progress = progressPercent * slot.castTime
-            
-            print(self.name .. " delayed their own spell in slot " .. targetSlotIndex .. " by " .. delayTime .. " seconds")
-            
-            -- Create delay effect near the caster's spell slot
-            if self.gameState.vfx then
-                -- Calculate position of the targeted spell slot
-                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                local slotY = self.y + slotYOffsets[targetSlotIndex]
-                
-                -- Create a more distinctive delay visual effect
-                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
-                    duration = 0.9,
-                    color = {0.3, 0.3, 0.8, 0.7},
-                    particleCount = 15,
-                    radius = 40
-                })
-            end
-        else
-            -- If there's no spell in the target slot, show a "fizzle" effect
-            if self.gameState.vfx then
-                -- Calculate position of the targeted spell slot
-                local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                local slotY = self.y + slotYOffsets[targetSlotIndex]
-                
-                -- Create a small fizzle effect to show the spell had no effect
-                self.gameState.vfx.createEffect("impact", self.x, slotY, nil, nil, {
-                    duration = 0.3,
-                    color = {0.3, 0.3, 0.4, 0.4},
-                    particleCount = 5,
-                    radius = 20
-                })
-                
-                print("Eclipse Echo fizzled - no spell in " .. self.name .. "'s middle slot")
-            end
-        end
-    end
-    
     if not isShieldSpell and not slot.isShield and not effect.isShield then
         print("DEBUG: Returning tokens to mana pool - not a shield spell")
         -- Start return animation for tokens
@@ -2891,6 +2797,7 @@ function Wizard:resetSpellSlot(slotIndex)
     -- Reset spell status properties
     slot.frozen = false
     slot.freezeTimer = 0
+    slot.castTimeModifier = 0 -- Renamed from frozenTimeAccrued
     
     -- Reset zone-specific properties
     slot.zoneAnchored = nil
