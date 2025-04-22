@@ -32,17 +32,19 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Development Status
 
-This is an early prototype with basic functionality:
+This is a late prototype with basic full engine functionality:
 - Two opposing wizards with health bars
 - Shared mana pool with floating tokens
 - Three spell slots per wizard with visual feedback
-- Basic state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Simple spatial state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Data-driven VFX engine (actual visuals are still rough)
+- Various spell types with unique mechanics: Attack, Utility, Shield, Trap (with various subtypes of each)
+- Various spell keywords with rigorously defined mechanics.
+- "Triune Spell Engine" custom DSL/data-driven format for defining spells in terms of keywords. Spells are "compiled" at runtime from keyword-based definitions which can be authored using any convenient tool.
 
 ## Next Steps
 
-- Connect mana tokens to spell queueing
-- Implement actual spell effects
-- Add position changes
-- Create proper spell descriptions
-- Add collision detection
-- Add visual effects
+- Polish VFX and add SFX. Use consistent design language driven by TSE spell definitions.
+- Add basic main menu, mode select, control customization.
+- Add AI opponent (strategy design pattern).
+- Add content. Lots of content. Lots and lots and lots of content.
