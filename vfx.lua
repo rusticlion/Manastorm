@@ -6,6 +6,7 @@ VFX.__index = VFX
 
 -- Import pool module
 local Pool = require("core.Pool")
+local Constants = require("core.Constants")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -44,7 +45,7 @@ function VFX.init()
             particleCount = 15,
             startScale = 0.8,
             endScale = 0.2,
-            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            color = Constants.Color.SMOKE,  -- Default white -> SMOKE
             radius = 30,
             sound = nil  -- No default sound
         },
@@ -56,7 +57,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            color = Constants.Color.OCEAN,  -- Blue-ish for water/tidal theme
             radius = 80,
             sound = "tidal_wave"
         },
@@ -68,7 +69,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
             radius = 70,
             sound = "gravity_slam"
         },
@@ -79,7 +80,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.5,
-            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            color = Constants.Color.YELLOW,  -- Blue-ish for force theme -> YELLOW
             radius = 90,
             sound = "force_wind"
         },
@@ -91,7 +92,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            color = Constants.Color.SKY,  -- Bright blue for freeing mana -> SKY
             radius = 100,
             pulseRate = 4,
             sound = "release"
@@ -104,7 +105,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.5,
             endScale = 1.0,
-            color = {1, 0.5, 0.2, 1},
+            color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
             trailLength = 12,
             impactSize = 1.4,
             sound = "firebolt"
@@ -117,7 +118,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 2.0,
             endScale = 0.5,
-            color = {1, 0.4, 0.1, 1},
+            color = Constants.Color.OCHRE, -- {1, 0.4, 0.1, 1}
             radius = 120,
             sound = "meteor"
         },
@@ -129,7 +130,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.2,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.7},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
             radius = 80,
             pulseRate = 2,
             sound = "mist"
@@ -142,7 +143,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.1,
-            color = {1, 0.6, 0.2, 0.8},
+            color = Constants.Color.ORANGE, -- {1, 0.6, 0.2, 0.8}
             height = 100,
             sound = "whoosh"
         },
@@ -154,7 +155,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.4,
             endScale = 0.2,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            color = Constants.Color.YELLOW,  -- Blue-ish for force -> YELLOW
             height = 120,
             sound = "force_wind"
         },
@@ -167,7 +168,7 @@ function VFX.init()
             beamWidth = 40,
             startScale = 0.2,
             endScale = 1.0,
-            color = {0.8, 0.8, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.8, 0.8, 1.0, 0.9}
             pulseRate = 3,
             sound = "moonbeam"
         },
@@ -179,7 +180,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            color = Constants.Color.OCEAN, -- {0.3, 0.5, 1.0, 0.8} -> Blue-ish for water theme
             trailLength = 15,
             impactSize = 1.6,
             sound = "tidal_wave"
@@ -192,7 +193,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.6,
-            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            color = Constants.Color.PINK, -- {0.8, 0.6, 1.0, 0.9} -> Purple-blue for moon/cosmic theme -> PINK
             trailLength = 10,
             impactSize = 1.8,  -- Bigger impact
             sound = "lunar_disrupt"
@@ -205,7 +206,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            color = Constants.Color.PINK, -- {0.9, 0.5, 1.0, 0.9} -> Brighter purple for disruption -> PINK
             radius = 70,
             sound = "lunar_disrupt"
         },
@@ -217,7 +218,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {1.0, 0.5, 0.2, 0.9},
+            color = Constants.Color.ORANGE, -- {1.0, 0.5, 0.2, 0.9}
             height = 140,  -- Height to rise toward mana pool
             spreadRadius = 40, -- Initial spread around the caster
             sound = "conjure"
@@ -230,7 +231,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.9}
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -243,7 +244,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.9}, -- Blue-ish
+            color = Constants.Color.YELLOW, -- {0.3, 0.5, 1.0, 0.9} -> Blue-ish -> YELLOW
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -256,7 +257,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.9, 0.9, 0.2, 0.9}, -- Yellow-ish
+            color = Constants.Color.BONE, -- {0.9, 0.9, 0.2, 0.9} -> Yellow-ish -> BONE
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -269,7 +270,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.2,
             endScale = 0.6,
-            color = {1.0, 1.0, 0.5, 0.9},  -- Yellow base color, will be randomized
+            color = Constants.Color.YELLOW,  -- Yellow base color, will be randomized
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
@@ -282,7 +283,7 @@ function VFX.init()
             particleCount = 30, -- More particles
             startScale = 0.4,
             endScale = 1.0,
-            color = {0.9, 0.7, 0.5, 0.95}, -- Mixed color base (orange/gold)
+            color = Constants.Color.ORANGE, -- Mixed color base (orange/gold) -> ORANGE
             height = 140,
             spreadRadius = 60, -- Wider spread
             sound = "conjure_nova" -- Assumed sound effect
@@ -295,7 +296,7 @@ function VFX.init()
             particleCount = 30, -- More particles
             startScale = 0.4,
             endScale = 1.0,
-            color = {0.6, 0.4, 0.9, 0.95}, -- Mixed color base (purple/indigo)
+            color = Constants.Color.MAROON, -- Mixed color base (purple/indigo) -> MAROON
             height = 140,
             spreadRadius = 60, -- Wider spread
             sound = "conjure_witch" -- Assumed sound effect
@@ -308,7 +309,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            color = Constants.Color.SKY,  -- Default blue-ish -> SKY
             radius = 60,
             pulseRate = 3,
             sound = "shield"
@@ -969,7 +970,7 @@ function VFX.drawProjectile(effect)
     local glowImage = VFX.assets.fireGlow
     
     -- Draw trail
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     if #effect.trailPoints >= 3 then
         local points = {}
         for i, point in ipairs(effect.trailPoints) do
@@ -984,7 +985,7 @@ function VFX.drawProjectile(effect)
     -- Draw glow at head of projectile
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
         local glowScale = effect.startScale * 3
         love.graphics.draw(
             glowImage,
@@ -998,7 +999,7 @@ function VFX.drawProjectile(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -1013,7 +1014,7 @@ function VFX.drawProjectile(effect)
     if effect.progress > 0.95 then
         local flashIntensity = (1 - (effect.progress - 0.95) * 20) -- Flash quickly fades
         if flashIntensity > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity) -- Use base color, apply flash alpha
             love.graphics.circle("fill", effect.targetX, effect.targetY, effect.impactSize * 30 * (1 - flashIntensity))
         end
     end
@@ -1026,7 +1027,7 @@ function VFX.drawImpact(effect)
     
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress) * effect.color[4])
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress)) -- Use base color, apply ring alpha
     local ringScale = effect.radius * 0.02 * ringProgress
     love.graphics.draw(
         impactImage,
@@ -1039,7 +1040,7 @@ function VFX.drawImpact(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -1073,7 +1074,7 @@ function VFX.drawAura(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -1099,7 +1100,7 @@ function VFX.drawVertical(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -1137,17 +1138,17 @@ function VFX.drawBeam(effect)
     local beamWidth = effect.beamWidth * (1 + pulseAmount) * (1 - (effect.progress > 0.5 and (effect.progress - 0.5) * 2 or 0))
     
     -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 1.5)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw inner beam core
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7) -- Use base color (brightened), apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 0.7)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw brightest beam center
-    love.graphics.setColor(1, 1, 1, effect.color[4] * 0.9)
+    love.graphics.setColor(1, 1, 1, 0.9) -- Keep white center for now
     love.graphics.setLineWidth(beamWidth * 0.3)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
@@ -1157,7 +1158,7 @@ function VFX.drawBeam(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -1169,12 +1170,12 @@ function VFX.drawBeam(effect)
     end
     
     -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
     love.graphics.circle("fill", effect.sourceX, effect.sourceY, 20 * (1 + pulseAmount))
     
     -- Draw impact glow at target if beam is fully extended
     if effect.beamProgress >= 0.99 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.8 * (1 - (effect.progress - 0.5) * 2))
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * (1 - (effect.progress - 0.5) * 2)) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", beamEndX, beamEndY, 25 * (1 + pulseAmount))
     end
 end
@@ -1186,7 +1187,7 @@ function VFX.drawConjure(effect)
     
     -- Draw source glow if active
     if effect.sourceGlow and effect.sourceGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.sourceGlow * 0.6)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.sourceGlow * 0.6) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.sourceX, effect.sourceY, 50 * effect.sourceGlow)
         
         -- Draw expanding rings from source (hint at conjuration happening)
@@ -1196,7 +1197,7 @@ function VFX.drawConjure(effect)
             if ringProgress < 1.0 then
                 local ringSize = 60 * ringProgress
                 local ringAlpha = 0.5 * (1.0 - ringProgress) * effect.sourceGlow
-                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha)
+                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha) -- Use base color, apply calculated alpha
                 love.graphics.circle("line", effect.sourceX, effect.sourceY, ringSize)
             end
         end
@@ -1204,7 +1205,7 @@ function VFX.drawConjure(effect)
     
     -- Draw mana pool glow if active
     if effect.poolGlow and effect.poolGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.poolGlow * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.poolGlow * 0.7) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.manaPoolX, effect.manaPoolY, 40 * effect.poolGlow)
     end
     
@@ -1221,7 +1222,7 @@ function VFX.drawConjure(effect)
                     effect.color[1] * 1.3, 
                     effect.color[2] * 1.3, 
                     effect.color[3] * 1.3, 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color (brightened), apply particle alpha
                 )
                 imgToDraw = glowImage
             else
@@ -1229,7 +1230,7 @@ function VFX.drawConjure(effect)
                     effect.color[1], 
                     effect.color[2], 
                     effect.color[3], 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color, apply particle alpha
                 )
             end
             
@@ -1263,7 +1264,7 @@ function VFX.drawConjure(effect)
     
     -- Draw connection lines between particles (ethereal threads)
     if effect.progress < 0.7 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.2)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.2) -- Use base color, apply fixed alpha
         
         local maxConnectDist = 50  -- Maximum distance for particles to connect
         for i = 1, #effect.particles do
@@ -1279,7 +1280,7 @@ function VFX.drawConjure(effect)
                         if dist < maxConnectDist then
                             -- Fade based on distance
                             local alpha = (1 - dist/maxConnectDist) * 0.3 * p1.alpha * p2.alpha
-                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha) -- Use base color, apply calculated alpha
                             love.graphics.line(p1.x, p1.y, p2.x, p2.y)
                         end
                     end
@@ -1398,8 +1399,9 @@ function VFX.createSpellEffect(spell, caster, target)
             elseif hasMoonMana then
                 return VFX.createEffect("mistveil", sourceX, sourceY, nil, nil)
             else
-                -- Default generic effect
-                return VFX.createEffect("firebolt", sourceX, sourceY, targetX, targetY)
+                -- Default generic effect if no specific match
+                print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
+                return VFX.createEffect("impact", targetX, targetY, nil, nil) -- Default to a simple impact at target
             end
         end
     end

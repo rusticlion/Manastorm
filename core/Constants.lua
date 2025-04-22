@@ -7,10 +7,14 @@ local Constants = {}
 -- Token types (mana/resource types)
 Constants.TokenType = {
     FIRE = "fire",
-    FORCE = "force",
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     RANDOM = "random",   -- Special: used in spell costs to indicate any token
     ANY = "any"          -- Special: used in keywords for wildcard matching
 }
@@ -47,6 +51,49 @@ Constants.ElevationState = {
     AERIAL = "AERIAL"
 }
 
+-- Color Palette (RGBA, 0-1 range)
+Constants.Color = {
+    BLACK = {0, 0, 0, 1},                    -- #000000
+    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+}
+
+-- Default color for unknown types
+Constants.Color.DEFAULT = Constants.Color.SMOKE
+
+-- Helper function to get color based on token type
+-- Added mappings for types found in manapool.lua (Nature, Force)
+function Constants.getColorForTokenType(tokenType)
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
+    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
+    else
+        print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
+        return Constants.Color.DEFAULT
+    end
+end
+
 -- Shield types for blocking spells
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
@@ -60,6 +107,15 @@ Constants.AttackType = {
     REMOTE = "remote",          -- Magic directly affects target
     ZONE = "zone",              -- Area effect, position-dependent
     UTILITY = "utility"         -- Non-damaging effect
+}
+
+Constants.CastSpeed = {
+    VERY_SLOW = 13,
+    SLOW = 10,
+    NORMAL = 7,
+    FAST = 4,
+    VERY_FAST = 1,
+    ONE_TIER = 3
 }
 
 -- Target types for keywords
@@ -82,10 +138,14 @@ Constants.TargetType = {
 -- Damage types for spells
 Constants.DamageType = {
     FIRE = "fire",
-    FORCE = "force", 
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     GENERIC = "generic",
     MIXED = "mixed"
 }
@@ -126,10 +186,14 @@ end
 function Constants.getAllTokenTypes()
     return {
         Constants.TokenType.FIRE,
-        Constants.TokenType.FORCE,
+        Constants.TokenType.WATER,
+        Constants.TokenType.SALT,
+        Constants.TokenType.SUN,
         Constants.TokenType.MOON,
-        Constants.TokenType.NATURE,
-        Constants.TokenType.STAR
+        Constants.TokenType.STAR,
+        Constants.TokenType.LIFE,
+        Constants.TokenType.MIND,
+        Constants.TokenType.VOID
     }
 end
 

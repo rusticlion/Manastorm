@@ -114,7 +114,7 @@ function Wizard.new(name, x, y, color)
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
             ["2"] = Spells.witchconjuring,
-            ["3"] = Spells.mist,
+            ["3"] = Spells.wrapinmoonlight,
             
             -- Two key combos
             ["12"] = Spells.tidalforce,

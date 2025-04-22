@@ -220,7 +220,7 @@ function WizardVisuals.drawStatusEffects(wizard)
 end
 
 -- Draw spell slots with token orbits
-function WizardVisuals.drawSpellSlots(wizard)
+function WizardVisuals.drawSpellSlots(wizard, layer)
     -- Draw 3 orbiting spell slots as elliptical paths at different vertical positions
     -- Position the slots at legs, midsection, and head levels
     -- Get position offsets to apply the same offsets as the wizard
@@ -232,6 +232,13 @@ function WizardVisuals.drawSpellSlots(wizard)
     local horizontalRadii = {80, 70, 60}   -- Wider at the bottom, narrower at the top
     local verticalRadii = {20, 25, 30}     -- Flatter at the bottom, rounder at the top
     
+    -- Get the ManaPool instance (ensure gameState and manaPool exist)
+    local manaPool = wizard.gameState and wizard.gameState.manaPool
+    if not manaPool then
+        print("ERROR: ManaPool instance not found in WizardVisuals.drawSpellSlots")
+        return
+    end
+
     for i, slot in ipairs(wizard.spellSlots) do
         -- Position parameters for each slot, applying both offsets
         local slotY = wizard.y + slotYOffsets[i] + yOffset
@@ -258,7 +265,7 @@ function WizardVisuals.drawSpellSlots(wizard)
             local tokenCount = #slot.tokens
             local anglePerToken = math.pi * 2 / tokenCount
             
-            -- First pass: calculate positions for all tokens
+            -- First pass: calculate positions and draw based on layer
             for j, tokenData in ipairs(slot.tokens) do
                 local token = tokenData.token
                 
@@ -266,186 +273,169 @@ function WizardVisuals.drawSpellSlots(wizard)
                 if not token or 
                    token.status == Constants.TokenStatus.RETURNING or 
                    token.status == Constants.TokenStatus.DISSOLVING then
-                    goto continue_token_positioning
-                end
-                
-                -- Calculate angle for each token based on its index
-                local tokenAngle = baseAngle + anglePerToken * (j - 1)
-                
-                -- Store the token's orbit angle (for continuity)
-                token.orbitAngle = tokenAngle
-                
-                -- Calculate position - used for both rendering and token state
-                token.x = slotX + math.cos(tokenAngle) * radiusX
-                token.y = slotY + math.sin(tokenAngle) * radiusY
-                
-                ::continue_token_positioning::
-            end
-            
-            -- Draw tokens in the "back" half of the orbit
-            for j, tokenData in ipairs(slot.tokens) do
-                local token = tokenData.token
-                
-                -- Skip invalid or transitioning tokens
-                if not token or 
-                   token.status == Constants.TokenStatus.RETURNING or 
-                   token.status == Constants.TokenStatus.DISSOLVING then
-                    goto continue_token_back_drawing
-                end
-                
-                -- Only draw tokens in the back half (π to 2π)
-                local normalizedAngle = token.orbitAngle % (math.pi * 2)
-                if normalizedAngle > math.pi and normalizedAngle < math.pi * 2 then
-                    -- Token is drawn at its calculated position by ManaPool
-                    -- We don't need to do anything else here
-                end
-                
-                ::continue_token_back_drawing::
-            end
-        end
-        
-        -- Draw the elliptical orbit paths
-        if wizard.currentKeyedSpell and not slot.active then
-            -- Highlight slot that would be used for the current keyed spell
-            -- This is always the first available slot, which we need to calculate
-            local wouldUseThisSlot = true
-            for j = 1, i-1 do
-                if not wizard.spellSlots[j].active then
-                    wouldUseThisSlot = false
-                    break
-                end
-            end
-            
-            if wouldUseThisSlot then
-                love.graphics.setColor(0.8, 0.8, 0.2, 0.7) -- Yellow highlight for slot that would be used
-            else
-                -- Inactive slot
-                love.graphics.setColor(0.6, 0.6, 0.6, 0.3) -- Gray for inactive slot
-            end
-        elseif slot.active then
-            if slot.isShield then
-                -- Use shield color from ShieldSystem
-                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
-                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
-            elseif slot.frozen then
-                -- Blue for frozen slots
-                love.graphics.setColor(0.5, 0.5, 1.0, 0.7)
-            else
-                -- Active but not a shield - normal red/orange 
-                love.graphics.setColor(0.9, 0.4, 0.2, 0.7) -- Reddish for active spell
-            end
-        else
-            -- Inactive slot
-            love.graphics.setColor(0.6, 0.6, 0.6, 0.3) -- Gray for inactive slot
-        end
-        
-        -- Draw the orbit ellipse
-        WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
-        
-        -- Draw progress arc for active slots
-        if slot.active then
-            local startAngle = 0
-            local endAngle = (slot.progress / slot.castTime) * (math.pi * 2)
-            
-            if slot.isShield then
-                -- Shield slots show a full arc (since they're fully cast)
-                endAngle = math.pi * 2
-                
-                -- Draw shield type text
-                love.graphics.setColor(1, 1, 1, 0.8)
-                local shieldTypeText = slot.defenseType:upper()
-                love.graphics.print(shieldTypeText, 
-                    slotX - 20, -- Center text horizontally
-                    slotY - verticalRadii[i] - 15) -- Position above the orbit
-            elseif slot.frozen then
-                -- Draw frozen indicator
-                love.graphics.setColor(0.7, 0.7, 1.0, 0.8)
-                love.graphics.print("FROZEN", 
-                    slotX - 20, -- Center text
-                    slotY - verticalRadii[i] - 15) -- Above the orbit
-                
-                -- Draw flickering ice effect
-                if math.random() < 0.03 then
-                    if wizard.gameState and wizard.gameState.vfx then
-                        local angle = math.random() * math.pi * 2
-                        local sparkleX = slotX + math.cos(angle) * radiusX * 0.7
-                        local sparkleY = slotY + math.sin(angle) * radiusY * 0.7
-                        
-                        wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
-                            duration = 0.3,
-                            color = {0.6, 0.6, 1.0, 0.5},
-                            particleCount = 3,
-                            radius = 5
-                        })
+                    -- No goto needed here, just continue to next token
+                else
+                    -- Calculate angle for each token based on its index
+                    local tokenAngle = baseAngle + anglePerToken * (j - 1)
+                    
+                    -- Store the token's orbit angle (for continuity)
+                    token.orbitAngle = tokenAngle
+                    
+                    -- Calculate position - used for both rendering and token state
+                    -- Note: If the token is animating towards the slot (CHANNELED state, animTime < animDuration),
+                    -- its x, y might be updated by ManaPool:update. We should use the calculated orbit position
+                    -- for layer determination, but let ManaPool:drawToken use the token's current x,y.
+                    local orbitX = slotX + math.cos(tokenAngle) * radiusX
+                    local orbitY = slotY + math.sin(tokenAngle) * radiusY
+                    
+                    -- If token isn't fully animated to the slot yet, keep its animating position
+                    -- but use the calculated orbit position for determining front/back
+                    if token.status == Constants.TokenStatus.CHANNELED and token.animTime < token.animDuration then
+                        -- Position is being animated, use orbitAngle for layering check only
+                    else
+                        -- Token is in orbit, update its position directly
+                        token.x = orbitX
+                        token.y = orbitY
+                    end
+                    
+                    -- Determine if token is in the front or back half based on its *intended* orbit angle
+                    local normalizedAngle = token.orbitAngle % (math.pi * 2)
+                    local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                    -- Draw the token if its layer matches the requested layer
+                    if tokenLayer == layer then
+                         -- Check if the token is actually supposed to be drawn (not animating away)
+                        if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                             manaPool:drawToken(token)
+                        end
                     end
                 end
             end
-            
-            -- Draw the progress arc in a slightly different color
-            if slot.isShield then
-                -- Shields have a pulsing color to indicate active defense
-                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
-                love.graphics.setColor(
-                    shieldColor[1] * (1 + pulseAmount),
-                    shieldColor[2] * (1 + pulseAmount),
-                    shieldColor[3] * (1 + pulseAmount),
-                    0.8
-                )
-            elseif slot.frozen then
-                -- Frozen spells have a blue, shimmering progress arc
-                local flicker = 0.8 + math.random() * 0.2
-                love.graphics.setColor(0.4 * flicker, 0.4 * flicker, 0.9 * flicker, 0.9)
-            else
-                -- Normal spell casting
-                local brightness = 0.9 + math.sin(love.timer.getTime() * 5) * 0.1
-                love.graphics.setColor(1.0 * brightness, 0.7 * brightness, 0.3 * brightness, 0.9)
-            end
-            
-            -- Draw the actual progress arc
-            WizardVisuals.drawEllipticalArc(
-                slotX, slotY, 
-                radiusX, radiusY, 
-                startAngle, endAngle, 
-                32 -- More segments for smoother arc
-            )
-            
-            -- Draw spell name for active but non-shield slots
-            if not slot.isShield then
-                love.graphics.setColor(1, 1, 1, 0.8)
-                love.graphics.print(slot.spellType or "???", 
-                    slotX - 20, -- Approximate centering
-                    slotY - verticalRadii[i] - 15) -- Above the orbit
-            end
         end
         
-        -- Draw tokens that should appear "in front" of the character
-        if slot.active and #slot.tokens > 0 then
-            -- Note: We already calculated all token positions in the first pass above.
-            -- Here we just need to handle front-half rendering
-            
-            -- Draw tokens in the "front" half of the orbit (facing the camera) on top of everything else
-            for j, tokenData in ipairs(slot.tokens) do
-                local token = tokenData.token
-                
-                -- Skip invalid or transitioning tokens
-                if not token or 
-                   token.status == Constants.TokenStatus.RETURNING or 
-                   token.status == Constants.TokenStatus.DISSOLVING then
-                    goto continue_token_front_drawing
+        -- Draw the elliptical orbit paths (only need to do this once, e.g., during the 'back' pass)
+        if layer == "back" then 
+            if wizard.currentKeyedSpell and not slot.active then
+                local shouldDraw = true
+                -- Highlight slot that would be used for the current keyed spell
+                -- This is always the first available slot, which we need to calculate
+                local wouldUseThisSlot = true
+                for j = 1, i-1 do
+                    if not wizard.spellSlots[j].active then
+                        wouldUseThisSlot = false
+                        break
+                    end
                 end
                 
-                -- Only draw tokens in the front half (0 to π)
-                local normalizedAngle = token.orbitAngle % (math.pi * 2)
-                if normalizedAngle >= 0 and normalizedAngle <= math.pi then
-                    -- Token is drawn at its calculated position by ManaPool
-                    -- All positioning is already done in the first pass above
+                if wouldUseThisSlot then
+                    -- Use affinity color for keyed spell highlight
+                    local affinity = wizard.currentKeyedSpell and wizard.currentKeyedSpell.affinity
+                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {0.8, 0.8, 0.2} -- Default yellow
+                    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.7)
+                else
+                    -- Inactive slot
+                    shouldDraw = false
                 end
-                
-                ::continue_token_front_drawing::
+            elseif slot.active then
+                if slot.isShield then
+                    -- Use shield color from ShieldSystem
+                    local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
+                elseif slot.frozen then
+                    -- Blue for frozen slots
+                    love.graphics.setColor(0.5, 0.5, 1.0, 0.7)
+                else
+                    shouldDraw = false
+                    -- Active but not a shield - use affinity color
+                    local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
+                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2} -- Default reddish
+                    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.7)
+                end
+            else
+                -- Inactive slot
+                shouldDraw = false
             end
-        end
-    end
+            
+            -- Draw the orbit ellipse
+            if shouldDraw then
+                WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
+            end
+            
+            -- Draw progress arc for active slots
+            if slot.active then
+                local startAngle = 0
+                local endAngle = (slot.progress / slot.castTime) * (math.pi * 2)
+                
+                if slot.isShield then
+                    -- Shield slots show a full arc (since they're fully cast)
+                    endAngle = math.pi * 2
+                    
+                    -- Show some VFX effect conveying Barrier vs. Ward - "Wall of Light" for barriers, "Ring of Runes" for wards
+                    -- Use slotX, slotY, radiusX, radiusY for the effect to align it with the spell slot
+                    if slot.defenseType == "barrier" then
+                        -- wizard.gameState.vfx.createEffect("barrier", slotX, slotY, radiusX, radiusY)
+                    elseif slot.defenseType == "ward" then
+                        -- wizard.gameState.vfx.createEffect("ward", slotX, slotY, radiusX, radiusY)
+                    end
+                elseif slot.frozen then
+                    -- Draw frozen indicator
+                    love.graphics.setColor(0.7, 0.7, 1.0, 0.8)
+                    love.graphics.print("FROZEN", 
+                        slotX - 20, -- Center text
+                        slotY - verticalRadii[i] - 15) -- Above the orbit
+                    
+                    -- Draw flickering ice effect
+                    if math.random() < 0.03 then
+                        if wizard.gameState and wizard.gameState.vfx then
+                            local angle = math.random() * math.pi * 2
+                            local sparkleX = slotX + math.cos(angle) * radiusX * 0.7
+                            local sparkleY = slotY + math.sin(angle) * radiusY * 0.7
+                            
+                            wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                duration = 0.3,
+                                color = {0.6, 0.6, 1.0, 0.5},
+                                particleCount = 3,
+                                radius = 5
+                            })
+                        end
+                    end
+                end
+                
+                -- Draw the progress arc in a slightly different color
+                if slot.isShield then
+                    -- Shields have a pulsing color to indicate active defense
+                    local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                    local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                    love.graphics.setColor(
+                        shieldColor[1] * (1 + pulseAmount),
+                        shieldColor[2] * (1 + pulseAmount),
+                        shieldColor[3] * (1 + pulseAmount),
+                        0.8
+                    )
+                elseif slot.frozen then
+                    -- Frozen spells have a blue, shimmering progress arc
+                    local flicker = 0.8 + math.random() * 0.2
+                    love.graphics.setColor(0.4 * flicker, 0.4 * flicker, 0.9 * flicker, 0.9)
+                else
+                    -- Normal spell casting
+                    local brightness = 0.9 + math.sin(love.timer.getTime() * 5) * 0.1
+                    local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
+                    print("spell: " .. slot.spell.name)
+                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {1.0, 0.7, 0.3} -- Default yellowish
+                    love.graphics.setColor(baseColor[1] * brightness, baseColor[2] * brightness, baseColor[3] * brightness, 0.9)
+                end
+                
+                -- Draw the actual progress arc
+                WizardVisuals.drawEllipticalArc(
+                    slotX, slotY, 
+                    radiusX, radiusY, 
+                    startAngle, endAngle, 
+                    32 -- More segments for smoother arc
+                )
+            end
+        end -- End of drawing orbits only on 'back' pass
+
+    end -- End of loop through spell slots
 end
 
 -- Main function to draw the wizard
@@ -479,16 +469,19 @@ function WizardVisuals.drawWizard(wizard)
         love.graphics.setColor(1, 1, 1)
     end
     
-    -- Draw elevation effect (GROUNDED or AERIAL)
+    -- Draw elevation effect (GROUNDED only - AERIAL clouds moved after wizard)
     if wizard.elevation == "GROUNDED" then
         -- Draw ground indicator below wizard, applying the x offset
         love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
-        love.graphics.ellipse("fill", wizard.x + xOffset, wizard.y + 30, 40, 10)  -- Simple shadow/ground indicator
+        love.graphics.ellipse("fill", wizard.x + xOffset, wizard.y + 40, 40, 10)  -- Simple shadow/ground indicator
     end
     
     -- Store current offsets for other functions to use
     wizard.currentXOffset = xOffset
     wizard.currentYOffset = yOffset
+
+    -- Draw spell slots and tokens behind the wizard
+    WizardVisuals.drawSpellSlots(wizard, "back")
     
     -- Draw the wizard sprite
     if wizard.sprite then
@@ -501,28 +494,13 @@ function WizardVisuals.drawWizard(wizard)
             love.graphics.draw(
                 wizard.sprite, 
                 wizard.x + xOffset, 
-                wizard.y + 30, -- Shadow on ground
+                wizard.y + 40, -- Shadow on ground
                 0, -- No rotation
                 adjustedScale * 0.8, -- Slightly smaller shadow
                 wizard.scale * 0.3, -- Flatter shadow
                 wizard.sprite:getWidth() / 2, 
                 wizard.sprite:getHeight() / 2
             )
-        else
-            -- AERIAL cloud effect
-            love.graphics.setColor(0.8, 0.8, 1.0, 0.4)
-            
-            -- Draw animated cloud particles
-            for i = 1, 3 do
-                local cloudOffset = math.sin(love.timer.getTime() * 1.5 + i * 2) * 10
-                love.graphics.ellipse(
-                    "fill", 
-                    wizard.x + xOffset + cloudOffset, 
-                    wizard.y + yOffset + 30, -- Add yOffset here
-                    45 + i * 5, 
-                    10
-                )
-            end
         end
         
         -- Draw the actual wizard
@@ -537,6 +515,32 @@ function WizardVisuals.drawWizard(wizard)
             wizard.sprite:getWidth() / 2, 
             wizard.sprite:getHeight() / 2
         )
+
+        -- Draw AERIAL cloud effect after wizard for proper layering
+        if wizard.elevation == "AERIAL" then
+            love.graphics.setColor(0.8, 0.8, 1.0, 0.3)
+            
+            -- Draw more numerous, smaller animated cloud particles
+            for i = 1, 8 do
+                -- Calculate wobble in both x and y directions
+                local time = love.timer.getTime()
+                local angle = (i / 8) * math.pi * 2 + time
+                local xWobble = math.sin(time * 2 + i * 1.5) * 15
+                local yWobble = math.cos(time * 1.8 + i * 1.7) * 10
+                
+                -- Vary sizes for more natural look
+                local width = 20 + math.sin(time + i) * 5
+                local height = 6 + math.cos(time + i) * 2
+                
+                love.graphics.ellipse(
+                    "fill",
+                    wizard.x + xOffset + xWobble,
+                    wizard.y + yOffset + 40 + yWobble,
+                    width,
+                    height
+                )
+            end
+        end
     else
         -- Fallback if sprite not loaded - draw a colored circle
         love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255)
@@ -559,8 +563,8 @@ function WizardVisuals.drawWizard(wizard)
         end
     end
     
-    -- Draw spell slots and their token orbits
-    WizardVisuals.drawSpellSlots(wizard)
+    -- Draw spell slots and tokens in front of the wizard
+    WizardVisuals.drawSpellSlots(wizard, "front")
     
     -- Draw status effects
     WizardVisuals.drawStatusEffects(wizard)

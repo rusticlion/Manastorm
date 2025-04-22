@@ -45,17 +45,25 @@ game = {
 -- Define token types and images (globally available for consistency)
 game.tokenTypes = {
     Constants.TokenType.FIRE, 
-    Constants.TokenType.FORCE, 
+    Constants.TokenType.WATER, 
+    Constants.TokenType.SALT, 
+    Constants.TokenType.SUN, 
     Constants.TokenType.MOON, 
-    Constants.TokenType.NATURE, 
-    Constants.TokenType.STAR
+    Constants.TokenType.STAR,
+    Constants.TokenType.LIFE,
+    Constants.TokenType.MIND,
+    Constants.TokenType.VOID
 }
 game.tokenImages = {
-    [Constants.TokenType.FIRE] = "assets/sprites/fire-token.png",
-    [Constants.TokenType.FORCE] = "assets/sprites/force-token.png",
-    [Constants.TokenType.MOON] = "assets/sprites/moon-token.png",
-    [Constants.TokenType.NATURE] = "assets/sprites/nature-token.png",
-    [Constants.TokenType.STAR] = "assets/sprites/star-token.png"
+    [Constants.TokenType.FIRE] = "assets/sprites/v2Tokens/fire-token.png",
+    [Constants.TokenType.WATER] = "assets/sprites/v2Tokens/water-token.png",
+    [Constants.TokenType.SALT] = "assets/sprites/v2Tokens/salt-token.png",
+    [Constants.TokenType.SUN] = "assets/sprites/v2Tokens/sun-token.png",
+    [Constants.TokenType.MOON] = "assets/sprites/v2Tokens/moon-token.png",
+    [Constants.TokenType.STAR] = "assets/sprites/v2Tokens/star-token.png",
+    [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
+    [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
+    [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
 }
 
 -- Helper function to add a random token to the mana pool
@@ -345,8 +353,10 @@ function resetGame()
         wizard.statusEffects.burn.totalTime = 0
         
         -- Reset blockers
-        for blockType in pairs(wizard.blockers) do
-            wizard.blockers[blockType] = 0
+        if wizard.blockers then
+            for blockType in pairs(wizard.blockers) do
+                wizard.blockers[blockType] = 0
+            end
         end
         
         -- Reset spell keying

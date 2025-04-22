@@ -476,7 +476,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Add tokens to the mana pool
         for i = 1, event.amount do
-            local assetPath = "assets/sprites/" .. event.tokenType .. "-token.png"
+            local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
             manaPool:addToken(event.tokenType, assetPath)
             results.tokensAffected = results.tokensAffected + 1
         end
@@ -527,7 +527,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Handle random token shifting
         if event.tokenType == "random" then
-            local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+            local tokenTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void"}
             
             -- Find FREE tokens and shift them to random types
             for i, token in ipairs(manaPool.tokens) do
@@ -539,7 +539,7 @@ EventRunner.EVENT_HANDLERS = {
                     -- Only change if it's a different type
                     if randomType ~= oldType then
                         token.type = randomType
-                        token.image = love.graphics.newImage("assets/sprites/" .. randomType .. "-token.png")
+                        token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. randomType .. "-token.png")
                         tokensShifted = tokensShifted + 1
                         results.tokensAffected = results.tokensAffected + 1
                     end
@@ -555,7 +555,7 @@ EventRunner.EVENT_HANDLERS = {
             for i, token in ipairs(manaPool.tokens) do
                 if token.state == "FREE" and token.type ~= event.tokenType then
                     token.type = event.tokenType
-                    token.image = love.graphics.newImage("assets/sprites/" .. event.tokenType .. "-token.png")
+                    token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png")
                     tokensShifted = tokensShifted + 1
                     results.tokensAffected = results.tokensAffected + 1
                     
@@ -889,7 +889,7 @@ EventRunner.EVENT_HANDLERS = {
             local newType = event.newType or "fire"
             local oldType = removedTokenObject.type
             removedTokenObject.type = newType
-            removedTokenObject.image = love.graphics.newImage("assets/sprites/" .. newType .. "-token.png")
+            removedTokenObject.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. newType .. "-token.png")
             results.tokensAffected = (results.tokensAffected or 0) + 1
             
             -- Request token return animation

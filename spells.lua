@@ -11,6 +11,7 @@ local Spells = {}
 -- Schema for spell object:
 -- id: Unique identifier for the spell (string)
 -- name: Display name of the spell (string)
+-- affinity: The element of the spell (string)
 -- description: Text description of what the spell does (string)
 -- attackType: How the spell is delivered - Constants.AttackType.PROJECTILE, REMOTE, ZONE, UTILITY
 --   * PROJECTILE: Physical projectile attacks - can be blocked by barriers and wards
@@ -49,6 +50,11 @@ local function validateSpell(spell, spellId)
     if not spell.name then
         print("WARNING: Spell " .. spellId .. " missing required property: name, creating a default")
         spell.name = "Unnamed Spell " .. spellId
+    end
+
+    if not spell.affinity then
+        print("WARNING: Spell " .. spellId .. " missing required property: affinity, creating a default")
+        spell.affinity = "fire"
     end
     
     if not spell.description then
@@ -136,9 +142,10 @@ end
 Spells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
+    affinity = "fire",
     description = "Creates a new Fire mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -152,7 +159,7 @@ Spells.conjurefire = {
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.FAST
         
         -- Count fire tokens in the mana pool
         local fireCount = 0
@@ -167,7 +174,7 @@ Spells.conjurefire = {
         end
         
         -- Increase cast time by 5 seconds per existing fire token
-        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        local adjustedCastTime = baseCastTime + (fireCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -176,8 +183,9 @@ Spells.conjurefire = {
 Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
+    affinity = "fire",
     description = "Quick ranged hit, more damage against AERIAL opponents",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "projectile",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
@@ -199,10 +207,11 @@ Spells.firebolt = {
 Spells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
+    affinity = "sun",
     description = "Aerial finisher, hits GROUNDED enemies",
-    castTime = 8.0,
+    castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE, Constants.TokenType.STAR},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
     keywords = {
         damage = {
             amount = 20,
@@ -228,28 +237,30 @@ Spells.meteor = {
 Spells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
-    description = "Disrupts opponent channeling, converting one token to Fire",
-    castTime = 6.0,
+    affinity = "fire",
+    description = "Disrupts opponent channeling, burning one token to Salt",
+    castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
-            targetType = "fire"
+            targetType = "salt"
         }
     },
     vfx = "combust_lock",
 }
 
-Spells.conjureforce = {
-    id = "conjureforce",
-    name = "Conjure Force",
-    description = "Creates a new Force mana token",
+Spells.conjuresalt = {
+    id = "conjuresalt",
+    name = "Conjure Salt",
+    affinity = "salt",
+    description = "Creates a new Salt mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
-            token = Constants.TokenType.FORCE,
+            token = Constants.TokenType.SALT,
             amount = 1
         }
     },
@@ -257,26 +268,27 @@ Spells.conjureforce = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
-        local forceCount = 0
+        local baseCastTime = Constants.CastSpeed.FAST
+        local saltCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == Constants.TokenType.FORCE and token.state == Constants.TokenState.FREE then
-                    forceCount = forceCount + 1
+                if token.type == Constants.TokenType.SALT and token.state == Constants.TokenState.FREE then
+                    saltCount = saltCount + 1
                 end
             end
         end
-        return baseCastTime + (forceCount * 5.0)
+        return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
 
 Spells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
+    affinity = "sun",
     description = "Launches caster into the air and increases range",
-    castTime = 2.5,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
-    cost = {"fire", "force"},
+    cost = {"sun"},
     keywords = {
         elevate = {
             duration = 5.0,
@@ -296,9 +308,10 @@ Spells.emberlift = {
 Spells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
+    affinity = "moon",
     description = "Creates a new Moon mana token",
     attackType = "utility",
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -312,7 +325,7 @@ Spells.conjuremoonlight = {
     -- Custom cast time calculation based on existing moon tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.FAST
         
         -- Count moon tokens in the mana pool
         local moonCount = 0
@@ -325,7 +338,7 @@ Spells.conjuremoonlight = {
         end
         
         -- Increase cast time by 5 seconds per existing moon token
-        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        local adjustedCastTime = baseCastTime + (moonCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -334,9 +347,10 @@ Spells.conjuremoonlight = {
 Spells.conjurestars = {
     id = "conjurestars",
     name = "Conjure Stars",
+    affinity = "star",
     description = "Creates a new Star mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
@@ -348,7 +362,7 @@ Spells.conjurestars = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.FAST
         local starCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
@@ -357,49 +371,25 @@ Spells.conjurestars = {
                 end
             end
         end
-        return baseCastTime + (starCount * 5.0)
+        return baseCastTime + (starCount * Constants.CastSpeed.ONE_TIER)
     end
-}
-
-Spells.volatileconjuring = {
-    id = "volatileconjuring",
-    name = "Volatile Conjuring",
-    description = "Creates a random mana token",
-    attackType = "utility",
-    castTime = 5.0,  -- Fixed cast time of 5 seconds
-    cost = {},  -- No mana cost
-    keywords = {
-        conjure = {
-            token = function(caster, target)
-                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
-                local randomIndex = math.random(#tokenTypes)
-                local selectedToken = tokenTypes[randomIndex]
-                print(caster.name .. " conjured a random " .. selectedToken .. " token")
-                return selectedToken
-            end,
-            amount = 1
-        }
-    },
-    vfx = "volatile_conjure",
-    blockableBy = {}  -- Unblockable
 }
 
 -- Nova Conjuring (Fire, Force, Star)
 Spells.novaconjuring = {
     id = "novaconjuring",
     name = "Nova Conjuring",
-    description = "Conjures FIRE, FORCE, and STAR tokens.",
+    affinity = "sun",
+    description = "Conjures SUN token from FIRE.",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 15.0,  -- Fixed cast time
-    cost = {"fire", "fire"},  -- Needs some basic fire
+    castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
+    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
     keywords = {
         conjure = {
-            token = { 
-                Constants.TokenType.FIRE, 
-                Constants.TokenType.FORCE, 
-                Constants.TokenType.STAR 
+            token = {
+                Constants.TokenType.SUN,
             },
-            amount = 1 -- Conjures 1 of each listed type
+            amount = 1 -- Conjures 2 of each listed type
         }
     },
     vfx = "nova_conjure",
@@ -411,16 +401,17 @@ Spells.novaconjuring = {
 Spells.witchconjuring = {
     id = "witchconjuring",
     name = "Witch Conjuring",
-    description = "Conjures MOON, FORCE, and NATURE tokens.",
+    affinity = "moon",
+    description = "Conjures WATER, MOON, and LIFE tokens.",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 15.0,  -- Fixed cast time
+    castTime = Constants.CastSpeed.SLOW,  -- Fixed cast time
     cost = {"moon", "moon", "moon"},  -- Needs some basic moon
     keywords = {
         conjure = {
             token = { 
+                Constants.TokenType.WATER, 
                 Constants.TokenType.MOON, 
-                Constants.TokenType.FORCE, 
-                Constants.TokenType.NATURE 
+                Constants.TokenType.LIFE 
             },
             amount = 1 -- Conjures 1 of each listed type
         }
@@ -430,19 +421,18 @@ Spells.witchconjuring = {
     blockableBy = {}  -- Unblockable
 }
 
-Spells.mist = {
-    id = "mist",
-    name = "Mist Veil",
-    description = "A ward of mist that blocks projectiles and remotes",
+Spells.wrapinmoonlight = {
+    id = "wrapinmoonlight",
+    name = "Wrap in Moonlight",
+    affinity = "moon",
+    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
     attackType = "utility",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.FAST,
     cost = {"moon", "moon"},
     keywords = {
         block = {
-            type = "ward",
-            blocks = {"projectile", "remote"},
-            -- All shields are mana-linked now (consume tokens when blocking)
-            -- Token count is the source of truth for shield strength
+            type = "barrier",
+            blocks = {"projectile", "zone"},
         },
         elevate = {
             duration = 4.0
@@ -459,10 +449,11 @@ Spells.mist = {
 Spells.tidalforce = {
     id = "tidalforce",
     name = "Tidal Force",
+    affinity = "water",
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = "remote",
-    castTime = 5.0,
-    cost = {"moon", "nature"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"water", "moon"},
     keywords = {
         damage = {
             amount = 5,
@@ -485,9 +476,10 @@ Spells.tidalforce = {
 Spells.lunardisjunction = {
     id = "lunardisjunction",
     name = "Lunar Disjunction",
+    affinity = "moon",
     description = "Counterspell, cancels an opponent's spell and destroys its mana",
     attackType = "projectile",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "any"},
     keywords = {
         disjoint = {
@@ -513,6 +505,7 @@ Spells.lunardisjunction = {
 Spells.gravity = {
     id = "gravity",
     name = "Gravity Pin",
+    affinity = "moon",
     description = "Traps AERIAL enemies",
     attackType = "zone",
     castTime = 7.0,
@@ -545,14 +538,15 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Echo",
-    description = "Halts the caster's channeled spell in slot 2", -- Simplified description
+    name = "Eclipse Pause",
+    affinity = "moon",
+    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
     attackType = "utility", 
-    castTime = 2.5,
-    cost = {"moon", "force"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"moon", "moon"},
     keywords = {
         freeze = {
-            duration = 5.0,
+            duration = Constants.CastSpeed.ONE_TIER,
             target = "self" -- Explicitly target the caster
         }
         -- Removed damage and cancelSpell keywords
@@ -565,14 +559,15 @@ Spells.eclipse = {
 Spells.fullmoonbeam = {
     id = "fullmoonbeam",
     name = "Full Moon Beam",
+    affinity = "moon",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = "projectile",
-    castTime = 7.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = 7.0  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -616,7 +611,7 @@ Spells.forcebarrier = {
     id = "forcebarrier",
     name = "Force Barrier",
     description = "A protective barrier that blocks projectiles and zones",
-    castTime = 4.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     cost = {"force", "force"},
     keywords = {
@@ -636,7 +631,7 @@ Spells.moonward = {
     name = "Moon Ward",
     description = "A mystical ward that blocks projectiles and remotes",
     attackType = "utility",
-    castTime = 4.5,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "moon"},
     keywords = {
         block = {
@@ -747,11 +742,11 @@ Spells.shieldbreaker = {
 -- Zone spell with range anchoring
 Spells.eruption = {
     id = "eruption",
-    name = "Lava Eruption",
+    name = "Molten Ash",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
-    castTime = 7.0,
-    cost = {"fire", "fire", "nature"},
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {"fire", "fire", "salt"},
     keywords = {
         -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
         zoneAnchor = {

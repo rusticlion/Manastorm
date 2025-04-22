@@ -1,0 +1,1 @@
+* Zone spells not blocked by Barriers - found with Eruption vs. Wrap in Moonlight

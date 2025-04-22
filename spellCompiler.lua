@@ -43,6 +43,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Copy base spell properties
         id = spellDef.id,
         name = spellDef.name,
+        affinity = spellDef.affinity,
         description = spellDef.description,
         attackType = spellDef.attackType,
         castTime = spellDef.castTime,

@@ -16,11 +16,15 @@ function AssetPreloader.preloadAllAssets()
             "assets/sprites/token-lock.png",
             
             -- Elemental tokens
-            "assets/sprites/fire-token.png",
-            "assets/sprites/force-token.png", 
-            "assets/sprites/moon-token.png",
-            "assets/sprites/nature-token.png",
-            "assets/sprites/star-token.png",
+            "assets/sprites/v2Tokens/fire-token.png", 
+            "assets/sprites/v2Tokens/water-token.png",
+            "assets/sprites/v2Tokens/salt-token.png",
+            "assets/sprites/v2Tokens/sun-token.png",
+            "assets/sprites/v2Tokens/moon-token.png",
+            "assets/sprites/v2Tokens/star-token.png",
+            "assets/sprites/v2Tokens/life-token.png",
+            "assets/sprites/v2Tokens/mind-token.png",
+            "assets/sprites/v2Tokens/void-token.png",
             
             -- VFX assets
             "assets/sprites/fire-particle.png",

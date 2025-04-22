@@ -4,9 +4,9 @@
 -- List of patterns to search for in the codebase
 local magicStringPatterns = {
     -- Token Types
-    '"fire"', "'fire'", '"force"', "'force'",
-    '"moon"', "'moon'", '"nature"', "'nature'",
-    '"star"', "'star'", '"random"', "'random'",
+    '"fire"', "'fire'", '"water"', "'water'", '"salt"', "'salt'", '"sun"', "'sun'",
+    '"moon"', "'moon'", '"star"', "'star'", '"life"', "'life'", '"mind"', "'mind'", '"void"', "'void'",
+    '"random"', "'random'",
     '"any"', "'any'",
     
     -- Token States

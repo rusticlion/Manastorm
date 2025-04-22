@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Sun Apr 20 13:59:16 CDT 2025
+Generated: Mon Apr 21 17:59:49 CDT 2025
 
 # Source Code
 
@@ -223,10 +223,14 @@ local Constants = {}
 -- Token types (mana/resource types)
 Constants.TokenType = {
     FIRE = "fire",
-    FORCE = "force",
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     RANDOM = "random",   -- Special: used in spell costs to indicate any token
     ANY = "any"          -- Special: used in keywords for wildcard matching
 }
@@ -263,6 +267,49 @@ Constants.ElevationState = {
     AERIAL = "AERIAL"
 }
 
+-- Color Palette (RGBA, 0-1 range)
+Constants.Color = {
+    BLACK = {0, 0, 0, 1},                    -- #000000
+    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+}
+
+-- Default color for unknown types
+Constants.Color.DEFAULT = Constants.Color.SMOKE
+
+-- Helper function to get color based on token type
+-- Added mappings for types found in manapool.lua (Nature, Force)
+function Constants.getColorForTokenType(tokenType)
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
+    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
+    else
+        print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
+        return Constants.Color.DEFAULT
+    end
+end
+
 -- Shield types for blocking spells
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
@@ -276,6 +323,15 @@ Constants.AttackType = {
     REMOTE = "remote",          -- Magic directly affects target
     ZONE = "zone",              -- Area effect, position-dependent
     UTILITY = "utility"         -- Non-damaging effect
+}
+
+Constants.CastSpeed = {
+    VERY_SLOW = 13,
+    SLOW = 10,
+    NORMAL = 7,
+    FAST = 4,
+    VERY_FAST = 1,
+    ONE_TIER = 3
 }
 
 -- Target types for keywords
@@ -298,10 +354,14 @@ Constants.TargetType = {
 -- Damage types for spells
 Constants.DamageType = {
     FIRE = "fire",
-    FORCE = "force", 
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     GENERIC = "generic",
     MIXED = "mixed"
 }
@@ -342,10 +402,14 @@ end
 function Constants.getAllTokenTypes()
     return {
         Constants.TokenType.FIRE,
-        Constants.TokenType.FORCE,
+        Constants.TokenType.WATER,
+        Constants.TokenType.SALT,
+        Constants.TokenType.SUN,
         Constants.TokenType.MOON,
-        Constants.TokenType.NATURE,
-        Constants.TokenType.STAR
+        Constants.TokenType.STAR,
+        Constants.TokenType.LIFE,
+        Constants.TokenType.MIND,
+        Constants.TokenType.VOID
     }
 end
 
@@ -1146,11 +1210,15 @@ function AssetPreloader.preloadAllAssets()
             "assets/sprites/token-lock.png",
             
             -- Elemental tokens
-            "assets/sprites/fire-token.png",
-            "assets/sprites/force-token.png", 
-            "assets/sprites/moon-token.png",
-            "assets/sprites/nature-token.png",
-            "assets/sprites/star-token.png",
+            "assets/sprites/v2Tokens/fire-token.png", 
+            "assets/sprites/v2Tokens/water-token.png",
+            "assets/sprites/v2Tokens/salt-token.png",
+            "assets/sprites/v2Tokens/sun-token.png",
+            "assets/sprites/v2Tokens/moon-token.png",
+            "assets/sprites/v2Tokens/star-token.png",
+            "assets/sprites/v2Tokens/life-token.png",
+            "assets/sprites/v2Tokens/mind-token.png",
+            "assets/sprites/v2Tokens/void-token.png",
             
             -- VFX assets
             "assets/sprites/fire-particle.png",
@@ -1500,37 +1568,46 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local damageAmountFuncOrValue = params.amount or 0
-        local calculatedDamage = 0
-        local damageType = params.type or Constants.DamageType.GENERIC
-
-        if type(damageAmountFuncOrValue) == "function" then
-            -- It's a function, call it
-            local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-            local success, funcResult = pcall(function()
-                -- Call the function stored in damageAmountFuncOrValue
-                -- Pass caster, target, and the local slot index
-                return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-            end)
-
-            if success then
-                calculatedDamage = funcResult
-            else
-                print("Error evaluating damage function: " .. tostring(funcResult))
-                calculatedDamage = 0 -- Default on error
-            end
-        else
-            -- It's a static value
-            calculatedDamage = damageAmountFuncOrValue
+        local applyDamage = true
+        -- Check for conditional function
+        if params.condition and type(params.condition) == "function" then
+            applyDamage = params.condition(caster, target, results.currentSlot)
         end
 
-        -- Generate event
-        table.insert(events or {}, {
-            type = "DAMAGE", source = "caster", target = "enemy",
-            amount = calculatedDamage, damageType = damageType,
-            scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
-        })
+        -- Only generate event if condition passed (or no condition)
+        if applyDamage then
+            local damageAmountFuncOrValue = params.amount or 0
+            local calculatedDamage = 0
+            local damageType = params.type or Constants.DamageType.GENERIC
+
+            if type(damageAmountFuncOrValue) == "function" then
+                -- It's a function, call it
+                local currentSlotIndex = results.currentSlot -- Assign to local variable
+
+                local success, funcResult = pcall(function()
+                    -- Call the function stored in damageAmountFuncOrValue
+                    -- Pass caster, target, and the local slot index
+                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
+                end)
+
+                if success then
+                    calculatedDamage = funcResult
+                else
+                    print("Error evaluating damage function: " .. tostring(funcResult))
+                    calculatedDamage = 0 -- Default on error
+                end
+            else
+                -- It's a static value
+                calculatedDamage = damageAmountFuncOrValue
+            end
+
+            -- Generate event
+            table.insert(events or {}, {
+                type = "DAMAGE", source = "caster", target = "enemy",
+                amount = calculatedDamage, damageType = damageType,
+                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+            })
+        end
 
         -- Keep legacy results for now (might still be used elsewhere)
         -- results.damage = calculatedDamage 
@@ -1729,27 +1806,43 @@ Keywords.conjure = {
         defaultAmount = 1
     },
     
-    -- Implementation function - Generates CONJURE_TOKEN event(s)
+    -- Implementation function
     execute = function(params, caster, target, results, events)
-        local tokenTypeOrFunc = params.token or "fire"
+        local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
-        
-        for i = 1, amount do
-            local finalTokenType = tokenTypeOrFunc
-            -- Resolve token type if it's a function
-            if type(tokenTypeOrFunc) == "function" then
-                finalTokenType = tokenTypeOrFunc(caster, target)
+        local targetPool = params.target or "POOL_SELF" -- Default target pool
+
+        events = events or {} -- Ensure events table exists
+
+        if type(tokenTypeParam) == "table" then
+            -- Handle array of token types
+            for _, specificTokenType in ipairs(tokenTypeParam) do
+                for i = 1, amount do -- Assuming amount applies per token type
+                    table.insert(events, {
+                        type = "CONJURE_TOKEN",
+                        source = "caster",
+                        target = targetPool,
+                        tokenType = specificTokenType,
+                        amount = 1 -- Conjure one of this specific type
+                    })
+                end
             end
-            
-            table.insert(events or {}, {
-                type = "CONJURE_TOKEN",
-                source = "caster",
-                target = "pool", -- Target the shared pool
-                tokenType = finalTokenType,
-                amount = 1 -- Generate one event per token
-            })
+        elseif type(tokenTypeParam) == "string" then
+             -- Handle single token type string (original behavior)
+             for i = 1, amount do
+                 table.insert(events, {
+                     type = "CONJURE_TOKEN",
+                     source = "caster",
+                     target = targetPool,
+                     tokenType = tokenTypeParam,
+                     amount = 1 -- Conjure one of this specific type
+                 })
+             end
+        else
+            print("WARN: Conjure keyword received unexpected token type: " .. type(tokenTypeParam))
         end
         
+        -- Event-based system, no direct modification or legacy results needed
         return results
     end
 }
@@ -1792,7 +1885,7 @@ Keywords.tokenShift = {
         -- Default parameters
         defaultTokenType = "fire",
         defaultAmount = 1,
-        supportedTypes = {"fire", "force", "moon", "nature", "star", "random"}
+        supportedTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void", "random"}
     },
     
     -- Implementation function - Generates SHIFT_TOKEN event
@@ -2206,17 +2299,25 @@ game = {
 -- Define token types and images (globally available for consistency)
 game.tokenTypes = {
     Constants.TokenType.FIRE, 
-    Constants.TokenType.FORCE, 
+    Constants.TokenType.WATER, 
+    Constants.TokenType.SALT, 
+    Constants.TokenType.SUN, 
     Constants.TokenType.MOON, 
-    Constants.TokenType.NATURE, 
-    Constants.TokenType.STAR
+    Constants.TokenType.STAR,
+    Constants.TokenType.LIFE,
+    Constants.TokenType.MIND,
+    Constants.TokenType.VOID
 }
 game.tokenImages = {
-    [Constants.TokenType.FIRE] = "assets/sprites/fire-token.png",
-    [Constants.TokenType.FORCE] = "assets/sprites/force-token.png",
-    [Constants.TokenType.MOON] = "assets/sprites/moon-token.png",
-    [Constants.TokenType.NATURE] = "assets/sprites/nature-token.png",
-    [Constants.TokenType.STAR] = "assets/sprites/star-token.png"
+    [Constants.TokenType.FIRE] = "assets/sprites/v2Tokens/fire-token.png",
+    [Constants.TokenType.WATER] = "assets/sprites/v2Tokens/water-token.png",
+    [Constants.TokenType.SALT] = "assets/sprites/v2Tokens/salt-token.png",
+    [Constants.TokenType.SUN] = "assets/sprites/v2Tokens/sun-token.png",
+    [Constants.TokenType.MOON] = "assets/sprites/v2Tokens/moon-token.png",
+    [Constants.TokenType.STAR] = "assets/sprites/v2Tokens/star-token.png",
+    [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
+    [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
+    [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
 }
 
 -- Helper function to add a random token to the mana pool
@@ -2506,8 +2607,10 @@ function resetGame()
         wizard.statusEffects.burn.totalTime = 0
         
         -- Reset blockers
-        for blockType in pairs(wizard.blockers) do
-            wizard.blockers[blockType] = 0
+        if wizard.blockers then
+            for blockType in pairs(wizard.blockers) do
+                wizard.blockers[blockType] = 0
+            end
         end
         
         -- Reset spell keying
@@ -2956,19 +3059,6 @@ function TokenMethods:setState(newStatus)
     -- Update the token's status
     self.status = newStatus
     
-    -- For backwards compatibility, keep the legacy state in sync with the new status
-    if newStatus == Constants.TokenStatus.FREE or 
-       newStatus == Constants.TokenStatus.CHANNELED or 
-       newStatus == Constants.TokenStatus.SHIELDING then
-        self.state = newStatus
-    elseif newStatus == Constants.TokenStatus.RETURNING then
-        self.state = self.originalStatus -- Keep original state during animation
-    elseif newStatus == Constants.TokenStatus.DISSOLVING then
-        self.state = Constants.TokenState.DESTROYED
-    elseif newStatus == Constants.TokenStatus.POOLED then
-        self.state = Constants.TokenState.DESTROYED
-    end
-    
     return true
 end
 
@@ -2985,7 +3075,6 @@ function TokenMethods:requestReturnAnimation()
     
     -- Set animation flags
     self.isAnimating = true
-    self.returning = true  -- For backward compatibility
     
     -- Set animation parameters
     self.startX = self.x
@@ -3012,7 +3101,6 @@ function TokenMethods:requestDestructionAnimation()
     
     -- Set animation flags
     self.isAnimating = true
-    self.dissolving = true  -- For backward compatibility
     
     -- Set animation parameters
     self.dissolveTime = 0
@@ -3031,24 +3119,14 @@ function TokenMethods:requestDestructionAnimation()
     if not self.exploding and self.gameState and self.gameState.vfx then
         self.exploding = true
         
+        -- TODO: Deprecate in favor of new tokens + "Visual Language" Consts/Type
         -- Get token color based on its type
-        local color = {1, 0.6, 0.2, 0.8}  -- Default orange
-        if self.type == "fire" then
-            color = {1, 0.3, 0.1, 0.8}
-        elseif self.type == "force" then
-            color = {1, 0.9, 0.3, 0.8}
-        elseif self.type == "moon" then
-            color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
-        elseif self.type == "nature" then
-            color = {0.2, 0.9, 0.1, 0.8}
-        elseif self.type == "star" then
-            color = {1, 0.8, 0.2, 0.8}
-        end
+        local colorTable = Constants.getColorForTokenType(self.type)
         
         -- Create destruction visual effect
         self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
             duration = 0.7,
-            color = color,
+            color = colorTable, -- Use the constant color table
             particleCount = 15,
             radius = 30
         })
@@ -3067,7 +3145,6 @@ function TokenMethods:finalizeReturn()
     
     -- Reset animation flags
     self.isAnimating = false
-    self.returning = false  -- For backward compatibility
     
     -- Clear wizard/spell references
     self.wizardOwner = nil
@@ -3149,7 +3226,6 @@ function TokenMethods:finalizeDestruction()
     
     -- Reset animation flags
     self.isAnimating = false
-    self.dissolving = false  -- For backward compatibility
     
     -- Set new state
     self:setState(Constants.TokenStatus.POOLED)
@@ -3197,11 +3273,9 @@ function ManaPool.resetToken(token)
     token.image = nil
     token.x = nil
     token.y = nil
-    token.state = nil
     token.status = nil  -- New field for the state machine
     token.isAnimating = nil  -- New field to track animation state
     token.animationCallback = nil  -- New field for animation completion callback
-    token.originalStatus = nil  -- To store the state before transitions
     token.valenceIndex = nil
     token.orbitAngle = nil
     token.orbitSpeed = nil
@@ -3226,13 +3300,11 @@ function ManaPool.resetToken(token)
     token.originalSpeed = nil
     token.wizardOwner = nil
     token.spellSlot = nil
-    token.dissolving = nil
     token.gameState = nil
     token.manaPool = nil  -- New field to reference the mana pool
     token.id = nil  -- New field for tracking tokens
     
     -- Clear animation-related fields
-    token.returning = nil
     token.animTime = nil
     token.animDuration = nil
     token.startX = nil
@@ -3243,7 +3315,6 @@ function ManaPool.resetToken(token)
     token.inTransition = nil
     token.transitionTime = nil
     token.transitionDuration = nil
-    token.originalState = nil
     token.dissolveTime = nil
     token.dissolveMaxTime = nil
     token.dissolveScale = nil
@@ -3312,7 +3383,6 @@ function ManaPool:addToken(tokenType, imagePath)
     
     -- Initialize state machine properties
     token.status = Constants.TokenStatus.FREE  -- New state machine status
-    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
     token.isAnimating = false
     token.manaPool = self  -- Reference to this mana pool instance
     token.id = #self.tokens + 1  -- Simple ID based on token position
@@ -3708,17 +3778,8 @@ function ManaPool:draw()
             end
             
             -- Set glow color based on token type with improved contrast and vibrancy
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, layerIntensity)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, layerIntensity)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.4, 0.4, 1, layerIntensity)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, layerIntensity)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, layerIntensity)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], layerIntensity)
             
             -- Draw glow with pulsation
             local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
@@ -3741,17 +3802,8 @@ function ManaPool:draw()
             local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
             
             -- Set ring color based on token type
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.5, 0.2, ringAlpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 1, 0.4, ringAlpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.6, 0.6, 1, ringAlpha)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.3, 1, 0.2, ringAlpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.9, 0.3, ringAlpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], ringAlpha)
             
             love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
@@ -3762,17 +3814,8 @@ function ManaPool:draw()
             local trailAlpha = 0.6 * (1 - progress)
             
             -- Set trail color based on token type
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, trailAlpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, trailAlpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.4, 0.4, 1, trailAlpha)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, trailAlpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, trailAlpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
             
             -- Draw the trail as small circles along the bezier path
             local numTrailPoints = 6
@@ -3819,15 +3862,9 @@ function ManaPool:draw()
             love.graphics.setColor(1, 1, 1, 1)
         elseif token.status == Constants.TokenStatus.SHIELDING then
             -- Shielding tokens have a slight colored tint based on their type
-            if token.type == "force" then
-                love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
-            elseif token.type == "moon" or token.type == "star" then
-                love.graphics.setColor(0.8, 0.8, 1, 1)  -- Blue tint for moon/star (ward)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.8, 1, 0.8, 1)  -- Green tint for nature (field)
-            else
-                love.graphics.setColor(1, 1, 1, 1)  -- Default
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            -- Use the color from Constants, but keep alpha = 1 for the tint
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 1)
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Returning tokens have a bright, energetic glow
             local returnGlow = 0.3 + 0.7 * math.sin(token.animTime * 15)
@@ -3841,29 +3878,10 @@ function ManaPool:draw()
             local alpha = (1 - progress) * 0.8
             
             -- Get token color based on its type for the fade effect
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, alpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, alpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, alpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, alpha)
-            else
-                love.graphics.setColor(1, 1, 1, alpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], alpha)
         else
-            -- For legacy compatibility - handle any other states (like "DESTROYED")
-            -- Check for dissolving flag for backwards compatibility
-            if token.dissolving then
-                local progress = token.dissolveTime / token.dissolveMaxTime
-                local alpha = (1 - progress) * 0.8
-                love.graphics.setColor(1, 1, 1, alpha)
-            else
-                love.graphics.setColor(1, 1, 1, 1)
-            end
+            love.graphics.setColor(1, 1, 1, 1) -- Default color if state is unknown (should not happen)
         end
         
         -- Draw the token with dynamic scaling
@@ -3904,28 +3922,16 @@ function ManaPool:draw()
             -- Draw shield effect for shielding tokens
             if token.status == Constants.TokenStatus.SHIELDING then
                 -- Get token color based on its mana type
-                local tokenColor = {1, 1, 1, 0.3}  -- Default white
-                
-                -- Match color to the token type
-                if token.type == "fire" then
-                    tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
-                elseif token.type == "force" then
-                    tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
-                elseif token.type == "moon" then
-                    tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
-                elseif token.type == "star" then
-                    tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
-                elseif token.type == "nature" then
-                    tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
-                end
+                local colorTable = Constants.getColorForTokenType(token.type)
+                local shieldBaseAlpha = 0.3 -- Keep the original base alpha
                 
                 -- Draw a subtle shield aura with slight pulsation
                 local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
-                love.graphics.setColor(tokenColor)
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], shieldBaseAlpha)
                 love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
                 
                 -- Draw shield border
-                love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.5) -- Keep original border alpha
                 love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
                 
                 -- Add a small defensive shield symbol inside the circle
@@ -4005,30 +4011,10 @@ end
 function ManaPool:getToken(tokenType)
     -- Find a free token of the specified type that's not in transition
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.status == Constants.TokenStatus.FREE and
-           not token.returning and not token.inTransition then
+        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
             -- Mark as being used (using setState for state machine)
             token:setState(Constants.TokenStatus.CHANNELED)
             return token, i  -- Return token and its index
-        end
-    end
-    
-    -- Second pass - try with less strict requirements if nothing was found
-    for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
-            if token.returning then
-                print("[MANAPOOL] WARNING: Using token in return animation - visual glitches may occur")
-            elseif token.inTransition then
-                print("[MANAPOOL] WARNING: Using token in transition state - visual glitches may occur")
-            end
-            
-            -- Use setState method for state machine transition
-            token:setState(Constants.TokenStatus.CHANNELED)
-            
-            -- Cancel any return animation
-            token.returning = false
-            token.inTransition = false
-            return token, i
         end
     end
     
@@ -4160,6 +4146,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Create empty behavior table to store merged behavior data
         behavior = {}
     }
+    
+    -- >>> ADDED: Also copy the getCastTime function if it exists
+    if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
+        compiledSpell.getCastTime = spellDef.getCastTime
+    end
     
     -- Process keywords if they exist
     if spellDef.keywords then
@@ -4592,7 +4583,7 @@ Spells.conjurefire = {
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -4606,7 +4597,7 @@ Spells.conjurefire = {
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         
         -- Count fire tokens in the mana pool
         local fireCount = 0
@@ -4616,10 +4607,12 @@ Spells.conjurefire = {
                     fireCount = fireCount + 1
                 end
             end
+        else
+            print("WARN: ConjureFire getCastTime - caster.manaPool is nil!")
         end
         
         -- Increase cast time by 5 seconds per existing fire token
-        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        local adjustedCastTime = baseCastTime + (fireCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -4629,7 +4622,7 @@ Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     description = "Quick ranged hit, more damage against AERIAL opponents",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "projectile",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
@@ -4652,21 +4645,24 @@ Spells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
-    castTime = 8.0,
+    castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE, Constants.TokenType.STAR},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.SALT, Constants.TokenType.SUN},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.GROUNDED and 20 or 0
-                end
-                return 0 -- Default damage if target is nil
-            end,
-            type = Constants.DamageType.FIRE
+            amount = 20,
+            type = Constants.DamageType.FIRE,
+            condition = function(caster, target, slot)
+                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
+                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
+                return casterIsAerial and targetIsGrounded
+            end
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
+        },
+        ground = {
+            target = Constants.TargetType.SELF 
         }
     },
     vfx = "meteor_dive",
@@ -4677,28 +4673,28 @@ Spells.meteor = {
 Spells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
-    description = "Disrupts opponent channeling, converting one token to Fire",
-    castTime = 6.0,
+    description = "Disrupts opponent channeling, burning one token to Salt",
+    castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
-            targetType = "fire"
+            targetType = "salt"
         }
     },
     vfx = "combust_lock",
 }
 
-Spells.conjureforce = {
-    id = "conjureforce",
-    name = "Conjure Force",
-    description = "Creates a new Force mana token",
+Spells.conjuresalt = {
+    id = "conjuresalt",
+    name = "Conjure Salt",
+    description = "Creates a new Salt mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
-            token = Constants.TokenType.FORCE,
+            token = Constants.TokenType.SALT,
             amount = 1
         }
     },
@@ -4706,16 +4702,16 @@ Spells.conjureforce = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
-        local forceCount = 0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
+        local saltCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == Constants.TokenType.FORCE and token.state == Constants.TokenState.FREE then
-                    forceCount = forceCount + 1
+                if token.type == Constants.TokenType.SALT and token.state == Constants.TokenState.FREE then
+                    saltCount = saltCount + 1
                 end
             end
         end
-        return baseCastTime + (forceCount * 5.0)
+        return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
 
@@ -4723,9 +4719,9 @@ Spells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     description = "Launches caster into the air and increases range",
-    castTime = 2.5,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
-    cost = {"fire", "force"},
+    cost = {"sun"},
     keywords = {
         elevate = {
             duration = 5.0,
@@ -4747,7 +4743,7 @@ Spells.conjuremoonlight = {
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
     attackType = "utility",
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -4761,7 +4757,7 @@ Spells.conjuremoonlight = {
     -- Custom cast time calculation based on existing moon tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         
         -- Count moon tokens in the mana pool
         local moonCount = 0
@@ -4774,7 +4770,7 @@ Spells.conjuremoonlight = {
         end
         
         -- Increase cast time by 5 seconds per existing moon token
-        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        local adjustedCastTime = baseCastTime + (moonCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -4785,7 +4781,7 @@ Spells.conjurestars = {
     name = "Conjure Stars",
     description = "Creates a new Star mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
@@ -4797,7 +4793,7 @@ Spells.conjurestars = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         local starCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
@@ -4806,46 +4802,66 @@ Spells.conjurestars = {
                 end
             end
         end
-        return baseCastTime + (starCount * 5.0)
+        return baseCastTime + (starCount * Constants.CastSpeed.ONE_TIER)
     end
 }
 
-Spells.volatileconjuring = {
-    id = "volatileconjuring",
-    name = "Volatile Conjuring",
-    description = "Creates a random mana token",
-    attackType = "utility",
-    castTime = 5.0,  -- Fixed cast time of 5 seconds
-    cost = {},  -- No mana cost
+-- Nova Conjuring (Fire, Force, Star)
+Spells.novaconjuring = {
+    id = "novaconjuring",
+    name = "Nova Conjuring",
+    description = "Conjures SUN tokens with FIRE and SALT.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
+    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
     keywords = {
         conjure = {
-            token = function(caster, target)
-                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
-                local randomIndex = math.random(#tokenTypes)
-                local selectedToken = tokenTypes[randomIndex]
-                print(caster.name .. " conjured a random " .. selectedToken .. " token")
-                return selectedToken
-            end,
-            amount = 1
+            token = { 
+                Constants.TokenType.FIRE, 
+                Constants.TokenType.SUN,
+            },
+            amount = 1 -- Conjures 2 of each listed type
         }
     },
-    vfx = "volatile_conjure",
+    vfx = "nova_conjure",
+    sfx = "conjure_nova",
     blockableBy = {}  -- Unblockable
 }
 
-Spells.mist = {
-    id = "mist",
-    name = "Mist Veil",
-    description = "A ward of mist that blocks projectiles and remotes",
+-- Witch Conjuring (Moon, Force, Nature)
+Spells.witchconjuring = {
+    id = "witchconjuring",
+    name = "Witch Conjuring",
+    description = "Conjures WATER, MOON, and LIFE tokens.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.SLOW,  -- Fixed cast time
+    cost = {"moon", "moon", "moon"},  -- Needs some basic moon
+    keywords = {
+        conjure = {
+            token = { 
+                Constants.TokenType.WATER, 
+                Constants.TokenType.MOON, 
+                Constants.TokenType.LIFE 
+            },
+            amount = 1 -- Conjures 1 of each listed type
+        }
+    },
+    vfx = "witch_conjure",
+    sfx = "conjure_witch",
+    blockableBy = {}  -- Unblockable
+}
+
+Spells.wrapinmoonlight = {
+    id = "wrapinmoonlight",
+    name = "Wrap in Moonlight",
+    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
     attackType = "utility",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.VERY_FAST,
     cost = {"moon", "moon"},
     keywords = {
         block = {
-            type = "ward",
-            blocks = {"projectile", "remote"},
-            -- All shields are mana-linked now (consume tokens when blocking)
-            -- Token count is the source of truth for shield strength
+            type = "barrier",
+            blocks = {"projectile", "zone"},
         },
         elevate = {
             duration = 4.0
@@ -4864,8 +4880,8 @@ Spells.tidalforce = {
     name = "Tidal Force",
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = "remote",
-    castTime = 5.0,
-    cost = {"moon", "any"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"water", "moon"},
     keywords = {
         damage = {
             amount = 5,
@@ -4890,7 +4906,7 @@ Spells.lunardisjunction = {
     name = "Lunar Disjunction",
     description = "Counterspell, cancels an opponent's spell and destroys its mana",
     attackType = "projectile",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "any"},
     keywords = {
         disjoint = {
@@ -4948,14 +4964,14 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Echo",
-    description = "Halts the caster's channeled spell in slot 2", -- Simplified description
+    name = "Eclipse Pause",
+    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
     attackType = "utility", 
-    castTime = 2.5,
-    cost = {"moon", "force"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"moon", "moon"},
     keywords = {
         freeze = {
-            duration = 5.0,
+            duration = Constants.CastSpeed.ONE_TIER,
             target = "self" -- Explicitly target the caster
         }
         -- Removed damage and cancelSpell keywords
@@ -4970,12 +4986,12 @@ Spells.fullmoonbeam = {
     name = "Full Moon Beam",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = "projectile",
-    castTime = 7.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = 7.0  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -5019,7 +5035,7 @@ Spells.forcebarrier = {
     id = "forcebarrier",
     name = "Force Barrier",
     description = "A protective barrier that blocks projectiles and zones",
-    castTime = 4.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     cost = {"force", "force"},
     keywords = {
@@ -5039,7 +5055,7 @@ Spells.moonward = {
     name = "Moon Ward",
     description = "A mystical ward that blocks projectiles and remotes",
     attackType = "utility",
-    castTime = 4.5,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "moon"},
     keywords = {
         block = {
@@ -5150,11 +5166,11 @@ Spells.shieldbreaker = {
 -- Zone spell with range anchoring
 Spells.eruption = {
     id = "eruption",
-    name = "Lava Eruption",
+    name = "Molten Ash",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
-    castTime = 7.0,
-    cost = {"fire", "fire", "nature"},
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {"fire", "fire", "salt"},
     keywords = {
         -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
         zoneAnchor = {
@@ -5979,7 +5995,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Add tokens to the mana pool
         for i = 1, event.amount do
-            local assetPath = "assets/sprites/" .. event.tokenType .. "-token.png"
+            local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
             manaPool:addToken(event.tokenType, assetPath)
             results.tokensAffected = results.tokensAffected + 1
         end
@@ -6030,7 +6046,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Handle random token shifting
         if event.tokenType == "random" then
-            local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+            local tokenTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void"}
             
             -- Find FREE tokens and shift them to random types
             for i, token in ipairs(manaPool.tokens) do
@@ -6042,7 +6058,7 @@ EventRunner.EVENT_HANDLERS = {
                     -- Only change if it's a different type
                     if randomType ~= oldType then
                         token.type = randomType
-                        token.image = love.graphics.newImage("assets/sprites/" .. randomType .. "-token.png")
+                        token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. randomType .. "-token.png")
                         tokensShifted = tokensShifted + 1
                         results.tokensAffected = results.tokensAffected + 1
                     end
@@ -6058,7 +6074,7 @@ EventRunner.EVENT_HANDLERS = {
             for i, token in ipairs(manaPool.tokens) do
                 if token.state == "FREE" and token.type ~= event.tokenType then
                     token.type = event.tokenType
-                    token.image = love.graphics.newImage("assets/sprites/" .. event.tokenType .. "-token.png")
+                    token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png")
                     tokensShifted = tokensShifted + 1
                     results.tokensAffected = results.tokensAffected + 1
                     
@@ -6392,7 +6408,7 @@ EventRunner.EVENT_HANDLERS = {
             local newType = event.newType or "fire"
             local oldType = removedTokenObject.type
             removedTokenObject.type = newType
-            removedTokenObject.image = love.graphics.newImage("assets/sprites/" .. newType .. "-token.png")
+            removedTokenObject.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. newType .. "-token.png")
             results.tokensAffected = (results.tokensAffected or 0) + 1
             
             -- Request token return animation
@@ -7199,12 +7215,7 @@ function TokenManager.positionTokensInSpellSlot(wizard, slotIndex, tokens)
         token.radiusY = verticalRadii[slotIndex]
         
         -- Set proper token state
-        if token.setState then
-            token:setState(Constants.TokenStatus.CHANNELED)
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.CHANNELED
-        end
+        token:setState(Constants.TokenStatus.CHANNELED)
         
         ::continue_token::
     end
@@ -7252,12 +7263,7 @@ function TokenManager.markTokensAsShielding(tokens)
         end
         
         -- Set proper token state using state machine if available
-        if token.setState then
-            token:setState(Constants.TokenStatus.SHIELDING)
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.SHIELDING
-        end
+        token:setState(Constants.TokenStatus.SHIELDING)
         
         -- Clear the willBecomeShield flag since it's now a shield
         token.willBecomeShield = nil
@@ -7284,20 +7290,7 @@ function TokenManager.returnTokensToPool(tokens)
         end
         
         -- Use token state machine if available
-        if token.requestReturnAnimation then
-            token:requestReturnAnimation()
-        else
-            -- Fallback for backward compatibility
-            token.returning = true
-            token.startX = token.x
-            token.startY = token.y
-            token.animTime = 0
-            token.animDuration = 0.5
-            
-            -- Clear references
-            token.wizardOwner = nil
-            token.spellSlot = nil
-        end
+        token:requestReturnAnimation()
         
         ::continue_token::
     end
@@ -7321,12 +7314,7 @@ function TokenManager.destroyTokens(tokens)
         end
         
         -- Use token state machine if available
-        if token.requestDestructionAnimation then
-            token:requestDestructionAnimation()
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.DESTROYED
-        end
+        token:requestDestructionAnimation()
         
         ::continue_token::
     end
@@ -7435,14 +7423,8 @@ function TokenManager.validateTokenState(token, expectedState)
     end
     
     -- Check state using the new status field if available
-    if token.status then
-        return token.status == expectedState, 
-               "Token state is " .. token.status .. ", expected " .. expectedState
-    else
-        -- Fallback to checking the legacy state field
-        return token.state == expectedState,
-               "Token state is " .. (token.state or "nil") .. ", expected " .. expectedState
-    end
+    return token.status == expectedState, 
+           "Token state is " .. token.status .. ", expected " .. expectedState
 end
 
 return TokenManager```
@@ -7969,7 +7951,7 @@ function WizardVisuals.drawWizard(wizard)
                 love.graphics.ellipse(
                     "fill", 
                     wizard.x + xOffset + cloudOffset, 
-                    wizard.y + 30, 
+                    wizard.y + yOffset + 30, -- Add yOffset here
                     45 + i * 5, 
                     10
                 )
@@ -7983,8 +7965,8 @@ function WizardVisuals.drawWizard(wizard)
             wizard.x + xOffset, 
             wizard.y + yOffset, 
             0, -- No rotation
-            adjustedScale, 
-            wizard.scale, 
+            adjustedScale * 2, -- Double scale
+            wizard.scale * 2, -- Double scale
             wizard.sprite:getWidth() / 2, 
             wizard.sprite:getHeight() / 2
         )
@@ -8051,9 +8033,9 @@ return WizardVisuals```
 -- List of patterns to search for in the codebase
 local magicStringPatterns = {
     -- Token Types
-    '"fire"', "'fire'", '"force"', "'force'",
-    '"moon"', "'moon'", '"nature"', "'nature'",
-    '"star"', "'star'", '"random"', "'random'",
+    '"fire"', "'fire'", '"water"', "'water'", '"salt"', "'salt'", '"sun"', "'sun'",
+    '"moon"', "'moon'", '"star"', "'star'", '"life"', "'life'", '"mind"', "'mind'", '"void"', "'void'",
+    '"random"', "'random'",
     '"any"', "'any'",
     
     -- Token States
@@ -9103,6 +9085,7 @@ VFX.__index = VFX
 
 -- Import pool module
 local Pool = require("core.Pool")
+local Constants = require("core.Constants")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -9141,7 +9124,7 @@ function VFX.init()
             particleCount = 15,
             startScale = 0.8,
             endScale = 0.2,
-            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            color = Constants.Color.SMOKE,  -- Default white -> SMOKE
             radius = 30,
             sound = nil  -- No default sound
         },
@@ -9153,7 +9136,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            color = Constants.Color.OCEAN,  -- Blue-ish for water/tidal theme
             radius = 80,
             sound = "tidal_wave"
         },
@@ -9165,7 +9148,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
             radius = 70,
             sound = "gravity_slam"
         },
@@ -9176,7 +9159,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.5,
-            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            color = Constants.Color.YELLOW,  -- Blue-ish for force theme -> YELLOW
             radius = 90,
             sound = "force_wind"
         },
@@ -9188,7 +9171,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            color = Constants.Color.SKY,  -- Bright blue for freeing mana -> SKY
             radius = 100,
             pulseRate = 4,
             sound = "release"
@@ -9201,7 +9184,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.5,
             endScale = 1.0,
-            color = {1, 0.5, 0.2, 1},
+            color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
             trailLength = 12,
             impactSize = 1.4,
             sound = "firebolt"
@@ -9214,7 +9197,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 2.0,
             endScale = 0.5,
-            color = {1, 0.4, 0.1, 1},
+            color = Constants.Color.OCHRE, -- {1, 0.4, 0.1, 1}
             radius = 120,
             sound = "meteor"
         },
@@ -9226,7 +9209,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.2,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.7},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
             radius = 80,
             pulseRate = 2,
             sound = "mist"
@@ -9239,7 +9222,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.1,
-            color = {1, 0.6, 0.2, 0.8},
+            color = Constants.Color.ORANGE, -- {1, 0.6, 0.2, 0.8}
             height = 100,
             sound = "whoosh"
         },
@@ -9251,7 +9234,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.4,
             endScale = 0.2,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            color = Constants.Color.YELLOW,  -- Blue-ish for force -> YELLOW
             height = 120,
             sound = "force_wind"
         },
@@ -9264,7 +9247,7 @@ function VFX.init()
             beamWidth = 40,
             startScale = 0.2,
             endScale = 1.0,
-            color = {0.8, 0.8, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.8, 0.8, 1.0, 0.9}
             pulseRate = 3,
             sound = "moonbeam"
         },
@@ -9276,7 +9259,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            color = Constants.Color.OCEAN, -- {0.3, 0.5, 1.0, 0.8} -> Blue-ish for water theme
             trailLength = 15,
             impactSize = 1.6,
             sound = "tidal_wave"
@@ -9289,7 +9272,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.6,
-            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            color = Constants.Color.PINK, -- {0.8, 0.6, 1.0, 0.9} -> Purple-blue for moon/cosmic theme -> PINK
             trailLength = 10,
             impactSize = 1.8,  -- Bigger impact
             sound = "lunar_disrupt"
@@ -9302,7 +9285,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            color = Constants.Color.PINK, -- {0.9, 0.5, 1.0, 0.9} -> Brighter purple for disruption -> PINK
             radius = 70,
             sound = "lunar_disrupt"
         },
@@ -9314,7 +9297,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {1.0, 0.5, 0.2, 0.9},
+            color = Constants.Color.ORANGE, -- {1.0, 0.5, 0.2, 0.9}
             height = 140,  -- Height to rise toward mana pool
             spreadRadius = 40, -- Initial spread around the caster
             sound = "conjure"
@@ -9327,7 +9310,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.9}
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -9340,7 +9323,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.9}, -- Blue-ish
+            color = Constants.Color.YELLOW, -- {0.3, 0.5, 1.0, 0.9} -> Blue-ish -> YELLOW
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -9353,7 +9336,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.9, 0.9, 0.2, 0.9}, -- Yellow-ish
+            color = Constants.Color.BONE, -- {0.9, 0.9, 0.2, 0.9} -> Yellow-ish -> BONE
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -9366,10 +9349,36 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.2,
             endScale = 0.6,
-            color = {1.0, 1.0, 0.5, 0.9},  -- Yellow base color, will be randomized
+            color = Constants.Color.YELLOW,  -- Yellow base color, will be randomized
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
+        },
+        
+        -- Nova Conjuring effect (Fire, Force, Star)
+        nova_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.ORANGE, -- Mixed color base (orange/gold) -> ORANGE
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_nova" -- Assumed sound effect
+        },
+
+        -- Witch Conjuring effect (Moon, Force, Nature)
+        witch_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.MAROON, -- Mixed color base (purple/indigo) -> MAROON
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_witch" -- Assumed sound effect
         },
         
         -- Shield effect (used for barrier, ward, and field shield activation)
@@ -9379,7 +9388,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            color = Constants.Color.SKY,  -- Default blue-ish -> SKY
             radius = 60,
             pulseRate = 3,
             sound = "shield"
@@ -10040,7 +10049,7 @@ function VFX.drawProjectile(effect)
     local glowImage = VFX.assets.fireGlow
     
     -- Draw trail
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     if #effect.trailPoints >= 3 then
         local points = {}
         for i, point in ipairs(effect.trailPoints) do
@@ -10055,7 +10064,7 @@ function VFX.drawProjectile(effect)
     -- Draw glow at head of projectile
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
         local glowScale = effect.startScale * 3
         love.graphics.draw(
             glowImage,
@@ -10069,7 +10078,7 @@ function VFX.drawProjectile(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -10084,7 +10093,7 @@ function VFX.drawProjectile(effect)
     if effect.progress > 0.95 then
         local flashIntensity = (1 - (effect.progress - 0.95) * 20) -- Flash quickly fades
         if flashIntensity > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity) -- Use base color, apply flash alpha
             love.graphics.circle("fill", effect.targetX, effect.targetY, effect.impactSize * 30 * (1 - flashIntensity))
         end
     end
@@ -10097,7 +10106,7 @@ function VFX.drawImpact(effect)
     
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress) * effect.color[4])
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress)) -- Use base color, apply ring alpha
     local ringScale = effect.radius * 0.02 * ringProgress
     love.graphics.draw(
         impactImage,
@@ -10110,7 +10119,7 @@ function VFX.drawImpact(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -10144,7 +10153,7 @@ function VFX.drawAura(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -10170,7 +10179,7 @@ function VFX.drawVertical(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -10208,17 +10217,17 @@ function VFX.drawBeam(effect)
     local beamWidth = effect.beamWidth * (1 + pulseAmount) * (1 - (effect.progress > 0.5 and (effect.progress - 0.5) * 2 or 0))
     
     -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 1.5)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw inner beam core
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7) -- Use base color (brightened), apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 0.7)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw brightest beam center
-    love.graphics.setColor(1, 1, 1, effect.color[4] * 0.9)
+    love.graphics.setColor(1, 1, 1, 0.9) -- Keep white center for now
     love.graphics.setLineWidth(beamWidth * 0.3)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
@@ -10228,7 +10237,7 @@ function VFX.drawBeam(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -10240,12 +10249,12 @@ function VFX.drawBeam(effect)
     end
     
     -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
     love.graphics.circle("fill", effect.sourceX, effect.sourceY, 20 * (1 + pulseAmount))
     
     -- Draw impact glow at target if beam is fully extended
     if effect.beamProgress >= 0.99 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.8 * (1 - (effect.progress - 0.5) * 2))
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * (1 - (effect.progress - 0.5) * 2)) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", beamEndX, beamEndY, 25 * (1 + pulseAmount))
     end
 end
@@ -10257,7 +10266,7 @@ function VFX.drawConjure(effect)
     
     -- Draw source glow if active
     if effect.sourceGlow and effect.sourceGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.sourceGlow * 0.6)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.sourceGlow * 0.6) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.sourceX, effect.sourceY, 50 * effect.sourceGlow)
         
         -- Draw expanding rings from source (hint at conjuration happening)
@@ -10267,7 +10276,7 @@ function VFX.drawConjure(effect)
             if ringProgress < 1.0 then
                 local ringSize = 60 * ringProgress
                 local ringAlpha = 0.5 * (1.0 - ringProgress) * effect.sourceGlow
-                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha)
+                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha) -- Use base color, apply calculated alpha
                 love.graphics.circle("line", effect.sourceX, effect.sourceY, ringSize)
             end
         end
@@ -10275,7 +10284,7 @@ function VFX.drawConjure(effect)
     
     -- Draw mana pool glow if active
     if effect.poolGlow and effect.poolGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.poolGlow * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.poolGlow * 0.7) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.manaPoolX, effect.manaPoolY, 40 * effect.poolGlow)
     end
     
@@ -10292,7 +10301,7 @@ function VFX.drawConjure(effect)
                     effect.color[1] * 1.3, 
                     effect.color[2] * 1.3, 
                     effect.color[3] * 1.3, 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color (brightened), apply particle alpha
                 )
                 imgToDraw = glowImage
             else
@@ -10300,7 +10309,7 @@ function VFX.drawConjure(effect)
                     effect.color[1], 
                     effect.color[2], 
                     effect.color[3], 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color, apply particle alpha
                 )
             end
             
@@ -10334,7 +10343,7 @@ function VFX.drawConjure(effect)
     
     -- Draw connection lines between particles (ethereal threads)
     if effect.progress < 0.7 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.2)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.2) -- Use base color, apply fixed alpha
         
         local maxConnectDist = 50  -- Maximum distance for particles to connect
         for i = 1, #effect.particles do
@@ -10350,7 +10359,7 @@ function VFX.drawConjure(effect)
                         if dist < maxConnectDist then
                             -- Fade based on distance
                             local alpha = (1 - dist/maxConnectDist) * 0.3 * p1.alpha * p2.alpha
-                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha) -- Use base color, apply calculated alpha
                             love.graphics.line(p1.x, p1.y, p2.x, p2.y)
                         end
                     end
@@ -10422,6 +10431,16 @@ function VFX.createSpellEffect(spell, caster, target)
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
+    elseif spellName == "novaconjuring" then
+        return VFX.createEffect("nova_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "witchconjuring" then
+        return VFX.createEffect("witch_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
     
     -- Special handling for other specific spells
     elseif spellName == "firebolt" then
@@ -10459,8 +10478,9 @@ function VFX.createSpellEffect(spell, caster, target)
             elseif hasMoonMana then
                 return VFX.createEffect("mistveil", sourceX, sourceY, nil, nil)
             else
-                -- Default generic effect
-                return VFX.createEffect("firebolt", sourceX, sourceY, targetX, targetY)
+                -- Default generic effect if no specific match
+                print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
+                return VFX.createEffect("impact", targetX, targetY, nil, nil) -- Default to a simple impact at target
             end
         end
     end
@@ -10580,7 +10600,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjurefire,
-            ["2"] = Spells.conjureforce,
+            ["2"] = Spells.novaconjuring,
             ["3"] = Spells.firebolt,
 
             -- Two key combos
@@ -10595,8 +10615,8 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.conjurestars,
-            ["3"] = Spells.mist,
+            ["2"] = Spells.witchconjuring,
+            ["3"] = Spells.wrapinmoonlight,
             
             -- Two key combos
             ["12"] = Spells.tidalforce,
@@ -10818,9 +10838,6 @@ function Wizard:update(dt)
                                     -- Request return animation directly on the token
                                     if tokenData.token and tokenData.token.requestReturnAnimation then
                                         tokenData.token:requestReturnAnimation()
-                                    else
-                                        -- Fallback to legacy method if token doesn't have the method
-                                        self.manaPool:returnToken(tokenData.index)
                                     end
                                 end
                                 
@@ -10990,50 +11007,6 @@ function Wizard:queueSpell(spell)
                     -- If TokenManager succeeded, use those tokens
                     if success and acquiredTokens then
                         tokens = acquiredTokens
-                    else
-                        -- TokenManager failed, fallback to legacy method
-                        print("[TokenManager] Failed to acquire tokens, using legacy method")
-                        
-                        -- Move each token from mana pool to spell slot with animation
-                        for _, reservation in ipairs(tokenReservations) do
-                            local token = self.manaPool.tokens[reservation.index]
-                            
-                            -- Mark the token as being channeled using state machine if available
-                            if token.setState then
-                                token:setState(Constants.TokenStatus.CHANNELED)
-                            else
-                                token.state = "CHANNELED"
-                            end
-                            
-                            -- Store original position for animation
-                            token.startX = token.x
-                            token.startY = token.y
-                            
-                            -- Calculate target position in the spell slot based on 3D positioning
-                            -- These must match values in drawSpellSlots
-                            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                            local horizontalRadii = {80, 70, 60}
-                            local verticalRadii = {20, 25, 30}
-                            
-                            local targetX = self.x
-                            local targetY = self.y + slotYOffsets[i]  -- Vertical offset based on slot
-                            
-                            -- Animation data
-                            token.targetX = targetX
-                            token.targetY = targetY
-                            token.animTime = 0
-                            token.animDuration = 0.5 -- Half second animation
-                            token.slotIndex = i
-                            token.tokenIndex = #tokens + 1 -- Position in the slot
-                            token.spellSlot = i
-                            token.wizardOwner = self
-                            
-                            -- 3D perspective data
-                            token.radiusX = horizontalRadii[i]
-                            token.radiusY = verticalRadii[i]
-                            
-                            table.insert(tokens, {token = token, index = reservation.index})
-                        end
                     end
                 end
                 
@@ -11224,7 +11197,7 @@ function Wizard:canPayManaCost(cost)
             -- Go through all tokens in the mana pool
             for i, token in ipairs(self.manaPool.tokens) do
                 -- Skip already reserved tokens
-                if not reservedIndices[i] and token.state == "FREE" then
+                if not reservedIndices[i] and token.status == Constants.TokenStatus.FREE then
                     -- Any free token will work
                     count = count + 1
                     
@@ -11245,7 +11218,7 @@ function Wizard:canPayManaCost(cost)
                 -- Skip already reserved tokens
                 if not reservedIndices[i] then
                     -- Match either by specific type or any type if no type specified
-                    if (tokenType == nil and token.state == "FREE") or (token.type == tokenType and token.state == "FREE") then
+                    if (tokenType == nil and token.status == Constants.TokenStatus.FREE) or (token.type == tokenType and token.status == Constants.TokenStatus.FREE) then
                         -- This token matches our requirements
                         count = count + 1
                         
@@ -11522,6 +11495,9 @@ end
 return Wizard```
 
 # Documentation
+
+## docs/Bugs.md
+* Zone spells not blocked by Barriers - found with Eruption vs. Wrap in Moonlight
 
 ## docs/ProgrammingIdeaBoard.md
 ## Purpose
@@ -12693,7 +12669,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Sun Apr 20 13:59:16 CDT 2025
+Generated: Mon Apr 21 17:59:49 CDT 2025
 
 # Source Code
 
@@ -12917,10 +12893,14 @@ local Constants = {}
 -- Token types (mana/resource types)
 Constants.TokenType = {
     FIRE = "fire",
-    FORCE = "force",
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     RANDOM = "random",   -- Special: used in spell costs to indicate any token
     ANY = "any"          -- Special: used in keywords for wildcard matching
 }
@@ -12957,6 +12937,49 @@ Constants.ElevationState = {
     AERIAL = "AERIAL"
 }
 
+-- Color Palette (RGBA, 0-1 range)
+Constants.Color = {
+    BLACK = {0, 0, 0, 1},                    -- #000000
+    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+}
+
+-- Default color for unknown types
+Constants.Color.DEFAULT = Constants.Color.SMOKE
+
+-- Helper function to get color based on token type
+-- Added mappings for types found in manapool.lua (Nature, Force)
+function Constants.getColorForTokenType(tokenType)
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
+    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
+    else
+        print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
+        return Constants.Color.DEFAULT
+    end
+end
+
 -- Shield types for blocking spells
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
@@ -12970,6 +12993,15 @@ Constants.AttackType = {
     REMOTE = "remote",          -- Magic directly affects target
     ZONE = "zone",              -- Area effect, position-dependent
     UTILITY = "utility"         -- Non-damaging effect
+}
+
+Constants.CastSpeed = {
+    VERY_SLOW = 13,
+    SLOW = 10,
+    NORMAL = 7,
+    FAST = 4,
+    VERY_FAST = 1,
+    ONE_TIER = 3
 }
 
 -- Target types for keywords
@@ -12992,10 +13024,14 @@ Constants.TargetType = {
 -- Damage types for spells
 Constants.DamageType = {
     FIRE = "fire",
-    FORCE = "force", 
+    WATER = "water",
+    SALT = "salt",
+    SUN = "sun",
     MOON = "moon",
-    NATURE = "nature",
     STAR = "star",
+    LIFE = "life",
+    MIND = "mind",
+    VOID = "void",
     GENERIC = "generic",
     MIXED = "mixed"
 }
@@ -13036,10 +13072,14 @@ end
 function Constants.getAllTokenTypes()
     return {
         Constants.TokenType.FIRE,
-        Constants.TokenType.FORCE,
+        Constants.TokenType.WATER,
+        Constants.TokenType.SALT,
+        Constants.TokenType.SUN,
         Constants.TokenType.MOON,
-        Constants.TokenType.NATURE,
-        Constants.TokenType.STAR
+        Constants.TokenType.STAR,
+        Constants.TokenType.LIFE,
+        Constants.TokenType.MIND,
+        Constants.TokenType.VOID
     }
 end
 
@@ -13840,11 +13880,15 @@ function AssetPreloader.preloadAllAssets()
             "assets/sprites/token-lock.png",
             
             -- Elemental tokens
-            "assets/sprites/fire-token.png",
-            "assets/sprites/force-token.png", 
-            "assets/sprites/moon-token.png",
-            "assets/sprites/nature-token.png",
-            "assets/sprites/star-token.png",
+            "assets/sprites/v2Tokens/fire-token.png", 
+            "assets/sprites/v2Tokens/water-token.png",
+            "assets/sprites/v2Tokens/salt-token.png",
+            "assets/sprites/v2Tokens/sun-token.png",
+            "assets/sprites/v2Tokens/moon-token.png",
+            "assets/sprites/v2Tokens/star-token.png",
+            "assets/sprites/v2Tokens/life-token.png",
+            "assets/sprites/v2Tokens/mind-token.png",
+            "assets/sprites/v2Tokens/void-token.png",
             
             -- VFX assets
             "assets/sprites/fire-particle.png",
@@ -14194,37 +14238,46 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local damageAmountFuncOrValue = params.amount or 0
-        local calculatedDamage = 0
-        local damageType = params.type or Constants.DamageType.GENERIC
-
-        if type(damageAmountFuncOrValue) == "function" then
-            -- It's a function, call it
-            local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-            local success, funcResult = pcall(function()
-                -- Call the function stored in damageAmountFuncOrValue
-                -- Pass caster, target, and the local slot index
-                return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-            end)
-
-            if success then
-                calculatedDamage = funcResult
-            else
-                print("Error evaluating damage function: " .. tostring(funcResult))
-                calculatedDamage = 0 -- Default on error
-            end
-        else
-            -- It's a static value
-            calculatedDamage = damageAmountFuncOrValue
+        local applyDamage = true
+        -- Check for conditional function
+        if params.condition and type(params.condition) == "function" then
+            applyDamage = params.condition(caster, target, results.currentSlot)
         end
 
-        -- Generate event
-        table.insert(events or {}, {
-            type = "DAMAGE", source = "caster", target = "enemy",
-            amount = calculatedDamage, damageType = damageType,
-            scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
-        })
+        -- Only generate event if condition passed (or no condition)
+        if applyDamage then
+            local damageAmountFuncOrValue = params.amount or 0
+            local calculatedDamage = 0
+            local damageType = params.type or Constants.DamageType.GENERIC
+
+            if type(damageAmountFuncOrValue) == "function" then
+                -- It's a function, call it
+                local currentSlotIndex = results.currentSlot -- Assign to local variable
+
+                local success, funcResult = pcall(function()
+                    -- Call the function stored in damageAmountFuncOrValue
+                    -- Pass caster, target, and the local slot index
+                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
+                end)
+
+                if success then
+                    calculatedDamage = funcResult
+                else
+                    print("Error evaluating damage function: " .. tostring(funcResult))
+                    calculatedDamage = 0 -- Default on error
+                end
+            else
+                -- It's a static value
+                calculatedDamage = damageAmountFuncOrValue
+            end
+
+            -- Generate event
+            table.insert(events or {}, {
+                type = "DAMAGE", source = "caster", target = "enemy",
+                amount = calculatedDamage, damageType = damageType,
+                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+            })
+        end
 
         -- Keep legacy results for now (might still be used elsewhere)
         -- results.damage = calculatedDamage 
@@ -14423,27 +14476,43 @@ Keywords.conjure = {
         defaultAmount = 1
     },
     
-    -- Implementation function - Generates CONJURE_TOKEN event(s)
+    -- Implementation function
     execute = function(params, caster, target, results, events)
-        local tokenTypeOrFunc = params.token or "fire"
+        local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
-        
-        for i = 1, amount do
-            local finalTokenType = tokenTypeOrFunc
-            -- Resolve token type if it's a function
-            if type(tokenTypeOrFunc) == "function" then
-                finalTokenType = tokenTypeOrFunc(caster, target)
+        local targetPool = params.target or "POOL_SELF" -- Default target pool
+
+        events = events or {} -- Ensure events table exists
+
+        if type(tokenTypeParam) == "table" then
+            -- Handle array of token types
+            for _, specificTokenType in ipairs(tokenTypeParam) do
+                for i = 1, amount do -- Assuming amount applies per token type
+                    table.insert(events, {
+                        type = "CONJURE_TOKEN",
+                        source = "caster",
+                        target = targetPool,
+                        tokenType = specificTokenType,
+                        amount = 1 -- Conjure one of this specific type
+                    })
+                end
             end
-            
-            table.insert(events or {}, {
-                type = "CONJURE_TOKEN",
-                source = "caster",
-                target = "pool", -- Target the shared pool
-                tokenType = finalTokenType,
-                amount = 1 -- Generate one event per token
-            })
+        elseif type(tokenTypeParam) == "string" then
+             -- Handle single token type string (original behavior)
+             for i = 1, amount do
+                 table.insert(events, {
+                     type = "CONJURE_TOKEN",
+                     source = "caster",
+                     target = targetPool,
+                     tokenType = tokenTypeParam,
+                     amount = 1 -- Conjure one of this specific type
+                 })
+             end
+        else
+            print("WARN: Conjure keyword received unexpected token type: " .. type(tokenTypeParam))
         end
         
+        -- Event-based system, no direct modification or legacy results needed
         return results
     end
 }
@@ -14486,7 +14555,7 @@ Keywords.tokenShift = {
         -- Default parameters
         defaultTokenType = "fire",
         defaultAmount = 1,
-        supportedTypes = {"fire", "force", "moon", "nature", "star", "random"}
+        supportedTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void", "random"}
     },
     
     -- Implementation function - Generates SHIFT_TOKEN event
@@ -14900,17 +14969,25 @@ game = {
 -- Define token types and images (globally available for consistency)
 game.tokenTypes = {
     Constants.TokenType.FIRE, 
-    Constants.TokenType.FORCE, 
+    Constants.TokenType.WATER, 
+    Constants.TokenType.SALT, 
+    Constants.TokenType.SUN, 
     Constants.TokenType.MOON, 
-    Constants.TokenType.NATURE, 
-    Constants.TokenType.STAR
+    Constants.TokenType.STAR,
+    Constants.TokenType.LIFE,
+    Constants.TokenType.MIND,
+    Constants.TokenType.VOID
 }
 game.tokenImages = {
-    [Constants.TokenType.FIRE] = "assets/sprites/fire-token.png",
-    [Constants.TokenType.FORCE] = "assets/sprites/force-token.png",
-    [Constants.TokenType.MOON] = "assets/sprites/moon-token.png",
-    [Constants.TokenType.NATURE] = "assets/sprites/nature-token.png",
-    [Constants.TokenType.STAR] = "assets/sprites/star-token.png"
+    [Constants.TokenType.FIRE] = "assets/sprites/v2Tokens/fire-token.png",
+    [Constants.TokenType.WATER] = "assets/sprites/v2Tokens/water-token.png",
+    [Constants.TokenType.SALT] = "assets/sprites/v2Tokens/salt-token.png",
+    [Constants.TokenType.SUN] = "assets/sprites/v2Tokens/sun-token.png",
+    [Constants.TokenType.MOON] = "assets/sprites/v2Tokens/moon-token.png",
+    [Constants.TokenType.STAR] = "assets/sprites/v2Tokens/star-token.png",
+    [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
+    [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
+    [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
 }
 
 -- Helper function to add a random token to the mana pool
@@ -15200,8 +15277,10 @@ function resetGame()
         wizard.statusEffects.burn.totalTime = 0
         
         -- Reset blockers
-        for blockType in pairs(wizard.blockers) do
-            wizard.blockers[blockType] = 0
+        if wizard.blockers then
+            for blockType in pairs(wizard.blockers) do
+                wizard.blockers[blockType] = 0
+            end
         end
         
         -- Reset spell keying
@@ -15650,19 +15729,6 @@ function TokenMethods:setState(newStatus)
     -- Update the token's status
     self.status = newStatus
     
-    -- For backwards compatibility, keep the legacy state in sync with the new status
-    if newStatus == Constants.TokenStatus.FREE or 
-       newStatus == Constants.TokenStatus.CHANNELED or 
-       newStatus == Constants.TokenStatus.SHIELDING then
-        self.state = newStatus
-    elseif newStatus == Constants.TokenStatus.RETURNING then
-        self.state = self.originalStatus -- Keep original state during animation
-    elseif newStatus == Constants.TokenStatus.DISSOLVING then
-        self.state = Constants.TokenState.DESTROYED
-    elseif newStatus == Constants.TokenStatus.POOLED then
-        self.state = Constants.TokenState.DESTROYED
-    end
-    
     return true
 end
 
@@ -15679,7 +15745,6 @@ function TokenMethods:requestReturnAnimation()
     
     -- Set animation flags
     self.isAnimating = true
-    self.returning = true  -- For backward compatibility
     
     -- Set animation parameters
     self.startX = self.x
@@ -15706,7 +15771,6 @@ function TokenMethods:requestDestructionAnimation()
     
     -- Set animation flags
     self.isAnimating = true
-    self.dissolving = true  -- For backward compatibility
     
     -- Set animation parameters
     self.dissolveTime = 0
@@ -15725,24 +15789,14 @@ function TokenMethods:requestDestructionAnimation()
     if not self.exploding and self.gameState and self.gameState.vfx then
         self.exploding = true
         
+        -- TODO: Deprecate in favor of new tokens + "Visual Language" Consts/Type
         -- Get token color based on its type
-        local color = {1, 0.6, 0.2, 0.8}  -- Default orange
-        if self.type == "fire" then
-            color = {1, 0.3, 0.1, 0.8}
-        elseif self.type == "force" then
-            color = {1, 0.9, 0.3, 0.8}
-        elseif self.type == "moon" then
-            color = {0.8, 0.6, 1.0, 0.8}  -- Purple for lunar disjunction
-        elseif self.type == "nature" then
-            color = {0.2, 0.9, 0.1, 0.8}
-        elseif self.type == "star" then
-            color = {1, 0.8, 0.2, 0.8}
-        end
+        local colorTable = Constants.getColorForTokenType(self.type)
         
         -- Create destruction visual effect
         self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
             duration = 0.7,
-            color = color,
+            color = colorTable, -- Use the constant color table
             particleCount = 15,
             radius = 30
         })
@@ -15761,7 +15815,6 @@ function TokenMethods:finalizeReturn()
     
     -- Reset animation flags
     self.isAnimating = false
-    self.returning = false  -- For backward compatibility
     
     -- Clear wizard/spell references
     self.wizardOwner = nil
@@ -15843,7 +15896,6 @@ function TokenMethods:finalizeDestruction()
     
     -- Reset animation flags
     self.isAnimating = false
-    self.dissolving = false  -- For backward compatibility
     
     -- Set new state
     self:setState(Constants.TokenStatus.POOLED)
@@ -15891,11 +15943,9 @@ function ManaPool.resetToken(token)
     token.image = nil
     token.x = nil
     token.y = nil
-    token.state = nil
     token.status = nil  -- New field for the state machine
     token.isAnimating = nil  -- New field to track animation state
     token.animationCallback = nil  -- New field for animation completion callback
-    token.originalStatus = nil  -- To store the state before transitions
     token.valenceIndex = nil
     token.orbitAngle = nil
     token.orbitSpeed = nil
@@ -15920,13 +15970,11 @@ function ManaPool.resetToken(token)
     token.originalSpeed = nil
     token.wizardOwner = nil
     token.spellSlot = nil
-    token.dissolving = nil
     token.gameState = nil
     token.manaPool = nil  -- New field to reference the mana pool
     token.id = nil  -- New field for tracking tokens
     
     -- Clear animation-related fields
-    token.returning = nil
     token.animTime = nil
     token.animDuration = nil
     token.startX = nil
@@ -15937,7 +15985,6 @@ function ManaPool.resetToken(token)
     token.inTransition = nil
     token.transitionTime = nil
     token.transitionDuration = nil
-    token.originalState = nil
     token.dissolveTime = nil
     token.dissolveMaxTime = nil
     token.dissolveScale = nil
@@ -16006,7 +16053,6 @@ function ManaPool:addToken(tokenType, imagePath)
     
     -- Initialize state machine properties
     token.status = Constants.TokenStatus.FREE  -- New state machine status
-    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
     token.isAnimating = false
     token.manaPool = self  -- Reference to this mana pool instance
     token.id = #self.tokens + 1  -- Simple ID based on token position
@@ -16402,17 +16448,8 @@ function ManaPool:draw()
             end
             
             -- Set glow color based on token type with improved contrast and vibrancy
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, layerIntensity)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, layerIntensity)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.4, 0.4, 1, layerIntensity)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, layerIntensity)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, layerIntensity)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], layerIntensity)
             
             -- Draw glow with pulsation
             local pulseAmount = 0.7 + 0.3 * math.sin(token.pulsePhase * 0.5)
@@ -16435,17 +16472,8 @@ function ManaPool:draw()
             local ringAlpha = 0.4 + 0.2 * math.sin(token.pulsePhase * 0.8)
             
             -- Set ring color based on token type
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.5, 0.2, ringAlpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 1, 0.4, ringAlpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.6, 0.6, 1, ringAlpha)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.3, 1, 0.2, ringAlpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.9, 0.3, ringAlpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], ringAlpha)
             
             love.graphics.circle("line", token.x, token.y, (glowSize + 3) * token.scale)
         end
@@ -16456,17 +16484,8 @@ function ManaPool:draw()
             local trailAlpha = 0.6 * (1 - progress)
             
             -- Set trail color based on token type
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, trailAlpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, trailAlpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.4, 0.4, 1, trailAlpha)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, trailAlpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, trailAlpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
             
             -- Draw the trail as small circles along the bezier path
             local numTrailPoints = 6
@@ -16513,15 +16532,9 @@ function ManaPool:draw()
             love.graphics.setColor(1, 1, 1, 1)
         elseif token.status == Constants.TokenStatus.SHIELDING then
             -- Shielding tokens have a slight colored tint based on their type
-            if token.type == "force" then
-                love.graphics.setColor(1, 1, 0.7, 1)  -- Yellow tint for force (barrier)
-            elseif token.type == "moon" or token.type == "star" then
-                love.graphics.setColor(0.8, 0.8, 1, 1)  -- Blue tint for moon/star (ward)
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.8, 1, 0.8, 1)  -- Green tint for nature (field)
-            else
-                love.graphics.setColor(1, 1, 1, 1)  -- Default
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            -- Use the color from Constants, but keep alpha = 1 for the tint
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 1)
         elseif token.status == Constants.TokenStatus.RETURNING then
             -- Returning tokens have a bright, energetic glow
             local returnGlow = 0.3 + 0.7 * math.sin(token.animTime * 15)
@@ -16535,29 +16548,10 @@ function ManaPool:draw()
             local alpha = (1 - progress) * 0.8
             
             -- Get token color based on its type for the fade effect
-            if token.type == "fire" then
-                love.graphics.setColor(1, 0.3, 0.1, alpha)
-            elseif token.type == "force" then
-                love.graphics.setColor(1, 0.9, 0.3, alpha)
-            elseif token.type == "moon" then
-                love.graphics.setColor(0.8, 0.6, 1.0, alpha)  -- Purple for lunar disjunction
-            elseif token.type == "nature" then
-                love.graphics.setColor(0.2, 0.9, 0.1, alpha)
-            elseif token.type == "star" then
-                love.graphics.setColor(1, 0.8, 0.2, alpha)
-            else
-                love.graphics.setColor(1, 1, 1, alpha)
-            end
+            local colorTable = Constants.getColorForTokenType(token.type)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], alpha)
         else
-            -- For legacy compatibility - handle any other states (like "DESTROYED")
-            -- Check for dissolving flag for backwards compatibility
-            if token.dissolving then
-                local progress = token.dissolveTime / token.dissolveMaxTime
-                local alpha = (1 - progress) * 0.8
-                love.graphics.setColor(1, 1, 1, alpha)
-            else
-                love.graphics.setColor(1, 1, 1, 1)
-            end
+            love.graphics.setColor(1, 1, 1, 1) -- Default color if state is unknown (should not happen)
         end
         
         -- Draw the token with dynamic scaling
@@ -16598,28 +16592,16 @@ function ManaPool:draw()
             -- Draw shield effect for shielding tokens
             if token.status == Constants.TokenStatus.SHIELDING then
                 -- Get token color based on its mana type
-                local tokenColor = {1, 1, 1, 0.3}  -- Default white
-                
-                -- Match color to the token type
-                if token.type == "fire" then
-                    tokenColor = {1.0, 0.3, 0.1, 0.3}  -- Red-orange for fire
-                elseif token.type == "force" then
-                    tokenColor = {1.0, 1.0, 0.3, 0.3}  -- Yellow for force
-                elseif token.type == "moon" then
-                    tokenColor = {0.5, 0.5, 1.0, 0.3}  -- Blue for moon
-                elseif token.type == "star" then
-                    tokenColor = {1.0, 0.8, 0.2, 0.3}  -- Gold for star
-                elseif token.type == "nature" then
-                    tokenColor = {0.3, 0.9, 0.1, 0.3}  -- Green for nature
-                end
+                local colorTable = Constants.getColorForTokenType(token.type)
+                local shieldBaseAlpha = 0.3 -- Keep the original base alpha
                 
                 -- Draw a subtle shield aura with slight pulsation
                 local pulseScale = 0.9 + math.sin(love.timer.getTime() * 2) * 0.1
-                love.graphics.setColor(tokenColor)
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], shieldBaseAlpha)
                 love.graphics.circle("fill", token.x, token.y, 15 * pulseScale * token.scale)
                 
                 -- Draw shield border
-                love.graphics.setColor(tokenColor[1], tokenColor[2], tokenColor[3], 0.5)
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.5) -- Keep original border alpha
                 love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
                 
                 -- Add a small defensive shield symbol inside the circle
@@ -16699,30 +16681,10 @@ end
 function ManaPool:getToken(tokenType)
     -- Find a free token of the specified type that's not in transition
     for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.status == Constants.TokenStatus.FREE and
-           not token.returning and not token.inTransition then
+        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
             -- Mark as being used (using setState for state machine)
             token:setState(Constants.TokenStatus.CHANNELED)
             return token, i  -- Return token and its index
-        end
-    end
-    
-    -- Second pass - try with less strict requirements if nothing was found
-    for i, token in ipairs(self.tokens) do
-        if token.type == tokenType and token.status == Constants.TokenStatus.FREE then
-            if token.returning then
-                print("[MANAPOOL] WARNING: Using token in return animation - visual glitches may occur")
-            elseif token.inTransition then
-                print("[MANAPOOL] WARNING: Using token in transition state - visual glitches may occur")
-            end
-            
-            -- Use setState method for state machine transition
-            token:setState(Constants.TokenStatus.CHANNELED)
-            
-            -- Cancel any return animation
-            token.returning = false
-            token.inTransition = false
-            return token, i
         end
     end
     
@@ -16854,6 +16816,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Create empty behavior table to store merged behavior data
         behavior = {}
     }
+    
+    -- >>> ADDED: Also copy the getCastTime function if it exists
+    if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
+        compiledSpell.getCastTime = spellDef.getCastTime
+    end
     
     -- Process keywords if they exist
     if spellDef.keywords then
@@ -17286,7 +17253,7 @@ Spells.conjurefire = {
     name = "Conjure Fire",
     description = "Creates a new Fire mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -17300,7 +17267,7 @@ Spells.conjurefire = {
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         
         -- Count fire tokens in the mana pool
         local fireCount = 0
@@ -17310,10 +17277,12 @@ Spells.conjurefire = {
                     fireCount = fireCount + 1
                 end
             end
+        else
+            print("WARN: ConjureFire getCastTime - caster.manaPool is nil!")
         end
         
         -- Increase cast time by 5 seconds per existing fire token
-        local adjustedCastTime = baseCastTime + (fireCount * 5.0)
+        local adjustedCastTime = baseCastTime + (fireCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -17323,7 +17292,7 @@ Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     description = "Quick ranged hit, more damage against AERIAL opponents",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "projectile",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
@@ -17346,21 +17315,24 @@ Spells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     description = "Aerial finisher, hits GROUNDED enemies",
-    castTime = 8.0,
+    castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE, Constants.TokenType.STAR},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.SALT, Constants.TokenType.SUN},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.GROUNDED and 20 or 0
-                end
-                return 0 -- Default damage if target is nil
-            end,
-            type = Constants.DamageType.FIRE
+            amount = 20,
+            type = Constants.DamageType.FIRE,
+            condition = function(caster, target, slot)
+                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
+                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
+                return casterIsAerial and targetIsGrounded
+            end
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
+        },
+        ground = {
+            target = Constants.TargetType.SELF 
         }
     },
     vfx = "meteor_dive",
@@ -17371,28 +17343,28 @@ Spells.meteor = {
 Spells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
-    description = "Disrupts opponent channeling, converting one token to Fire",
-    castTime = 6.0,
+    description = "Disrupts opponent channeling, burning one token to Salt",
+    castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FORCE},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
-            targetType = "fire"
+            targetType = "salt"
         }
     },
     vfx = "combust_lock",
 }
 
-Spells.conjureforce = {
-    id = "conjureforce",
-    name = "Conjure Force",
-    description = "Creates a new Force mana token",
+Spells.conjuresalt = {
+    id = "conjuresalt",
+    name = "Conjure Salt",
+    description = "Creates a new Salt mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
-            token = Constants.TokenType.FORCE,
+            token = Constants.TokenType.SALT,
             amount = 1
         }
     },
@@ -17400,16 +17372,16 @@ Spells.conjureforce = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
-        local forceCount = 0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
+        local saltCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == Constants.TokenType.FORCE and token.state == Constants.TokenState.FREE then
-                    forceCount = forceCount + 1
+                if token.type == Constants.TokenType.SALT and token.state == Constants.TokenState.FREE then
+                    saltCount = saltCount + 1
                 end
             end
         end
-        return baseCastTime + (forceCount * 5.0)
+        return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
 
@@ -17417,9 +17389,9 @@ Spells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     description = "Launches caster into the air and increases range",
-    castTime = 2.5,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
-    cost = {"fire", "force"},
+    cost = {"sun"},
     keywords = {
         elevate = {
             duration = 5.0,
@@ -17441,7 +17413,7 @@ Spells.conjuremoonlight = {
     name = "Conjure Moonlight",
     description = "Creates a new Moon mana token",
     attackType = "utility",
-    castTime = 5.0,  -- Base cast time of 5 seconds
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
@@ -17455,7 +17427,7 @@ Spells.conjuremoonlight = {
     -- Custom cast time calculation based on existing moon tokens
     getCastTime = function(caster)
         -- Base cast time
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         
         -- Count moon tokens in the mana pool
         local moonCount = 0
@@ -17468,7 +17440,7 @@ Spells.conjuremoonlight = {
         end
         
         -- Increase cast time by 5 seconds per existing moon token
-        local adjustedCastTime = baseCastTime + (moonCount * 5.0)
+        local adjustedCastTime = baseCastTime + (moonCount * Constants.CastSpeed.ONE_TIER)
         
         return adjustedCastTime
     end
@@ -17479,7 +17451,7 @@ Spells.conjurestars = {
     name = "Conjure Stars",
     description = "Creates a new Star mana token",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 5.0,  -- Base cast time
+    castTime = Constants.CastSpeed.VERY_FAST,  -- Base cast time
     cost = {},
     keywords = {
         conjure = {
@@ -17491,7 +17463,7 @@ Spells.conjurestars = {
     blockableBy = {},
 
     getCastTime = function(caster)
-        local baseCastTime = 5.0
+        local baseCastTime = Constants.CastSpeed.VERY_FAST
         local starCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
@@ -17500,46 +17472,66 @@ Spells.conjurestars = {
                 end
             end
         end
-        return baseCastTime + (starCount * 5.0)
+        return baseCastTime + (starCount * Constants.CastSpeed.ONE_TIER)
     end
 }
 
-Spells.volatileconjuring = {
-    id = "volatileconjuring",
-    name = "Volatile Conjuring",
-    description = "Creates a random mana token",
-    attackType = "utility",
-    castTime = 5.0,  -- Fixed cast time of 5 seconds
-    cost = {},  -- No mana cost
+-- Nova Conjuring (Fire, Force, Star)
+Spells.novaconjuring = {
+    id = "novaconjuring",
+    name = "Nova Conjuring",
+    description = "Conjures SUN tokens with FIRE and SALT.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
+    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
     keywords = {
         conjure = {
-            token = function(caster, target)
-                local tokenTypes = {"fire", "force", "moon", "nature", "star"}
-                local randomIndex = math.random(#tokenTypes)
-                local selectedToken = tokenTypes[randomIndex]
-                print(caster.name .. " conjured a random " .. selectedToken .. " token")
-                return selectedToken
-            end,
-            amount = 1
+            token = { 
+                Constants.TokenType.FIRE, 
+                Constants.TokenType.SUN,
+            },
+            amount = 1 -- Conjures 2 of each listed type
         }
     },
-    vfx = "volatile_conjure",
+    vfx = "nova_conjure",
+    sfx = "conjure_nova",
     blockableBy = {}  -- Unblockable
 }
 
-Spells.mist = {
-    id = "mist",
-    name = "Mist Veil",
-    description = "A ward of mist that blocks projectiles and remotes",
+-- Witch Conjuring (Moon, Force, Nature)
+Spells.witchconjuring = {
+    id = "witchconjuring",
+    name = "Witch Conjuring",
+    description = "Conjures WATER, MOON, and LIFE tokens.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.SLOW,  -- Fixed cast time
+    cost = {"moon", "moon", "moon"},  -- Needs some basic moon
+    keywords = {
+        conjure = {
+            token = { 
+                Constants.TokenType.WATER, 
+                Constants.TokenType.MOON, 
+                Constants.TokenType.LIFE 
+            },
+            amount = 1 -- Conjures 1 of each listed type
+        }
+    },
+    vfx = "witch_conjure",
+    sfx = "conjure_witch",
+    blockableBy = {}  -- Unblockable
+}
+
+Spells.wrapinmoonlight = {
+    id = "wrapinmoonlight",
+    name = "Wrap in Moonlight",
+    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
     attackType = "utility",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.VERY_FAST,
     cost = {"moon", "moon"},
     keywords = {
         block = {
-            type = "ward",
-            blocks = {"projectile", "remote"},
-            -- All shields are mana-linked now (consume tokens when blocking)
-            -- Token count is the source of truth for shield strength
+            type = "barrier",
+            blocks = {"projectile", "zone"},
         },
         elevate = {
             duration = 4.0
@@ -17558,8 +17550,8 @@ Spells.tidalforce = {
     name = "Tidal Force",
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = "remote",
-    castTime = 5.0,
-    cost = {"moon", "any"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"water", "moon"},
     keywords = {
         damage = {
             amount = 5,
@@ -17584,7 +17576,7 @@ Spells.lunardisjunction = {
     name = "Lunar Disjunction",
     description = "Counterspell, cancels an opponent's spell and destroys its mana",
     attackType = "projectile",
-    castTime = 5.0,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "any"},
     keywords = {
         disjoint = {
@@ -17642,14 +17634,14 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Echo",
-    description = "Halts the caster's channeled spell in slot 2", -- Simplified description
+    name = "Eclipse Pause",
+    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
     attackType = "utility", 
-    castTime = 2.5,
-    cost = {"moon", "force"},
+    castTime = Constants.CastSpeed.FAST,
+    cost = {"moon", "moon"},
     keywords = {
         freeze = {
-            duration = 5.0,
+            duration = Constants.CastSpeed.ONE_TIER,
             target = "self" -- Explicitly target the caster
         }
         -- Removed damage and cancelSpell keywords
@@ -17664,12 +17656,12 @@ Spells.fullmoonbeam = {
     name = "Full Moon Beam",
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = "projectile",
-    castTime = 7.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = 7.0  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -17713,7 +17705,7 @@ Spells.forcebarrier = {
     id = "forcebarrier",
     name = "Force Barrier",
     description = "A protective barrier that blocks projectiles and zones",
-    castTime = 4.0,
+    castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     cost = {"force", "force"},
     keywords = {
@@ -17733,7 +17725,7 @@ Spells.moonward = {
     name = "Moon Ward",
     description = "A mystical ward that blocks projectiles and remotes",
     attackType = "utility",
-    castTime = 4.5,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {"moon", "moon"},
     keywords = {
         block = {
@@ -17844,11 +17836,11 @@ Spells.shieldbreaker = {
 -- Zone spell with range anchoring
 Spells.eruption = {
     id = "eruption",
-    name = "Lava Eruption",
+    name = "Molten Ash",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
-    castTime = 7.0,
-    cost = {"fire", "fire", "nature"},
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {"fire", "fire", "salt"},
     keywords = {
         -- Anchor the spell to NEAR range - it can only work when cast at NEAR range
         zoneAnchor = {
@@ -18673,7 +18665,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Add tokens to the mana pool
         for i = 1, event.amount do
-            local assetPath = "assets/sprites/" .. event.tokenType .. "-token.png"
+            local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
             manaPool:addToken(event.tokenType, assetPath)
             results.tokensAffected = results.tokensAffected + 1
         end
@@ -18724,7 +18716,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Handle random token shifting
         if event.tokenType == "random" then
-            local tokenTypes = {"fire", "force", "moon", "nature", "star"}
+            local tokenTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void"}
             
             -- Find FREE tokens and shift them to random types
             for i, token in ipairs(manaPool.tokens) do
@@ -18736,7 +18728,7 @@ EventRunner.EVENT_HANDLERS = {
                     -- Only change if it's a different type
                     if randomType ~= oldType then
                         token.type = randomType
-                        token.image = love.graphics.newImage("assets/sprites/" .. randomType .. "-token.png")
+                        token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. randomType .. "-token.png")
                         tokensShifted = tokensShifted + 1
                         results.tokensAffected = results.tokensAffected + 1
                     end
@@ -18752,7 +18744,7 @@ EventRunner.EVENT_HANDLERS = {
             for i, token in ipairs(manaPool.tokens) do
                 if token.state == "FREE" and token.type ~= event.tokenType then
                     token.type = event.tokenType
-                    token.image = love.graphics.newImage("assets/sprites/" .. event.tokenType .. "-token.png")
+                    token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png")
                     tokensShifted = tokensShifted + 1
                     results.tokensAffected = results.tokensAffected + 1
                     
@@ -19086,7 +19078,7 @@ EventRunner.EVENT_HANDLERS = {
             local newType = event.newType or "fire"
             local oldType = removedTokenObject.type
             removedTokenObject.type = newType
-            removedTokenObject.image = love.graphics.newImage("assets/sprites/" .. newType .. "-token.png")
+            removedTokenObject.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. newType .. "-token.png")
             results.tokensAffected = (results.tokensAffected or 0) + 1
             
             -- Request token return animation
@@ -19893,12 +19885,7 @@ function TokenManager.positionTokensInSpellSlot(wizard, slotIndex, tokens)
         token.radiusY = verticalRadii[slotIndex]
         
         -- Set proper token state
-        if token.setState then
-            token:setState(Constants.TokenStatus.CHANNELED)
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.CHANNELED
-        end
+        token:setState(Constants.TokenStatus.CHANNELED)
         
         ::continue_token::
     end
@@ -19946,12 +19933,7 @@ function TokenManager.markTokensAsShielding(tokens)
         end
         
         -- Set proper token state using state machine if available
-        if token.setState then
-            token:setState(Constants.TokenStatus.SHIELDING)
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.SHIELDING
-        end
+        token:setState(Constants.TokenStatus.SHIELDING)
         
         -- Clear the willBecomeShield flag since it's now a shield
         token.willBecomeShield = nil
@@ -19978,20 +19960,7 @@ function TokenManager.returnTokensToPool(tokens)
         end
         
         -- Use token state machine if available
-        if token.requestReturnAnimation then
-            token:requestReturnAnimation()
-        else
-            -- Fallback for backward compatibility
-            token.returning = true
-            token.startX = token.x
-            token.startY = token.y
-            token.animTime = 0
-            token.animDuration = 0.5
-            
-            -- Clear references
-            token.wizardOwner = nil
-            token.spellSlot = nil
-        end
+        token:requestReturnAnimation()
         
         ::continue_token::
     end
@@ -20015,12 +19984,7 @@ function TokenManager.destroyTokens(tokens)
         end
         
         -- Use token state machine if available
-        if token.requestDestructionAnimation then
-            token:requestDestructionAnimation()
-        else
-            -- Fallback for backward compatibility
-            token.state = Constants.TokenState.DESTROYED
-        end
+        token:requestDestructionAnimation()
         
         ::continue_token::
     end
@@ -20129,14 +20093,8 @@ function TokenManager.validateTokenState(token, expectedState)
     end
     
     -- Check state using the new status field if available
-    if token.status then
-        return token.status == expectedState, 
-               "Token state is " .. token.status .. ", expected " .. expectedState
-    else
-        -- Fallback to checking the legacy state field
-        return token.state == expectedState,
-               "Token state is " .. (token.state or "nil") .. ", expected " .. expectedState
-    end
+    return token.status == expectedState, 
+           "Token state is " .. token.status .. ", expected " .. expectedState
 end
 
 return TokenManager```
@@ -20663,7 +20621,7 @@ function WizardVisuals.drawWizard(wizard)
                 love.graphics.ellipse(
                     "fill", 
                     wizard.x + xOffset + cloudOffset, 
-                    wizard.y + 30, 
+                    wizard.y + yOffset + 30, -- Add yOffset here
                     45 + i * 5, 
                     10
                 )
@@ -20677,8 +20635,8 @@ function WizardVisuals.drawWizard(wizard)
             wizard.x + xOffset, 
             wizard.y + yOffset, 
             0, -- No rotation
-            adjustedScale, 
-            wizard.scale, 
+            adjustedScale * 2, -- Double scale
+            wizard.scale * 2, -- Double scale
             wizard.sprite:getWidth() / 2, 
             wizard.sprite:getHeight() / 2
         )
@@ -20745,9 +20703,9 @@ return WizardVisuals```
 -- List of patterns to search for in the codebase
 local magicStringPatterns = {
     -- Token Types
-    '"fire"', "'fire'", '"force"', "'force'",
-    '"moon"', "'moon'", '"nature"', "'nature'",
-    '"star"', "'star'", '"random"', "'random'",
+    '"fire"', "'fire'", '"water"', "'water'", '"salt"', "'salt'", '"sun"', "'sun'",
+    '"moon"', "'moon'", '"star"', "'star'", '"life"', "'life'", '"mind"', "'mind'", '"void"', "'void'",
+    '"random"', "'random'",
     '"any"', "'any'",
     
     -- Token States
@@ -21797,6 +21755,7 @@ VFX.__index = VFX
 
 -- Import pool module
 local Pool = require("core.Pool")
+local Constants = require("core.Constants")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -21835,7 +21794,7 @@ function VFX.init()
             particleCount = 15,
             startScale = 0.8,
             endScale = 0.2,
-            color = {1, 1, 1, 0.8},  -- Default white, will be overridden by options
+            color = Constants.Color.SMOKE,  -- Default white -> SMOKE
             radius = 30,
             sound = nil  -- No default sound
         },
@@ -21847,7 +21806,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.4, 0.6, 1.0, 0.9},  -- Blue-ish for water/tidal theme
+            color = Constants.Color.OCEAN,  -- Blue-ish for water/tidal theme
             radius = 80,
             sound = "tidal_wave"
         },
@@ -21859,7 +21818,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.7, 0.3, 0.9, 0.9},  -- Purple for gravity theme
+            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
             radius = 70,
             sound = "gravity_slam"
         },
@@ -21870,7 +21829,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.5,
-            color = {0.4, 0.7, 1.0, 0.8},  -- Blue-ish for force theme
+            color = Constants.Color.YELLOW,  -- Blue-ish for force theme -> YELLOW
             radius = 90,
             sound = "force_wind"
         },
@@ -21882,7 +21841,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.2, 0.6, 0.9, 0.9},  -- Bright blue for freeing mana
+            color = Constants.Color.SKY,  -- Bright blue for freeing mana -> SKY
             radius = 100,
             pulseRate = 4,
             sound = "release"
@@ -21895,7 +21854,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.5,
             endScale = 1.0,
-            color = {1, 0.5, 0.2, 1},
+            color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
             trailLength = 12,
             impactSize = 1.4,
             sound = "firebolt"
@@ -21908,7 +21867,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 2.0,
             endScale = 0.5,
-            color = {1, 0.4, 0.1, 1},
+            color = Constants.Color.OCHRE, -- {1, 0.4, 0.1, 1}
             radius = 120,
             sound = "meteor"
         },
@@ -21920,7 +21879,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.2,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.7},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
             radius = 80,
             pulseRate = 2,
             sound = "mist"
@@ -21933,7 +21892,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.1,
-            color = {1, 0.6, 0.2, 0.8},
+            color = Constants.Color.ORANGE, -- {1, 0.6, 0.2, 0.8}
             height = 100,
             sound = "whoosh"
         },
@@ -21945,7 +21904,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.4,
             endScale = 0.2,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for force
+            color = Constants.Color.YELLOW,  -- Blue-ish for force -> YELLOW
             height = 120,
             sound = "force_wind"
         },
@@ -21958,7 +21917,7 @@ function VFX.init()
             beamWidth = 40,
             startScale = 0.2,
             endScale = 1.0,
-            color = {0.8, 0.8, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.8, 0.8, 1.0, 0.9}
             pulseRate = 3,
             sound = "moonbeam"
         },
@@ -21970,7 +21929,7 @@ function VFX.init()
             particleCount = 30,
             startScale = 0.4,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.8},  -- Blue-ish for water theme
+            color = Constants.Color.OCEAN, -- {0.3, 0.5, 1.0, 0.8} -> Blue-ish for water theme
             trailLength = 15,
             impactSize = 1.6,
             sound = "tidal_wave"
@@ -21983,7 +21942,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.3,
             endScale = 0.6,
-            color = {0.8, 0.6, 1.0, 0.9},  -- Purple-blue for moon/cosmic theme
+            color = Constants.Color.PINK, -- {0.8, 0.6, 1.0, 0.9} -> Purple-blue for moon/cosmic theme -> PINK
             trailLength = 10,
             impactSize = 1.8,  -- Bigger impact
             sound = "lunar_disrupt"
@@ -21996,7 +21955,7 @@ function VFX.init()
             particleCount = 35,
             startScale = 0.6,
             endScale = 1.0,
-            color = {0.9, 0.5, 1.0, 0.9},  -- Brighter purple for disruption
+            color = Constants.Color.PINK, -- {0.9, 0.5, 1.0, 0.9} -> Brighter purple for disruption -> PINK
             radius = 70,
             sound = "lunar_disrupt"
         },
@@ -22008,7 +21967,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {1.0, 0.5, 0.2, 0.9},
+            color = Constants.Color.ORANGE, -- {1.0, 0.5, 0.2, 0.9}
             height = 140,  -- Height to rise toward mana pool
             spreadRadius = 40, -- Initial spread around the caster
             sound = "conjure"
@@ -22021,7 +21980,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.7, 0.7, 1.0, 0.9},
+            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.9}
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -22034,7 +21993,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.3, 0.5, 1.0, 0.9}, -- Blue-ish
+            color = Constants.Color.YELLOW, -- {0.3, 0.5, 1.0, 0.9} -> Blue-ish -> YELLOW
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -22047,7 +22006,7 @@ function VFX.init()
             particleCount = 20,
             startScale = 0.3,
             endScale = 0.8,
-            color = {0.9, 0.9, 0.2, 0.9}, -- Yellow-ish
+            color = Constants.Color.BONE, -- {0.9, 0.9, 0.2, 0.9} -> Yellow-ish -> BONE
             height = 140,
             spreadRadius = 40,
             sound = "conjure"
@@ -22060,10 +22019,36 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.2,
             endScale = 0.6,
-            color = {1.0, 1.0, 0.5, 0.9},  -- Yellow base color, will be randomized
+            color = Constants.Color.YELLOW,  -- Yellow base color, will be randomized
             height = 140,
             spreadRadius = 55,  -- Wider spread for volatile
             sound = "conjure"
+        },
+        
+        -- Nova Conjuring effect (Fire, Force, Star)
+        nova_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.ORANGE, -- Mixed color base (orange/gold) -> ORANGE
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_nova" -- Assumed sound effect
+        },
+
+        -- Witch Conjuring effect (Moon, Force, Nature)
+        witch_conjure = {
+            type = "conjure",
+            duration = 2.0, -- Slightly longer duration
+            particleCount = 30, -- More particles
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.MAROON, -- Mixed color base (purple/indigo) -> MAROON
+            height = 140,
+            spreadRadius = 60, -- Wider spread
+            sound = "conjure_witch" -- Assumed sound effect
         },
         
         -- Shield effect (used for barrier, ward, and field shield activation)
@@ -22073,7 +22058,7 @@ function VFX.init()
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = {0.8, 0.8, 1.0, 0.8},  -- Default blue-ish, will be overridden by options
+            color = Constants.Color.SKY,  -- Default blue-ish -> SKY
             radius = 60,
             pulseRate = 3,
             sound = "shield"
@@ -22734,7 +22719,7 @@ function VFX.drawProjectile(effect)
     local glowImage = VFX.assets.fireGlow
     
     -- Draw trail
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     if #effect.trailPoints >= 3 then
         local points = {}
         for i, point in ipairs(effect.trailPoints) do
@@ -22749,7 +22734,7 @@ function VFX.drawProjectile(effect)
     -- Draw glow at head of projectile
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
         local glowScale = effect.startScale * 3
         love.graphics.draw(
             glowImage,
@@ -22763,7 +22748,7 @@ function VFX.drawProjectile(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -22778,7 +22763,7 @@ function VFX.drawProjectile(effect)
     if effect.progress > 0.95 then
         local flashIntensity = (1 - (effect.progress - 0.95) * 20) -- Flash quickly fades
         if flashIntensity > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity) -- Use base color, apply flash alpha
             love.graphics.circle("fill", effect.targetX, effect.targetY, effect.impactSize * 30 * (1 - flashIntensity))
         end
     end
@@ -22791,7 +22776,7 @@ function VFX.drawImpact(effect)
     
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress) * effect.color[4])
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress)) -- Use base color, apply ring alpha
     local ringScale = effect.radius * 0.02 * ringProgress
     love.graphics.draw(
         impactImage,
@@ -22804,7 +22789,7 @@ function VFX.drawImpact(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -22838,7 +22823,7 @@ function VFX.drawAura(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -22864,7 +22849,7 @@ function VFX.drawVertical(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -22902,17 +22887,17 @@ function VFX.drawBeam(effect)
     local beamWidth = effect.beamWidth * (1 + pulseAmount) * (1 - (effect.progress > 0.5 and (effect.progress - 0.5) * 2 or 0))
     
     -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.3)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 1.5)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw inner beam core
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7) -- Use base color (brightened), apply fixed alpha
     love.graphics.setLineWidth(beamWidth * 0.7)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
     -- Draw brightest beam center
-    love.graphics.setColor(1, 1, 1, effect.color[4] * 0.9)
+    love.graphics.setColor(1, 1, 1, 0.9) -- Keep white center for now
     love.graphics.setLineWidth(beamWidth * 0.3)
     love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
     
@@ -22922,7 +22907,7 @@ function VFX.drawBeam(effect)
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * particle.alpha)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -22934,12 +22919,12 @@ function VFX.drawBeam(effect)
     end
     
     -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.7)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
     love.graphics.circle("fill", effect.sourceX, effect.sourceY, 20 * (1 + pulseAmount))
     
     -- Draw impact glow at target if beam is fully extended
     if effect.beamProgress >= 0.99 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.8 * (1 - (effect.progress - 0.5) * 2))
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * (1 - (effect.progress - 0.5) * 2)) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", beamEndX, beamEndY, 25 * (1 + pulseAmount))
     end
 end
@@ -22951,7 +22936,7 @@ function VFX.drawConjure(effect)
     
     -- Draw source glow if active
     if effect.sourceGlow and effect.sourceGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.sourceGlow * 0.6)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.sourceGlow * 0.6) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.sourceX, effect.sourceY, 50 * effect.sourceGlow)
         
         -- Draw expanding rings from source (hint at conjuration happening)
@@ -22961,7 +22946,7 @@ function VFX.drawConjure(effect)
             if ringProgress < 1.0 then
                 local ringSize = 60 * ringProgress
                 local ringAlpha = 0.5 * (1.0 - ringProgress) * effect.sourceGlow
-                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha)
+                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], ringAlpha) -- Use base color, apply calculated alpha
                 love.graphics.circle("line", effect.sourceX, effect.sourceY, ringSize)
             end
         end
@@ -22969,7 +22954,7 @@ function VFX.drawConjure(effect)
     
     -- Draw mana pool glow if active
     if effect.poolGlow and effect.poolGlow > 0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * effect.poolGlow * 0.7)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.poolGlow * 0.7) -- Use base color, apply calculated alpha
         love.graphics.circle("fill", effect.manaPoolX, effect.manaPoolY, 40 * effect.poolGlow)
     end
     
@@ -22986,7 +22971,7 @@ function VFX.drawConjure(effect)
                     effect.color[1] * 1.3, 
                     effect.color[2] * 1.3, 
                     effect.color[3] * 1.3, 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color (brightened), apply particle alpha
                 )
                 imgToDraw = glowImage
             else
@@ -22994,7 +22979,7 @@ function VFX.drawConjure(effect)
                     effect.color[1], 
                     effect.color[2], 
                     effect.color[3], 
-                    effect.color[4] * particle.alpha
+                    particle.alpha -- Use base color, apply particle alpha
                 )
             end
             
@@ -23028,7 +23013,7 @@ function VFX.drawConjure(effect)
     
     -- Draw connection lines between particles (ethereal threads)
     if effect.progress < 0.7 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], effect.color[4] * 0.2)
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.2) -- Use base color, apply fixed alpha
         
         local maxConnectDist = 50  -- Maximum distance for particles to connect
         for i = 1, #effect.particles do
@@ -23044,7 +23029,7 @@ function VFX.drawConjure(effect)
                         if dist < maxConnectDist then
                             -- Fade based on distance
                             local alpha = (1 - dist/maxConnectDist) * 0.3 * p1.alpha * p2.alpha
-                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+                            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha) -- Use base color, apply calculated alpha
                             love.graphics.line(p1.x, p1.y, p2.x, p2.y)
                         end
                     end
@@ -23116,6 +23101,16 @@ function VFX.createSpellEffect(spell, caster, target)
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
+    elseif spellName == "novaconjuring" then
+        return VFX.createEffect("nova_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
+    elseif spellName == "witchconjuring" then
+        return VFX.createEffect("witch_conjure", sourceX, sourceY, nil, nil, {
+            manaPoolX = manaPoolX,
+            manaPoolY = manaPoolY
+        })
     
     -- Special handling for other specific spells
     elseif spellName == "firebolt" then
@@ -23153,8 +23148,9 @@ function VFX.createSpellEffect(spell, caster, target)
             elseif hasMoonMana then
                 return VFX.createEffect("mistveil", sourceX, sourceY, nil, nil)
             else
-                -- Default generic effect
-                return VFX.createEffect("firebolt", sourceX, sourceY, targetX, targetY)
+                -- Default generic effect if no specific match
+                print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
+                return VFX.createEffect("impact", targetX, targetY, nil, nil) -- Default to a simple impact at target
             end
         end
     end
@@ -23274,7 +23270,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjurefire,
-            ["2"] = Spells.conjureforce,
+            ["2"] = Spells.novaconjuring,
             ["3"] = Spells.firebolt,
 
             -- Two key combos
@@ -23289,8 +23285,8 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.conjurestars,
-            ["3"] = Spells.mist,
+            ["2"] = Spells.witchconjuring,
+            ["3"] = Spells.wrapinmoonlight,
             
             -- Two key combos
             ["12"] = Spells.tidalforce,
@@ -23512,9 +23508,6 @@ function Wizard:update(dt)
                                     -- Request return animation directly on the token
                                     if tokenData.token and tokenData.token.requestReturnAnimation then
                                         tokenData.token:requestReturnAnimation()
-                                    else
-                                        -- Fallback to legacy method if token doesn't have the method
-                                        self.manaPool:returnToken(tokenData.index)
                                     end
                                 end
                                 
@@ -23684,50 +23677,6 @@ function Wizard:queueSpell(spell)
                     -- If TokenManager succeeded, use those tokens
                     if success and acquiredTokens then
                         tokens = acquiredTokens
-                    else
-                        -- TokenManager failed, fallback to legacy method
-                        print("[TokenManager] Failed to acquire tokens, using legacy method")
-                        
-                        -- Move each token from mana pool to spell slot with animation
-                        for _, reservation in ipairs(tokenReservations) do
-                            local token = self.manaPool.tokens[reservation.index]
-                            
-                            -- Mark the token as being channeled using state machine if available
-                            if token.setState then
-                                token:setState(Constants.TokenStatus.CHANNELED)
-                            else
-                                token.state = "CHANNELED"
-                            end
-                            
-                            -- Store original position for animation
-                            token.startX = token.x
-                            token.startY = token.y
-                            
-                            -- Calculate target position in the spell slot based on 3D positioning
-                            -- These must match values in drawSpellSlots
-                            local slotYOffsets = {30, 0, -30}  -- legs, midsection, head
-                            local horizontalRadii = {80, 70, 60}
-                            local verticalRadii = {20, 25, 30}
-                            
-                            local targetX = self.x
-                            local targetY = self.y + slotYOffsets[i]  -- Vertical offset based on slot
-                            
-                            -- Animation data
-                            token.targetX = targetX
-                            token.targetY = targetY
-                            token.animTime = 0
-                            token.animDuration = 0.5 -- Half second animation
-                            token.slotIndex = i
-                            token.tokenIndex = #tokens + 1 -- Position in the slot
-                            token.spellSlot = i
-                            token.wizardOwner = self
-                            
-                            -- 3D perspective data
-                            token.radiusX = horizontalRadii[i]
-                            token.radiusY = verticalRadii[i]
-                            
-                            table.insert(tokens, {token = token, index = reservation.index})
-                        end
                     end
                 end
                 
@@ -23918,7 +23867,7 @@ function Wizard:canPayManaCost(cost)
             -- Go through all tokens in the mana pool
             for i, token in ipairs(self.manaPool.tokens) do
                 -- Skip already reserved tokens
-                if not reservedIndices[i] and token.state == "FREE" then
+                if not reservedIndices[i] and token.status == Constants.TokenStatus.FREE then
                     -- Any free token will work
                     count = count + 1
                     
@@ -23939,7 +23888,7 @@ function Wizard:canPayManaCost(cost)
                 -- Skip already reserved tokens
                 if not reservedIndices[i] then
                     -- Match either by specific type or any type if no type specified
-                    if (tokenType == nil and token.state == "FREE") or (token.type == tokenType and token.state == "FREE") then
+                    if (tokenType == nil and token.status == Constants.TokenStatus.FREE) or (token.type == tokenType and token.status == Constants.TokenStatus.FREE) then
                         -- This token matches our requirements
                         count = count + 1
                         
@@ -24216,6 +24165,9 @@ end
 return Wizard```
 
 # Documentation
+
+## docs/Bugs.md
+* Zone spells not blocked by Barriers - found with Eruption vs. Wrap in Moonlight
 
 ## docs/ProgrammingIdeaBoard.md
 ## Purpose
@@ -26271,4 +26223,282 @@ Update the drawing logic in ManaPool:draw and potentially Wizard:drawSpellSlots 
 
 ## Design Notes
 The dissolve animation logic previously within the DESTROYED state check in ManaPool:update can be adapted for the DISSOLVING state. The return animation needs bezier curve or lerp logic.
+
+## Tickets/SST-1-foundation-sustain-keyword.md
+# Ticket #SST-1: Foundation - The sustain Keyword & Slot Retention
+
+## Description
+Introduce the core concept of a "sustained" spell that keeps its slot active and mana locked after its initial cast time completes. This is the foundation for both Shields and Traps.
+
+## Tasks
+
+### Define Keyword (keywords.lua)
+- Create Keywords.sustain
+- Behavior: { marksSpellAsSustained = true, category = "TIMING" }
+- Execute: `function(params, caster, target, results, events) results.isSustained = true return results end`
+
+### Modify Spell Compiler (spellCompiler.lua)
+- Ensure compileSpell processes the sustain keyword
+- Ensure executeAll correctly adds results.isSustained = true when the keyword is present
+
+### Modify Casting Logic (wizard.lua -> Wizard:castSpell)
+- After the line `effect = spellToUse.executeAll(self, target, {}, spellSlot)`, add a check: `local shouldSustain = effect.isSustained or false`
+- Modify the existing logic block that handles non-shield spell completion: Wrap the calls to `TokenManager.returnTokensToPool(slot.tokens)` and `self:resetSpellSlot(spellSlot)` inside an `if not shouldSustain then ... end` block
+- Crucially: Ensure that if shouldSustain is true, the tokens in slot.tokens remain in their CHANNELED state (or a similar 'in use' state) and are not returned. Verify that TokenManager.returnTokensToPool isn't called elsewhere implicitly for these sustained spells upon cast completion
+
+## Acceptance Criteria
+- A spell defined with `keywords = { sustain = true, ... }` completes its cast timer but the spell slot remains `active = true`
+- The mana tokens for the sustained spell remain associated with the slot (in slot.tokens) and in the CHANNELED state, not returning to the mana pool
+- The visual progress arc for the sustained spell remains full
+- Regular, non-sustained spells complete, return tokens, and reset their slots as normal
+
+## Design Notes
+This ticket focuses only on preventing the slot reset for sustained spells. Expiry/triggering comes later. We use CHANNELED for now, assuming it prevents reuse/return.
+
+## Tickets/SST-2-define-trap-component-keywords.md
+# Ticket #SST-2: Define Trap Component Keywords
+
+## Description
+Create the keywords used to define the parameters of a Trap spell (trap_trigger, trap_window, trap_effect). These keywords will only store data in the spell's execution results; they won't implement the trap logic itself yet.
+
+## Tasks
+
+### Define Keywords (keywords.lua)
+Create entries for:
+
+#### trap_trigger
+- Behavior: { storesTriggerCondition = true, category = "TRAP" }
+- Execute: `function(params, caster, target, results, events) results.trapTrigger = params return results end` (Stores data like { condition = "on_opponent_elevate" })
+
+#### trap_window
+- Behavior: { storesWindowCondition = true, category = "TRAP" }
+- Execute: `function(params, caster, target, results, events) results.trapWindow = params return results end` (Stores data like { duration = 5.0 } or { condition = "until_next_conjure" })
+
+#### trap_effect
+- Behavior: { storesEffectPayload = true, category = "TRAP" }
+- Execute: `function(params, caster, target, results, events) results.trapEffect = params return results end` (Stores the keyword structure for the effect, e.g., { damage = { amount = 10 } })
+
+### Update Spell Compiler (spellCompiler.lua)
+- Ensure compileSpell correctly processes these new keywords
+- Verify that executeAll populates results.trapTrigger, results.trapWindow, and results.trapEffect when these keywords are present in a spell definition
+
+## Acceptance Criteria
+- The three trap keywords (trap_trigger, trap_window, trap_effect) exist and are processed by the compiler
+- When a spell using these keywords is executed via executeAll, the corresponding results.trapTrigger, results.trapWindow, and results.trapEffect fields contain the parameters defined in the spell
+- These keywords produce no side effects or events on their own
+
+## Pitfalls
+The structure stored in results.trapEffect must be a valid keyword definition that can be processed later by the EventRunner.
+
+## Tickets/SST-3-create-sustained-spell-manager.md
+# Ticket #SST-3: Create Sustained Spell Manager System
+
+## Description
+Implement the basic structure for a new system (SustainedSpellManager) that will track all active sustained spells (Shields and Traps).
+
+## Tasks
+
+### Create File (systems/SustainedSpellManager.lua)
+- Create the module SustainedSpellManager
+- Initialize `SustainedSpellManager.activeSpells = {}`. Use a structure that allows easy lookup and removal, perhaps keyed by a unique ID or a composite key like wizard_name .. "_" .. slotIndex. Example entry structure: `{ id = uniqueId, wizard = wizardRef, slotIndex = slotIndex, spell = compiledSpellRef, windowData = ..., triggerData = ..., effectData = ..., expiryTimer = ... }`
+- Implement `SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)`:
+  - Generate a unique ID
+  - Extract relevant info from spellData (the results table from executeAll, containing isSustained, trapTrigger, trapWindow, trapEffect, shieldParams etc.)
+  - Store the entry in activeSpells. Initialize expiry timers if spellData.trapWindow.duration exists
+  - Log the addition: `print("[SustainedManager] Added spell '"..spellData.spell.name.."' for "..wizard.name.." slot "..slotIndex)`
+- Implement `SustainedSpellManager.removeSustainedSpell(id)`: Finds and removes the entry from activeSpells. Log the removal
+- Implement `SustainedSpellManager.update(dt)`:
+  - Iterate through activeSpells
+  - For spells with a duration in their windowData, decrement `expiryTimer = expiryTimer - dt`
+  - (Placeholder) Log the current count of active sustained spells
+
+### Initialize in main.lua
+- `local SustainedSpellManager = require("systems.SustainedSpellManager")`
+- Add `game.sustainedSpellManager = SustainedSpellManager` in love.load
+
+## Acceptance Criteria
+- SustainedSpellManager.lua exists with the specified functions and internal structure
+- addSustainedSpell correctly stores data
+- removeSustainedSpell removes the entry
+- update iterates and logs basic info or decrements timers
+
+## Design Notes
+Storing a reference to the wizard and the slotIndex is critical for later cleanup.
+
+## Tickets/SST-4-integrate-manager-with-spellcasting.md
+# Ticket #SST-4: Integrate Manager with Spell Casting & Update Loop
+
+## Description
+Connect the Wizard:castSpell function to the SustainedSpellManager so that sustained spells are registered, and ensure the manager updates each frame.
+
+## Tasks
+
+### Modify Casting Logic (wizard.lua -> Wizard:castSpell)
+- Inside the `if shouldSustain then ... end` block (from SST-1):
+  - Call `game.sustainedSpellManager.addSustainedSpell(self, spellSlot, effect)`. Ensure the effect table passed contains all data populated by keywords (isSustained, trapTrigger, trapWindow, trapEffect, shieldParams, etc.). Pass slot.spell as well if needed by the manager
+
+### Call Manager Update (main.lua -> love.update)
+- Add a call to `game.sustainedSpellManager.update(dt)` after the wizards and mana pool have been updated
+
+## Acceptance Criteria
+- When a sustained spell finishes casting, SustainedSpellManager.addSustainedSpell is called with the correct wizard, slot index, and spell data
+- The SustainedSpellManager.update function executes each frame
+- The manager's log shows sustained spells being added
+
+## Pitfalls
+Double-check that all necessary data (trigger, window, effect details) generated by keywords in executeAll's effect table is correctly passed to addSustainedSpell.
+
+## Tickets/SST-5-implement-trap-trigger-checking.md
+# Ticket #SST-5: Implement Trap Trigger Condition Checking
+
+## Description
+Add logic to SustainedSpellManager.update to check if the trigger conditions for active Traps are met based on the current game state.
+
+## Tasks
+
+### Modify SustainedSpellManager.update(dt)
+- In the loop iterating through activeSpells:
+  - If the entry has triggerData (meaning it's a trap):
+    - Get the casterWizard and targetWizard references (stored during addSustainedSpell). Access the global game state via casterWizard.gameState
+    - Evaluate triggerData.condition:
+      - If condition == "on_opponent_elevate": Check if `targetWizard.elevation == Constants.ElevationState.AERIAL`. Note: This triggers continuously while aerial. A refinement might be needed later to trigger only on the frame they enter AERIAL
+      - If condition == "on_opponent_cast": Check a flag like `targetWizard.justCastSpellThisFrame` (this flag would need to be set in Wizard:castSpell and cleared at the start of Wizard:update)
+      - Add checks for other potential trigger conditions defined in trap_trigger documentation
+    - If the condition is met:
+      - Log: `print("[SustainedManager] Trap triggered for "..casterWizard.name.." slot "..entry.slotIndex)`
+      - Set a flag on the entry: `entry.triggered = true`
+
+## Acceptance Criteria
+- SustainedSpellManager.update evaluates trap trigger conditions based on game state
+- When a condition is met, the corresponding log message appears, and the internal state of the tracked spell reflects `triggered = true`
+
+## Design Notes
+For simplicity, start with direct state polling (targetWizard.elevation). Event-based triggering is more complex. The justCastSpellThisFrame flag is a simple way to detect casting without event bus hooks.
+
+## Tickets/SST-6-implement-trap-effect-execution.md
+# Ticket #SST-6: Implement Trap Effect Execution via EventRunner
+
+## Description
+When a trap is marked as triggered, execute its stored effect using the EventRunner and then clean up the trap.
+
+## Tasks
+
+### Modify SustainedSpellManager.update(dt)
+- After checking triggers, check if `entry.triggered == true`
+- If true:
+  - Log: `print("[SustainedManager] Executing trap effect for "..entry.wizard.name.." slot "..entry.slotIndex)`
+  - Get the effectData (e.g., `{ damage = { amount = 10 } }`)
+  - Generate Events: Create an `events = {}` list. Iterate through effectData's keywords (like damage, ground). For each, call the corresponding `Keywords[keywordName].execute(params, caster, target, {}, events)` function to populate the events list. Crucially, determine the correct caster (likely entry.wizard) and target (based on the trap's definition, likely the opponent) to pass here
+  - Process Events: `local EventRunner = require("systems.EventRunner"); EventRunner.processEvents(events, entry.wizard, targetWizard, nil)`
+  - Cleanup:
+    - Call `TokenManager.returnTokensToPool(entry.wizard.spellSlots[entry.slotIndex].tokens)` to start returning the mana
+    - Call `entry.wizard:resetSpellSlot(entry.slotIndex)` to free the slot
+    - Call `self.removeSustainedSpell(entry.id)` to remove it from the manager. Ensure iteration handles removal safely
+
+## Acceptance Criteria
+- Triggered trap effects (damage, grounding, etc.) are correctly applied via the EventRunner
+- The trap is removed from the manager after triggering
+- The spell slot used by the trap is reset
+- The mana tokens used by the trap begin their return animation
+
+## Pitfalls
+Correctly identifying the caster and target for the trap_effect execution is vital. Safe removal from the activeSpells list during iteration is needed (e.g., iterate backwards or store IDs to remove after the loop). Ensure resetSpellSlot is called after returnTokensToPool is initiated.
+
+## Tickets/SST-7-implement-window-expiry-checking.md
+# Ticket #SST-7: Implement Window/Expiry Condition Checking
+
+## Description
+Add logic to the SustainedSpellManager to expire sustained spells based on duration or game state conditions.
+
+## Tasks
+
+### Modify SustainedSpellManager.update(dt)
+- Inside the loop iterating through activeSpells (before trigger checks):
+  - If the entry has windowData:
+    - Duration Check: If windowData.duration exists and entry.expiryTimer exists:
+      - If `entry.expiryTimer <= 0`, mark for removal: `entry.expired = true`. Log expiry
+    - Condition Check: If windowData.condition exists:
+      - Evaluate the condition (e.g., until_next_conjure, while_elevated). Get necessary state from entry.wizard.gameState or entry.wizard
+      - If the expiry condition is met, mark for removal: `entry.expired = true`. Log expiry
+- After checking triggers and expiry, add a block: `if entry.expired and not entry.triggered then ... end`
+- Inside this block (spell expired without triggering):
+  - Log: `print("[SustainedManager] Spell expired for "..entry.wizard.name.." slot "..entry.slotIndex)`
+  - Call `TokenManager.returnTokensToPool(entry.wizard.spellSlots[entry.slotIndex].tokens)`
+  - Call `entry.wizard:resetSpellSlot(entry.slotIndex)`
+  - Call `self.removeSustainedSpell(entry.id)`. Ensure safe removal during iteration
+
+## Acceptance Criteria
+- Sustained spells with a duration expire and clean up correctly when their timer runs out
+- Sustained spells with conditions (implement at least one, e.g., until_next_conjure or while_elevated) expire and clean up when the condition is met
+- Expired spells do not trigger their trap_effect
+- Slot and mana are correctly released upon expiry
+
+## Design Notes
+For state-based conditions like until_next_conjure, the originating system (e.g., the conjure keyword handler in EventRunner) needs to set a temporary flag on the wizard (e.g., wizard.justConjuredMana = true) that the manager checks and then clears each frame.
+
+## Tickets/SST-8-visual-feedback-for-sustained-slots.md
+# Ticket #SST-8: Visual Feedback for Sustained Slots
+
+## Description
+Update the spell slot visuals to clearly distinguish between empty slots, casting slots, active Shield slots, and active Trap slots.
+
+## Tasks
+
+### Modify WizardVisuals.drawSpellSlots (systems/WizardVisuals.lua)
+- Inside the loop drawing each slot i:
+  - Check slot.active. If not active, draw as empty (existing logic)
+  - If active:
+    - Check slot.isShield. If true, draw using Shield visuals (existing logic, maybe refine pulsing/color)
+    - Else If check if slot.spell exists and slot.spell.behavior.trap_trigger exists (indicates a Trap). If true, draw using a new Trap visual style (e.g., purple orbit line, a subtle static "trap sigil" icon in the center, full progress arc but maybe dimmer or pulsing differently than shields)
+    - Else If check if slot.spell exists and slot.spell.behavior.sustain exists (generic sustained spell, not shield/trap). Draw with another distinct style (e.g., maybe a steady white or grey full arc)
+    - Else (it's an active, non-sustained spell currently casting): Draw using the existing casting progress arc visual
+
+## Acceptance Criteria
+- Empty slots look distinct
+- Slots casting normal spells show a growing progress arc
+- Slots holding active Shields have their unique visual style (e.g., yellow/blue/green pulsing full arc)
+- Slots holding active Traps have a new, clearly different visual style (e.g., purple static full arc with an icon)
+
+## Pitfalls
+Ensure the checks for shield/trap/sustained are robust and don't misclassify slots.
+
+## Tickets/SST-9-implement-gravity-pin-trap-spell.md
+# Ticket #SST-9: Implement Gravity Pin Trap Spell
+
+## Description
+Redefine the Gravity Pin spell (or create a new GravityTrap) in spells.lua to use the newly implemented sustained spell and trap keyword system.
+
+## Tasks
+
+### Update Spell Definition (spells.lua)
+- Modify Spells.gravity or create Spells.gravityPin
+- Set attackType = Constants.AttackType.UTILITY
+- Define the keywords table as follows (adjust cost/castTime as needed):
+```lua
+keywords = {
+    sustain = true,
+    trap_trigger = { condition = "on_opponent_elevate" },
+    trap_window = { duration = 5.0 },
+    trap_effect = {
+        -- Re-use existing keywords for the effect
+        damage = { amount = 10, type = Constants.DamageType.FORCE, target = "ENEMY" },
+        ground = { target = "ENEMY", vfx = "gravity_pin_ground" }
+        -- Optional: stagger = { duration = 1.0, target = "ENEMY" }
+    }
+}
+```
+- Update vfx to gravity_trap_set (or similar) for the initial placement
+- Remove the old damage and ground keywords that were executing immediately
+
+### Testing
+- Cast the spell. Verify the slot shows the "Trap" visual and mana/slot remain locked
+- Have the opponent use an elevate spell (e.g., Emberlift via debug key '4' or Ashgar's '13' combo) within 5 seconds. Verify the trap triggers: opponent takes damage, is grounded, and the caster's trap slot resets/returns mana
+- Cast the spell again. Wait 5 seconds without the opponent elevating. Verify the trap expires: the caster's trap slot resets/returns mana without any effect occurring
+
+## Acceptance Criteria
+- Gravity Pin spell is defined using sustain, trap_trigger, trap_window, trap_effect
+- Casting it sets the trap correctly (visuals, slot state)
+- The trap triggers correctly when the opponent becomes AERIAL within the window
+- The trap expires correctly if the window closes without a trigger
+- Slot and mana are correctly released in both trigger and expiry scenarios
 

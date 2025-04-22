@@ -384,7 +384,7 @@ Keywords.tokenShift = {
         -- Default parameters
         defaultTokenType = "fire",
         defaultAmount = 1,
-        supportedTypes = {"fire", "force", "moon", "nature", "star", "random"}
+        supportedTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void", "random"}
     },
     
     -- Implementation function - Generates SHIFT_TOKEN event
