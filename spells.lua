@@ -502,6 +502,52 @@ Spells.lunardisjunction = {
     blockableBy = {"barrier", "ward"} -- Disjunction is a projectile
 }
 
+Spells.gravityTrap = {
+    id = "gravityTrap",
+    name = "Gravity Trap",
+    affinity = "moon",
+    description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
+    attackType = "utility",  -- Changed to utility since it's not a direct attack
+    castTime = 5.0,          -- Slightly faster cast time
+    cost = {"moon", "moon"},
+    keywords = {
+        -- Mark as a sustained spell
+        sustain = true,
+        
+        -- Define trap trigger condition
+        trap_trigger = { 
+            condition = "on_opponent_elevate" 
+        },
+        
+        -- Define trap window/expiry
+        trap_window = { 
+            duration = 30.0  -- Trap lasts for 30 seconds
+        },
+        
+        -- Define trap effect when triggered
+        trap_effect = {
+            -- Re-use existing keywords for the effect
+            damage = { 
+                amount = 10, 
+                type = "force",  
+                target = "ENEMY" 
+            },
+            ground = { 
+                target = "ENEMY", 
+                vfx = "gravity_pin_ground" 
+            },
+            stagger = { 
+                duration = 1.0,
+                target = "ENEMY"
+            }
+        }
+    },
+    vfx = "gravity_trap_set",
+    sfx = "gravity_trap_set",
+    blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
+}
+
+-- Keep the original spell for backward compatibility
 Spells.gravity = {
     id = "gravity",
     name = "Gravity Pin",

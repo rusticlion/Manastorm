@@ -44,10 +44,104 @@ Keywords.categories = {
     TOKEN = "Token Manipulation",
     DEFENSE = "Defense Mechanisms",
     SPECIAL = "Special Effects",
-    ZONE = "Zone Mechanics"
+    ZONE = "Zone Mechanics",
+    TRAP = "Trap Mechanics"
 }
 
 -- Target types for keywords (legacy support - new code should use Constants.TargetType directly)
+
+-- Sustained spell system keywords
+-- These are keywords related to the sustained spell system, which allows spells
+-- to continue occupying a slot after being cast (shields, traps, etc)
+
+-- sustain: Marks a spell to remain active in its slot after casting
+Keywords.sustain = {
+    -- Behavior definition
+    behavior = {
+        marksSpellAsSustained = true,
+        category = "TIMING"
+    },
+    
+    -- Implementation function - Sets results.isSustained flag
+    execute = function(params, caster, target, results, events)
+        results.isSustained = true
+        return results
+    end
+}
+
+-- trap_trigger: Defines the condition that triggers a trap spell
+Keywords.trap_trigger = {
+    -- Behavior definition
+    behavior = {
+        storesTriggerCondition = true,
+        category = "TRAP"
+    },
+    
+    -- Implementation function - Stores trigger condition
+    execute = function(params, caster, target, results, events)
+        results.trapTrigger = params
+        print(string.format("[TRAP] Stored trigger condition: %s", 
+            params.condition or "unknown"))
+        return results
+    end
+}
+
+-- trap_window: Defines the duration or condition for a trap spell's expiration
+Keywords.trap_window = {
+    -- Behavior definition
+    behavior = {
+        storesWindowCondition = true,
+        category = "TRAP"
+    },
+    
+    -- Implementation function - Stores window condition/duration
+    execute = function(params, caster, target, results, events)
+        results.trapWindow = params
+        
+        -- Log info based on whether it's duration or condition-based
+        if params.duration then
+            print(string.format("[TRAP] Stored window duration: %.1f seconds", 
+                params.duration))
+        elseif params.condition then
+            print(string.format("[TRAP] Stored window condition: %s", 
+                params.condition))
+        else
+            print("[TRAP] Warning: Window with no duration or condition")
+        end
+        
+        return results
+    end
+}
+
+-- trap_effect: Defines the effect that occurs when a trap is triggered
+Keywords.trap_effect = {
+    -- Behavior definition
+    behavior = {
+        storesEffectPayload = true,
+        category = "TRAP"
+    },
+    
+    -- Implementation function - Stores effect payload
+    execute = function(params, caster, target, results, events)
+        results.trapEffect = params
+        
+        -- Get a list of the effects included
+        local effectNames = {}
+        for effectName, _ in pairs(params) do
+            table.insert(effectNames, effectName)
+        end
+        
+        -- Log the effects included
+        if #effectNames > 0 then
+            print(string.format("[TRAP] Stored effect payload with effects: %s", 
+                table.concat(effectNames, ", ")))
+        else
+            print("[TRAP] Warning: Effect payload with no effects defined")
+        end
+        
+        return results
+    end
+}
 Keywords.targetTypes = Constants.TargetType
 
 -- ===== Core Combat Keywords =====
@@ -312,6 +406,11 @@ Keywords.conjure = {
         local targetPool = params.target or "POOL_SELF" -- Default target pool
 
         events = events or {} -- Ensure events table exists
+
+        -- Set the justConjuredMana flag on the wizard
+        if caster and caster.justConjuredMana ~= nil then
+            caster.justConjuredMana = true
+        end
 
         if type(tokenTypeParam) == "table" then
             -- Handle array of token types

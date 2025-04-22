@@ -104,7 +104,7 @@ function Wizard.new(name, x, y, color)
             -- Two key combos
             ["12"] = Spells.combustMana,
             ["13"] = Spells.emberlift,
-            ["23"] = Spells.eruption,
+            ["23"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
 
             -- Three key combo
             ["123"] = Spells.meteor
@@ -118,7 +118,7 @@ function Wizard.new(name, x, y, color)
             
             -- Two key combos
             ["12"] = Spells.tidalforce,
-            ["13"] = Spells.eclipse,
+            ["13"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
             ["23"] = Spells.lunardisjunction,
             
             -- Three key combo
@@ -143,7 +143,8 @@ function Wizard.new(name, x, y, color)
             frozen = false,
             freezeTimer = 0,
             castTimeModifier = 0, -- Additional time from freeze effects
-            willBecomeShield = false
+            willBecomeShield = false,
+            wasAlreadyCast = false -- Track if the spell has already been cast
         }
     end
     
@@ -171,10 +172,18 @@ function Wizard.new(name, x, y, color)
     self.currentXOffset = 0
     self.currentYOffset = 0
     
+    -- Flags for trap triggering and spell expiry
+    self.justCastSpellThisFrame = false
+    self.justConjuredMana = false
+    
     return self
 end
 
 function Wizard:update(dt)
+    -- Reset flags at the beginning of each frame
+    self.justCastSpellThisFrame = false
+    self.justConjuredMana = false
+    
     -- Update stun timer
     if self.stunTimer > 0 then
         self.stunTimer = math.max(0, self.stunTimer - dt)
@@ -322,14 +331,22 @@ function Wizard:update(dt)
                     -- and tokens remain as CHANNELED until the shield is activated
                     
                     -- ONLY check for spell completion when NOT frozen
-                    if slot.progress >= slot.castTime then
+                    if slot.progress >= slot.castTime and not slot.wasAlreadyCast then
+                        -- Mark this slot as already cast to prevent repeated casting
+                        slot.wasAlreadyCast = true
+                        
                         -- Cast the spell
                         self:castSpell(i)
                         
+                        -- Debug message to confirm we're setting the flag
+                        print(string.format("[DEBUG] Marked slot %d as already cast to prevent repetition", i))
+                        
                         -- For non-shield spells, we return tokens and reset the slot
                         -- For shield spells, castSpell will handle setting up the shield 
-                        -- and we won't get here because we'll have the isShield check above
-                        if not slot.isShield then
+                        -- UNLESS the spell is a sustained spell like a trap
+                        
+                        -- Check for both shield and sustained spells (traps, etc.)
+                        if not slot.isShield and not slot.sustainedId then
                             -- Start return animation for tokens
                             if #slot.tokens > 0 then
                                 for _, tokenData in ipairs(slot.tokens) do
@@ -346,7 +363,7 @@ function Wizard:update(dt)
                                 slot.tokens = {}
                             end
                             
-                            -- Reset slot using unified method
+                            -- Reset slot using unified method only if it's not a sustained spell
                             self:resetSpellSlot(i)
                         end
                     end
@@ -811,6 +828,9 @@ function Wizard:castSpell(spellSlot)
     local slot = self.spellSlots[spellSlot]
     if not slot or not slot.active or not slot.spell then return end
     
+    -- Set the flag to indicate a spell was cast this frame (for trap triggers)
+    self.justCastSpellThisFrame = true
+    
     print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
     
     -- Create a temporary visual notification for spell casting
@@ -903,6 +923,7 @@ function Wizard:castSpell(spellSlot)
     
     -- Handle spell execution based on type
     local effect = nil
+    local shouldSustain = false  -- Initialize outside if-block so it's available throughout the function
     
     -- Check if this spell has the newer, compiled format with executeAll function
     if spellToUse.executeAll and type(spellToUse.executeAll) == "function" then
@@ -911,6 +932,10 @@ function Wizard:castSpell(spellSlot)
         
         -- Execute the spell
         effect = spellToUse.executeAll(self, target, {}, spellSlot)
+        
+        -- Check if this is a sustained spell (from sustain keyword)
+        shouldSustain = effect.isSustained or false
+        print("DEBUG: effect.isSustained = " .. tostring(effect.isSustained) .. ", shouldSustain = " .. tostring(shouldSustain))
     else
         -- Use legacy spell execution
         print("WARNING: Using legacy spell execution for " .. spellToUse.id)
@@ -928,7 +953,30 @@ function Wizard:castSpell(spellSlot)
         if effect.shieldParams then
             -- Create a shield in this spell slot using ShieldSystem
             print("Creating shield in spell slot " .. spellSlot)
+            
+            -- Mark this slot as already cast to prevent repeated casting
+            slot.wasAlreadyCast = true
+            
             local shieldResult = ShieldSystem.createShield(self, spellSlot, effect.shieldParams)
+            
+            -- Register shield with SustainedSpellManager (shields are a type of sustained spell)
+            if shieldResult.shieldCreated and self.gameState and self.gameState.sustainedSpellManager then
+                -- Mark the effect as sustained for shields too
+                effect.isSustained = true
+                shouldSustain = true  -- Make sure shouldSustain is set for shields as well
+                
+                local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
+                    self,        -- wizard who cast the spell
+                    spellSlot,   -- slot index where the shield is
+                    effect       -- effect table from executeAll with shield params
+                )
+                
+                -- Store the sustained spell ID in the slot for reference
+                slot.sustainedId = sustainedId
+                
+                print(string.format("[SUSTAINED] Registered shield in slot %d with ID: %s", 
+                    spellSlot, tostring(sustainedId)))
+            end
             
             -- Apply any elevation change specified by the shield
             if shieldResult.shieldCreated and effect.shieldParams.setElevation then
@@ -943,36 +991,68 @@ function Wizard:castSpell(spellSlot)
         end
     end
     
-    -- For shields, skip the rest of the processing
+    -- For shields, skip the rest of the processing (shields are a specific kind of sustained spell)
     if effect.isShield or slot.isShield then
+        -- Debug log - make it clear to use sustain instead in new code, but shields keep working
+        if effect.isSustained and effect.isShield then
+            print("[SUSTAINED] Note: Spell " .. spellToUse.id .. " has both isShield and isSustained flags - shields are already sustained")
+        end
         return effect
     end
     
     if not isShieldSpell and not slot.isShield and not effect.isShield then
-        -- Start return animation for tokens
-        if #slot.tokens > 0 then
-            -- Check if any tokens are marked as SHIELDING using TokenManager
-            local hasShieldingTokens = false
-            for _, tokenData in ipairs(slot.tokens) do
-                if tokenData.token and TokenManager.validateTokenState(tokenData.token, Constants.TokenStatus.SHIELDING) then
-                    hasShieldingTokens = true
-                    break
+        -- Only reset slot and return tokens if this isn't a sustained spell
+        if not shouldSustain then
+            -- Start return animation for tokens
+            if #slot.tokens > 0 then
+                -- Check if any tokens are marked as SHIELDING using TokenManager
+                local hasShieldingTokens = false
+                for _, tokenData in ipairs(slot.tokens) do
+                    if tokenData.token and TokenManager.validateTokenState(tokenData.token, Constants.TokenStatus.SHIELDING) then
+                        hasShieldingTokens = true
+                        break
+                    end
+                end
+                
+                if not hasShieldingTokens then
+                    -- Safe to return tokens using TokenManager
+                    TokenManager.returnTokensToPool(slot.tokens)
+                    
+                    -- Clear token list (tokens still exist in the mana pool)
+                    slot.tokens = {}
+                else
+                    print("Found SHIELDING tokens, preventing token return")
                 end
             end
             
-            if not hasShieldingTokens then
-                -- Safe to return tokens using TokenManager
-                TokenManager.returnTokensToPool(slot.tokens)
+            -- Reset slot only if it's not a shield
+            self:resetSpellSlot(spellSlot)
+        else
+            -- This is a sustained spell - keep slot active and tokens in place
+            print(string.format("[SUSTAINED] %s's spell in slot %d is being sustained", self.name, spellSlot))
+            
+            -- Keep the slot as active with full progress
+            slot.active = true
+            slot.progress = slot.castTime -- Mark as fully cast
+            slot.wasAlreadyCast = true -- Keep the flag set to prevent repeated casting
+            
+            -- Register with the SustainedSpellManager
+            if self.gameState and self.gameState.sustainedSpellManager then
+                local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
+                    self,        -- wizard who cast the spell
+                    spellSlot,   -- slot index where the spell is
+                    effect       -- effect table from executeAll (contains trapTrigger, trapWindow, trapEffect, etc.)
+                )
                 
-                -- Clear token list (tokens still exist in the mana pool)
-                slot.tokens = {}
+                -- Store the sustained spell ID in the slot for reference
+                slot.sustainedId = sustainedId
+                
+                print(string.format("[SUSTAINED] Registered spell in slot %d with ID: %s", 
+                    spellSlot, tostring(sustainedId)))
             else
-                print("Found SHIELDING tokens, preventing token return")
+                print("[SUSTAINED ERROR] Could not register sustained spell - gameState or sustainedSpellManager missing")
             end
         end
-        
-        -- Reset slot only if it's not a shield
-        self:resetSpellSlot(spellSlot)
     else
         -- For shield spells, the slot remains active and tokens remain in orbit
         -- Make sure slot is marked as a shield
@@ -988,6 +1068,17 @@ end
 function Wizard:resetSpellSlot(slotIndex)
     local slot = self.spellSlots[slotIndex]
     if not slot then return end
+    
+    -- Debug message when slot reset happens
+    print(string.format("[DEBUG] resetSpellSlot called for %s slot %d", self.name, slotIndex))
+    
+    -- Remove from SustainedSpellManager if it's a sustained spell
+    if slot.sustainedId and self.gameState and self.gameState.sustainedSpellManager then
+        self.gameState.sustainedSpellManager.removeSustainedSpell(slot.sustainedId)
+        print(string.format("[SUSTAINED] Removed spell in slot %d with ID: %s during slot reset", 
+            slotIndex, tostring(slot.sustainedId)))
+        slot.sustainedId = nil
+    end
 
     -- Reset the basic slot properties
     slot.active = false
@@ -996,6 +1087,7 @@ function Wizard:resetSpellSlot(slotIndex)
     slot.castTime = 0
     slot.castProgress = 0
     slot.progress = 0 -- Used in many places instead of castProgress
+    slot.wasAlreadyCast = false -- Reset the flag that tracks if the spell was already cast
     
     -- Reset shield-specific properties
     slot.isShield = false

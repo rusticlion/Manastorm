@@ -74,6 +74,18 @@ function VFX.init()
             sound = "gravity_slam"
         },
         
+        -- Gravity Trap Set effect - when placing a gravity trap
+        gravity_trap_set = {
+            type = "impact",
+            duration = 1.2,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.2,
+            color = Constants.Color.MAROON,  -- Purple for gravity theme
+            radius = 75,
+            sound = "gravity_trap_deploy"  -- Sound will need to be loaded
+        },
+        
         force_blast = {
             type = "impact",
             duration = 1.0,
@@ -313,6 +325,18 @@ function VFX.init()
             radius = 60,
             pulseRate = 3,
             sound = "shield"
+        },
+        
+        -- Gravity Trap Set effect - visual for when gravity trap is deployed
+        gravity_trap_set = {
+            type = "impact",
+            duration = 1.2,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
+            radius = 75,
+            sound = "gravity_trap_deploy"
         }
     }
     

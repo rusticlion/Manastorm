@@ -14,6 +14,7 @@ local VFX = require("vfx")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells")
+local SustainedSpellManager = require("systems.SustainedSpellManager")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -247,6 +248,10 @@ function love.load()
     -- Initialize input system with game state reference
     Input.init(game)
     print("Input system initialized")
+    
+    -- Initialize SustainedSpellManager
+    game.sustainedSpellManager = SustainedSpellManager
+    print("SustainedSpellManager initialized")
 end
 
 -- Display hotkey help overlay
@@ -340,7 +345,8 @@ function resetGame()
                 isShield = false,
                 defenseType = nil,
                 shieldStrength = 0,
-                blocksAttackTypes = nil
+                blocksAttackTypes = nil,
+                wasAlreadyCast = false -- Add this flag to prevent repeated spell casts
             }
         end
         
@@ -366,6 +372,9 @@ function resetGame()
     
     -- Reset range state
     game.rangeState = Constants.RangeState.FAR
+    
+    -- Clear sustained spells
+    game.sustainedSpellManager.activeSpells = {}
     
     -- Clear mana pool and add a single token to start
     game.manaPool:clear()
@@ -452,6 +461,9 @@ function love.update(dt)
     
     -- Update VFX system
     game.vfx.update(dt)
+    
+    -- Update SustainedSpellManager for trap and shield management
+    game.sustainedSpellManager.update(dt)
     
     -- Update animated health displays
     UI.updateHealthDisplays(dt, game.wizards)

@@ -344,9 +344,17 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 elseif slot.frozen then
                     -- Blue for frozen slots
                     love.graphics.setColor(0.5, 0.5, 1.0, 0.7)
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
+                    -- Purple for trap slots
+                    love.graphics.setColor(0.7, 0.3, 0.9, 0.7) -- Purple color for traps
+                    shouldDraw = true
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
+                    -- White/Grey for general sustained spells
+                    love.graphics.setColor(0.9, 0.9, 0.9, 0.7) -- Light grey for sustained spells
+                    shouldDraw = true
                 else
-                    shouldDraw = false
-                    -- Active but not a shield - use affinity color
+                    shouldDraw = true
+                    -- Active but not a shield/trap/sustained - use affinity color
                     local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
                     local baseColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2} -- Default reddish
                     love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.7)
@@ -399,6 +407,40 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             })
                         end
                     end
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
+                    -- Trap spells show a full arc
+                    endAngle = math.pi * 2
+                    
+                    -- Draw trap indicator
+                    love.graphics.setColor(0.7, 0.3, 0.9, 0.8)  -- Purple for trap
+                    love.graphics.print("TRAP", 
+                        slotX - 15, -- Center text
+                        slotY - verticalRadii[i] - 15) -- Above the orbit
+                    
+                    -- Draw occasional trap sigil effect (subtle flash)
+                    if math.random() < 0.05 then
+                        if wizard.gameState and wizard.gameState.vfx then
+                            local angle = math.random() * math.pi * 2
+                            local sparkleX = slotX + math.cos(angle) * radiusX * 0.6
+                            local sparkleY = slotY + math.sin(angle) * radiusY * 0.6
+                            
+                            wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                duration = 0.3,
+                                color = {0.7, 0.2, 0.9, 0.5},
+                                particleCount = 2,
+                                radius = 4
+                            })
+                        end
+                    end
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
+                    -- Sustained spells show a full arc
+                    endAngle = math.pi * 2
+                    
+                    -- Draw sustained indicator
+                    love.graphics.setColor(0.9, 0.9, 0.9, 0.8)  -- White for sustained
+                    love.graphics.print("SUSTAIN", 
+                        slotX - 25, -- Center text
+                        slotY - verticalRadii[i] - 15) -- Above the orbit
                 end
                 
                 -- Draw the progress arc in a slightly different color
@@ -416,11 +458,20 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     -- Frozen spells have a blue, shimmering progress arc
                     local flicker = 0.8 + math.random() * 0.2
                     love.graphics.setColor(0.4 * flicker, 0.4 * flicker, 0.9 * flicker, 0.9)
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
+                    -- Trap spells have a purple, low-frequency pulsing arc
+                    local pulseAmount = 0.1 + math.abs(math.sin(love.timer.getTime() * 1.2)) * 0.2
+                    love.graphics.setColor(0.7 * (1 + pulseAmount), 0.3 * (1 + pulseAmount), 0.9 * (1 + pulseAmount), 0.8)
+                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
+                    -- Sustained spells have a white, steady glow
+                    local steadyGlow = 0.8 + math.abs(math.sin(love.timer.getTime() * 0.5)) * 0.1
+                    love.graphics.setColor(steadyGlow, steadyGlow, steadyGlow, 0.8)
                 else
                     -- Normal spell casting
                     local brightness = 0.9 + math.sin(love.timer.getTime() * 5) * 0.1
                     local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
-                    print("spell: " .. slot.spell.name)
+                    -- Avoid log spam - Only use print for debugging
+                    -- print("spell: " .. (slot.spell and slot.spell.name or "unknown"))
                     local baseColor = affinity and Constants.getColorForTokenType(affinity) or {1.0, 0.7, 0.3} -- Default yellowish
                     love.graphics.setColor(baseColor[1] * brightness, baseColor[2] * brightness, baseColor[3] * brightness, 0.9)
                 end

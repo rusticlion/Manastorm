@@ -7,7 +7,7 @@ Update the spell slot visuals to clearly distinguish between empty slots, castin
 
 ### Modify WizardVisuals.drawSpellSlots (systems/WizardVisuals.lua)
 - Inside the loop drawing each slot i:
-  - Check slot.active. If not active, draw as empty (existing logic)
+  - Check slot.active. If not active, draw as empty/invisible (existing logic)
   - If active:
     - Check slot.isShield. If true, draw using Shield visuals (existing logic, maybe refine pulsing/color)
     - Else If check if slot.spell exists and slot.spell.behavior.trap_trigger exists (indicates a Trap). If true, draw using a new Trap visual style (e.g., purple orbit line, a subtle static "trap sigil" icon in the center, full progress arc but maybe dimmer or pulsing differently than shields)

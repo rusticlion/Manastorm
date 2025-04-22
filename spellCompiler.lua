@@ -62,7 +62,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     
     -- Process keywords if they exist
     if spellDef.keywords then
+        print("DEBUG: Processing keywords for spell " .. spellDef.id)
         for keyword, params in pairs(spellDef.keywords) do
+            print("DEBUG:   Found keyword: " .. keyword)
             -- Check if the keyword exists in the keyword data
             if keywordData[keyword] and keywordData[keyword].behavior then
                 -- Get the behavior definition for this keyword
@@ -197,6 +199,51 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- If this is a shield spell, mark this in the results
         if hasShieldBehavior or compiledSpell.isShield then
             results.isShield = true
+        end
+        
+        -- Check for sustain keyword and mark in results if present
+        if compiledSpell.behavior.sustain then
+            -- This will be picked up by Wizard:castSpell to handle sustained spells
+            results.isSustained = true
+            print("DEBUG: Spell " .. compiledSpell.id .. " marked as sustained")
+        else
+            print("DEBUG: Spell " .. compiledSpell.id .. " not marked as sustained. Checking for sustain keyword...")
+            
+            -- Debug: Print out the behavior table keys to see if sustain is there
+            for behaviorKey, _ in pairs(compiledSpell.behavior) do
+                print("  Behavior found: " .. behaviorKey)
+            end
+        end
+        
+        -- Check for trap keywords and ensure they're in the results
+        -- These trap-related fields will be used by the SustainedSpellManager later
+        if compiledSpell.behavior.trap_trigger then
+            -- Make sure trapTrigger data is in the results
+            if not results.trapTrigger then
+                results.trapTrigger = compiledSpell.behavior.trap_trigger.params or {}
+                print("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
+            end
+        end
+        
+        if compiledSpell.behavior.trap_window then
+            -- Make sure trapWindow data is in the results
+            if not results.trapWindow then
+                results.trapWindow = compiledSpell.behavior.trap_window.params or {}
+                print("DEBUG: Adding trapWindow data to results: " .. tostring(results.trapWindow))
+                
+                -- Debug what's in the params
+                for k, v in pairs(compiledSpell.behavior.trap_window.params or {}) do
+                    print("DEBUG:   trapWindow param: " .. k .. " = " .. tostring(v))
+                end
+            end
+        end
+        
+        if compiledSpell.behavior.trap_effect then
+            -- Make sure trapEffect data is in the results
+            if not results.trapEffect then
+                results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
+                print("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
+            end
         end
         
         if useEventSystem then
