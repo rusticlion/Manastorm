@@ -315,10 +315,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
         
         -- Draw the elliptical orbit paths (only need to do this once, e.g., during the 'back' pass)
         if layer == "back" then 
+            local shouldDrawOrbit = false
+            local orbitColor = {0.5, 0.5, 0.5, 0.4} -- Default inactive/dim color
+            local drawProgressArc = false
+            local progressArcColor = {1.0, 1.0, 1.0, 0.9} -- Default progress color
+            local stateText = nil -- Text like "FROZEN", "TRAP"
+            local stateTextColor = {1, 1, 1, 0.8}
+
+            -- First, check for keyed spell highlight on an inactive slot
             if wizard.currentKeyedSpell and not slot.active then
-                local shouldDraw = true
-                -- Highlight slot that would be used for the current keyed spell
-                -- This is always the first available slot, which we need to calculate
                 local wouldUseThisSlot = true
                 for j = 1, i-1 do
                     if not wizard.spellSlots[j].active then
@@ -328,161 +333,131 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 end
                 
                 if wouldUseThisSlot then
-                    -- Use affinity color for keyed spell highlight
-                    local affinity = wizard.currentKeyedSpell and wizard.currentKeyedSpell.affinity
-                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {0.8, 0.8, 0.2} -- Default yellow
-                    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.7)
-                else
-                    -- Inactive slot
-                    shouldDraw = false
+                    local affinity = wizard.currentKeyedSpell.affinity
+                    orbitColor = affinity and Constants.getColorForTokenType(affinity) or {0.8, 0.8, 0.2}
+                    orbitColor[4] = 0.7 -- Set alpha
+                    shouldDrawOrbit = true
+                    -- Skip further checks for this slot if it's just a highlight
+                    goto DrawOrbitAndArc -- Use goto to jump past active slot logic
                 end
-            elseif slot.active then
-                if slot.isShield then
-                    -- Use shield color from ShieldSystem
-                    local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
-                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], 0.7)
-                elseif slot.frozen then
-                    -- Blue for frozen slots
-                    love.graphics.setColor(0.5, 0.5, 1.0, 0.7)
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
-                    -- Purple for trap slots
-                    love.graphics.setColor(0.7, 0.3, 0.9, 0.7) -- Purple color for traps
-                    shouldDraw = true
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
-                    -- White/Grey for general sustained spells
-                    love.graphics.setColor(0.9, 0.9, 0.9, 0.7) -- Light grey for sustained spells
-                    shouldDraw = true
-                else
-                    shouldDraw = true
-                    -- Active but not a shield/trap/sustained - use affinity color
-                    local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
-                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2} -- Default reddish
-                    love.graphics.setColor(baseColor[1], baseColor[2], baseColor[3], 0.7)
-                end
-            else
-                -- Inactive slot
-                shouldDraw = false
             end
+
+            -- Handle active slots (casting or sustained/finished)
+            if slot.active then
+                -- Determine if the spell is currently in its casting phase
+                local isActuallyCasting = (slot.castTime or 0) > 0 and slot.progress < slot.castTime
+
+                if isActuallyCasting then
+                    -- CASTING PHASE: Show affinity-colored progress arc only
+                    drawProgressArc = true
+                    shouldDrawOrbit = false -- Hide the full orbit during cast
+
+                    local affinity = slot.spell and slot.spell.affinity
+                    local baseArcColor = affinity and Constants.getColorForTokenType(affinity) or {1.0, 0.7, 0.3} -- Default yellowish
+                    local brightness = 0.9 + math.sin(love.timer.getTime() * 5) * 0.1
+                    progressArcColor = {
+                        baseArcColor[1] * brightness, 
+                        baseArcColor[2] * brightness, 
+                        baseArcColor[3] * brightness, 
+                        0.9
+                    }
+
+                else
+                    -- POST-CASTING PHASE (or instant spell): Show full orbit based on state
+                    drawProgressArc = false
+                    shouldDrawOrbit = true 
+
+                    if slot.isShield then
+                        orbitColor = ShieldSystem.getShieldColor(slot.defenseType)
+                        orbitColor[4] = 0.7
+                        local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                        orbitColor = {
+                            orbitColor[1] * (1 + pulseAmount),
+                            orbitColor[2] * (1 + pulseAmount),
+                            orbitColor[3] * (1 + pulseAmount),
+                            0.8
+                        }
+                        -- Potentially add "SHIELD" text or specific VFX here if needed
+
+                    elseif slot.frozen then
+                        orbitColor = {0.5, 0.5, 1.0, 0.7} -- Blue for frozen
+                        stateText = "FROZEN"
+                        stateTextColor = {0.7, 0.7, 1.0, 0.8}
+                        -- Flickering ice effect
+                        if math.random() < 0.03 then
+                            if wizard.gameState and wizard.gameState.vfx then
+                                local angle = math.random() * math.pi * 2
+                                local sparkleX = slotX + math.cos(angle) * radiusX * 0.7
+                                local sparkleY = slotY + math.sin(angle) * radiusY * 0.7
+                                wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                    duration = 0.3, color = {0.6, 0.6, 1.0, 0.5}, particleCount = 3, radius = 5
+                                })
+                            end
+                        end
+
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
+                        orbitColor = {0.7, 0.3, 0.9, 0.7} -- Purple for traps
+                        stateText = "TRAP"
+                        stateTextColor = {0.7, 0.3, 0.9, 0.8}
+                        -- Trap sigil effect
+                        if math.random() < 0.05 then
+                           if wizard.gameState and wizard.gameState.vfx then
+                                local angle = math.random() * math.pi * 2
+                                local sparkleX = slotX + math.cos(angle) * radiusX * 0.6
+                                local sparkleY = slotY + math.sin(angle) * radiusY * 0.6
+                                wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                    duration = 0.3, color = {0.7, 0.2, 0.9, 0.5}, particleCount = 2, radius = 4
+                                })
+                            end
+                        end
+
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
+                        orbitColor = {0.9, 0.9, 0.9, 0.7} -- Light grey for sustained
+                        stateText = "SUSTAIN"
+                        stateTextColor = {0.9, 0.9, 0.9, 0.8}
+                        -- Add potential sustain VFX here if desired
+
+                    else 
+                        -- Completed normal spell (not shield/frozen/trap/sustain)
+                        -- Keep orbit briefly visible with affinity color (or maybe dim grey?)
+                         local affinity = slot.spell and slot.spell.affinity
+                         orbitColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2}
+                         orbitColor[4] = 0.5 -- Make it slightly dimmer after completion
+                    end
+                end
+            end -- End of active slot handling
             
-            -- Draw the orbit ellipse
-            if shouldDraw then
+            ::DrawOrbitAndArc::
+            
+            -- Draw the orbit ellipse if needed
+            if shouldDrawOrbit then
+                love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
                 WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
             end
             
-            -- Draw progress arc for active slots
-            if slot.active then
+            -- Draw progress arc if needed (only during casting phase)
+            if drawProgressArc then
                 local startAngle = 0
-                local endAngle = (slot.progress / slot.castTime) * (math.pi * 2)
+                -- Ensure castTime is not zero to avoid division errors
+                local endAngle = ((slot.castTime or 1) > 0) and (slot.progress / slot.castTime) * (math.pi * 2) or 0
                 
-                if slot.isShield then
-                    -- Shield slots show a full arc (since they're fully cast)
-                    endAngle = math.pi * 2
-                    
-                    -- Show some VFX effect conveying Barrier vs. Ward - "Wall of Light" for barriers, "Ring of Runes" for wards
-                    -- Use slotX, slotY, radiusX, radiusY for the effect to align it with the spell slot
-                    if slot.defenseType == "barrier" then
-                        -- wizard.gameState.vfx.createEffect("barrier", slotX, slotY, radiusX, radiusY)
-                    elseif slot.defenseType == "ward" then
-                        -- wizard.gameState.vfx.createEffect("ward", slotX, slotY, radiusX, radiusY)
-                    end
-                elseif slot.frozen then
-                    -- Draw frozen indicator
-                    love.graphics.setColor(0.7, 0.7, 1.0, 0.8)
-                    love.graphics.print("FROZEN", 
-                        slotX - 20, -- Center text
-                        slotY - verticalRadii[i] - 15) -- Above the orbit
-                    
-                    -- Draw flickering ice effect
-                    if math.random() < 0.03 then
-                        if wizard.gameState and wizard.gameState.vfx then
-                            local angle = math.random() * math.pi * 2
-                            local sparkleX = slotX + math.cos(angle) * radiusX * 0.7
-                            local sparkleY = slotY + math.sin(angle) * radiusY * 0.7
-                            
-                            wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
-                                duration = 0.3,
-                                color = {0.6, 0.6, 1.0, 0.5},
-                                particleCount = 3,
-                                radius = 5
-                            })
-                        end
-                    end
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
-                    -- Trap spells show a full arc
-                    endAngle = math.pi * 2
-                    
-                    -- Draw trap indicator
-                    love.graphics.setColor(0.7, 0.3, 0.9, 0.8)  -- Purple for trap
-                    love.graphics.print("TRAP", 
-                        slotX - 15, -- Center text
-                        slotY - verticalRadii[i] - 15) -- Above the orbit
-                    
-                    -- Draw occasional trap sigil effect (subtle flash)
-                    if math.random() < 0.05 then
-                        if wizard.gameState and wizard.gameState.vfx then
-                            local angle = math.random() * math.pi * 2
-                            local sparkleX = slotX + math.cos(angle) * radiusX * 0.6
-                            local sparkleY = slotY + math.sin(angle) * radiusY * 0.6
-                            
-                            wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
-                                duration = 0.3,
-                                color = {0.7, 0.2, 0.9, 0.5},
-                                particleCount = 2,
-                                radius = 4
-                            })
-                        end
-                    end
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
-                    -- Sustained spells show a full arc
-                    endAngle = math.pi * 2
-                    
-                    -- Draw sustained indicator
-                    love.graphics.setColor(0.9, 0.9, 0.9, 0.8)  -- White for sustained
-                    love.graphics.print("SUSTAIN", 
-                        slotX - 25, -- Center text
-                        slotY - verticalRadii[i] - 15) -- Above the orbit
-                end
+                love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
                 
-                -- Draw the progress arc in a slightly different color
-                if slot.isShield then
-                    -- Shields have a pulsing color to indicate active defense
-                    local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                    local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
-                    love.graphics.setColor(
-                        shieldColor[1] * (1 + pulseAmount),
-                        shieldColor[2] * (1 + pulseAmount),
-                        shieldColor[3] * (1 + pulseAmount),
-                        0.8
-                    )
-                elseif slot.frozen then
-                    -- Frozen spells have a blue, shimmering progress arc
-                    local flicker = 0.8 + math.random() * 0.2
-                    love.graphics.setColor(0.4 * flicker, 0.4 * flicker, 0.9 * flicker, 0.9)
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.trap_trigger then
-                    -- Trap spells have a purple, low-frequency pulsing arc
-                    local pulseAmount = 0.1 + math.abs(math.sin(love.timer.getTime() * 1.2)) * 0.2
-                    love.graphics.setColor(0.7 * (1 + pulseAmount), 0.3 * (1 + pulseAmount), 0.9 * (1 + pulseAmount), 0.8)
-                elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
-                    -- Sustained spells have a white, steady glow
-                    local steadyGlow = 0.8 + math.abs(math.sin(love.timer.getTime() * 0.5)) * 0.1
-                    love.graphics.setColor(steadyGlow, steadyGlow, steadyGlow, 0.8)
-                else
-                    -- Normal spell casting
-                    local brightness = 0.9 + math.sin(love.timer.getTime() * 5) * 0.1
-                    local affinity = slot.spell and slot.spell.affinity -- Assuming slot.spell exists
-                    -- Avoid log spam - Only use print for debugging
-                    -- print("spell: " .. (slot.spell and slot.spell.name or "unknown"))
-                    local baseColor = affinity and Constants.getColorForTokenType(affinity) or {1.0, 0.7, 0.3} -- Default yellowish
-                    love.graphics.setColor(baseColor[1] * brightness, baseColor[2] * brightness, baseColor[3] * brightness, 0.9)
-                end
-                
-                -- Draw the actual progress arc
                 WizardVisuals.drawEllipticalArc(
                     slotX, slotY, 
                     radiusX, radiusY, 
                     startAngle, endAngle, 
                     32 -- More segments for smoother arc
                 )
+            end
+
+            -- Draw state text (TRAP, FROZEN, SUSTAIN) above the orbit if applicable
+            if stateText then
+                love.graphics.setColor(stateTextColor[1], stateTextColor[2], stateTextColor[3], stateTextColor[4])
+                local textWidth = love.graphics.getFont():getWidth(stateText)
+                love.graphics.print(stateText, 
+                    slotX - textWidth / 2, -- Center text
+                    slotY - verticalRadii[i] - 15) -- Position above the orbit
             end
         end -- End of drawing orbits only on 'back' pass
 

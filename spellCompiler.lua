@@ -201,17 +201,24 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             results.isShield = true
         end
         
-        -- Check for sustain keyword and mark in results if present
-        if compiledSpell.behavior.sustain then
+        -- Check for sustain keyword or block keyword (which marks spells as sustained)
+        if compiledSpell.behavior.sustain or 
+           (compiledSpell.behavior.block and compiledSpell.behavior.block.marksSpellAsSustained) then
             -- This will be picked up by Wizard:castSpell to handle sustained spells
             results.isSustained = true
             print("DEBUG: Spell " .. compiledSpell.id .. " marked as sustained")
         else
-            print("DEBUG: Spell " .. compiledSpell.id .. " not marked as sustained. Checking for sustain keyword...")
+            print("DEBUG: Spell " .. compiledSpell.id .. " not marked as sustained. Checking for sustain/shield keywords...")
             
-            -- Debug: Print out the behavior table keys to see if sustain is there
+            -- Debug: Print out the behavior table keys to see if sustain or block is there
             for behaviorKey, _ in pairs(compiledSpell.behavior) do
                 print("  Behavior found: " .. behaviorKey)
+                
+                -- If it's the block keyword, check if it has marksSpellAsSustained
+                if behaviorKey == "block" then
+                    print("    Block keyword found. marksSpellAsSustained = " .. 
+                        tostring(compiledSpell.behavior.block.marksSpellAsSustained))
+                end
             end
         end
         

@@ -113,6 +113,12 @@ function SustainedSpellManager.update(dt)
     
     -- Update each active spell
     for id, entry in pairs(SustainedSpellManager.activeSpells) do
+        -- Debug: check what types of sustained spells we have
+        if math.floor(os.time()) % 10 == 0 then -- Only log every 10 seconds to avoid spam
+            print(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s", 
+                id, entry.type, entry.spell and entry.spell.name or "unknown"))
+        end
+        
         -- Count by type
         if entry.type == "shield" then
             shieldCount = shieldCount + 1
@@ -363,8 +369,15 @@ function SustainedSpellManager.update(dt)
     
     -- Log active spell counts (reduced frequency to avoid console spam)
     if math.floor(os.time()) % 5 == 0 then  -- Log every 5 seconds
-        print(string.format("[SustainedManager] Active spells: %d total (%d shields, %d traps, %d generic)", 
-            shieldCount + trapCount + genericCount, shieldCount, trapCount, genericCount))
+        -- If we have at least one spell, log more details
+        if shieldCount + trapCount + genericCount > 0 then
+            for id, entry in pairs(SustainedSpellManager.activeSpells) do
+                local wizardName = entry.wizard and entry.wizard.name or "unknown"
+                local spellName = entry.spell and entry.spell.name or "unknown spell"
+                print(string.format("  - %s: %s's %s in slot %d (id: %s)",
+                    entry.type, wizardName, spellName, entry.slotIndex, id))
+            end
+        end
     end
 end
 

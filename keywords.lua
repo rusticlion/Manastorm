@@ -703,6 +703,7 @@ Keywords.block = {
         createsShield = true,
         targetType = "SELF",
         category = "DEFENSE",
+        marksSpellAsSustained = true,
         
         -- Shield properties
         shieldTypes = {"barrier", "ward", "field"},
@@ -711,6 +712,10 @@ Keywords.block = {
     
     -- Implementation function - Generates CREATE_SHIELD event
     execute = function(params, caster, target, results, events)
+        -- Mark the spell as sustained
+        results.isSustained = true
+        print("[DEBUG] Block keyword setting results.isSustained = true")
+        
         table.insert(events or {}, {
             type = "CREATE_SHIELD",
             source = "caster",

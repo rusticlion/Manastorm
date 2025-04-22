@@ -954,6 +954,10 @@ function Wizard:castSpell(spellSlot)
             -- Create a shield in this spell slot using ShieldSystem
             print("Creating shield in spell slot " .. spellSlot)
             
+            -- Explicitly mark as sustained (shields are a type of sustained spell)
+            effect.isSustained = true
+            shouldSustain = true
+            
             -- Mark this slot as already cast to prevent repeated casting
             slot.wasAlreadyCast = true
             
@@ -964,6 +968,10 @@ function Wizard:castSpell(spellSlot)
                 -- Mark the effect as sustained for shields too
                 effect.isSustained = true
                 shouldSustain = true  -- Make sure shouldSustain is set for shields as well
+                
+                -- Make sure the shield params are set in the proper field expected by SustainedSpellManager
+                effect.shieldParams = effect.shieldParams or {}
+                effect.isShield = true
                 
                 local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
                     self,        -- wizard who cast the spell
