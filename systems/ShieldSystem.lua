@@ -36,6 +36,16 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     slot.active = true
     slot.progress = slot.castTime -- Mark as fully cast
     
+    -- Store the onBlock handler if provided
+    slot.onBlock = blockParams.onBlock
+    
+    -- Debug log for onBlock handler
+    if blockParams.onBlock then
+        print("[SHIELD DEBUG] Shield creation: onBlock handler saved to slot")
+    else
+        print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
+    end
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -51,7 +61,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- No longer tracking shield strength separately - token count is the source of truth
+    -- Set onBlock callback
+    slot.onBlock = blockParams.onBlock or nil
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
@@ -196,27 +207,50 @@ end
 -- Handle the effects of a spell being blocked by a shield
 function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     local slot = wizard.spellSlots[slotIndex]
-    if not slot or not slot.active or not slot.isShield then
-        print(string.format("WARNING: handleShieldBlock called on invalid or non-shield slot %d for %s", slotIndex, wizard.name))
+    if not slot or not slot.active then
+        print(string.format("WARNING: handleShieldBlock called on invalid or inactive slot %d for %s", slotIndex, wizard.name))
         return false
     end
+    
+    -- Additional safety check for shield status
+    if not slot.isShield then
+        print(string.format("WARNING: handleShieldBlock called on non-shield slot %d for %s", slotIndex, wizard.name))
+        return false
+    end
+
+    -- Safety check for incomingSpell
+    if not incomingSpell then
+        print("WARNING: handleShieldBlock called with nil incomingSpell")
+        return false
+    end
+
+    -- Get defense type with safety check
+    local defenseType = slot.defenseType or "unknown"
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
     local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
 
+    -- Get spell name with safety check
+    local spellName = incomingSpell.name or "unknown spell"
+
     print(string.format("[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).", 
-        wizard.name, slot.defenseType, slotIndex, incomingSpell.name, shieldBreakPower, tokensToConsume))
+        wizard.name, defenseType, slotIndex, spellName, shieldBreakPower, tokensToConsume))
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
-            local removedTokenObject = removedTokenData.token
+            local removedTokenObject = removedTokenData and removedTokenData.token
             
-            print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
-                tostring(removedTokenObject.type)))
+            -- Safety check for removed token object
+            if removedTokenObject and removedTokenObject.type then
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                    tostring(removedTokenObject.type)))
+            else
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+            end
                 
             -- Mark the consumed token for destruction using TokenManager
             if removedTokenObject then
@@ -253,6 +287,35 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             particleCount = 8,
             radius = 30
         })
+    end
+    
+    -- Add support for on-block effects
+    -- Add safety check for slot.defenseType
+    local defenseType = slot.defenseType or "unknown"
+    print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
+    
+    if slot.onBlock then
+        print("[SHIELD DEBUG] onBlock handler found, executing")
+        local EventRunner = require("systems.EventRunner")
+        local ok, blockEvents = pcall(slot.onBlock,
+                                      wizard,          -- defender (owner of the shield)
+                                      incomingSpell and incomingSpell.caster, -- attacker (may be nil)
+                                      slotIndex,
+                                      { blockType = defenseType })
+        if ok and type(blockEvents) == "table" and #blockEvents > 0 then
+            print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
+        elseif not ok then
+            print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
+        else
+            print("[SHIELD DEBUG] onBlock successful but no events returned or invalid events format")
+            print("[SHIELD DEBUG] Return value: " .. type(blockEvents))
+            if type(blockEvents) == "table" then
+                print("[SHIELD DEBUG] Table length: " .. #blockEvents)
+            end
+        end
+    else
+        print("[SHIELD DEBUG] No onBlock handler found for this shield")
     end
     
     -- The checkFizzleOnTokenRemoval method handles the actual shield breaking (slot reset)

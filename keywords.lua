@@ -29,10 +29,43 @@
 --     end
 -- }
 --
+-- Parameter resolution:
+-- Keyword parameters can now be static values or functions. If a function is provided, 
+-- it will be called with (caster, target, slot) and the result used as the parameter value.
+--
+-- Example static parameter:
+--   damage = { amount = 10 }
+--
+-- Example function parameter:
+--   damage = { 
+--     amount = function(caster, target, slot)
+--       return target.elevation == "AERIAL" and 15 or 10
+--     end
+--   }
+--
+-- Example using expression helpers:
+--   tokenShift = {
+--     type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+--     amount = 1
+--   }
+--
 -- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
+
+-- Utility: resolve a param that may be a callable
+local function resolve(value, caster, target, slot, default)
+    if type(value) == "function" then
+        local ok, result = pcall(value, caster, target, slot)
+        return ok and result or default
+    end
+    return value ~= nil and value or default
+end
+
 local Keywords = {}
+
+-- Export utility functions
+Keywords.util = { resolve = resolve }
 
 -- Keyword categories for organization
 Keywords.categories = {
@@ -161,57 +194,33 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local applyDamage = true
-        -- Check for conditional function
-        if params.condition and type(params.condition) == "function" then
-            applyDamage = params.condition(caster, target, results.currentSlot)
-        end
-
+        -- Use resolve to handle conditional parameter
+        local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
+        
         -- Only generate event if condition passed (or no condition)
         if applyDamage then
-            local damageAmountFuncOrValue = params.amount or 0
-            local calculatedDamage = 0
-            local damageType = params.type or Constants.DamageType.GENERIC
-
-            if type(damageAmountFuncOrValue) == "function" then
-                -- It's a function, call it
-                local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-                local success, funcResult = pcall(function()
-                    -- Call the function stored in damageAmountFuncOrValue
-                    -- Pass caster, target, and the local slot index
-                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-                end)
-
-                if success then
-                    calculatedDamage = funcResult
-                else
-                    print("Error evaluating damage function: " .. tostring(funcResult))
-                    calculatedDamage = 0 -- Default on error
-                end
-            else
-                -- It's a static value
-                calculatedDamage = damageAmountFuncOrValue
-            end
+            -- Use resolve for damage amount and type
+            local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
+            local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
             -- Generate event
             table.insert(events or {}, {
-                type = "DAMAGE", source = "caster", target = "enemy",
-                amount = calculatedDamage, damageType = damageType,
+                type = "DAMAGE", 
+                source = "caster", 
+                target = "enemy",
+                amount = calculatedDamage, 
+                damageType = damageType,
                 scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
             })
         end
 
-        -- Keep legacy results for now (might still be used elsewhere)
-        -- results.damage = calculatedDamage 
-        -- results.damageType = damageType
-        -- results.scaledDamage = (type(params.amount) == "function")
         return results
     end
 }
 
 -- burn: Applies damage over time effect
 Keywords.burn = {
+    -- refactor to more consistent behavior: each second, apply damage equal to Burn X and --X.
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
@@ -315,19 +324,20 @@ Keywords.ground = {
     
     -- Implementation function - Generates SET_ELEVATION event
     execute = function(params, caster, target, results, events)
-        local applyGrounding = true
-        -- Check if there's a conditional function
-        if params.conditional and type(params.conditional) == "function" then
-            applyGrounding = params.conditional(caster, target)
-        end
+        -- Use resolver for conditional parameter
+        local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
         if applyGrounding then
+            -- Resolve other parameters
+            local targetEntity = resolve(params.target, caster, target, results.currentSlot, "enemy")
+            local vfxEffect = resolve(params.vfx, caster, target, results.currentSlot, "tidal_force_ground")
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
-                target = params.target or "enemy", -- Use specified target or default to enemy
+                target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = params.vfx or "tidal_force_ground"
+                vfx = vfxEffect
             })
         end
         return results
@@ -348,16 +358,14 @@ Keywords.rangeShift = {
     
     -- Implementation function - Generates SET_RANGE event
     execute = function(params, caster, target, results, events)
-        local targetPosition = params.position or Constants.RangeState.NEAR
-        -- If position is a function, resolve it
-        if type(targetPosition) == "function" then
-            targetPosition = targetPosition(caster, target)
-        end
+        -- Use resolver for all parameters
+        local targetPosition = resolve(params.position, caster, target, results.currentSlot, Constants.RangeState.NEAR)
+        local targetEntity = resolve(params.target, caster, target, results.currentSlot, "self")
         
         table.insert(events or {}, {
             type = "SET_RANGE",
             source = "caster",
-            target = params.target or "self", -- Usually affects both, but can be targeted
+            target = targetEntity, -- Usually affects both, but can be targeted
             position = targetPosition
         })
         return results
@@ -488,12 +496,15 @@ Keywords.tokenShift = {
     
     -- Implementation function - Generates SHIFT_TOKEN event
     execute = function(params, caster, target, results, events)
+        local tokenType = resolve(params.type, caster, target, results.currentSlot, "fire")
+        local amount = resolve(params.amount, caster, target, results.currentSlot, 1)
+        
         table.insert(events or {}, {
             type = "SHIFT_TOKEN",
             source = "caster",
             target = "pool",
-            tokenType = params.type or "fire",
-            amount = params.amount or 1,
+            tokenType = tokenType,
+            amount = amount,
             shiftTarget = params.target or "self" -- Whose tokens to target within the pool
         })
         return results
@@ -549,7 +560,7 @@ Keywords.slow = {
         category = "TIMING",
         
         -- Default parameters
-        defaultMagnitude = 1.0, -- How much to increase cast time by
+        defaultMagnitude = Constants.CastSpeed.ONE_TIER, -- How much to increase cast time by
         defaultDuration = 10.0, -- How long the slow effect waits for a cast
         defaultSlot = nil -- nil or 0 means next cast in any slot, 1/2/3 targets specific slot
     },
@@ -561,7 +572,7 @@ Keywords.slow = {
             source = "caster",
             target = "enemy", -- Target the enemy wizard entity
             statusType = "slow",
-            magnitude = params.magnitude or 1.0, -- How much time to add
+            magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
         })
@@ -637,13 +648,8 @@ Keywords.disjoint = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local targetSlotIndex = 0
-        if params.slot and type(params.slot) == "function" then
-            -- Evaluate the slot function if provided
-            targetSlotIndex = params.slot(caster, target, results.currentSlot)
-        elseif params.slot then
-            targetSlotIndex = params.slot
-        end
+        -- Use resolver to handle the slot parameter
+        local targetSlotIndex = resolve(params.slot, caster, target, results.currentSlot, 0)
         targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
         
         -- Create a CANCEL_SPELL event with returnMana = false
@@ -706,7 +712,7 @@ Keywords.block = {
         marksSpellAsSustained = true,
         
         -- Shield properties
-        shieldTypes = {"barrier", "ward", "field"},
+        shieldTypes = {"barrier", "ward"},
         attackTypes = {"projectile", "remote", "zone"}
     },
     
@@ -723,7 +729,8 @@ Keywords.block = {
             slotIndex = results.currentSlot, -- Use the slot the spell was cast from
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
-            reflect = params.reflect or false
+            reflect = params.reflect or false,
+            onBlock = params.onBlock -- Add support for the onBlock callback
         })
         return results
     end
@@ -846,6 +853,31 @@ Keywords.zoneMulti = {
             source = "caster",
             target = "self_slot",
             slotIndex = results.currentSlot
+        })
+        return results
+    end
+}
+
+-- consume: Permanently removes the tokens channeled to cast this spell
+Keywords.consume = {
+    -- Behavior definition
+    behavior = {
+        destroysChanneledTokens = true,
+        targetType = "SLOT_SELF",
+        category = "RESOURCE",
+        
+        -- Default parameters
+        defaultAmount = "all" -- By default, consume all channeled tokens
+    },
+    
+    -- Implementation function - Generates CONSUME_TOKENS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "CONSUME_TOKENS",
+            source = "caster",
+            target = "self_slot", -- Target own spell slot
+            slotIndex = results.currentSlot, -- Use the slot the spell was cast from
+            amount = params.amount or "all" -- "all" means consume all tokens used for the spell
         })
         return results
     end

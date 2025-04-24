@@ -5,6 +5,8 @@
 local Constants = require("core.Constants")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
+local expr = require("expr")
+local ManaHelpers = require("systems.ManaHelpers")
 
 local Spells = {}
 
@@ -209,8 +211,8 @@ Spells.firebolt = {
     keywords = {
         damage = {
             amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.AERIAL and 15 or 10
+                if target and target.gameState.rangeState == Constants.RangeState.FAR then
+                    return 15
                 end
                 return 10
             end,
@@ -220,6 +222,28 @@ Spells.firebolt = {
     vfx = "fire_bolt",
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.blastwave = {
+    id = "blastwave",
+    name = "Blast Wave",
+    affinity = "fire",
+    description = "Blast that deals significant damage up close.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
+    keywords = {
+        damage = {
+            amount = expr.byRange({
+                NEAR = 18,
+                FAR = 5,
+                default = 5
+            }),
+            type = Constants.DamageType.FIRE
+        }
+    },
+    vfx = "blastwave",
+    sfx = "blastwave",
 }
 
 Spells.meteor = {
@@ -308,13 +332,21 @@ Spells.emberlift = {
     attackType = "utility",
     cost = {"sun"},
     keywords = {
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
         elevate = {
             duration = 5.0,
             target = "SELF",
             vfx = "emberlift"
         },
         rangeShift = {
-            position = "FAR"
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            })
         }
     },
     vfx = "ember_lift",
@@ -401,8 +433,9 @@ Spells.novaconjuring = {
     description = "Conjures SUN token from FIRE.",
     attackType = Constants.AttackType.UTILITY,
     castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
-    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
+    cost = {"fire", "fire", "fire"},  -- Needs basic fire to "fuse"
     keywords = {
+        consume = true,
         conjure = {
             token = {
                 Constants.TokenType.SUN,
@@ -439,11 +472,30 @@ Spells.witchconjuring = {
     blockableBy = {}  -- Unblockable
 }
 
+Spells.infiniteprocession = {
+    id = "infiniteprocession",
+    name = "Infinite Procession",
+    affinity = Constants.TokenType.MOON,
+    description = "Transmutes MOON tokens into SUN or SUN into MOON.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {},
+    keywords = {
+        tokenShift = {
+            -- If there's more SUN than MOON, flip a random token to MOON (and vice-versa)
+            -- Make this target a specific token as appropriate later
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+            amount = 1
+        }
+    },
+    vfx = "infinite_procession",
+    sfx = "conjure_infinite",
+}
 Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
-    name = "Wrap in Moonlight",
+    name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
+    description = "Ward that elevates the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
@@ -451,17 +503,32 @@ Spells.wrapinmoonlight = {
         block = {
             type = Constants.ShieldType.WARD,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
-        },
-        elevate = {
-            duration = 4.0
+            
+            -- Simplified onBlock implementation
+            onBlock = function(defender, attacker, slot, info)
+                print("[SPELL DEBUG] Wings of Moonlight onBlock handler executing!")
+                
+                -- Create a simple event array
+                local events = {}
+                
+                -- Add the elevation event
+                table.insert(events, {
+                    type = "SET_ELEVATION",
+                    source = "caster",
+                    target = "self",
+                    elevation = Constants.ElevationState.AERIAL,
+                    duration = 4.0,
+                    vfx = "mist_veil"
+                })
+                
+                print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
+                return events
+            end
         }
     },
     vfx = "mist_veil",
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
-    
-    -- Mark this as a shield (important for shield mechanics)
-    -- isShield = true
 }
 
 Spells.tidalforce = {
@@ -527,7 +594,7 @@ Spells.gravityTrap = {
     description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
     attackType = "utility",  -- Changed to utility since it's not a direct attack
     castTime = 5.0,          -- Slightly faster cast time
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         -- Mark as a sustained spell
         sustain = true,
@@ -539,14 +606,15 @@ Spells.gravityTrap = {
         
         -- Define trap window/expiry
         trap_window = { 
-            duration = 30.0  -- Trap lasts for 30 seconds
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
         },
         
         -- Define trap effect when triggered
         trap_effect = {
             -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
             damage = { 
-                amount = 10, 
+                amount = 3, 
                 type = Constants.TokenType.MOON,  
                 target = "ENEMY" 
             },
@@ -554,8 +622,10 @@ Spells.gravityTrap = {
                 target = "ENEMY", 
                 vfx = "gravity_pin_ground" 
             },
-            stagger = { 
+            burn = { 
                 duration = 1.0,
+                tickDamage = 4,
+                tickInterval = 0.5,
                 target = "ENEMY"
             }
         }
@@ -563,6 +633,35 @@ Spells.gravityTrap = {
     vfx = "gravity_trap_set",
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
+}
+
+Spells.moondance = {
+    id = "moondance",
+    name = "Moon Dance",
+    affinity = Constants.TokenType.MOON,
+    description = "Switch Range. Freeze <6> enemy Root slot.",
+    attackType = "remote",
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.MOON},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = Constants.TokenType.MOON
+        },
+        rangeShift = {
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
+            target = "SELF" 
+        },
+        freeze = {
+            duration = Constants.CastSpeed.ONE_TIER*2,
+            target = "SLOT_ENEMY",
+            slot = 1
+        }
+    }
 }
 
 -- Keep the original spell for backward compatibility
@@ -602,18 +701,22 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Pause",
+    name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
-    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
+    description = "Freeze <3> your Crown slot. Conjure Sun", -- Simplified description
     attackType = "utility", 
     castTime = Constants.CastSpeed.FAST,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = Constants.CastSpeed.ONE_TIER,
-            target = "self" -- Explicitly target the caster
+            slot = 3,
+            target = "both" -- Explicitly target the caster
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
         }
-        -- Removed damage and cancelSpell keywords
     },
     vfx = "eclipse_burst", -- Keep visual/sound for now
     sfx = "eclipse_shatter",
@@ -626,12 +729,12 @@ Spells.fullmoonbeam = {
     affinity = Constants.TokenType.MOON,
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = Constants.AttackType.PROJECTILE,
-    castTime = Constants.CastSpeed.SLOW,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 5 moon mana
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 3 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.FAST  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -673,16 +776,15 @@ Spells.fullmoonbeam = {
 -- Shield spells
 Spells.forcebarrier = {
     id = "forcebarrier",
-    name = "Force Barrier",
-    description = "A protective barrier that blocks projectiles and zones",
+    name = "Sun Block",
+    description = "A protective barrier that blocks projectile and area attacks",
     castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
-    cost = {"any", "any", "any"},
+    cost = {"sun", "sun"},
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
-            -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
     vfx = "force_barrier",
@@ -748,6 +850,161 @@ Spells.mirrorshield = {
     vfx = "mirror_shield",
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Enhanced Mirror Shield with direct damage reflection via onBlock
+Spells.enhancedmirrorshield = {
+    id = "enhancedmirrorshield",
+    name = "Enhanced Mirror Shield",
+    description = "A powerful reflective barrier that returns damage to attackers with interest",
+    attackType = "utility",
+    castTime = 6.0,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.STAR, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Add a custom onBlock handler to implement reflection logic
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                -- Only reflect if we have an attacker
+                if not attacker then return {} end
+                
+                -- Generate damage reflection events
+                local events = {}
+                
+                -- Create a damage reflection event
+                table.insert(events, {
+                    type = "DAMAGE",
+                    source = "caster", -- The defender becomes the source
+                    target = "enemy",  -- The attacker becomes the target
+                    amount = 10,       -- Fixed reflection damage
+                    damageType = "star",
+                    reflectedDamage = true
+                })
+                
+                -- Create a visual effect event
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "enemy",
+                    effectType = "reflect",
+                    duration = 0.5
+                })
+                
+                return events
+            end
+        }
+    },
+    vfx = "enhanced_mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Battle Shield with multiple effects on block
+Spells.battleshield = {
+    id = "battleshield",
+    name = "Battle Shield",
+    description = "An aggressive barrier that counterattacks and empowers the caster when blocking",
+    attackType = "utility",
+    castTime = 7.0,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.SUN, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Advanced onBlock handler with multiple effects
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("[SPELL DEBUG] Battle Shield onBlock handler executing!")
+                local events = {}
+                
+                -- 1. Deal counter damage to the attacker
+                if attacker then
+                    table.insert(events, {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 8,
+                        damageType = "fire",
+                        counterDamage = true
+                    })
+                end
+                
+                -- 2. Accelerate the defender's next spell
+                table.insert(events, {
+                    type = "ACCELERATE_SPELL",
+                    source = "caster",
+                    target = "self_slot",
+                    slotIndex = 0, -- Next cast in any slot
+                    amount = 2.0
+                })
+                
+                -- 3. Create a token on successful block
+                table.insert(events, {
+                    type = "CONJURE_TOKEN",
+                    source = "caster",
+                    target = "POOL_SELF",
+                    tokenType = "fire",
+                    amount = 1
+                })
+                
+                -- 4. Visual effect feedback
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "self",
+                    effectType = "battle_shield_counter",
+                    duration = 0.8,
+                    color = {1.0, 0.7, 0.2, 0.8}
+                })
+                
+                print("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
+                return events
+            end
+        }
+    },
+    vfx = "battle_shield",
+    sfx = "fire_shield",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Simple test shield just for debugging
+Spells.testshield = {
+    id = "testshield",
+    name = "Test Shield",
+    description = "A simple test shield that prints debug info when it blocks",
+    attackType = "utility",
+    castTime = 3.0,
+    cost = {"fire"},
+    keywords = {
+        block = {
+            type = "barrier",
+            blocks = {"projectile"},
+            
+            -- Super simple onBlock handler
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("TEST SHIELD BLOCK TRIGGERED")
+                print("Defender: " .. (defender and defender.name or "nil"))
+                print("Attacker: " .. (attacker and attacker.name or "nil"))
+                print("Slot: " .. tostring(slotIndex))
+                
+                -- Return a damage event
+                return {
+                    {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 5,
+                        damageType = "fire"
+                    }
+                }
+            end
+        }
+    },
+    vfx = "force_barrier",
+    sfx = "shield_up",
+    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -1068,31 +1325,22 @@ Spells.lunarTides = {
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "force", "star"},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                -- Damage based on position
-                local baseDamage = 8
-                
-                -- If opponent is AERIAL, deal more damage
-                if target and target.elevation and target.elevation == "AERIAL" then
-                    baseDamage = baseDamage + 4
-                end
-                
-                -- If in NEAR range, deal more damage
-                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
-                    baseDamage = baseDamage + 3
-                end
-                
-                return baseDamage
-            end,
+            -- Use expr.byElevation to set damage based on elevation
+            amount = expr.byElevation({
+                GROUNDED = 8,
+                AERIAL = 12,
+                default = 8
+            }),
             type = Constants.TokenType.MOON,
             target = "ENEMY"  -- Explicit targeting
         },
         rangeShift = {
-            -- Position changes based on current state
-            position = function(caster, target)
-                -- Toggle position
-                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
-            end,
+            -- Position changes based on current state using the expr.byRange helper
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
             target = "SELF"  -- Affects caster
         },
         lock = {
@@ -1112,6 +1360,49 @@ Spells.lunarTides = {
     vfx = "lunar_tide",
     sfx = "tide_rush",
     blockableBy = {"field"}
+}
+
+-- Example test spell showcasing new expression helpers
+Spells.adaptive_surge = {
+    id = "adaptivesurge",
+    name = "Adaptive Surge",
+    description = "A spell that adapts its effects based on the current mana pool",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON},
+    keywords = {
+        -- Damage scales based on the number of sun tokens
+        damage = {
+            amount = expr.countScale(Constants.TokenType.SUN, 5, 2), -- 5 base damage + 2 per sun token
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON) -- Use token that's more abundant
+        },
+        -- Apply either burn or slow based on which wizard has more tokens
+        burn = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool) > 
+                       ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool)
+            end,
+            { -- Apply burn if caster has more SUN tokens
+                duration = 3.0,
+                tickDamage = 2
+            },
+            nil -- Don't apply burn otherwise
+        ),
+        slow = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool) >= 
+                       ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool)
+            end,
+            { -- Apply slow if caster has more MOON tokens
+                magnitude = 1.0,
+                duration = 5.0
+            },
+            nil -- Don't apply slow otherwise
+        )
+    },
+    vfx = "adaptive_surge",
+    sfx = "adaptive_sound",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Prepare the return table with all spells and utility functions

@@ -17,6 +17,7 @@ local PROCESSING_PRIORITY = {
     DISSIPATE_TOKEN = 110,
     SHIFT_TOKEN = 120,
     LOCK_TOKEN = 130,
+    CONSUME_TOKENS = 140,
     
     -- Spell timeline events (third)
     ACCELERATE_SPELL = 210,
@@ -32,6 +33,9 @@ local PROCESSING_PRIORITY = {
     
     -- Damage events (sixth)
     DAMAGE = 500,
+    
+    -- Visual effects (before special effects)
+    EFFECT = 550,
     
     -- Special effects (last)
     ECHO = 600,
@@ -756,7 +760,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Determine the actual wizard and slot index
         local wizardToFreeze = nil
-        local slotIndexToFreeze = event.slotIndex or 2 -- Get slot from event, default to 2
+        local slotIndexToFreeze = event.slotIndex or 3 -- Get slot from event, default to 2
         
         if not resolvedTarget then
             print("ERROR: FREEZE_SPELL target resolution failed.")
@@ -916,13 +920,76 @@ EventRunner.EVENT_HANDLERS = {
                 )
             end
         else
-             print("WARNING: Could not find token object to shift after removal from slot.")
+            print("WARNING: Could not find token object to shift after removal from slot.")
         end
 
         -- Call the centralized Law of Completion check on the target wizard
         wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
         
         return true -- Event succeeded
+    end,
+    
+    -- CONSUME_TOKENS: Permanently removes the tokens channeled to cast a spell
+    CONSUME_TOKENS = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local wizard = targetInfo.wizard
+        local slotIndex = event.slotIndex or spellSlot
+        
+        -- Get the target slot
+        local slot = wizard.spellSlots[slotIndex]
+        if not slot or not slot.active or not slot.tokens or #slot.tokens == 0 then
+            return false -- Invalid target slot
+        end
+        
+        -- Track how many tokens we consume
+        local tokensConsumed = 0
+        
+        -- Go through all tokens in the slot and mark them for destruction
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                -- Check if we should consume this token based on amount parameter
+                local shouldConsume = true
+                if event.amount ~= "all" and tokensConsumed >= event.amount then
+                    shouldConsume = false
+                end
+                
+                if shouldConsume then
+                    -- Request destruction animation if available
+                    if tokenData.token.requestDestructionAnimation then
+                        tokenData.token:requestDestructionAnimation()
+                    else
+                        -- Fallback to legacy direct state setting
+                        tokenData.token.state = "DESTROYED"
+                    end
+                    
+                    tokensConsumed = tokensConsumed + 1
+                    results.tokensAffected = (results.tokensAffected or 0) + 1
+                end
+            end
+        end
+        
+        -- Create VFX for token consumption if available
+        if tokensConsumed > 0 and caster.gameState and caster.gameState.vfx then
+            local params = {
+                slotIndex = slotIndex,
+                tokensConsumed = tokensConsumed
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConsumeEffect",
+                "token_consume",
+                wizard.x,
+                wizard.y,
+                params
+            )
+        end
+        
+        print(string.format("[CONSUME] Consumed %d tokens from slot %d", tokensConsumed, slotIndex))
+        
+        return tokensConsumed > 0 -- Success if at least one token was consumed
     end,
     
     -- ===== Defense Events =====
@@ -968,8 +1035,24 @@ EventRunner.EVENT_HANDLERS = {
             createShield = true,
             defenseType = event.defenseType or "barrier",
             blocksAttackTypes = event.blocksAttackTypes or {"projectile"},
-            reflect = event.reflect or false
+            reflect = event.reflect or false,
+            onBlock = event.onBlock or nil
         }
+        
+        -- Debug logging for onBlock
+        if event.onBlock then
+            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            
+            -- Check if it's actually a function
+            if type(event.onBlock) == "function" then
+                print("[EVENT DEBUG] onBlock is a valid function")
+            else
+                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+            end
+        else
+            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+        end
         
         -- Check if the wizard has a createShield method
         if type(wizard.createShield) ~= "function" then
@@ -981,6 +1064,7 @@ EventRunner.EVENT_HANDLERS = {
             slot.defenseType = shieldParams.defenseType
             slot.blocksAttackTypes = shieldParams.blocksAttackTypes
             slot.reflect = shieldParams.reflect
+            slot.onBlock = shieldParams.onBlock
             
             -- Mark tokens as shielding
             for _, tokenData in ipairs(slot.tokens) do
@@ -1107,6 +1191,44 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         return false
+    end,
+    
+    -- Add a new EFFECT event handler for pure visual effects
+    EFFECT = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local targetWizard = targetInfo.wizard
+        
+        -- Create visual effect if VFX system is available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                duration = event.duration or 0.5,
+                source = caster.name,
+                target = targetWizard.name,
+                effectType = event.effectType
+            }
+            
+            -- Add any additional parameters from the event
+            for k, v in pairs(event) do
+                if k ~= "type" and k ~= "source" and k ~= "target" and 
+                   k ~= "duration" and k ~= "effectType" then
+                    params[k] = v
+                end
+            end
+            
+            -- Use our safe VFX creation helper
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createEffect",
+                event.effectType or "generic_effect",
+                targetWizard.x,
+                targetWizard.y,
+                params
+            )
+        end
+        
+        return true
     end
 }
 

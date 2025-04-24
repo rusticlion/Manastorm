@@ -38,6 +38,11 @@ end
 -- Main compilation function
 -- Takes a spell definition and keyword data, returns a compiled spell
 function SpellCompiler.compileSpell(spellDef, keywordData)
+    -- Debug - check for onBlock in keywords.block
+    if spellDef.keywords and spellDef.keywords.block and spellDef.keywords.block.onBlock then
+        print("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
+    end
+    
     -- Create a new compiledSpell object
     local compiledSpell = {
         -- Copy base spell properties
@@ -174,6 +179,16 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in executeAll")
+                    
+                    -- Check for onBlock in params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                    else
+                        print("[COMPILER DEBUG] No onBlock handler in params")
+                    end
+                    
                     -- Create a CREATE_SHIELD event
                     local shieldEvent = {
                         type = "CREATE_SHIELD",
@@ -182,14 +197,28 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         slotIndex = spellSlot,
                         defenseType = "barrier",
                         blocksAttackTypes = {"projectile"},
-                        reflect = false
+                        reflect = false,
+                        onBlock = params.onBlock -- Include onBlock directly from params
                     }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
                     
                     -- Safely add shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
                         shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
                         shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
                         shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
+                        
+                        -- Also add onBlock from shieldParams if available and not already set
+                        if behaviorResults.shieldParams.onBlock and not shieldEvent.onBlock then
+                            shieldEvent.onBlock = behaviorResults.shieldParams.onBlock
+                            print("[COMPILER DEBUG] Added onBlock from shieldParams to CREATE_SHIELD event")
+                        end
                     end
                     
                     table.insert(events, shieldEvent)
@@ -328,17 +357,41 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors (block keyword)
                 if keyword == "block" then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in generateEvents")
+                    
                     -- Create a CREATE_SHIELD event explicitly
                     local shieldParams = localResults.shieldParams or {}
-                    table.insert(events, {
+                    
+                    -- Check if onBlock is in the params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                        -- Add onBlock to shieldParams if not already there
+                        if not shieldParams.onBlock then
+                            shieldParams.onBlock = params.onBlock
+                        end
+                    end
+                    
+                    -- Create event with onBlock included
+                    local shieldEvent = {
                         type = "CREATE_SHIELD",
                         source = "caster",
                         target = "self",
                         slotIndex = spellSlot,
                         defenseType = shieldParams.defenseType or "barrier",
                         blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = shieldParams.reflect or false
-                    })
+                        reflect = shieldParams.reflect or false,
+                        onBlock = shieldParams.onBlock -- Include onBlock in the event
+                    }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
+                    
+                    table.insert(events, shieldEvent)
                 end
             end
         end

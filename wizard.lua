@@ -102,9 +102,9 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.combustMana,
-            ["13"] = Spells.emberlift,
-            ["23"] = Spells.forcebarrier,
+            ["12"] = Spells.forcebarrier,
+            ["13"] = Spells.blastwave,
+            ["23"] = Spells.emberlift,
 
             -- Three key combo
             ["123"] = Spells.meteor
@@ -113,13 +113,13 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.witchconjuring,
-            ["3"] = Spells.wrapinmoonlight,
+            ["2"] = Spells.infiniteprocession,
+            ["3"] = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.tidalforce,
-            ["13"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
-            ["23"] = Spells.lunardisjunction,
+            ["12"] = Spells.wrapinmoonlight,
+            ["13"] = Spells.eclipse,
+            ["23"] = Spells.gravityTrap,
             
             -- Three key combo
             ["123"] = Spells.fullmoonbeam
@@ -1134,6 +1134,20 @@ end
 -- Handle the effects of a spell being blocked by a shield in a specific slot
 -- This is now a wrapper method that delegates to ShieldSystem
 function Wizard:handleShieldBlock(slotIndex, incomingSpell)
+    print("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
+    
+    -- Debug the shield slot to check for onBlock
+    if self.spellSlots and self.spellSlots[slotIndex] then
+        local slot = self.spellSlots[slotIndex]
+        if slot.onBlock then
+            print("[WIZARD DEBUG] onBlock handler found in shield slot")
+        else
+            print("[WIZARD DEBUG] No onBlock handler found in shield slot")
+        end
+    else
+        print("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
+    end
+    
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
 end
 

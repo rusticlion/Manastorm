@@ -944,38 +944,6 @@ function ManaPool:drawToken(token)
             -- Draw shield border
             love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.5) -- Keep original border alpha
             love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
-            
-            -- Add a small defensive shield symbol inside the circle
-            -- Determine symbol shape by defense type if available
-            if token.wizardOwner and token.spellSlot then
-                local slot = token.wizardOwner.spellSlots[token.spellSlot]
-                if slot and slot.defenseType then
-                    love.graphics.setColor(1, 1, 1, 0.7)
-                    if slot.defenseType == "barrier" then
-                        -- Draw a small hexagon (shield shape) for barriers
-                        local shieldSize = 6 * token.scale
-                        local points = {}
-                        for i = 1, 6 do
-                            local angle = (i - 1) * math.pi / 3
-                            table.insert(points, token.x + math.cos(angle) * shieldSize)
-                            table.insert(points, token.y + math.sin(angle) * shieldSize)
-                        end
-                        love.graphics.polygon("line", points)
-                    elseif slot.defenseType == "ward" then
-                        -- Draw a small circle (ward shape)
-                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
-                    elseif slot.defenseType == "field" then
-                        -- Draw a small diamond (field shape)
-                        local fieldSize = 7 * token.scale
-                        love.graphics.polygon("line", 
-                            token.x, token.y - fieldSize,
-                            token.x + fieldSize, token.y,
-                            token.x, token.y + fieldSize,
-                            token.x - fieldSize, token.y
-                        )
-                    end
-                end
-            end
         end
     end
 end
