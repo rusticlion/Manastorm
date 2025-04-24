@@ -48,6 +48,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         attackType = spellDef.attackType,
         castTime = spellDef.castTime,
         cost = spellDef.cost,
+        keywords = spellDef.keywords,
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
         blockableBy = spellDef.blockableBy,

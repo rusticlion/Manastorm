@@ -35,7 +35,7 @@ function UI.drawHelpText(font)
     -- Draw a semi-transparent background for the debug panel
     love.graphics.setColor(0.1, 0.1, 0.2, 0.7)
     local panelWidth = 600
-    local y = love.graphics.getHeight() - 130
+    local y = _G.game.baseHeight - 130 -- Use _G.game.baseHeight directly
     love.graphics.rectangle("fill", 5, y + 30, panelWidth, 95, 5, 5)
     
     -- Draw a border
@@ -67,8 +67,8 @@ end
 
 -- Draw skeuomorphic spellbook components for both players
 function UI.drawSpellbookButtons()
-    local screenWidth = love.graphics.getWidth()
-    local screenHeight = love.graphics.getHeight()
+    local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
+    local screenHeight = _G.game.baseHeight -- Use _G.game.baseHeight directly
     
     -- Draw Player 1's spellbook (Ashgar - pinned to left side)
     UI.drawPlayerSpellbook(1, 0, screenHeight - 70)
@@ -79,7 +79,6 @@ end
 
 -- Draw an individual player's spellbook component
 function UI.drawPlayerSpellbook(playerNum, x, y)
-    local screenWidth = love.graphics.getWidth()
     local width = 250  -- Balanced width
     local height = 50
     local player = (playerNum == 1) and "Ashgar" or "Selene"
@@ -470,7 +469,7 @@ end
 
 -- Draw dramatic fighting game style health bars
 function UI.drawHealthBars(wizards)
-    local screenWidth = love.graphics.getWidth()
+    local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
     local barHeight = 40
     local centerGap = 60 -- Space between bars in the center
     local barWidth = (screenWidth - centerGap) / 2
@@ -721,7 +720,7 @@ function UI.updateHealthDisplays(dt, wizards)
 end
 
 function UI.drawSpellbookModal(wizard, playerNum, formatCost)
-    local screenWidth = love.graphics.getWidth()
+    local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
     
     -- Determine position based on player number
     local modalX, keyPrefix

@@ -138,6 +138,24 @@ local function validateSpell(spell, spellId)
     return true
 end
 
+-- Hilarious Void "conjuring" spell
+Spells.conjurenothing = {
+    id = "conjurenothing",
+    name = "Conjure Nothing",
+    affinity = "void",
+    description = "Bring nothing into existence",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.VOID, Constants.TokenType.ANY, Constants.TokenType.ANY},
+    keywords = {
+        expend = {
+            amount = 3
+        }
+    },
+    vfx = "void_conjure",
+    sfx = "void_conjure",
+}
+
 -- Ashgar's Spells (Fire-focused)
 Spells.conjurefire = {
     id = "conjurefire",
@@ -186,7 +204,7 @@ Spells.firebolt = {
     affinity = "fire",
     description = "Quick ranged hit, more damage against AERIAL opponents",
     castTime = Constants.CastSpeed.FAST,
-    attackType = "projectile",
+    attackType = Constants.AttackType.PROJECTILE,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -308,14 +326,14 @@ Spells.emberlift = {
 Spells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Creates a new Moon mana token",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,  -- Base cast time of 5 seconds
     cost = {},  -- No mana cost
     keywords = {
         conjure = {
-            token = "moon",
+            token = Constants.TokenType.MOON,
             amount = 1
         }
     },
@@ -331,7 +349,7 @@ Spells.conjuremoonlight = {
         local moonCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == "moon" and token.state == "FREE" then
+                if token.type == Constants.TokenType.MOON and token.state == "FREE" then
                     moonCount = moonCount + 1
                 end
             end
@@ -401,11 +419,11 @@ Spells.novaconjuring = {
 Spells.witchconjuring = {
     id = "witchconjuring",
     name = "Witch Conjuring",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Conjures WATER, MOON, and LIFE tokens.",
     attackType = Constants.AttackType.UTILITY,
     castTime = Constants.CastSpeed.SLOW,  -- Fixed cast time
-    cost = {"moon", "moon", "moon"},  -- Needs some basic moon
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- Needs some basic moon
     keywords = {
         conjure = {
             token = { 
@@ -424,15 +442,15 @@ Spells.witchconjuring = {
 Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wrap in Moonlight",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
-    cost = {"moon", "moon"},
+    cost = {Constants.TokenType.MOON, "any"},
     keywords = {
         block = {
-            type = "barrier",
-            blocks = {"projectile", "zone"},
+            type = Constants.ShieldType.WARD,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
         },
         elevate = {
             duration = 4.0
@@ -453,11 +471,11 @@ Spells.tidalforce = {
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = "remote",
     castTime = Constants.CastSpeed.FAST,
-    cost = {"water", "moon"},
+    cost = {"water", Constants.TokenType.MOON},
     keywords = {
         damage = {
             amount = 5,
-            type = "moon"
+            type = Constants.TokenType.MOON
         },
         ground = {
             -- Only apply grounding if the target is AERIAL
@@ -476,11 +494,11 @@ Spells.tidalforce = {
 Spells.lunardisjunction = {
     id = "lunardisjunction",
     name = "Lunar Disjunction",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Counterspell, cancels an opponent's spell and destroys its mana",
-    attackType = "projectile",
+    attackType = Constants.AttackType.PROJECTILE,
     castTime = Constants.CastSpeed.NORMAL,
-    cost = {"moon", "any"},
+    cost = {Constants.TokenType.MOON, "any"},
     keywords = {
         disjoint = {
             -- Target the opponent's slot corresponding to the slot this spell was cast from
@@ -499,17 +517,17 @@ Spells.lunardisjunction = {
     },
     vfx = "lunardisjunction",
     sfx = "lunardisjunction_sound",
-    blockableBy = {"barrier", "ward"} -- Disjunction is a projectile
+    blockableBy = {"ward"} -- Disjunction is a projectile
 }
 
 Spells.gravityTrap = {
     id = "gravityTrap",
     name = "Gravity Trap",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
     attackType = "utility",  -- Changed to utility since it's not a direct attack
     castTime = 5.0,          -- Slightly faster cast time
-    cost = {"moon", "moon"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         -- Mark as a sustained spell
         sustain = true,
@@ -529,7 +547,7 @@ Spells.gravityTrap = {
             -- Re-use existing keywords for the effect
             damage = { 
                 amount = 10, 
-                type = "force",  
+                type = Constants.TokenType.MOON,  
                 target = "ENEMY" 
             },
             ground = { 
@@ -550,12 +568,12 @@ Spells.gravityTrap = {
 -- Keep the original spell for backward compatibility
 Spells.gravity = {
     id = "gravity",
-    name = "Gravity Pin",
-    affinity = "moon",
-    description = "Traps AERIAL enemies",
-    attackType = "zone",
-    castTime = 7.0,
-    cost = {"moon", "nature"},
+    name = "Drag From the Sky",
+    affinity = Constants.TokenType.MOON,
+    description = "Grounds AERIAL enemies",
+    attackType = Constants.AttackType.ZONE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.WATER},
     keywords = {
         damage = {
             amount = function(caster, target)
@@ -564,7 +582,7 @@ Spells.gravity = {
                 end
                 return 0 -- Default damage if target is nil
             end,
-            type = "moon"
+            type = Constants.TokenType.MOON
         },
         ground = {
             conditional = function(caster, target)
@@ -579,17 +597,17 @@ Spells.gravity = {
     },
     vfx = "gravity_pin",
     sfx = "gravity_slam",
-    blockableBy = {"barrier", "field"}
+    blockableBy = {Constants.S, "field"}
 }
 
 Spells.eclipse = {
     id = "eclipse",
     name = "Eclipse Pause",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
     attackType = "utility", 
     castTime = Constants.CastSpeed.FAST,
-    cost = {"moon", "moon"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         freeze = {
             duration = Constants.CastSpeed.ONE_TIER,
@@ -605,11 +623,11 @@ Spells.eclipse = {
 Spells.fullmoonbeam = {
     id = "fullmoonbeam",
     name = "Full Moon Beam",
-    affinity = "moon",
+    affinity = Constants.TokenType.MOON,
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
-    attackType = "projectile",
+    attackType = Constants.AttackType.PROJECTILE,
     castTime = Constants.CastSpeed.SLOW,
-    cost = {"moon", "moon", "moon", "moon", "moon"},  -- 5 moon mana
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 5 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
@@ -628,7 +646,7 @@ Spells.fullmoonbeam = {
                     -- LOGGING:
                     print(string.format("DEBUG_FMB: Read castTimeModifier=%.4f from spellSlotData", accruedModifier))
                 else
-                     print(string.format("DEBUG_FMB_WARN: Slot %s or caster.spellSlots[%s] is nil!", tostring(slot), tostring(slot)))
+                    aprint(string.format("DEBUG_FMB_WARN: Slot %s or caster.spellSlots[%s] is nil!", tostring(slot), tostring(slot)))
                 end
                 
                 -- Calculate effective cast time including modifier
@@ -636,7 +654,7 @@ Spells.fullmoonbeam = {
                 local effectiveCastTime = math.max(0.1, baseCastTime + accruedModifier)
                 
                 -- Calculate damage based on effective cast time (roughly 3.5 damage per second)
-                local damage = math.floor(effectiveCastTime * 3.5)
+                local damage = math.floor(effectiveCastTime * 2.5)
                 
                 -- Log the damage calculation with details
                 print(string.format("Full Moon Beam: Base Cast=%.1fs, Modifier=%.1fs, Effective=%.1fs => Damage=%d", 
@@ -644,12 +662,12 @@ Spells.fullmoonbeam = {
                 
                 return damage
             end,
-            type = "moon"
+            type = Constants.TokenType.MOON
         }
     },
     vfx = "moon_beam",
     sfx = "beam_charge",
-    blockableBy = {"barrier", "ward"}
+    blockableBy = {Constants.ShieldType.BARRIER, "ward"}
 }
 
 -- Shield spells
@@ -657,13 +675,13 @@ Spells.forcebarrier = {
     id = "forcebarrier",
     name = "Force Barrier",
     description = "A protective barrier that blocks projectiles and zones",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
-    cost = {"force", "force"},
+    cost = {"any", "any", "any"},
     keywords = {
         block = {
-            type = "barrier",
-            blocks = {"projectile", "zone"}
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
             -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
@@ -678,11 +696,11 @@ Spells.moonward = {
     description = "A mystical ward that blocks projectiles and remotes",
     attackType = "utility",
     castTime = Constants.CastSpeed.NORMAL,
-    cost = {"moon", "moon"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         block = {
             type = "ward",
-            blocks = {"projectile", "remote"}
+            blocks = {Constants.AttackType, "remote"}
             -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
@@ -697,11 +715,11 @@ Spells.naturefield = {
     description = "A field of natural energy that blocks remotes and zones",
     attackType = "utility",
     castTime = 4.0,
-    cost = {"nature", "nature"},
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
     keywords = {
         block = {
             type = "field",
-            blocks = {"remote", "zone"}
+            blocks = {"remote", Constants.AttackType.ZONE}
             -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
@@ -717,11 +735,11 @@ Spells.mirrorshield = {
     description = "A reflective barrier that returns damage to attackers",
     attackType = "utility",
     castTime = 5.0,
-    cost = {"moon", "moon", "star"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "star"},
     keywords = {
         block = {
-            type = "barrier",  -- Barrier type blocks projectiles and zones
-            blocks = {"projectile", "zone"},
+            type = Constants.ShieldType.BARRIER,  -- Barrier type blocks projectiles and zones
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
             reflect = true      -- Reflects damage back to attacker
             -- All shields are mana-linked now (consume tokens when blocking)
             -- Token count is the source of truth for shield strength
@@ -737,7 +755,7 @@ Spells.shieldbreaker = {
     id = "shieldbreaker",
     name = "Shield Breaker",
     description = "A powerful force blast that shatters shields and barriers",
-    attackType = "projectile", -- Projectile type (can be blocked by barriers and wards)
+    attackType = Constants.AttackType.PROJECTILE, -- Projectile type (can be blocked by barriers and wards)
     castTime = 6.0,
     cost = {"force", "force", "star"},
     keywords = {
@@ -769,7 +787,7 @@ Spells.shieldbreaker = {
     shieldBreaker = 3, -- Deals 3 hits worth of damage to shields
     vfx = "force_blast",
     sfx = "shield_break",
-    blockableBy = {"barrier", "ward"}, -- Can be blocked by barriers and wards
+    blockableBy = {Constants.S, "ward"}, -- Can be blocked by barriers and wards
     
     -- Custom handler for when this spell is blocked
     onBlock = function(caster, target, slot, blockInfo)
@@ -790,7 +808,7 @@ Spells.eruption = {
     id = "eruption",
     name = "Molten Ash",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
-    attackType = "zone", -- Zone attack - can be blocked by barriers, fields, or dodged
+    attackType = Constants.AttackType.ZONE, -- Zone attack - can be blocked by barriers, fields, or dodged
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
     keywords = {
@@ -818,7 +836,7 @@ Spells.eruption = {
     },
     vfx = "lava_eruption",
     sfx = "volcano_rumble",
-    blockableBy = {"barrier", "field"},
+    blockableBy = {Constants.S, "field"},
     
     -- Custom handler for when this spell misses
     onMiss = function(caster, target, slot)
@@ -852,7 +870,7 @@ Spells.stormMeld = {
     description = "An elemental fusion spell that changes tokens to random types",
     attackType = "utility",
     castTime = 3.0,
-    cost = {"fire", "moon"},
+    cost = {"fire", Constants.TokenType.MOON},
     keywords = {
         tokenShift = {
             type = "random",
@@ -876,7 +894,7 @@ Spells.cosmicRift = {
     id = "cosmicrift",
     name = "Cosmic Rift",
     description = "Opens a rift that damages opponents and disrupts spellcasting",
-    attackType = "zone",
+    attackType = Constants.AttackType.ZONE,
     castTime = 5.5,
     cost = {"star", "star", "force"},
     keywords = {
@@ -893,7 +911,7 @@ Spells.cosmicRift = {
     },
     vfx = "cosmic_rift",
     sfx = "space_tear",
-    blockableBy = {"barrier", "field"}
+    blockableBy = {Constants.S, "field"}
 }
 
 -- Force blast spell that launches opponents into the air
@@ -925,7 +943,7 @@ Spells.blazingAscent = {
     id = "blazingascent",
     name = "Blazing Ascent",
     description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
-    attackType = "projectile",
+    attackType = Constants.AttackType.ZONE,
     castTime = 3.0,
     cost = {"fire", "fire", "force"},
     keywords = {
@@ -940,13 +958,13 @@ Spells.blazingAscent = {
             duration = 6.0
         },
         dissipate = {
-            token = "nature",
+            token = Constants.TokenType.WATER,
             amount = 1
         }
     },
     vfx = "blazing_ascent",
     sfx = "fire_whoosh",
-    blockableBy = {"barrier", "ward"}
+    blockableBy = {Constants.S, "ward"}
 }
 
 -- Complex multi-target spell using the new targeting system
@@ -956,7 +974,7 @@ Spells.arcaneReversal = {
     description = "A complex spell that manipulates mana, movement, and timing simultaneously",
     attackType = "remote",
     castTime = 6.0,
-    cost = {"moon", "star", "force", "force"},
+    cost = {Constants.TokenType.MOON, "star", "force", "force"},
     keywords = {
         -- Apply damage to enemy
         damage = {
@@ -1045,9 +1063,9 @@ Spells.lunarTides = {
     id = "lunartides",
     name = "Lunar Tides",
     description = "Manipulates the battle flow based on range and elevation",
-    attackType = "zone",
+    attackType = Constants.AttackType.ZONE,
     castTime = 7.0,
-    cost = {"moon", "moon", "force", "star"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "force", "star"},
     keywords = {
         damage = {
             amount = function(caster, target)
@@ -1066,7 +1084,7 @@ Spells.lunarTides = {
                 
                 return baseDamage
             end,
-            type = "moon",
+            type = Constants.TokenType.MOON,
             target = "ENEMY"  -- Explicit targeting
         },
         rangeShift = {

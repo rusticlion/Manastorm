@@ -4,6 +4,7 @@
 local WizardVisuals = {}
 local Constants = require("core.Constants")
 local ShieldSystem = require("systems.ShieldSystem")
+local VFX = require("vfx") -- Added for accessing rune assets
 
 -- Get appropriate status effect color
 function WizardVisuals.getStatusEffectColor(effectType)
@@ -368,16 +369,73 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     shouldDrawOrbit = true 
 
                     if slot.isShield then
-                        orbitColor = ShieldSystem.getShieldColor(slot.defenseType)
-                        orbitColor[4] = 0.7
+                        -- New shield rendering logic based on type
+                        local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                        local shieldType = slot.spell and slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type
                         local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                        orbitColor = {
-                            orbitColor[1] * (1 + pulseAmount),
-                            orbitColor[2] * (1 + pulseAmount),
-                            orbitColor[3] * (1 + pulseAmount),
-                            0.8
-                        }
-                        -- Potentially add "SHIELD" text or specific VFX here if needed
+                        local alpha = 0.7 + pulseAmount * 0.3 -- Pulsing alpha
+
+                        if shieldType == Constants.ShieldType.BARRIER then
+                            -- Draw the base ellipse for the barrier
+                            shouldDrawOrbit = true 
+                            orbitColor = {
+                                shieldColor[1] * (1 + pulseAmount * 0.5), -- Pulse color slightly
+                                shieldColor[2] * (1 + pulseAmount * 0.5),
+                                shieldColor[3] * (1 + pulseAmount * 0.5),
+                                alpha -- Use calculated alpha for the base orbit
+                            }
+                            -- The vertical lines will be drawn AFTER the main orbit below
+                        
+                        elseif shieldType == Constants.ShieldType.WARD then
+                            shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
+                            local numRunes = 5
+                            local runeYOffset = 0 -- Position runes above the orbit
+                            local runeScale = 1.0
+
+                            if VFX.assets.runes and #VFX.assets.runes > 0 then
+                                local runeColor = {
+                                    shieldColor[1] * (1 + pulseAmount * 0.7), -- Stronger color pulse for runes
+                                    shieldColor[2] * (1 + pulseAmount * 0.7),
+                                    shieldColor[3] * (1 + pulseAmount * 0.7),
+                                    alpha
+                                }
+                                love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+
+                                for r = 1, numRunes do
+                                    -- Ensure rune index is consistent per slot per frame, but rotates over time
+                                    -- Use slot index and rune index for seeding randomness consistently within a frame
+                                    local seed = i * 10 + r + math.floor(love.timer.getTime())
+                                    math.randomseed(seed)
+                                    local runeIndex = math.random(1, #VFX.assets.runes)
+                                    math.randomseed(os.time() + os.clock()*1000000) -- Reseed properly
+
+                                    local runeImg = VFX.assets.runes[runeIndex]
+                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7 -- Slow rotation
+                                    local runeX = slotX + math.cos(angle) * radiusX
+                                    local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
+                                    
+                                    love.graphics.draw(
+                                        runeImg, 
+                                        runeX, runeY, 
+                                        0, -- No rotation needed for runes 
+                                        runeScale, runeScale, 
+                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                    )
+                                end
+                            else
+                                -- Fallback: Draw the orbit if runes aren't loaded
+                                shouldDrawOrbit = true
+                                orbitColor = { shieldColor[1] * (1 + pulseAmount), shieldColor[2] * (1 + pulseAmount), shieldColor[3] * (1 + pulseAmount), alpha }
+                            end
+
+                        else
+                            -- Fallback for unknown shield types or missing data: Draw original pulsating orbit
+                            shouldDrawOrbit = true
+                            orbitColor = { shieldColor[1] * (1 + pulseAmount), shieldColor[2] * (1 + pulseAmount), shieldColor[3] * (1 + pulseAmount), alpha }
+                        end
+                        
+                        -- The old shield orbit drawing logic is now replaced by the type-specific drawing above
+                        -- or handled by the fallback cases setting shouldDrawOrbit = true.
 
                     elseif slot.frozen then
                         orbitColor = {0.5, 0.5, 1.0, 0.7} -- Blue for frozen
@@ -400,8 +458,9 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                         stateText = "TRAP"
                         stateTextColor = {0.7, 0.3, 0.9, 0.8}
                         -- Trap sigil effect
+                        -- this is the "explosions" bit on the caster rn - replace with overhead rune
                         if math.random() < 0.05 then
-                           if wizard.gameState and wizard.gameState.vfx then
+                            if wizard.gameState and wizard.gameState.vfx then
                                 local angle = math.random() * math.pi * 2
                                 local sparkleX = slotX + math.cos(angle) * radiusX * 0.6
                                 local sparkleY = slotY + math.sin(angle) * radiusY * 0.6
@@ -420,9 +479,9 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     else 
                         -- Completed normal spell (not shield/frozen/trap/sustain)
                         -- Keep orbit briefly visible with affinity color (or maybe dim grey?)
-                         local affinity = slot.spell and slot.spell.affinity
-                         orbitColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2}
-                         orbitColor[4] = 0.5 -- Make it slightly dimmer after completion
+                        local affinity = slot.spell and slot.spell.affinity
+                        orbitColor = affinity and Constants.getColorForTokenType(affinity) or {0.9, 0.4, 0.2}
+                        orbitColor[4] = 0.5 -- Make it slightly dimmer after completion
                     end
                 end
             end -- End of active slot handling
@@ -433,6 +492,32 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             if shouldDrawOrbit then
                 love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
                 WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
+            end
+
+            -- NEW: Draw Barrier vertical cylinder lines if applicable
+            if slot.active and slot.isShield then
+                 local shieldTypeCheck = slot.spell and slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type
+                 if shieldTypeCheck == Constants.ShieldType.BARRIER then
+                    -- Recalculate color/alpha or retrieve if stored (recalculating is safer here)
+                    local shieldColor = ShieldSystem.getShieldColor(slot.defenseType) 
+                    local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                    local alpha = 0.7 + pulseAmount * 0.3 
+
+                    local cylinderHeight = 20 -- Height of the barrier effect
+                    local numLines = 72 -- Number of vertical lines to simulate the cylinder
+                    local lineAlpha = alpha * 0.6 -- Make vertical lines slightly more transparent
+
+                    love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                    love.graphics.setLineWidth(1.5) -- Make lines slightly thicker
+
+                    for k = 1, numLines do
+                        local angle = (k / numLines) * math.pi * 2
+                        local px = slotX + math.cos(angle) * radiusX
+                        local py = slotY + math.sin(angle) * radiusY
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                    end
+                    love.graphics.setLineWidth(1) -- Reset line width
+                 end
             end
             
             -- Draw progress arc if needed (only during casting phase)

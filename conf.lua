@@ -1,6 +1,6 @@
 -- Configuration
 function love.conf(t)
-    t.title = "Manastorm - Wizard Duel"  -- The title of the window
+    t.title = "Manastorm - The Ninefold Circle"  -- The title of the window
     t.version = "11.4"                    -- The LÖVE version this game was made for
     
     -- Base design resolution

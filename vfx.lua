@@ -31,7 +31,21 @@ function VFX.init()
         -- Generic effects
         sparkle = AssetCache.getImage("assets/sprites/sparkle.png"),
         impactRing = AssetCache.getImage("assets/sprites/impact-ring.png"),
+
+        -- Rune assets for Ward shields
+        runes = {}
     }
+
+    -- Load rune images
+    for i = 1, 9 do
+        local runePath = string.format("assets/sprites/runes/rune%d.png", i)
+        local runeImg = AssetCache.getImage(runePath)
+        if runeImg then
+            table.insert(VFX.assets.runes, runeImg)
+        else
+            print("Warning: Failed to load rune asset: " .. runePath)
+        end
+    end
     
     -- Initialize particle pools
     Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
@@ -180,7 +194,7 @@ function VFX.init()
             beamWidth = 40,
             startScale = 0.2,
             endScale = 1.0,
-            color = Constants.Color.SKY, -- {0.8, 0.8, 1.0, 0.9}
+            color = Constants.Color.PINK,
             pulseRate = 3,
             sound = "moonbeam"
         },

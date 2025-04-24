@@ -351,7 +351,7 @@ Keywords.rangeShift = {
         local targetPosition = params.position or Constants.RangeState.NEAR
         -- If position is a function, resolve it
         if type(targetPosition) == "function" then
-             targetPosition = targetPosition(caster, target)
+            targetPosition = targetPosition(caster, target)
         end
         
         table.insert(events or {}, {

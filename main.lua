@@ -78,23 +78,23 @@ end
 function calculateScaling()
     local windowWidth, windowHeight = love.graphics.getDimensions()
     
-    -- Calculate possible scales (use integer scaling for pixel art crispness)
-    local scaleX = math.floor(windowWidth / baseWidth)
-    local scaleY = math.floor(windowHeight / baseHeight)
+    -- Calculate potential scales based on window dimensions
+    local scaleX = windowWidth / baseWidth
+    local scaleY = windowHeight / baseHeight
     
-    -- Use the smaller scale to fit the screen
-    scale = math.max(1, math.min(scaleX, scaleY))
+    -- Use the smaller scale factor to maintain aspect ratio and fit within the window
+    scale = math.min(scaleX, scaleY)
     
-    -- Calculate offsets for centering (letterbox/pillarbox)
-    offsetX = math.floor((windowWidth - baseWidth * scale) / 2)
-    offsetY = math.floor((windowHeight - baseHeight * scale) / 2)
+    -- Calculate offsets needed to center the scaled content
+    offsetX = (windowWidth - baseWidth * scale) / 2
+    offsetY = (windowHeight - baseHeight * scale) / 2
     
     -- Update global references
     game.scale = scale
     game.offsetX = offsetX
     game.offsetY = offsetY
     
-    print("Window resized: " .. windowWidth .. "x" .. windowHeight .. " (scale: " .. scale .. ")")
+    print("Window resized: " .. windowWidth .. "x" .. windowHeight .. " -> Simple scale: " .. scale .. ", Offset: (" .. offsetX .. ", " .. offsetY .. ")")
 end
 
 -- Handle window resize events
@@ -103,20 +103,23 @@ function love.resize(width, height)
 end
 
 -- Set up pixel art-friendly scaling
-function configurePixelArtRendering()
-    -- Disable texture filtering for crisp pixel art
-    love.graphics.setDefaultFilter("nearest", "nearest", 1)
-    
-    -- Use integer scaling when possible
-    love.graphics.setLineStyle("rough")
-end
+-- function configurePixelArtRendering()
+--     -- Disable texture filtering for crisp pixel art
+--     love.graphics.setDefaultFilter("nearest", "nearest", 1)
+--     
+--     -- Use integer scaling when possible
+--     love.graphics.setLineStyle("rough")
+-- end
 
 function love.load()
     -- Set up window
     love.window.setTitle("Manastorm - Wizard Duel")
     
-    -- Configure pixel art rendering
-    configurePixelArtRendering()
+    -- Configure pixel art rendering -- REMOVE THIS CALL
+    -- configurePixelArtRendering()
+
+    -- Set default texture filtering for sharper (potentially pixelated) look
+    love.graphics.setDefaultFilter("nearest", "nearest")
     
     -- Calculate initial scaling
     calculateScaling()

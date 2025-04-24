@@ -104,7 +104,7 @@ function Wizard.new(name, x, y, color)
             -- Two key combos
             ["12"] = Spells.combustMana,
             ["13"] = Spells.emberlift,
-            ["23"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
+            ["23"] = Spells.forcebarrier,
 
             -- Three key combo
             ["123"] = Spells.meteor
