@@ -86,13 +86,24 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Get shield color based on type
     local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
     
-    -- Create shield effect using VFX system if available
-    if wizard.gameState and wizard.gameState.vfx then
-        wizard.gameState.vfx.createEffect("shield", wizard.x, wizard.y, nil, nil, {
+    -- Create shield effect using event system
+    if wizard.gameState and wizard.gameState.eventRunner then
+        local shieldEvent = {
+            type = "EFFECT",
+            source = "shield",
+            target = "SELF",
+            effectType = Constants.VFXType.SHIELD,
             duration = 1.0,
-            color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
-            shieldType = slot.defenseType
-        })
+            vfxParams = {
+                x = wizard.x,
+                y = wizard.y,
+                color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.7},
+                shieldType = slot.defenseType
+            }
+        }
+        
+        -- Process the event immediately
+        wizard.gameState.eventRunner.processEvents({shieldEvent}, wizard, nil)
     end
     
     -- Print debug info - simplified to only show token count
@@ -279,14 +290,25 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
         end
     end
     
-    -- Trigger shield hit VFX
-    if wizard.gameState and wizard.gameState.vfx then
-        wizard.gameState.vfx.createEffect("impact", wizard.x, wizard.y, nil, nil, {
+    -- Trigger shield hit VFX using event system
+    if wizard.gameState and wizard.gameState.eventRunner then
+        local shieldHitEvent = {
+            type = "EFFECT",
+            source = "shield_hit",
+            target = "SELF",
+            effectType = Constants.VFXType.IMPACT,
             duration = 0.5,
-            color = {0.8, 0.8, 0.2, 0.7},
-            particleCount = 8,
-            radius = 30
-        })
+            vfxParams = {
+                x = wizard.x,
+                y = wizard.y,
+                color = {0.8, 0.8, 0.2, 0.7},
+                particleCount = 8,
+                radius = 30
+            }
+        }
+        
+        -- Process the event immediately
+        wizard.gameState.eventRunner.processEvents({shieldHitEvent}, wizard, nil)
     end
     
     -- Add support for on-block effects
@@ -339,7 +361,7 @@ end
 
 -- Create block VFX for spell being blocked by a shield
 function ShieldSystem.createBlockVFX(caster, target, blockInfo)
-    if not caster.gameState or not caster.gameState.vfx then
+    if not caster.gameState or not caster.gameState.eventRunner then
         return
     end
     
@@ -348,20 +370,42 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
     -- Add alpha for VFX
     shieldColor[4] = 0.7
     
-    -- Create visual effect on the target to show the block
-    caster.gameState.vfx.createEffect("shield", target.x, target.y, nil, nil, {
+    -- Create a batch of VFX events
+    local events = {}
+    
+    -- Add shield flare effect at target position
+    table.insert(events, {
+        type = "EFFECT",
+        source = "shield_block",
+        target = "ENEMY", -- Target is enemy wizard
+        effectType = Constants.VFXType.SHIELD,
         duration = 0.5,
-        color = shieldColor,
-        shieldType = blockInfo.blockType
+        vfxParams = {
+            x = target.x,
+            y = target.y,
+            color = shieldColor,
+            shieldType = blockInfo.blockType
+        }
     })
     
-    -- Create spell impact effect on the caster
-    caster.gameState.vfx.createEffect("impact", caster.x, caster.y, nil, nil, {
+    -- Add impact effect at caster position (for feedback)
+    table.insert(events, {
+        type = "EFFECT",
+        source = "shield_block_feedback",
+        target = "SELF", -- Target is caster
+        effectType = Constants.VFXType.IMPACT,
         duration = 0.3,
-        color = {0.8, 0.2, 0.2, 0.5},
-        particleCount = 5,
-        radius = 15
+        vfxParams = {
+            x = caster.x,
+            y = caster.y,
+            color = {0.8, 0.2, 0.2, 0.5},
+            particleCount = 5,
+            radius = 15
+        }
     })
+    
+    -- Process all events at once
+    caster.gameState.eventRunner.processEvents(events, caster, target)
 end
 
 return ShieldSystem

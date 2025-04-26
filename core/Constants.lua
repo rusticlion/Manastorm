@@ -216,4 +216,77 @@ function Constants.getAllAttackTypes()
     }
 end
 
+-- Visual effect types for consistent usage across the codebase
+Constants.VFXType = {
+    -- General effects
+    IMPACT = "impact",
+    
+    -- Movement and positioning effects
+    TIDAL_FORCE_GROUND = "tidal_force_ground",
+    GRAVITY_PIN_GROUND = "gravity_pin_ground",
+    GRAVITY_TRAP_SET = "gravity_trap_set",
+    FORCE_BLAST = "force_blast",
+    FORCE_BLAST_UP = "force_blast_up",
+    ELEVATION_UP = "elevation_up",
+    ELEVATION_DOWN = "elevation_down",
+    RANGE_CHANGE = "range_change",
+    FORCE_POSITION = "force_position",
+    
+    -- Resource effects
+    FREE_MANA = "free_mana",
+    TOKEN_LOCK = "token_lock",
+    TOKEN_SHIFT = "token_shift",
+    TOKEN_CONSUME = "token_consume",
+    
+    -- Projectile spells
+    FIREBOLT = "firebolt",
+    METEOR = "meteor",
+    TIDAL_FORCE = "tidal_force",
+    LUNARDISJUNCTION = "lunardisjunction",
+    
+    -- Area/zone effects
+    MISTVEIL = "mistveil",
+    EMBERLIFT = "emberlift",
+    FULLMOONBEAM = "fullmoonbeam",
+    DISJOINT_CANCEL = "disjoint_cancel",
+    
+    -- Conjuration effects
+    CONJUREFIRE = "conjurefire",
+    CONJUREMOONLIGHT = "conjuremoonlight",
+    FORCE_CONJURE = "force_conjure",
+    STAR_CONJURE = "star_conjure",
+    VOLATILECONJURING = "volatileconjuring",
+    NOVA_CONJURE = "nova_conjure",
+    WITCH_CONJURE = "witch_conjure",
+    
+    -- Defense effects
+    SHIELD = "shield",
+    REFLECT = "reflect",
+    
+    -- Spell timing effects
+    SPELL_ACCELERATE = "spell_accelerate",
+    SPELL_CANCEL = "spell_cancel",
+    SPELL_FREEZE = "spell_freeze",
+    SPELL_ECHO = "spell_echo"
+}
+
+-- Utility function to get all VFX types
+function Constants.getAllVFXTypes()
+    local types = {}
+    for _, value in pairs(Constants.VFXType) do
+        table.insert(types, value)
+    end
+    return types
+end
+
+-- Utility function to check if a value exists in VFXType
+function Constants.isValidVFXType(value)
+    for _, v in pairs(Constants.VFXType) do
+        if v == value then
+            return true
+        end
+    end
+    return false
+end
+
 return Constants

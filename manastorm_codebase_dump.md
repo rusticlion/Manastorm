@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Thu Apr 24 11:14:02 CDT 2025
+Generated: Sat Apr 26 15:24:35 CDT 2025
 
 # Source Code
 
@@ -1497,6 +1497,88 @@ end
 
 return DocGenerator```
 
+## ./expr.lua
+```lua
+-- expr.lua
+-- Expression helper functions for spell parameter evaluation
+
+local Constants = require("core.Constants")
+local ManaHelpers = require("systems.ManaHelpers")
+
+local expr = {}
+
+-- Choose whichever token is more abundant in the shared pool
+function expr.more(a, b)
+    return function(caster)
+        local manaPool = caster and caster.manaPool
+        return ManaHelpers.count(a, manaPool) > ManaHelpers.count(b, manaPool) and b or a
+    end
+end
+
+-- Choose the scarcer token
+function expr.less(a, b)
+    return function(caster)
+        local manaPool = caster and caster.manaPool
+        return ManaHelpers.count(a, manaPool) < ManaHelpers.count(b, manaPool) and a or b
+    end
+end
+
+-- Choose a token type based on a condition
+function expr.ifCond(condition, trueValue, falseValue)
+    return function(caster, target, slot)
+        if condition(caster, target, slot) then
+            return trueValue
+        else
+            return falseValue
+        end
+    end
+end
+
+-- Choose a value based on elevation state
+function expr.byElevation(elevationValues)
+    return function(caster, target, slot)
+        local entityToCheck = target or caster
+        local elevation = entityToCheck and entityToCheck.elevation or "GROUNDED"
+        return elevationValues[elevation] or elevationValues.default
+    end
+end
+
+-- Choose a value based on range state
+function expr.byRange(rangeValues)
+    return function(caster, target, slot)
+        local rangeState = caster and caster.gameState and caster.gameState.rangeState or "NEAR"
+        return rangeValues[rangeState] or rangeValues.default
+    end
+end
+
+-- Choose a value based on which wizard has more tokens
+function expr.whoHasMore(tokenType, casterValue, targetValue)
+    return function(caster, target, slot)
+        if not caster or not target or not caster.manaPool or not target.manaPool then
+            return casterValue -- Default to caster value if we can't determine
+        end
+        
+        local casterCount = ManaHelpers.count(tokenType, caster.manaPool)
+        local targetCount = ManaHelpers.count(tokenType, target.manaPool)
+        
+        return casterCount >= targetCount and casterValue or targetValue
+    end
+end
+
+-- Calculate a value based on the number of tokens
+function expr.countScale(tokenType, baseValue, multiplier)
+    return function(caster, target, slot)
+        if not caster or not caster.manaPool then 
+            return baseValue
+        end
+        
+        local count = ManaHelpers.count(tokenType, caster.manaPool)
+        return baseValue + (count * multiplier)
+    end
+end
+
+return expr```
+
 ## ./keywords.lua
 ```lua
 -- keywords.lua
@@ -1530,10 +1612,43 @@ return DocGenerator```
 --     end
 -- }
 --
+-- Parameter resolution:
+-- Keyword parameters can now be static values or functions. If a function is provided, 
+-- it will be called with (caster, target, slot) and the result used as the parameter value.
+--
+-- Example static parameter:
+--   damage = { amount = 10 }
+--
+-- Example function parameter:
+--   damage = { 
+--     amount = function(caster, target, slot)
+--       return target.elevation == "AERIAL" and 15 or 10
+--     end
+--   }
+--
+-- Example using expression helpers:
+--   tokenShift = {
+--     type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+--     amount = 1
+--   }
+--
 -- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
+
+-- Utility: resolve a param that may be a callable
+local function resolve(value, caster, target, slot, default)
+    if type(value) == "function" then
+        local ok, result = pcall(value, caster, target, slot)
+        return ok and result or default
+    end
+    return value ~= nil and value or default
+end
+
 local Keywords = {}
+
+-- Export utility functions
+Keywords.util = { resolve = resolve }
 
 -- Keyword categories for organization
 Keywords.categories = {
@@ -1662,57 +1777,33 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local applyDamage = true
-        -- Check for conditional function
-        if params.condition and type(params.condition) == "function" then
-            applyDamage = params.condition(caster, target, results.currentSlot)
-        end
-
+        -- Use resolve to handle conditional parameter
+        local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
+        
         -- Only generate event if condition passed (or no condition)
         if applyDamage then
-            local damageAmountFuncOrValue = params.amount or 0
-            local calculatedDamage = 0
-            local damageType = params.type or Constants.DamageType.GENERIC
-
-            if type(damageAmountFuncOrValue) == "function" then
-                -- It's a function, call it
-                local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-                local success, funcResult = pcall(function()
-                    -- Call the function stored in damageAmountFuncOrValue
-                    -- Pass caster, target, and the local slot index
-                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-                end)
-
-                if success then
-                    calculatedDamage = funcResult
-                else
-                    print("Error evaluating damage function: " .. tostring(funcResult))
-                    calculatedDamage = 0 -- Default on error
-                end
-            else
-                -- It's a static value
-                calculatedDamage = damageAmountFuncOrValue
-            end
+            -- Use resolve for damage amount and type
+            local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
+            local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
             -- Generate event
             table.insert(events or {}, {
-                type = "DAMAGE", source = "caster", target = "enemy",
-                amount = calculatedDamage, damageType = damageType,
+                type = "DAMAGE", 
+                source = "caster", 
+                target = "enemy",
+                amount = calculatedDamage, 
+                damageType = damageType,
                 scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
             })
         end
 
-        -- Keep legacy results for now (might still be used elsewhere)
-        -- results.damage = calculatedDamage 
-        -- results.damageType = damageType
-        -- results.scaledDamage = (type(params.amount) == "function")
         return results
     end
 }
 
 -- burn: Applies damage over time effect
 Keywords.burn = {
+    -- refactor to more consistent behavior: each second, apply damage equal to Burn X and --X.
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
@@ -1816,19 +1907,20 @@ Keywords.ground = {
     
     -- Implementation function - Generates SET_ELEVATION event
     execute = function(params, caster, target, results, events)
-        local applyGrounding = true
-        -- Check if there's a conditional function
-        if params.conditional and type(params.conditional) == "function" then
-            applyGrounding = params.conditional(caster, target)
-        end
+        -- Use resolver for conditional parameter
+        local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
         if applyGrounding then
+            -- Resolve other parameters
+            local targetEntity = resolve(params.target, caster, target, results.currentSlot, "enemy")
+            local vfxEffect = resolve(params.vfx, caster, target, results.currentSlot, "tidal_force_ground")
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
-                target = params.target or "enemy", -- Use specified target or default to enemy
+                target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = params.vfx or "tidal_force_ground"
+                vfx = vfxEffect
             })
         end
         return results
@@ -1849,16 +1941,14 @@ Keywords.rangeShift = {
     
     -- Implementation function - Generates SET_RANGE event
     execute = function(params, caster, target, results, events)
-        local targetPosition = params.position or Constants.RangeState.NEAR
-        -- If position is a function, resolve it
-        if type(targetPosition) == "function" then
-            targetPosition = targetPosition(caster, target)
-        end
+        -- Use resolver for all parameters
+        local targetPosition = resolve(params.position, caster, target, results.currentSlot, Constants.RangeState.NEAR)
+        local targetEntity = resolve(params.target, caster, target, results.currentSlot, "self")
         
         table.insert(events or {}, {
             type = "SET_RANGE",
             source = "caster",
-            target = params.target or "self", -- Usually affects both, but can be targeted
+            target = targetEntity, -- Usually affects both, but can be targeted
             position = targetPosition
         })
         return results
@@ -1989,12 +2079,15 @@ Keywords.tokenShift = {
     
     -- Implementation function - Generates SHIFT_TOKEN event
     execute = function(params, caster, target, results, events)
+        local tokenType = resolve(params.type, caster, target, results.currentSlot, "fire")
+        local amount = resolve(params.amount, caster, target, results.currentSlot, 1)
+        
         table.insert(events or {}, {
             type = "SHIFT_TOKEN",
             source = "caster",
             target = "pool",
-            tokenType = params.type or "fire",
-            amount = params.amount or 1,
+            tokenType = tokenType,
+            amount = amount,
             shiftTarget = params.target or "self" -- Whose tokens to target within the pool
         })
         return results
@@ -2050,7 +2143,7 @@ Keywords.slow = {
         category = "TIMING",
         
         -- Default parameters
-        defaultMagnitude = 1.0, -- How much to increase cast time by
+        defaultMagnitude = Constants.CastSpeed.ONE_TIER, -- How much to increase cast time by
         defaultDuration = 10.0, -- How long the slow effect waits for a cast
         defaultSlot = nil -- nil or 0 means next cast in any slot, 1/2/3 targets specific slot
     },
@@ -2062,7 +2155,7 @@ Keywords.slow = {
             source = "caster",
             target = "enemy", -- Target the enemy wizard entity
             statusType = "slow",
-            magnitude = params.magnitude or 1.0, -- How much time to add
+            magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
         })
@@ -2138,13 +2231,8 @@ Keywords.disjoint = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local targetSlotIndex = 0
-        if params.slot and type(params.slot) == "function" then
-            -- Evaluate the slot function if provided
-            targetSlotIndex = params.slot(caster, target, results.currentSlot)
-        elseif params.slot then
-            targetSlotIndex = params.slot
-        end
+        -- Use resolver to handle the slot parameter
+        local targetSlotIndex = resolve(params.slot, caster, target, results.currentSlot, 0)
         targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
         
         -- Create a CANCEL_SPELL event with returnMana = false
@@ -2207,7 +2295,7 @@ Keywords.block = {
         marksSpellAsSustained = true,
         
         -- Shield properties
-        shieldTypes = {"barrier", "ward", "field"},
+        shieldTypes = {"barrier", "ward"},
         attackTypes = {"projectile", "remote", "zone"}
     },
     
@@ -2224,7 +2312,8 @@ Keywords.block = {
             slotIndex = results.currentSlot, -- Use the slot the spell was cast from
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
-            reflect = params.reflect or false
+            reflect = params.reflect or false,
+            onBlock = params.onBlock -- Add support for the onBlock callback
         })
         return results
     end
@@ -2347,6 +2436,31 @@ Keywords.zoneMulti = {
             source = "caster",
             target = "self_slot",
             slotIndex = results.currentSlot
+        })
+        return results
+    end
+}
+
+-- consume: Permanently removes the tokens channeled to cast this spell
+Keywords.consume = {
+    -- Behavior definition
+    behavior = {
+        destroysChanneledTokens = true,
+        targetType = "SLOT_SELF",
+        category = "RESOURCE",
+        
+        -- Default parameters
+        defaultAmount = "all" -- By default, consume all channeled tokens
+    },
+    
+    -- Implementation function - Generates CONSUME_TOKENS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "CONSUME_TOKENS",
+            source = "caster",
+            target = "self_slot", -- Target own spell slot
+            slotIndex = results.currentSlot, -- Use the slot the spell was cast from
+            amount = params.amount or "all" -- "all" means consume all tokens used for the spell
         })
         return results
     end
@@ -4066,38 +4180,6 @@ function ManaPool:drawToken(token)
             -- Draw shield border
             love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.5) -- Keep original border alpha
             love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
-            
-            -- Add a small defensive shield symbol inside the circle
-            -- Determine symbol shape by defense type if available
-            if token.wizardOwner and token.spellSlot then
-                local slot = token.wizardOwner.spellSlots[token.spellSlot]
-                if slot and slot.defenseType then
-                    love.graphics.setColor(1, 1, 1, 0.7)
-                    if slot.defenseType == "barrier" then
-                        -- Draw a small hexagon (shield shape) for barriers
-                        local shieldSize = 6 * token.scale
-                        local points = {}
-                        for i = 1, 6 do
-                            local angle = (i - 1) * math.pi / 3
-                            table.insert(points, token.x + math.cos(angle) * shieldSize)
-                            table.insert(points, token.y + math.sin(angle) * shieldSize)
-                        end
-                        love.graphics.polygon("line", points)
-                    elseif slot.defenseType == "ward" then
-                        -- Draw a small circle (ward shape)
-                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
-                    elseif slot.defenseType == "field" then
-                        -- Draw a small diamond (field shape)
-                        local fieldSize = 7 * token.scale
-                        love.graphics.polygon("line", 
-                            token.x, token.y - fieldSize,
-                            token.x + fieldSize, token.y,
-                            token.x, token.y + fieldSize,
-                            token.x - fieldSize, token.y
-                        )
-                    end
-                end
-            end
         end
     end
 end
@@ -4307,6 +4389,11 @@ end
 -- Main compilation function
 -- Takes a spell definition and keyword data, returns a compiled spell
 function SpellCompiler.compileSpell(spellDef, keywordData)
+    -- Debug - check for onBlock in keywords.block
+    if spellDef.keywords and spellDef.keywords.block and spellDef.keywords.block.onBlock then
+        print("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
+    end
+    
     -- Create a new compiledSpell object
     local compiledSpell = {
         -- Copy base spell properties
@@ -4443,6 +4530,16 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in executeAll")
+                    
+                    -- Check for onBlock in params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                    else
+                        print("[COMPILER DEBUG] No onBlock handler in params")
+                    end
+                    
                     -- Create a CREATE_SHIELD event
                     local shieldEvent = {
                         type = "CREATE_SHIELD",
@@ -4451,14 +4548,28 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         slotIndex = spellSlot,
                         defenseType = "barrier",
                         blocksAttackTypes = {"projectile"},
-                        reflect = false
+                        reflect = false,
+                        onBlock = params.onBlock -- Include onBlock directly from params
                     }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
                     
                     -- Safely add shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
                         shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
                         shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
                         shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
+                        
+                        -- Also add onBlock from shieldParams if available and not already set
+                        if behaviorResults.shieldParams.onBlock and not shieldEvent.onBlock then
+                            shieldEvent.onBlock = behaviorResults.shieldParams.onBlock
+                            print("[COMPILER DEBUG] Added onBlock from shieldParams to CREATE_SHIELD event")
+                        end
                     end
                     
                     table.insert(events, shieldEvent)
@@ -4597,17 +4708,41 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors (block keyword)
                 if keyword == "block" then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in generateEvents")
+                    
                     -- Create a CREATE_SHIELD event explicitly
                     local shieldParams = localResults.shieldParams or {}
-                    table.insert(events, {
+                    
+                    -- Check if onBlock is in the params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                        -- Add onBlock to shieldParams if not already there
+                        if not shieldParams.onBlock then
+                            shieldParams.onBlock = params.onBlock
+                        end
+                    end
+                    
+                    -- Create event with onBlock included
+                    local shieldEvent = {
                         type = "CREATE_SHIELD",
                         source = "caster",
                         target = "self",
                         slotIndex = spellSlot,
                         defenseType = shieldParams.defenseType or "barrier",
                         blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = shieldParams.reflect or false
-                    })
+                        reflect = shieldParams.reflect or false,
+                        onBlock = shieldParams.onBlock -- Include onBlock in the event
+                    }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
+                    
+                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -4682,6 +4817,8 @@ return SpellCompiler```
 local Constants = require("core.Constants")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
+local expr = require("expr")
+local ManaHelpers = require("systems.ManaHelpers")
 
 local Spells = {}
 
@@ -4886,8 +5023,8 @@ Spells.firebolt = {
     keywords = {
         damage = {
             amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.AERIAL and 15 or 10
+                if target and target.gameState.rangeState == Constants.RangeState.FAR then
+                    return 15
                 end
                 return 10
             end,
@@ -4897,6 +5034,28 @@ Spells.firebolt = {
     vfx = "fire_bolt",
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.blastwave = {
+    id = "blastwave",
+    name = "Blast Wave",
+    affinity = "fire",
+    description = "Blast that deals significant damage up close.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
+    keywords = {
+        damage = {
+            amount = expr.byRange({
+                NEAR = 18,
+                FAR = 5,
+                default = 5
+            }),
+            type = Constants.DamageType.FIRE
+        }
+    },
+    vfx = "blastwave",
+    sfx = "blastwave",
 }
 
 Spells.meteor = {
@@ -4985,13 +5144,21 @@ Spells.emberlift = {
     attackType = "utility",
     cost = {"sun"},
     keywords = {
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
         elevate = {
             duration = 5.0,
             target = "SELF",
             vfx = "emberlift"
         },
         rangeShift = {
-            position = "FAR"
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            })
         }
     },
     vfx = "ember_lift",
@@ -5078,8 +5245,9 @@ Spells.novaconjuring = {
     description = "Conjures SUN token from FIRE.",
     attackType = Constants.AttackType.UTILITY,
     castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
-    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
+    cost = {"fire", "fire", "fire"},  -- Needs basic fire to "fuse"
     keywords = {
+        consume = true,
         conjure = {
             token = {
                 Constants.TokenType.SUN,
@@ -5116,11 +5284,30 @@ Spells.witchconjuring = {
     blockableBy = {}  -- Unblockable
 }
 
+Spells.infiniteprocession = {
+    id = "infiniteprocession",
+    name = "Infinite Procession",
+    affinity = Constants.TokenType.MOON,
+    description = "Transmutes MOON tokens into SUN or SUN into MOON.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {},
+    keywords = {
+        tokenShift = {
+            -- If there's more SUN than MOON, flip a random token to MOON (and vice-versa)
+            -- Make this target a specific token as appropriate later
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+            amount = 1
+        }
+    },
+    vfx = "infinite_procession",
+    sfx = "conjure_infinite",
+}
 Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
-    name = "Wrap in Moonlight",
+    name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
+    description = "Ward that elevates the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
@@ -5128,17 +5315,32 @@ Spells.wrapinmoonlight = {
         block = {
             type = Constants.ShieldType.WARD,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
-        },
-        elevate = {
-            duration = 4.0
+            
+            -- Simplified onBlock implementation
+            onBlock = function(defender, attacker, slot, info)
+                print("[SPELL DEBUG] Wings of Moonlight onBlock handler executing!")
+                
+                -- Create a simple event array
+                local events = {}
+                
+                -- Add the elevation event
+                table.insert(events, {
+                    type = "SET_ELEVATION",
+                    source = "caster",
+                    target = "self",
+                    elevation = Constants.ElevationState.AERIAL,
+                    duration = 4.0,
+                    vfx = "mist_veil"
+                })
+                
+                print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
+                return events
+            end
         }
     },
     vfx = "mist_veil",
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
-    
-    -- Mark this as a shield (important for shield mechanics)
-    -- isShield = true
 }
 
 Spells.tidalforce = {
@@ -5204,7 +5406,7 @@ Spells.gravityTrap = {
     description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
     attackType = "utility",  -- Changed to utility since it's not a direct attack
     castTime = 5.0,          -- Slightly faster cast time
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         -- Mark as a sustained spell
         sustain = true,
@@ -5216,14 +5418,15 @@ Spells.gravityTrap = {
         
         -- Define trap window/expiry
         trap_window = { 
-            duration = 30.0  -- Trap lasts for 30 seconds
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
         },
         
         -- Define trap effect when triggered
         trap_effect = {
             -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
             damage = { 
-                amount = 10, 
+                amount = 3, 
                 type = Constants.TokenType.MOON,  
                 target = "ENEMY" 
             },
@@ -5231,8 +5434,10 @@ Spells.gravityTrap = {
                 target = "ENEMY", 
                 vfx = "gravity_pin_ground" 
             },
-            stagger = { 
+            burn = { 
                 duration = 1.0,
+                tickDamage = 4,
+                tickInterval = 0.5,
                 target = "ENEMY"
             }
         }
@@ -5240,6 +5445,35 @@ Spells.gravityTrap = {
     vfx = "gravity_trap_set",
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
+}
+
+Spells.moondance = {
+    id = "moondance",
+    name = "Moon Dance",
+    affinity = Constants.TokenType.MOON,
+    description = "Switch Range. Freeze <6> enemy Root slot.",
+    attackType = "remote",
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.MOON},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = Constants.TokenType.MOON
+        },
+        rangeShift = {
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
+            target = "SELF" 
+        },
+        freeze = {
+            duration = Constants.CastSpeed.ONE_TIER*2,
+            target = "SLOT_ENEMY",
+            slot = 1
+        }
+    }
 }
 
 -- Keep the original spell for backward compatibility
@@ -5279,18 +5513,22 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Pause",
+    name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
-    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
+    description = "Freeze <3> your Crown slot. Conjure Sun", -- Simplified description
     attackType = "utility", 
     castTime = Constants.CastSpeed.FAST,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = Constants.CastSpeed.ONE_TIER,
-            target = "self" -- Explicitly target the caster
+            slot = 3,
+            target = "both" -- Explicitly target the caster
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
         }
-        -- Removed damage and cancelSpell keywords
     },
     vfx = "eclipse_burst", -- Keep visual/sound for now
     sfx = "eclipse_shatter",
@@ -5303,12 +5541,12 @@ Spells.fullmoonbeam = {
     affinity = Constants.TokenType.MOON,
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = Constants.AttackType.PROJECTILE,
-    castTime = Constants.CastSpeed.SLOW,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 5 moon mana
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 3 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.FAST  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -5350,16 +5588,15 @@ Spells.fullmoonbeam = {
 -- Shield spells
 Spells.forcebarrier = {
     id = "forcebarrier",
-    name = "Force Barrier",
-    description = "A protective barrier that blocks projectiles and zones",
+    name = "Sun Block",
+    description = "A protective barrier that blocks projectile and area attacks",
     castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
-    cost = {"any", "any", "any"},
+    cost = {"sun", "sun"},
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
-            -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
     vfx = "force_barrier",
@@ -5425,6 +5662,161 @@ Spells.mirrorshield = {
     vfx = "mirror_shield",
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Enhanced Mirror Shield with direct damage reflection via onBlock
+Spells.enhancedmirrorshield = {
+    id = "enhancedmirrorshield",
+    name = "Enhanced Mirror Shield",
+    description = "A powerful reflective barrier that returns damage to attackers with interest",
+    attackType = "utility",
+    castTime = 6.0,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.STAR, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Add a custom onBlock handler to implement reflection logic
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                -- Only reflect if we have an attacker
+                if not attacker then return {} end
+                
+                -- Generate damage reflection events
+                local events = {}
+                
+                -- Create a damage reflection event
+                table.insert(events, {
+                    type = "DAMAGE",
+                    source = "caster", -- The defender becomes the source
+                    target = "enemy",  -- The attacker becomes the target
+                    amount = 10,       -- Fixed reflection damage
+                    damageType = "star",
+                    reflectedDamage = true
+                })
+                
+                -- Create a visual effect event
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "enemy",
+                    effectType = "reflect",
+                    duration = 0.5
+                })
+                
+                return events
+            end
+        }
+    },
+    vfx = "enhanced_mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Battle Shield with multiple effects on block
+Spells.battleshield = {
+    id = "battleshield",
+    name = "Battle Shield",
+    description = "An aggressive barrier that counterattacks and empowers the caster when blocking",
+    attackType = "utility",
+    castTime = 7.0,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.SUN, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Advanced onBlock handler with multiple effects
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("[SPELL DEBUG] Battle Shield onBlock handler executing!")
+                local events = {}
+                
+                -- 1. Deal counter damage to the attacker
+                if attacker then
+                    table.insert(events, {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 8,
+                        damageType = "fire",
+                        counterDamage = true
+                    })
+                end
+                
+                -- 2. Accelerate the defender's next spell
+                table.insert(events, {
+                    type = "ACCELERATE_SPELL",
+                    source = "caster",
+                    target = "self_slot",
+                    slotIndex = 0, -- Next cast in any slot
+                    amount = 2.0
+                })
+                
+                -- 3. Create a token on successful block
+                table.insert(events, {
+                    type = "CONJURE_TOKEN",
+                    source = "caster",
+                    target = "POOL_SELF",
+                    tokenType = "fire",
+                    amount = 1
+                })
+                
+                -- 4. Visual effect feedback
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "self",
+                    effectType = "battle_shield_counter",
+                    duration = 0.8,
+                    color = {1.0, 0.7, 0.2, 0.8}
+                })
+                
+                print("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
+                return events
+            end
+        }
+    },
+    vfx = "battle_shield",
+    sfx = "fire_shield",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Simple test shield just for debugging
+Spells.testshield = {
+    id = "testshield",
+    name = "Test Shield",
+    description = "A simple test shield that prints debug info when it blocks",
+    attackType = "utility",
+    castTime = 3.0,
+    cost = {"fire"},
+    keywords = {
+        block = {
+            type = "barrier",
+            blocks = {"projectile"},
+            
+            -- Super simple onBlock handler
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("TEST SHIELD BLOCK TRIGGERED")
+                print("Defender: " .. (defender and defender.name or "nil"))
+                print("Attacker: " .. (attacker and attacker.name or "nil"))
+                print("Slot: " .. tostring(slotIndex))
+                
+                -- Return a damage event
+                return {
+                    {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 5,
+                        damageType = "fire"
+                    }
+                }
+            end
+        }
+    },
+    vfx = "force_barrier",
+    sfx = "shield_up",
+    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -5745,31 +6137,22 @@ Spells.lunarTides = {
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "force", "star"},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                -- Damage based on position
-                local baseDamage = 8
-                
-                -- If opponent is AERIAL, deal more damage
-                if target and target.elevation and target.elevation == "AERIAL" then
-                    baseDamage = baseDamage + 4
-                end
-                
-                -- If in NEAR range, deal more damage
-                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
-                    baseDamage = baseDamage + 3
-                end
-                
-                return baseDamage
-            end,
+            -- Use expr.byElevation to set damage based on elevation
+            amount = expr.byElevation({
+                GROUNDED = 8,
+                AERIAL = 12,
+                default = 8
+            }),
             type = Constants.TokenType.MOON,
             target = "ENEMY"  -- Explicit targeting
         },
         rangeShift = {
-            -- Position changes based on current state
-            position = function(caster, target)
-                -- Toggle position
-                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
-            end,
+            -- Position changes based on current state using the expr.byRange helper
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
             target = "SELF"  -- Affects caster
         },
         lock = {
@@ -5789,6 +6172,49 @@ Spells.lunarTides = {
     vfx = "lunar_tide",
     sfx = "tide_rush",
     blockableBy = {"field"}
+}
+
+-- Example test spell showcasing new expression helpers
+Spells.adaptive_surge = {
+    id = "adaptivesurge",
+    name = "Adaptive Surge",
+    description = "A spell that adapts its effects based on the current mana pool",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON},
+    keywords = {
+        -- Damage scales based on the number of sun tokens
+        damage = {
+            amount = expr.countScale(Constants.TokenType.SUN, 5, 2), -- 5 base damage + 2 per sun token
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON) -- Use token that's more abundant
+        },
+        -- Apply either burn or slow based on which wizard has more tokens
+        burn = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool) > 
+                       ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool)
+            end,
+            { -- Apply burn if caster has more SUN tokens
+                duration = 3.0,
+                tickDamage = 2
+            },
+            nil -- Don't apply burn otherwise
+        ),
+        slow = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool) >= 
+                       ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool)
+            end,
+            { -- Apply slow if caster has more MOON tokens
+                magnitude = 1.0,
+                duration = 5.0
+            },
+            nil -- Don't apply slow otherwise
+        )
+    },
+    vfx = "adaptive_surge",
+    sfx = "adaptive_sound",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Prepare the return table with all spells and utility functions
@@ -5853,6 +6279,7 @@ local PROCESSING_PRIORITY = {
     DISSIPATE_TOKEN = 110,
     SHIFT_TOKEN = 120,
     LOCK_TOKEN = 130,
+    CONSUME_TOKENS = 140,
     
     -- Spell timeline events (third)
     ACCELERATE_SPELL = 210,
@@ -5868,6 +6295,9 @@ local PROCESSING_PRIORITY = {
     
     -- Damage events (sixth)
     DAMAGE = 500,
+    
+    -- Visual effects (before special effects)
+    EFFECT = 550,
     
     -- Special effects (last)
     ECHO = 600,
@@ -6592,7 +7022,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Determine the actual wizard and slot index
         local wizardToFreeze = nil
-        local slotIndexToFreeze = event.slotIndex or 2 -- Get slot from event, default to 2
+        local slotIndexToFreeze = event.slotIndex or 3 -- Get slot from event, default to 2
         
         if not resolvedTarget then
             print("ERROR: FREEZE_SPELL target resolution failed.")
@@ -6752,13 +7182,76 @@ EventRunner.EVENT_HANDLERS = {
                 )
             end
         else
-             print("WARNING: Could not find token object to shift after removal from slot.")
+            print("WARNING: Could not find token object to shift after removal from slot.")
         end
 
         -- Call the centralized Law of Completion check on the target wizard
         wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
         
         return true -- Event succeeded
+    end,
+    
+    -- CONSUME_TOKENS: Permanently removes the tokens channeled to cast a spell
+    CONSUME_TOKENS = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local wizard = targetInfo.wizard
+        local slotIndex = event.slotIndex or spellSlot
+        
+        -- Get the target slot
+        local slot = wizard.spellSlots[slotIndex]
+        if not slot or not slot.active or not slot.tokens or #slot.tokens == 0 then
+            return false -- Invalid target slot
+        end
+        
+        -- Track how many tokens we consume
+        local tokensConsumed = 0
+        
+        -- Go through all tokens in the slot and mark them for destruction
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                -- Check if we should consume this token based on amount parameter
+                local shouldConsume = true
+                if event.amount ~= "all" and tokensConsumed >= event.amount then
+                    shouldConsume = false
+                end
+                
+                if shouldConsume then
+                    -- Request destruction animation if available
+                    if tokenData.token.requestDestructionAnimation then
+                        tokenData.token:requestDestructionAnimation()
+                    else
+                        -- Fallback to legacy direct state setting
+                        tokenData.token.state = "DESTROYED"
+                    end
+                    
+                    tokensConsumed = tokensConsumed + 1
+                    results.tokensAffected = (results.tokensAffected or 0) + 1
+                end
+            end
+        end
+        
+        -- Create VFX for token consumption if available
+        if tokensConsumed > 0 and caster.gameState and caster.gameState.vfx then
+            local params = {
+                slotIndex = slotIndex,
+                tokensConsumed = tokensConsumed
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConsumeEffect",
+                "token_consume",
+                wizard.x,
+                wizard.y,
+                params
+            )
+        end
+        
+        print(string.format("[CONSUME] Consumed %d tokens from slot %d", tokensConsumed, slotIndex))
+        
+        return tokensConsumed > 0 -- Success if at least one token was consumed
     end,
     
     -- ===== Defense Events =====
@@ -6804,8 +7297,24 @@ EventRunner.EVENT_HANDLERS = {
             createShield = true,
             defenseType = event.defenseType or "barrier",
             blocksAttackTypes = event.blocksAttackTypes or {"projectile"},
-            reflect = event.reflect or false
+            reflect = event.reflect or false,
+            onBlock = event.onBlock or nil
         }
+        
+        -- Debug logging for onBlock
+        if event.onBlock then
+            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            
+            -- Check if it's actually a function
+            if type(event.onBlock) == "function" then
+                print("[EVENT DEBUG] onBlock is a valid function")
+            else
+                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+            end
+        else
+            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+        end
         
         -- Check if the wizard has a createShield method
         if type(wizard.createShield) ~= "function" then
@@ -6817,6 +7326,7 @@ EventRunner.EVENT_HANDLERS = {
             slot.defenseType = shieldParams.defenseType
             slot.blocksAttackTypes = shieldParams.blocksAttackTypes
             slot.reflect = shieldParams.reflect
+            slot.onBlock = shieldParams.onBlock
             
             -- Mark tokens as shielding
             for _, tokenData in ipairs(slot.tokens) do
@@ -6943,6 +7453,44 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         return false
+    end,
+    
+    -- Add a new EFFECT event handler for pure visual effects
+    EFFECT = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local targetWizard = targetInfo.wizard
+        
+        -- Create visual effect if VFX system is available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                duration = event.duration or 0.5,
+                source = caster.name,
+                target = targetWizard.name,
+                effectType = event.effectType
+            }
+            
+            -- Add any additional parameters from the event
+            for k, v in pairs(event) do
+                if k ~= "type" and k ~= "source" and k ~= "target" and 
+                   k ~= "duration" and k ~= "effectType" then
+                    params[k] = v
+                end
+            end
+            
+            -- Use our safe VFX creation helper
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createEffect",
+                event.effectType or "generic_effect",
+                targetWizard.x,
+                targetWizard.y,
+                params
+            )
+        end
+        
+        return true
     end
 }
 
@@ -6964,6 +7512,94 @@ function EventRunner.debugPrintEvents(events)
 end
 
 return EventRunner```
+
+## ./systems/ManaHelpers.lua
+```lua
+-- systems/ManaHelpers.lua
+-- Provides utility functions for working with tokens in the mana pool
+
+local ManaHelpers = {}
+
+-- Count tokens of a specific type in the mana pool
+function ManaHelpers.count(tokenType, manaPool)
+    local count = 0
+    
+    -- If the manaPool isn't provided directly, try to find it from the game state
+    if not manaPool then return 0 end
+    
+    for _, token in ipairs(manaPool.tokens or {}) do
+        if token.type == tokenType and token.state == "FREE" then
+            count = count + 1
+        end
+    end
+    
+    return count
+end
+
+-- Get the most abundant token type from options
+function ManaHelpers.most(tokenTypes, manaPool)
+    local maxCount = -1
+    local maxType = nil
+    
+    for _, tokenType in ipairs(tokenTypes) do
+        local count = ManaHelpers.count(tokenType, manaPool)
+        if count > maxCount then
+            maxCount = count
+            maxType = tokenType
+        end
+    end
+    
+    return maxType
+end
+
+-- Get the least abundant token type from options
+function ManaHelpers.least(tokenTypes, manaPool)
+    local minCount = math.huge
+    local minType = nil
+    
+    for _, tokenType in ipairs(tokenTypes) do
+        local count = ManaHelpers.count(tokenType, manaPool)
+        if count < minCount and count > 0 then
+            minCount = count
+            minType = tokenType
+        end
+    end
+    
+    -- If no token was found with count > 0, return first type as fallback
+    return minType or tokenTypes[1]
+end
+
+-- Find whether a specific token type exists in the pool
+function ManaHelpers.exists(tokenType, manaPool)
+    return ManaHelpers.count(tokenType, manaPool) > 0
+end
+
+-- Get a random token type from the mana pool
+function ManaHelpers.random(manaPool)
+    if not manaPool or not manaPool.tokens or #manaPool.tokens == 0 then 
+        return nil
+    end
+    
+    -- Get a list of free token types that are available
+    local availableTypes = {}
+    local typesPresent = {}
+    
+    for _, token in ipairs(manaPool.tokens) do
+        if token.state == "FREE" and not typesPresent[token.type] then
+            table.insert(availableTypes, token.type)
+            typesPresent[token.type] = true
+        end
+    end
+    
+    -- Return a random token type from available types
+    if #availableTypes > 0 then
+        return availableTypes[math.random(#availableTypes)]
+    end
+    
+    return nil
+end
+
+return ManaHelpers```
 
 ## ./systems/ShieldSystem.lua
 ```lua
@@ -7005,6 +7641,16 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     slot.active = true
     slot.progress = slot.castTime -- Mark as fully cast
     
+    -- Store the onBlock handler if provided
+    slot.onBlock = blockParams.onBlock
+    
+    -- Debug log for onBlock handler
+    if blockParams.onBlock then
+        print("[SHIELD DEBUG] Shield creation: onBlock handler saved to slot")
+    else
+        print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
+    end
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -7020,7 +7666,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- No longer tracking shield strength separately - token count is the source of truth
+    -- Set onBlock callback
+    slot.onBlock = blockParams.onBlock or nil
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
@@ -7165,27 +7812,50 @@ end
 -- Handle the effects of a spell being blocked by a shield
 function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     local slot = wizard.spellSlots[slotIndex]
-    if not slot or not slot.active or not slot.isShield then
-        print(string.format("WARNING: handleShieldBlock called on invalid or non-shield slot %d for %s", slotIndex, wizard.name))
+    if not slot or not slot.active then
+        print(string.format("WARNING: handleShieldBlock called on invalid or inactive slot %d for %s", slotIndex, wizard.name))
         return false
     end
+    
+    -- Additional safety check for shield status
+    if not slot.isShield then
+        print(string.format("WARNING: handleShieldBlock called on non-shield slot %d for %s", slotIndex, wizard.name))
+        return false
+    end
+
+    -- Safety check for incomingSpell
+    if not incomingSpell then
+        print("WARNING: handleShieldBlock called with nil incomingSpell")
+        return false
+    end
+
+    -- Get defense type with safety check
+    local defenseType = slot.defenseType or "unknown"
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
     local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
 
+    -- Get spell name with safety check
+    local spellName = incomingSpell.name or "unknown spell"
+
     print(string.format("[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).", 
-        wizard.name, slot.defenseType, slotIndex, incomingSpell.name, shieldBreakPower, tokensToConsume))
+        wizard.name, defenseType, slotIndex, spellName, shieldBreakPower, tokensToConsume))
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
-            local removedTokenObject = removedTokenData.token
+            local removedTokenObject = removedTokenData and removedTokenData.token
             
-            print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
-                tostring(removedTokenObject.type)))
+            -- Safety check for removed token object
+            if removedTokenObject and removedTokenObject.type then
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                    tostring(removedTokenObject.type)))
+            else
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+            end
                 
             -- Mark the consumed token for destruction using TokenManager
             if removedTokenObject then
@@ -7222,6 +7892,35 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             particleCount = 8,
             radius = 30
         })
+    end
+    
+    -- Add support for on-block effects
+    -- Add safety check for slot.defenseType
+    local defenseType = slot.defenseType or "unknown"
+    print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
+    
+    if slot.onBlock then
+        print("[SHIELD DEBUG] onBlock handler found, executing")
+        local EventRunner = require("systems.EventRunner")
+        local ok, blockEvents = pcall(slot.onBlock,
+                                      wizard,          -- defender (owner of the shield)
+                                      incomingSpell and incomingSpell.caster, -- attacker (may be nil)
+                                      slotIndex,
+                                      { blockType = defenseType })
+        if ok and type(blockEvents) == "table" and #blockEvents > 0 then
+            print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
+        elseif not ok then
+            print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
+        else
+            print("[SHIELD DEBUG] onBlock successful but no events returned or invalid events format")
+            print("[SHIELD DEBUG] Return value: " .. type(blockEvents))
+            if type(blockEvents) == "table" then
+                print("[SHIELD DEBUG] Table length: " .. #blockEvents)
+            end
+        end
+    else
+        print("[SHIELD DEBUG] No onBlock handler found for this shield")
     end
     
     -- The checkFizzleOnTokenRemoval method handles the actual shield breaking (slot reset)
@@ -11494,9 +12193,9 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.combustMana,
-            ["13"] = Spells.emberlift,
-            ["23"] = Spells.forcebarrier,
+            ["12"] = Spells.forcebarrier,
+            ["13"] = Spells.blastwave,
+            ["23"] = Spells.emberlift,
 
             -- Three key combo
             ["123"] = Spells.meteor
@@ -11505,13 +12204,13 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.witchconjuring,
-            ["3"] = Spells.wrapinmoonlight,
+            ["2"] = Spells.infiniteprocession,
+            ["3"] = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.tidalforce,
-            ["13"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
-            ["23"] = Spells.lunardisjunction,
+            ["12"] = Spells.wrapinmoonlight,
+            ["13"] = Spells.eclipse,
+            ["23"] = Spells.gravityTrap,
             
             -- Three key combo
             ["123"] = Spells.fullmoonbeam
@@ -12526,6 +13225,20 @@ end
 -- Handle the effects of a spell being blocked by a shield in a specific slot
 -- This is now a wrapper method that delegates to ShieldSystem
 function Wizard:handleShieldBlock(slotIndex, incomingSpell)
+    print("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
+    
+    -- Debug the shield slot to check for onBlock
+    if self.spellSlots and self.spellSlots[slotIndex] then
+        local slot = self.spellSlots[slotIndex]
+        if slot.onBlock then
+            print("[WIZARD DEBUG] onBlock handler found in shield slot")
+        else
+            print("[WIZARD DEBUG] No onBlock handler found in shield slot")
+        end
+    else
+        print("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
+    end
+    
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
 end
 
@@ -13146,6 +13859,108 @@ The `manapool.lua` module manages the central shared pool of mana tokens that wi
 *   `core.AssetCache`
 *   `core.Pool`
 *   Global `game` state (optional, via `self.gameState` reference, primarily for VFX access) 
+
+## docs/shield_hooks.md
+# Shield On-Block Hooks
+
+This document describes the on-block hook system for shield spells, which allows custom effects to be triggered when a shield successfully blocks an incoming spell.
+
+## Overview
+
+Shields can now define an `onBlock` callback function that is invoked whenever the shield successfully blocks an attack. This callback can emit events that are processed by the EventRunner, allowing for a wide variety of dynamic effects.
+
+## onBlock Callback Signature
+
+The `onBlock` callback has the following signature:
+
+```lua
+function onBlock(defender, attacker, slotIndex, blockInfo)
+    -- Return an array of events to process
+    return events
+end
+```
+
+### Parameters
+
+- `defender`: The wizard who owns the shield (shield caster)
+- `attacker`: The wizard who cast the spell being blocked (may be nil)
+- `slotIndex`: The spell slot index where the shield is active
+- `blockInfo`: A table with contextual information about the block:
+  - `blockType`: The type of shield (barrier, ward, field)
+
+### Return Value
+
+The callback should return an array of events to be processed by the EventRunner. Each event should follow the standard event structure defined in the EventRunner system.
+
+## Examples
+
+### Simple Elevation on Block
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    return {{
+        type = "SET_ELEVATION",
+        source = "caster",
+        target = "self",
+        elevation = "AERIAL",
+        duration = 4.0
+    }}
+end
+```
+
+### Counter Damage
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    if not attacker then return {} end
+    
+    return {{
+        type = "DAMAGE",
+        source = "caster",
+        target = "enemy",
+        amount = 10,
+        damageType = "fire"
+    }}
+end
+```
+
+### Multiple Effects
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    local events = {}
+    
+    -- Deal counter damage
+    table.insert(events, {
+        type = "DAMAGE",
+        source = "caster",
+        target = "enemy",
+        amount = 8,
+        damageType = "fire"
+    })
+    
+    -- Accelerate next spell
+    table.insert(events, {
+        type = "ACCELERATE_SPELL",
+        source = "caster",
+        target = "self_slot",
+        slotIndex = 0,
+        amount = 2.0
+    })
+    
+    return events
+end
+```
+
+## Creating Custom Shield Spells
+
+To create a shield spell with an on-block hook:
+
+1. Define a normal spell with the `block` keyword
+2. Add an `onBlock` function to the block keyword parameters
+3. Return an array of events from the `onBlock` function
+
+The events will be processed through the EventRunner system, maintaining compatibility with all existing game systems.
 
 ## docs/spellcasting.md
 # Manastorm Spell System
@@ -13706,7 +14521,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Thu Apr 24 11:14:02 CDT 2025
+Generated: Sat Apr 26 15:24:35 CDT 2025
 
 # Source Code
 
@@ -15204,6 +16019,88 @@ end
 
 return DocGenerator```
 
+## ./expr.lua
+```lua
+-- expr.lua
+-- Expression helper functions for spell parameter evaluation
+
+local Constants = require("core.Constants")
+local ManaHelpers = require("systems.ManaHelpers")
+
+local expr = {}
+
+-- Choose whichever token is more abundant in the shared pool
+function expr.more(a, b)
+    return function(caster)
+        local manaPool = caster and caster.manaPool
+        return ManaHelpers.count(a, manaPool) > ManaHelpers.count(b, manaPool) and b or a
+    end
+end
+
+-- Choose the scarcer token
+function expr.less(a, b)
+    return function(caster)
+        local manaPool = caster and caster.manaPool
+        return ManaHelpers.count(a, manaPool) < ManaHelpers.count(b, manaPool) and a or b
+    end
+end
+
+-- Choose a token type based on a condition
+function expr.ifCond(condition, trueValue, falseValue)
+    return function(caster, target, slot)
+        if condition(caster, target, slot) then
+            return trueValue
+        else
+            return falseValue
+        end
+    end
+end
+
+-- Choose a value based on elevation state
+function expr.byElevation(elevationValues)
+    return function(caster, target, slot)
+        local entityToCheck = target or caster
+        local elevation = entityToCheck and entityToCheck.elevation or "GROUNDED"
+        return elevationValues[elevation] or elevationValues.default
+    end
+end
+
+-- Choose a value based on range state
+function expr.byRange(rangeValues)
+    return function(caster, target, slot)
+        local rangeState = caster and caster.gameState and caster.gameState.rangeState or "NEAR"
+        return rangeValues[rangeState] or rangeValues.default
+    end
+end
+
+-- Choose a value based on which wizard has more tokens
+function expr.whoHasMore(tokenType, casterValue, targetValue)
+    return function(caster, target, slot)
+        if not caster or not target or not caster.manaPool or not target.manaPool then
+            return casterValue -- Default to caster value if we can't determine
+        end
+        
+        local casterCount = ManaHelpers.count(tokenType, caster.manaPool)
+        local targetCount = ManaHelpers.count(tokenType, target.manaPool)
+        
+        return casterCount >= targetCount and casterValue or targetValue
+    end
+end
+
+-- Calculate a value based on the number of tokens
+function expr.countScale(tokenType, baseValue, multiplier)
+    return function(caster, target, slot)
+        if not caster or not caster.manaPool then 
+            return baseValue
+        end
+        
+        local count = ManaHelpers.count(tokenType, caster.manaPool)
+        return baseValue + (count * multiplier)
+    end
+end
+
+return expr```
+
 ## ./keywords.lua
 ```lua
 -- keywords.lua
@@ -15237,10 +16134,43 @@ return DocGenerator```
 --     end
 -- }
 --
+-- Parameter resolution:
+-- Keyword parameters can now be static values or functions. If a function is provided, 
+-- it will be called with (caster, target, slot) and the result used as the parameter value.
+--
+-- Example static parameter:
+--   damage = { amount = 10 }
+--
+-- Example function parameter:
+--   damage = { 
+--     amount = function(caster, target, slot)
+--       return target.elevation == "AERIAL" and 15 or 10
+--     end
+--   }
+--
+-- Example using expression helpers:
+--   tokenShift = {
+--     type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+--     amount = 1
+--   }
+--
 -- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
+
+-- Utility: resolve a param that may be a callable
+local function resolve(value, caster, target, slot, default)
+    if type(value) == "function" then
+        local ok, result = pcall(value, caster, target, slot)
+        return ok and result or default
+    end
+    return value ~= nil and value or default
+end
+
 local Keywords = {}
+
+-- Export utility functions
+Keywords.util = { resolve = resolve }
 
 -- Keyword categories for organization
 Keywords.categories = {
@@ -15369,57 +16299,33 @@ Keywords.damage = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local applyDamage = true
-        -- Check for conditional function
-        if params.condition and type(params.condition) == "function" then
-            applyDamage = params.condition(caster, target, results.currentSlot)
-        end
-
+        -- Use resolve to handle conditional parameter
+        local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
+        
         -- Only generate event if condition passed (or no condition)
         if applyDamage then
-            local damageAmountFuncOrValue = params.amount or 0
-            local calculatedDamage = 0
-            local damageType = params.type or Constants.DamageType.GENERIC
-
-            if type(damageAmountFuncOrValue) == "function" then
-                -- It's a function, call it
-                local currentSlotIndex = results.currentSlot -- Assign to local variable
-
-                local success, funcResult = pcall(function()
-                    -- Call the function stored in damageAmountFuncOrValue
-                    -- Pass caster, target, and the local slot index
-                    return damageAmountFuncOrValue(caster, target, currentSlotIndex)
-                end)
-
-                if success then
-                    calculatedDamage = funcResult
-                else
-                    print("Error evaluating damage function: " .. tostring(funcResult))
-                    calculatedDamage = 0 -- Default on error
-                end
-            else
-                -- It's a static value
-                calculatedDamage = damageAmountFuncOrValue
-            end
+            -- Use resolve for damage amount and type
+            local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
+            local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
             -- Generate event
             table.insert(events or {}, {
-                type = "DAMAGE", source = "caster", target = "enemy",
-                amount = calculatedDamage, damageType = damageType,
+                type = "DAMAGE", 
+                source = "caster", 
+                target = "enemy",
+                amount = calculatedDamage, 
+                damageType = damageType,
                 scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
             })
         end
 
-        -- Keep legacy results for now (might still be used elsewhere)
-        -- results.damage = calculatedDamage 
-        -- results.damageType = damageType
-        -- results.scaledDamage = (type(params.amount) == "function")
         return results
     end
 }
 
 -- burn: Applies damage over time effect
 Keywords.burn = {
+    -- refactor to more consistent behavior: each second, apply damage equal to Burn X and --X.
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
@@ -15523,19 +16429,20 @@ Keywords.ground = {
     
     -- Implementation function - Generates SET_ELEVATION event
     execute = function(params, caster, target, results, events)
-        local applyGrounding = true
-        -- Check if there's a conditional function
-        if params.conditional and type(params.conditional) == "function" then
-            applyGrounding = params.conditional(caster, target)
-        end
+        -- Use resolver for conditional parameter
+        local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
         if applyGrounding then
+            -- Resolve other parameters
+            local targetEntity = resolve(params.target, caster, target, results.currentSlot, "enemy")
+            local vfxEffect = resolve(params.vfx, caster, target, results.currentSlot, "tidal_force_ground")
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
-                target = params.target or "enemy", -- Use specified target or default to enemy
+                target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = params.vfx or "tidal_force_ground"
+                vfx = vfxEffect
             })
         end
         return results
@@ -15556,16 +16463,14 @@ Keywords.rangeShift = {
     
     -- Implementation function - Generates SET_RANGE event
     execute = function(params, caster, target, results, events)
-        local targetPosition = params.position or Constants.RangeState.NEAR
-        -- If position is a function, resolve it
-        if type(targetPosition) == "function" then
-            targetPosition = targetPosition(caster, target)
-        end
+        -- Use resolver for all parameters
+        local targetPosition = resolve(params.position, caster, target, results.currentSlot, Constants.RangeState.NEAR)
+        local targetEntity = resolve(params.target, caster, target, results.currentSlot, "self")
         
         table.insert(events or {}, {
             type = "SET_RANGE",
             source = "caster",
-            target = params.target or "self", -- Usually affects both, but can be targeted
+            target = targetEntity, -- Usually affects both, but can be targeted
             position = targetPosition
         })
         return results
@@ -15696,12 +16601,15 @@ Keywords.tokenShift = {
     
     -- Implementation function - Generates SHIFT_TOKEN event
     execute = function(params, caster, target, results, events)
+        local tokenType = resolve(params.type, caster, target, results.currentSlot, "fire")
+        local amount = resolve(params.amount, caster, target, results.currentSlot, 1)
+        
         table.insert(events or {}, {
             type = "SHIFT_TOKEN",
             source = "caster",
             target = "pool",
-            tokenType = params.type or "fire",
-            amount = params.amount or 1,
+            tokenType = tokenType,
+            amount = amount,
             shiftTarget = params.target or "self" -- Whose tokens to target within the pool
         })
         return results
@@ -15757,7 +16665,7 @@ Keywords.slow = {
         category = "TIMING",
         
         -- Default parameters
-        defaultMagnitude = 1.0, -- How much to increase cast time by
+        defaultMagnitude = Constants.CastSpeed.ONE_TIER, -- How much to increase cast time by
         defaultDuration = 10.0, -- How long the slow effect waits for a cast
         defaultSlot = nil -- nil or 0 means next cast in any slot, 1/2/3 targets specific slot
     },
@@ -15769,7 +16677,7 @@ Keywords.slow = {
             source = "caster",
             target = "enemy", -- Target the enemy wizard entity
             statusType = "slow",
-            magnitude = params.magnitude or 1.0, -- How much time to add
+            magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
         })
@@ -15845,13 +16753,8 @@ Keywords.disjoint = {
     
     -- Implementation function
     execute = function(params, caster, target, results, events)
-        local targetSlotIndex = 0
-        if params.slot and type(params.slot) == "function" then
-            -- Evaluate the slot function if provided
-            targetSlotIndex = params.slot(caster, target, results.currentSlot)
-        elseif params.slot then
-            targetSlotIndex = params.slot
-        end
+        -- Use resolver to handle the slot parameter
+        local targetSlotIndex = resolve(params.slot, caster, target, results.currentSlot, 0)
         targetSlotIndex = tonumber(targetSlotIndex) or 0 -- Ensure it's a number, default to 0
         
         -- Create a CANCEL_SPELL event with returnMana = false
@@ -15914,7 +16817,7 @@ Keywords.block = {
         marksSpellAsSustained = true,
         
         -- Shield properties
-        shieldTypes = {"barrier", "ward", "field"},
+        shieldTypes = {"barrier", "ward"},
         attackTypes = {"projectile", "remote", "zone"}
     },
     
@@ -15931,7 +16834,8 @@ Keywords.block = {
             slotIndex = results.currentSlot, -- Use the slot the spell was cast from
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
-            reflect = params.reflect or false
+            reflect = params.reflect or false,
+            onBlock = params.onBlock -- Add support for the onBlock callback
         })
         return results
     end
@@ -16054,6 +16958,31 @@ Keywords.zoneMulti = {
             source = "caster",
             target = "self_slot",
             slotIndex = results.currentSlot
+        })
+        return results
+    end
+}
+
+-- consume: Permanently removes the tokens channeled to cast this spell
+Keywords.consume = {
+    -- Behavior definition
+    behavior = {
+        destroysChanneledTokens = true,
+        targetType = "SLOT_SELF",
+        category = "RESOURCE",
+        
+        -- Default parameters
+        defaultAmount = "all" -- By default, consume all channeled tokens
+    },
+    
+    -- Implementation function - Generates CONSUME_TOKENS event
+    execute = function(params, caster, target, results, events)
+        table.insert(events or {}, {
+            type = "CONSUME_TOKENS",
+            source = "caster",
+            target = "self_slot", -- Target own spell slot
+            slotIndex = results.currentSlot, -- Use the slot the spell was cast from
+            amount = params.amount or "all" -- "all" means consume all tokens used for the spell
         })
         return results
     end
@@ -17773,38 +18702,6 @@ function ManaPool:drawToken(token)
             -- Draw shield border
             love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.5) -- Keep original border alpha
             love.graphics.circle("line", token.x, token.y, 15 * pulseScale * token.scale)
-            
-            -- Add a small defensive shield symbol inside the circle
-            -- Determine symbol shape by defense type if available
-            if token.wizardOwner and token.spellSlot then
-                local slot = token.wizardOwner.spellSlots[token.spellSlot]
-                if slot and slot.defenseType then
-                    love.graphics.setColor(1, 1, 1, 0.7)
-                    if slot.defenseType == "barrier" then
-                        -- Draw a small hexagon (shield shape) for barriers
-                        local shieldSize = 6 * token.scale
-                        local points = {}
-                        for i = 1, 6 do
-                            local angle = (i - 1) * math.pi / 3
-                            table.insert(points, token.x + math.cos(angle) * shieldSize)
-                            table.insert(points, token.y + math.sin(angle) * shieldSize)
-                        end
-                        love.graphics.polygon("line", points)
-                    elseif slot.defenseType == "ward" then
-                        -- Draw a small circle (ward shape)
-                        love.graphics.circle("line", token.x, token.y, 6 * token.scale)
-                    elseif slot.defenseType == "field" then
-                        -- Draw a small diamond (field shape)
-                        local fieldSize = 7 * token.scale
-                        love.graphics.polygon("line", 
-                            token.x, token.y - fieldSize,
-                            token.x + fieldSize, token.y,
-                            token.x, token.y + fieldSize,
-                            token.x - fieldSize, token.y
-                        )
-                    end
-                end
-            end
         end
     end
 end
@@ -18014,6 +18911,11 @@ end
 -- Main compilation function
 -- Takes a spell definition and keyword data, returns a compiled spell
 function SpellCompiler.compileSpell(spellDef, keywordData)
+    -- Debug - check for onBlock in keywords.block
+    if spellDef.keywords and spellDef.keywords.block and spellDef.keywords.block.onBlock then
+        print("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
+    end
+    
     -- Create a new compiledSpell object
     local compiledSpell = {
         -- Copy base spell properties
@@ -18150,6 +19052,16 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors
                 if keyword == "block" and useEventSystem then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in executeAll")
+                    
+                    -- Check for onBlock in params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                    else
+                        print("[COMPILER DEBUG] No onBlock handler in params")
+                    end
+                    
                     -- Create a CREATE_SHIELD event
                     local shieldEvent = {
                         type = "CREATE_SHIELD",
@@ -18158,14 +19070,28 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         slotIndex = spellSlot,
                         defenseType = "barrier",
                         blocksAttackTypes = {"projectile"},
-                        reflect = false
+                        reflect = false,
+                        onBlock = params.onBlock -- Include onBlock directly from params
                     }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
                     
                     -- Safely add shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
                         shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
                         shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
                         shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
+                        
+                        -- Also add onBlock from shieldParams if available and not already set
+                        if behaviorResults.shieldParams.onBlock and not shieldEvent.onBlock then
+                            shieldEvent.onBlock = behaviorResults.shieldParams.onBlock
+                            print("[COMPILER DEBUG] Added onBlock from shieldParams to CREATE_SHIELD event")
+                        end
                     end
                     
                     table.insert(events, shieldEvent)
@@ -18304,17 +19230,41 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Special handling for shield behaviors (block keyword)
                 if keyword == "block" then
+                    -- Debug the block keyword behavior
+                    print("[COMPILER DEBUG] Processing block keyword in generateEvents")
+                    
                     -- Create a CREATE_SHIELD event explicitly
                     local shieldParams = localResults.shieldParams or {}
-                    table.insert(events, {
+                    
+                    -- Check if onBlock is in the params
+                    if params and params.onBlock then
+                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                        -- Add onBlock to shieldParams if not already there
+                        if not shieldParams.onBlock then
+                            shieldParams.onBlock = params.onBlock
+                        end
+                    end
+                    
+                    -- Create event with onBlock included
+                    local shieldEvent = {
                         type = "CREATE_SHIELD",
                         source = "caster",
                         target = "self",
                         slotIndex = spellSlot,
                         defenseType = shieldParams.defenseType or "barrier",
                         blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = shieldParams.reflect or false
-                    })
+                        reflect = shieldParams.reflect or false,
+                        onBlock = shieldParams.onBlock -- Include onBlock in the event
+                    }
+                    
+                    -- Debug the onBlock in the shield event
+                    if shieldEvent.onBlock then
+                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
+                    else
+                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
+                    end
+                    
+                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -18389,6 +19339,8 @@ return SpellCompiler```
 local Constants = require("core.Constants")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
+local expr = require("expr")
+local ManaHelpers = require("systems.ManaHelpers")
 
 local Spells = {}
 
@@ -18593,8 +19545,8 @@ Spells.firebolt = {
     keywords = {
         damage = {
             amount = function(caster, target)
-                if target and target.elevation then
-                    return target.elevation == Constants.ElevationState.AERIAL and 15 or 10
+                if target and target.gameState.rangeState == Constants.RangeState.FAR then
+                    return 15
                 end
                 return 10
             end,
@@ -18604,6 +19556,28 @@ Spells.firebolt = {
     vfx = "fire_bolt",
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.blastwave = {
+    id = "blastwave",
+    name = "Blast Wave",
+    affinity = "fire",
+    description = "Blast that deals significant damage up close.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
+    keywords = {
+        damage = {
+            amount = expr.byRange({
+                NEAR = 18,
+                FAR = 5,
+                default = 5
+            }),
+            type = Constants.DamageType.FIRE
+        }
+    },
+    vfx = "blastwave",
+    sfx = "blastwave",
 }
 
 Spells.meteor = {
@@ -18692,13 +19666,21 @@ Spells.emberlift = {
     attackType = "utility",
     cost = {"sun"},
     keywords = {
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
         elevate = {
             duration = 5.0,
             target = "SELF",
             vfx = "emberlift"
         },
         rangeShift = {
-            position = "FAR"
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            })
         }
     },
     vfx = "ember_lift",
@@ -18785,8 +19767,9 @@ Spells.novaconjuring = {
     description = "Conjures SUN token from FIRE.",
     attackType = Constants.AttackType.UTILITY,
     castTime = Constants.CastSpeed.NORMAL,  -- Fixed cast time
-    cost = {"fire", "fire", "fire"},  -- Needs some basic fire
+    cost = {"fire", "fire", "fire"},  -- Needs basic fire to "fuse"
     keywords = {
+        consume = true,
         conjure = {
             token = {
                 Constants.TokenType.SUN,
@@ -18823,11 +19806,30 @@ Spells.witchconjuring = {
     blockableBy = {}  -- Unblockable
 }
 
+Spells.infiniteprocession = {
+    id = "infiniteprocession",
+    name = "Infinite Procession",
+    affinity = Constants.TokenType.MOON,
+    description = "Transmutes MOON tokens into SUN or SUN into MOON.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {},
+    keywords = {
+        tokenShift = {
+            -- If there's more SUN than MOON, flip a random token to MOON (and vice-versa)
+            -- Make this target a specific token as appropriate later
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
+            amount = 1
+        }
+    },
+    vfx = "infinite_procession",
+    sfx = "conjure_infinite",
+}
 Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
-    name = "Wrap in Moonlight",
+    name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "A barrier of light that blocks projectiles and zones, and elevates the caster",
+    description = "Ward that elevates the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
@@ -18835,17 +19837,32 @@ Spells.wrapinmoonlight = {
         block = {
             type = Constants.ShieldType.WARD,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
-        },
-        elevate = {
-            duration = 4.0
+            
+            -- Simplified onBlock implementation
+            onBlock = function(defender, attacker, slot, info)
+                print("[SPELL DEBUG] Wings of Moonlight onBlock handler executing!")
+                
+                -- Create a simple event array
+                local events = {}
+                
+                -- Add the elevation event
+                table.insert(events, {
+                    type = "SET_ELEVATION",
+                    source = "caster",
+                    target = "self",
+                    elevation = Constants.ElevationState.AERIAL,
+                    duration = 4.0,
+                    vfx = "mist_veil"
+                })
+                
+                print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
+                return events
+            end
         }
     },
     vfx = "mist_veil",
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
-    
-    -- Mark this as a shield (important for shield mechanics)
-    -- isShield = true
 }
 
 Spells.tidalforce = {
@@ -18911,7 +19928,7 @@ Spells.gravityTrap = {
     description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
     attackType = "utility",  -- Changed to utility since it's not a direct attack
     castTime = 5.0,          -- Slightly faster cast time
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         -- Mark as a sustained spell
         sustain = true,
@@ -18923,14 +19940,15 @@ Spells.gravityTrap = {
         
         -- Define trap window/expiry
         trap_window = { 
-            duration = 30.0  -- Trap lasts for 30 seconds
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
         },
         
         -- Define trap effect when triggered
         trap_effect = {
             -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
             damage = { 
-                amount = 10, 
+                amount = 3, 
                 type = Constants.TokenType.MOON,  
                 target = "ENEMY" 
             },
@@ -18938,8 +19956,10 @@ Spells.gravityTrap = {
                 target = "ENEMY", 
                 vfx = "gravity_pin_ground" 
             },
-            stagger = { 
+            burn = { 
                 duration = 1.0,
+                tickDamage = 4,
+                tickInterval = 0.5,
                 target = "ENEMY"
             }
         }
@@ -18947,6 +19967,35 @@ Spells.gravityTrap = {
     vfx = "gravity_trap_set",
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
+}
+
+Spells.moondance = {
+    id = "moondance",
+    name = "Moon Dance",
+    affinity = Constants.TokenType.MOON,
+    description = "Switch Range. Freeze <6> enemy Root slot.",
+    attackType = "remote",
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.MOON},
+    keywords = {
+        damage = {
+            amount = 5,
+            type = Constants.TokenType.MOON
+        },
+        rangeShift = {
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
+            target = "SELF" 
+        },
+        freeze = {
+            duration = Constants.CastSpeed.ONE_TIER*2,
+            target = "SLOT_ENEMY",
+            slot = 1
+        }
+    }
 }
 
 -- Keep the original spell for backward compatibility
@@ -18986,18 +20035,22 @@ Spells.gravity = {
 
 Spells.eclipse = {
     id = "eclipse",
-    name = "Eclipse Pause",
+    name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
-    description = "Freezes the caster's channeled spell in slot 2", -- Simplified description
+    description = "Freeze <3> your Crown slot. Conjure Sun", -- Simplified description
     attackType = "utility", 
     castTime = Constants.CastSpeed.FAST,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = Constants.CastSpeed.ONE_TIER,
-            target = "self" -- Explicitly target the caster
+            slot = 3,
+            target = "both" -- Explicitly target the caster
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
         }
-        -- Removed damage and cancelSpell keywords
     },
     vfx = "eclipse_burst", -- Keep visual/sound for now
     sfx = "eclipse_shatter",
@@ -19010,12 +20063,12 @@ Spells.fullmoonbeam = {
     affinity = Constants.TokenType.MOON,
     description = "Channels moonlight into a beam that deals damage equal to its cast time",
     attackType = Constants.AttackType.PROJECTILE,
-    castTime = Constants.CastSpeed.SLOW,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 5 moon mana
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},  -- 3 moon mana
     keywords = {
         damage = {
             amount = function(caster, target, slot) -- slot is the spellSlot index
-                local baseCastTime = Constants.CastSpeed.SLOW  -- Default/base cast time
+                local baseCastTime = Constants.CastSpeed.FAST  -- Default/base cast time
                 local accruedModifier = 0
                 
                 -- If we know which slot this spell was cast from
@@ -19057,16 +20110,15 @@ Spells.fullmoonbeam = {
 -- Shield spells
 Spells.forcebarrier = {
     id = "forcebarrier",
-    name = "Force Barrier",
-    description = "A protective barrier that blocks projectiles and zones",
+    name = "Sun Block",
+    description = "A protective barrier that blocks projectile and area attacks",
     castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
-    cost = {"any", "any", "any"},
+    cost = {"sun", "sun"},
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
-            -- All shields are mana-linked now (consume tokens when blocking)
         }
     },
     vfx = "force_barrier",
@@ -19132,6 +20184,161 @@ Spells.mirrorshield = {
     vfx = "mirror_shield",
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Enhanced Mirror Shield with direct damage reflection via onBlock
+Spells.enhancedmirrorshield = {
+    id = "enhancedmirrorshield",
+    name = "Enhanced Mirror Shield",
+    description = "A powerful reflective barrier that returns damage to attackers with interest",
+    attackType = "utility",
+    castTime = 6.0,
+    cost = {Constants.TokenType.MOON, Constants.TokenType.STAR, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Add a custom onBlock handler to implement reflection logic
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                -- Only reflect if we have an attacker
+                if not attacker then return {} end
+                
+                -- Generate damage reflection events
+                local events = {}
+                
+                -- Create a damage reflection event
+                table.insert(events, {
+                    type = "DAMAGE",
+                    source = "caster", -- The defender becomes the source
+                    target = "enemy",  -- The attacker becomes the target
+                    amount = 10,       -- Fixed reflection damage
+                    damageType = "star",
+                    reflectedDamage = true
+                })
+                
+                -- Create a visual effect event
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "enemy",
+                    effectType = "reflect",
+                    duration = 0.5
+                })
+                
+                return events
+            end
+        }
+    },
+    vfx = "enhanced_mirror_shield",
+    sfx = "crystal_ring",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Battle Shield with multiple effects on block
+Spells.battleshield = {
+    id = "battleshield",
+    name = "Battle Shield",
+    description = "An aggressive barrier that counterattacks and empowers the caster when blocking",
+    attackType = "utility",
+    castTime = 7.0,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.SUN, Constants.TokenType.STAR},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            
+            -- Advanced onBlock handler with multiple effects
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("[SPELL DEBUG] Battle Shield onBlock handler executing!")
+                local events = {}
+                
+                -- 1. Deal counter damage to the attacker
+                if attacker then
+                    table.insert(events, {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 8,
+                        damageType = "fire",
+                        counterDamage = true
+                    })
+                end
+                
+                -- 2. Accelerate the defender's next spell
+                table.insert(events, {
+                    type = "ACCELERATE_SPELL",
+                    source = "caster",
+                    target = "self_slot",
+                    slotIndex = 0, -- Next cast in any slot
+                    amount = 2.0
+                })
+                
+                -- 3. Create a token on successful block
+                table.insert(events, {
+                    type = "CONJURE_TOKEN",
+                    source = "caster",
+                    target = "POOL_SELF",
+                    tokenType = "fire",
+                    amount = 1
+                })
+                
+                -- 4. Visual effect feedback
+                table.insert(events, {
+                    type = "EFFECT",
+                    source = "caster",
+                    target = "self",
+                    effectType = "battle_shield_counter",
+                    duration = 0.8,
+                    color = {1.0, 0.7, 0.2, 0.8}
+                })
+                
+                print("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
+                return events
+            end
+        }
+    },
+    vfx = "battle_shield",
+    sfx = "fire_shield",
+    blockableBy = {}  -- Utility spell, can't be blocked
+}
+
+-- Simple test shield just for debugging
+Spells.testshield = {
+    id = "testshield",
+    name = "Test Shield",
+    description = "A simple test shield that prints debug info when it blocks",
+    attackType = "utility",
+    castTime = 3.0,
+    cost = {"fire"},
+    keywords = {
+        block = {
+            type = "barrier",
+            blocks = {"projectile"},
+            
+            -- Super simple onBlock handler
+            onBlock = function(defender, attacker, slotIndex, blockInfo)
+                print("TEST SHIELD BLOCK TRIGGERED")
+                print("Defender: " .. (defender and defender.name or "nil"))
+                print("Attacker: " .. (attacker and attacker.name or "nil"))
+                print("Slot: " .. tostring(slotIndex))
+                
+                -- Return a damage event
+                return {
+                    {
+                        type = "DAMAGE",
+                        source = "caster",
+                        target = "enemy",
+                        amount = 5,
+                        damageType = "fire"
+                    }
+                }
+            end
+        }
+    },
+    vfx = "force_barrier",
+    sfx = "shield_up",
+    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -19452,31 +20659,22 @@ Spells.lunarTides = {
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "force", "star"},
     keywords = {
         damage = {
-            amount = function(caster, target)
-                -- Damage based on position
-                local baseDamage = 8
-                
-                -- If opponent is AERIAL, deal more damage
-                if target and target.elevation and target.elevation == "AERIAL" then
-                    baseDamage = baseDamage + 4
-                end
-                
-                -- If in NEAR range, deal more damage
-                if caster and caster.gameState and caster.gameState.rangeState == "NEAR" then
-                    baseDamage = baseDamage + 3
-                end
-                
-                return baseDamage
-            end,
+            -- Use expr.byElevation to set damage based on elevation
+            amount = expr.byElevation({
+                GROUNDED = 8,
+                AERIAL = 12,
+                default = 8
+            }),
             type = Constants.TokenType.MOON,
             target = "ENEMY"  -- Explicit targeting
         },
         rangeShift = {
-            -- Position changes based on current state
-            position = function(caster, target)
-                -- Toggle position
-                return caster.gameState.rangeState == "NEAR" and "FAR" or "NEAR"
-            end,
+            -- Position changes based on current state using the expr.byRange helper
+            position = expr.byRange({
+                NEAR = "FAR",
+                FAR = "NEAR",
+                default = "NEAR"
+            }),
             target = "SELF"  -- Affects caster
         },
         lock = {
@@ -19496,6 +20694,49 @@ Spells.lunarTides = {
     vfx = "lunar_tide",
     sfx = "tide_rush",
     blockableBy = {"field"}
+}
+
+-- Example test spell showcasing new expression helpers
+Spells.adaptive_surge = {
+    id = "adaptivesurge",
+    name = "Adaptive Surge",
+    description = "A spell that adapts its effects based on the current mana pool",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.SUN, Constants.TokenType.MOON},
+    keywords = {
+        -- Damage scales based on the number of sun tokens
+        damage = {
+            amount = expr.countScale(Constants.TokenType.SUN, 5, 2), -- 5 base damage + 2 per sun token
+            type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON) -- Use token that's more abundant
+        },
+        -- Apply either burn or slow based on which wizard has more tokens
+        burn = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool) > 
+                       ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool)
+            end,
+            { -- Apply burn if caster has more SUN tokens
+                duration = 3.0,
+                tickDamage = 2
+            },
+            nil -- Don't apply burn otherwise
+        ),
+        slow = expr.ifCond(
+            function(caster, target) 
+                return ManaHelpers.count(Constants.TokenType.MOON, caster.manaPool) >= 
+                       ManaHelpers.count(Constants.TokenType.SUN, caster.manaPool)
+            end,
+            { -- Apply slow if caster has more MOON tokens
+                magnitude = 1.0,
+                duration = 5.0
+            },
+            nil -- Don't apply slow otherwise
+        )
+    },
+    vfx = "adaptive_surge",
+    sfx = "adaptive_sound",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Prepare the return table with all spells and utility functions
@@ -19560,6 +20801,7 @@ local PROCESSING_PRIORITY = {
     DISSIPATE_TOKEN = 110,
     SHIFT_TOKEN = 120,
     LOCK_TOKEN = 130,
+    CONSUME_TOKENS = 140,
     
     -- Spell timeline events (third)
     ACCELERATE_SPELL = 210,
@@ -19575,6 +20817,9 @@ local PROCESSING_PRIORITY = {
     
     -- Damage events (sixth)
     DAMAGE = 500,
+    
+    -- Visual effects (before special effects)
+    EFFECT = 550,
     
     -- Special effects (last)
     ECHO = 600,
@@ -20299,7 +21544,7 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Determine the actual wizard and slot index
         local wizardToFreeze = nil
-        local slotIndexToFreeze = event.slotIndex or 2 -- Get slot from event, default to 2
+        local slotIndexToFreeze = event.slotIndex or 3 -- Get slot from event, default to 2
         
         if not resolvedTarget then
             print("ERROR: FREEZE_SPELL target resolution failed.")
@@ -20459,13 +21704,76 @@ EventRunner.EVENT_HANDLERS = {
                 )
             end
         else
-             print("WARNING: Could not find token object to shift after removal from slot.")
+            print("WARNING: Could not find token object to shift after removal from slot.")
         end
 
         -- Call the centralized Law of Completion check on the target wizard
         wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
         
         return true -- Event succeeded
+    end,
+    
+    -- CONSUME_TOKENS: Permanently removes the tokens channeled to cast a spell
+    CONSUME_TOKENS = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local wizard = targetInfo.wizard
+        local slotIndex = event.slotIndex or spellSlot
+        
+        -- Get the target slot
+        local slot = wizard.spellSlots[slotIndex]
+        if not slot or not slot.active or not slot.tokens or #slot.tokens == 0 then
+            return false -- Invalid target slot
+        end
+        
+        -- Track how many tokens we consume
+        local tokensConsumed = 0
+        
+        -- Go through all tokens in the slot and mark them for destruction
+        for _, tokenData in ipairs(slot.tokens) do
+            if tokenData.token then
+                -- Check if we should consume this token based on amount parameter
+                local shouldConsume = true
+                if event.amount ~= "all" and tokensConsumed >= event.amount then
+                    shouldConsume = false
+                end
+                
+                if shouldConsume then
+                    -- Request destruction animation if available
+                    if tokenData.token.requestDestructionAnimation then
+                        tokenData.token:requestDestructionAnimation()
+                    else
+                        -- Fallback to legacy direct state setting
+                        tokenData.token.state = "DESTROYED"
+                    end
+                    
+                    tokensConsumed = tokensConsumed + 1
+                    results.tokensAffected = (results.tokensAffected or 0) + 1
+                end
+            end
+        end
+        
+        -- Create VFX for token consumption if available
+        if tokensConsumed > 0 and caster.gameState and caster.gameState.vfx then
+            local params = {
+                slotIndex = slotIndex,
+                tokensConsumed = tokensConsumed
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConsumeEffect",
+                "token_consume",
+                wizard.x,
+                wizard.y,
+                params
+            )
+        end
+        
+        print(string.format("[CONSUME] Consumed %d tokens from slot %d", tokensConsumed, slotIndex))
+        
+        return tokensConsumed > 0 -- Success if at least one token was consumed
     end,
     
     -- ===== Defense Events =====
@@ -20511,8 +21819,24 @@ EventRunner.EVENT_HANDLERS = {
             createShield = true,
             defenseType = event.defenseType or "barrier",
             blocksAttackTypes = event.blocksAttackTypes or {"projectile"},
-            reflect = event.reflect or false
+            reflect = event.reflect or false,
+            onBlock = event.onBlock or nil
         }
+        
+        -- Debug logging for onBlock
+        if event.onBlock then
+            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            
+            -- Check if it's actually a function
+            if type(event.onBlock) == "function" then
+                print("[EVENT DEBUG] onBlock is a valid function")
+            else
+                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+            end
+        else
+            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+        end
         
         -- Check if the wizard has a createShield method
         if type(wizard.createShield) ~= "function" then
@@ -20524,6 +21848,7 @@ EventRunner.EVENT_HANDLERS = {
             slot.defenseType = shieldParams.defenseType
             slot.blocksAttackTypes = shieldParams.blocksAttackTypes
             slot.reflect = shieldParams.reflect
+            slot.onBlock = shieldParams.onBlock
             
             -- Mark tokens as shielding
             for _, tokenData in ipairs(slot.tokens) do
@@ -20650,6 +21975,44 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         return false
+    end,
+    
+    -- Add a new EFFECT event handler for pure visual effects
+    EFFECT = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then return false end
+        
+        local targetWizard = targetInfo.wizard
+        
+        -- Create visual effect if VFX system is available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                duration = event.duration or 0.5,
+                source = caster.name,
+                target = targetWizard.name,
+                effectType = event.effectType
+            }
+            
+            -- Add any additional parameters from the event
+            for k, v in pairs(event) do
+                if k ~= "type" and k ~= "source" and k ~= "target" and 
+                   k ~= "duration" and k ~= "effectType" then
+                    params[k] = v
+                end
+            end
+            
+            -- Use our safe VFX creation helper
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createEffect",
+                event.effectType or "generic_effect",
+                targetWizard.x,
+                targetWizard.y,
+                params
+            )
+        end
+        
+        return true
     end
 }
 
@@ -20671,6 +22034,94 @@ function EventRunner.debugPrintEvents(events)
 end
 
 return EventRunner```
+
+## ./systems/ManaHelpers.lua
+```lua
+-- systems/ManaHelpers.lua
+-- Provides utility functions for working with tokens in the mana pool
+
+local ManaHelpers = {}
+
+-- Count tokens of a specific type in the mana pool
+function ManaHelpers.count(tokenType, manaPool)
+    local count = 0
+    
+    -- If the manaPool isn't provided directly, try to find it from the game state
+    if not manaPool then return 0 end
+    
+    for _, token in ipairs(manaPool.tokens or {}) do
+        if token.type == tokenType and token.state == "FREE" then
+            count = count + 1
+        end
+    end
+    
+    return count
+end
+
+-- Get the most abundant token type from options
+function ManaHelpers.most(tokenTypes, manaPool)
+    local maxCount = -1
+    local maxType = nil
+    
+    for _, tokenType in ipairs(tokenTypes) do
+        local count = ManaHelpers.count(tokenType, manaPool)
+        if count > maxCount then
+            maxCount = count
+            maxType = tokenType
+        end
+    end
+    
+    return maxType
+end
+
+-- Get the least abundant token type from options
+function ManaHelpers.least(tokenTypes, manaPool)
+    local minCount = math.huge
+    local minType = nil
+    
+    for _, tokenType in ipairs(tokenTypes) do
+        local count = ManaHelpers.count(tokenType, manaPool)
+        if count < minCount and count > 0 then
+            minCount = count
+            minType = tokenType
+        end
+    end
+    
+    -- If no token was found with count > 0, return first type as fallback
+    return minType or tokenTypes[1]
+end
+
+-- Find whether a specific token type exists in the pool
+function ManaHelpers.exists(tokenType, manaPool)
+    return ManaHelpers.count(tokenType, manaPool) > 0
+end
+
+-- Get a random token type from the mana pool
+function ManaHelpers.random(manaPool)
+    if not manaPool or not manaPool.tokens or #manaPool.tokens == 0 then 
+        return nil
+    end
+    
+    -- Get a list of free token types that are available
+    local availableTypes = {}
+    local typesPresent = {}
+    
+    for _, token in ipairs(manaPool.tokens) do
+        if token.state == "FREE" and not typesPresent[token.type] then
+            table.insert(availableTypes, token.type)
+            typesPresent[token.type] = true
+        end
+    end
+    
+    -- Return a random token type from available types
+    if #availableTypes > 0 then
+        return availableTypes[math.random(#availableTypes)]
+    end
+    
+    return nil
+end
+
+return ManaHelpers```
 
 ## ./systems/ShieldSystem.lua
 ```lua
@@ -20712,6 +22163,16 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     slot.active = true
     slot.progress = slot.castTime -- Mark as fully cast
     
+    -- Store the onBlock handler if provided
+    slot.onBlock = blockParams.onBlock
+    
+    -- Debug log for onBlock handler
+    if blockParams.onBlock then
+        print("[SHIELD DEBUG] Shield creation: onBlock handler saved to slot")
+    else
+        print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
+    end
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -20727,7 +22188,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- No longer tracking shield strength separately - token count is the source of truth
+    -- Set onBlock callback
+    slot.onBlock = blockParams.onBlock or nil
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
@@ -20872,27 +22334,50 @@ end
 -- Handle the effects of a spell being blocked by a shield
 function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     local slot = wizard.spellSlots[slotIndex]
-    if not slot or not slot.active or not slot.isShield then
-        print(string.format("WARNING: handleShieldBlock called on invalid or non-shield slot %d for %s", slotIndex, wizard.name))
+    if not slot or not slot.active then
+        print(string.format("WARNING: handleShieldBlock called on invalid or inactive slot %d for %s", slotIndex, wizard.name))
         return false
     end
+    
+    -- Additional safety check for shield status
+    if not slot.isShield then
+        print(string.format("WARNING: handleShieldBlock called on non-shield slot %d for %s", slotIndex, wizard.name))
+        return false
+    end
+
+    -- Safety check for incomingSpell
+    if not incomingSpell then
+        print("WARNING: handleShieldBlock called with nil incomingSpell")
+        return false
+    end
+
+    -- Get defense type with safety check
+    local defenseType = slot.defenseType or "unknown"
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
     local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
 
+    -- Get spell name with safety check
+    local spellName = incomingSpell.name or "unknown spell"
+
     print(string.format("[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).", 
-        wizard.name, slot.defenseType, slotIndex, incomingSpell.name, shieldBreakPower, tokensToConsume))
+        wizard.name, defenseType, slotIndex, spellName, shieldBreakPower, tokensToConsume))
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
-            local removedTokenObject = removedTokenData.token
+            local removedTokenObject = removedTokenData and removedTokenData.token
             
-            print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
-                tostring(removedTokenObject.type)))
+            -- Safety check for removed token object
+            if removedTokenObject and removedTokenObject.type then
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                    tostring(removedTokenObject.type)))
+            else
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+            end
                 
             -- Mark the consumed token for destruction using TokenManager
             if removedTokenObject then
@@ -20929,6 +22414,35 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             particleCount = 8,
             radius = 30
         })
+    end
+    
+    -- Add support for on-block effects
+    -- Add safety check for slot.defenseType
+    local defenseType = slot.defenseType or "unknown"
+    print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
+    
+    if slot.onBlock then
+        print("[SHIELD DEBUG] onBlock handler found, executing")
+        local EventRunner = require("systems.EventRunner")
+        local ok, blockEvents = pcall(slot.onBlock,
+                                      wizard,          -- defender (owner of the shield)
+                                      incomingSpell and incomingSpell.caster, -- attacker (may be nil)
+                                      slotIndex,
+                                      { blockType = defenseType })
+        if ok and type(blockEvents) == "table" and #blockEvents > 0 then
+            print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
+        elseif not ok then
+            print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
+        else
+            print("[SHIELD DEBUG] onBlock successful but no events returned or invalid events format")
+            print("[SHIELD DEBUG] Return value: " .. type(blockEvents))
+            if type(blockEvents) == "table" then
+                print("[SHIELD DEBUG] Table length: " .. #blockEvents)
+            end
+        end
+    else
+        print("[SHIELD DEBUG] No onBlock handler found for this shield")
     end
     
     -- The checkFizzleOnTokenRemoval method handles the actual shield breaking (slot reset)
@@ -25201,9 +26715,9 @@ function Wizard.new(name, x, y, color)
             ["3"] = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.combustMana,
-            ["13"] = Spells.emberlift,
-            ["23"] = Spells.forcebarrier,
+            ["12"] = Spells.forcebarrier,
+            ["13"] = Spells.blastwave,
+            ["23"] = Spells.emberlift,
 
             -- Three key combo
             ["123"] = Spells.meteor
@@ -25212,13 +26726,13 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.witchconjuring,
-            ["3"] = Spells.wrapinmoonlight,
+            ["2"] = Spells.infiniteprocession,
+            ["3"] = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.tidalforce,
-            ["13"] = Spells.gravityTrap, -- Added our new Gravity Trap spell
-            ["23"] = Spells.lunardisjunction,
+            ["12"] = Spells.wrapinmoonlight,
+            ["13"] = Spells.eclipse,
+            ["23"] = Spells.gravityTrap,
             
             -- Three key combo
             ["123"] = Spells.fullmoonbeam
@@ -26233,6 +27747,20 @@ end
 -- Handle the effects of a spell being blocked by a shield in a specific slot
 -- This is now a wrapper method that delegates to ShieldSystem
 function Wizard:handleShieldBlock(slotIndex, incomingSpell)
+    print("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
+    
+    -- Debug the shield slot to check for onBlock
+    if self.spellSlots and self.spellSlots[slotIndex] then
+        local slot = self.spellSlots[slotIndex]
+        if slot.onBlock then
+            print("[WIZARD DEBUG] onBlock handler found in shield slot")
+        else
+            print("[WIZARD DEBUG] No onBlock handler found in shield slot")
+        end
+    else
+        print("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
+    end
+    
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
 end
 
@@ -26853,6 +28381,108 @@ The `manapool.lua` module manages the central shared pool of mana tokens that wi
 *   `core.AssetCache`
 *   `core.Pool`
 *   Global `game` state (optional, via `self.gameState` reference, primarily for VFX access) 
+
+## docs/shield_hooks.md
+# Shield On-Block Hooks
+
+This document describes the on-block hook system for shield spells, which allows custom effects to be triggered when a shield successfully blocks an incoming spell.
+
+## Overview
+
+Shields can now define an `onBlock` callback function that is invoked whenever the shield successfully blocks an attack. This callback can emit events that are processed by the EventRunner, allowing for a wide variety of dynamic effects.
+
+## onBlock Callback Signature
+
+The `onBlock` callback has the following signature:
+
+```lua
+function onBlock(defender, attacker, slotIndex, blockInfo)
+    -- Return an array of events to process
+    return events
+end
+```
+
+### Parameters
+
+- `defender`: The wizard who owns the shield (shield caster)
+- `attacker`: The wizard who cast the spell being blocked (may be nil)
+- `slotIndex`: The spell slot index where the shield is active
+- `blockInfo`: A table with contextual information about the block:
+  - `blockType`: The type of shield (barrier, ward, field)
+
+### Return Value
+
+The callback should return an array of events to be processed by the EventRunner. Each event should follow the standard event structure defined in the EventRunner system.
+
+## Examples
+
+### Simple Elevation on Block
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    return {{
+        type = "SET_ELEVATION",
+        source = "caster",
+        target = "self",
+        elevation = "AERIAL",
+        duration = 4.0
+    }}
+end
+```
+
+### Counter Damage
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    if not attacker then return {} end
+    
+    return {{
+        type = "DAMAGE",
+        source = "caster",
+        target = "enemy",
+        amount = 10,
+        damageType = "fire"
+    }}
+end
+```
+
+### Multiple Effects
+
+```lua
+onBlock = function(defender, attacker, slotIndex, blockInfo)
+    local events = {}
+    
+    -- Deal counter damage
+    table.insert(events, {
+        type = "DAMAGE",
+        source = "caster",
+        target = "enemy",
+        amount = 8,
+        damageType = "fire"
+    })
+    
+    -- Accelerate next spell
+    table.insert(events, {
+        type = "ACCELERATE_SPELL",
+        source = "caster",
+        target = "self_slot",
+        slotIndex = 0,
+        amount = 2.0
+    })
+    
+    return events
+end
+```
+
+## Creating Custom Shield Spells
+
+To create a shield spell with an on-block hook:
+
+1. Define a normal spell with the `block` keyword
+2. Add an `onBlock` function to the block keyword parameters
+3. Return an array of events from the `onBlock` function
+
+The events will be processed through the EventRunner system, maintaining compatibility with all existing game systems.
 
 ## docs/spellcasting.md
 # Manastorm Spell System

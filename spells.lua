@@ -217,9 +217,9 @@ Spells.firebolt = {
                 return 10
             end,
             type = Constants.DamageType.FIRE
-        }
+        },
+        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
     },
-    vfx = "fire_bolt",
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
@@ -269,9 +269,9 @@ Spells.meteor = {
         },
         ground = {
             target = Constants.TargetType.SELF 
-        }
+        },
+        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
     },
-    vfx = "meteor_dive",
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }

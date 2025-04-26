@@ -127,21 +127,36 @@ function TokenMethods:requestDestructionAnimation()
     -- Change state to DISSOLVING
     self:setState(Constants.TokenStatus.DISSOLVING)
     
-    -- Create visual particle effects at the token's position if not already exploding
-    if not self.exploding and self.gameState and self.gameState.vfx then
+    -- Create visual particle effects at the token's position using events
+    if not self.exploding and self.gameState then
         self.exploding = true
         
-        -- TODO: Deprecate in favor of new tokens + "Visual Language" Consts/Type
         -- Get token color based on its type
         local colorTable = Constants.getColorForTokenType(self.type)
         
-        -- Create destruction visual effect
-        self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
-            duration = 0.7,
-            color = colorTable, -- Use the constant color table
-            particleCount = 15,
-            radius = 30
-        })
+        -- Create an EFFECT event instead of calling VFX directly
+        if self.gameState.eventRunner then
+            local event = {
+                type = "EFFECT",
+                source = "token",
+                target = "SELF", -- Not targeting a wizard
+                effectType = Constants.VFXType.IMPACT,
+                duration = 0.7,
+                vfxParams = {
+                    x = self.x,  -- Pass coordinates directly in vfxParams
+                    y = self.y,
+                    color = colorTable,
+                    particleCount = 15,
+                    radius = 30,
+                    tokenType = self.type
+                }
+            }
+            
+            -- Process the event immediately
+            self.gameState.eventRunner.processEvents({event}, self, nil)
+        else
+            print("[TOKEN LIFECYCLE] Warning: No eventRunner in gameState for token VFX")
+        end
     end
     
     return true

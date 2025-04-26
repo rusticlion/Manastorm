@@ -11,41 +11,77 @@ local Constants = require("core.Constants")
 -- Table to store active effects
 VFX.activeEffects = {}
 
+-- Helper function to lazily load assets on demand
+local function getAsset(assetId)
+    -- Check if asset path exists
+    local path = VFX.assetPaths[assetId]
+    if not path then 
+        print("[VFX] Warning: No path defined for asset: " .. tostring(assetId))
+        return nil 
+    end
+    
+    -- Initialize assets table if it doesn't exist
+    VFX.assets = VFX.assets or {}
+    
+    -- Check if already loaded (simple cache within VFX module)
+    if VFX.assets[assetId] then 
+        return VFX.assets[assetId] 
+    end
+    
+    -- Special handling for runes array
+    if assetId == "runes" then
+        if not VFX.assets.runes then
+            VFX.assets.runes = {}
+            local AssetCache = require("core.AssetCache")
+            for i, runePath in ipairs(path) do
+                print("[VFX] Lazily loading asset: rune" .. i)
+                local runeImg = AssetCache.getImage(runePath)
+                if runeImg then
+                    table.insert(VFX.assets.runes, runeImg)
+                else
+                    print("[VFX] Warning: Failed to load rune asset: " .. runePath)
+                end
+            end
+        end
+        return VFX.assets.runes
+    end
+    
+    -- Load on demand using AssetCache
+    print("[VFX] Lazily loading asset: " .. assetId)
+    local AssetCache = require("core.AssetCache")
+    VFX.assets[assetId] = AssetCache.getImage(path)
+    return VFX.assets[assetId]
+end
+
 -- Initialize the VFX system
 function VFX.init()
-    -- Import AssetCache
-    local AssetCache = require("core.AssetCache")
-    
-    -- Load any necessary assets for effects
-    VFX.assets = {
+    -- Define asset paths (but don't load them yet - lazy loading)
+    VFX.assetPaths = {
         -- Fire effects
-        fireParticle = AssetCache.getImage("assets/sprites/fire-particle.png"),
-        fireGlow = AssetCache.getImage("assets/sprites/fire-glow.png"),
+        fireParticle = "assets/sprites/fire-particle.png",
+        fireGlow = "assets/sprites/fire-glow.png",
         
         -- Force effects
-        forceWave = AssetCache.getImage("assets/sprites/force-wave.png"),
+        forceWave = "assets/sprites/force-wave.png",
         
         -- Moon effects
-        moonGlow = AssetCache.getImage("assets/sprites/moon-glow.png"),
+        moonGlow = "assets/sprites/moon-glow.png",
         
         -- Generic effects
-        sparkle = AssetCache.getImage("assets/sprites/sparkle.png"),
-        impactRing = AssetCache.getImage("assets/sprites/impact-ring.png"),
+        sparkle = "assets/sprites/sparkle.png",
+        impactRing = "assets/sprites/impact-ring.png",
 
-        -- Rune assets for Ward shields
+        -- Rune assets for Ward shields (paths only)
         runes = {}
     }
-
-    -- Load rune images
+    
+    -- Define rune paths
     for i = 1, 9 do
-        local runePath = string.format("assets/sprites/runes/rune%d.png", i)
-        local runeImg = AssetCache.getImage(runePath)
-        if runeImg then
-            table.insert(VFX.assets.runes, runeImg)
-        else
-            print("Warning: Failed to load rune asset: " .. runePath)
-        end
+        table.insert(VFX.assetPaths.runes, string.format("assets/sprites/runes/rune%d.png", i))
     end
+    
+    -- Initialize empty assets table (will be filled on demand)
+    VFX.assets = {}
     
     -- Initialize particle pools
     Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
@@ -341,16 +377,150 @@ function VFX.init()
             sound = "shield"
         },
         
-        -- Gravity Trap Set effect - visual for when gravity trap is deployed
-        gravity_trap_set = {
+        -- Gravity Trap Set effect is already defined above,
+
+        -- Additional effects for VFXType constants
+        
+        -- Movement and positioning effects
+        elevation_up = {
+            type = "vertical",
+            duration = 1.0,
+            particleCount = 20,
+            startScale = 0.3,
+            endScale = 0.1,
+            color = Constants.Color.SKY,
+            height = 80,
+            sound = "whoosh"
+        },
+        
+        elevation_down = {
             type = "impact",
-            duration = 1.2,
-            particleCount = 30,
-            startScale = 0.4,
+            duration = 0.8,
+            particleCount = 20,
+            startScale = 0.6,
             endScale = 1.0,
-            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
-            radius = 75,
-            sound = "gravity_trap_deploy"
+            color = Constants.Color.SMOKE,
+            radius = 60,
+            sound = "thud"
+        },
+        
+        range_change = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = Constants.Color.YELLOW,
+            radius = 40,
+            sound = nil
+        },
+        
+        force_position = {
+            type = "impact",
+            duration = 0.8,
+            particleCount = 25,
+            startScale = 0.5,
+            endScale = 1.2,
+            color = Constants.Color.OCEAN,
+            radius = 50,
+            sound = "force_wind"
+        },
+        
+        -- Resource effects
+        token_lock = {
+            type = "aura",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.2,
+            endScale = 0.5,
+            color = Constants.Color.MAROON,
+            radius = 20,
+            pulseRate = 4,
+            sound = "lock"
+        },
+        
+        token_shift = {
+            type = "aura",
+            duration = 0.6,
+            particleCount = 12,
+            startScale = 0.2,
+            endScale = 0.4,
+            color = Constants.Color.PINK,
+            radius = 20,
+            pulseRate = 5,
+            sound = "shift"
+        },
+        
+        token_consume = {
+            type = "impact",
+            duration = 0.7,
+            particleCount = 18,
+            startScale = 0.4,
+            endScale = 0.1,
+            color = Constants.Color.CRIMSON,
+            radius = 25,
+            sound = "consume"
+        },
+        
+        -- Defense effects
+        reflect = {
+            type = "aura",
+            duration = 1.2,
+            particleCount = 20,
+            startScale = 0.4,
+            endScale = 0.8,
+            color = Constants.Color.YELLOW,
+            radius = 50,
+            pulseRate = 4,
+            sound = "reflect"
+        },
+        
+        -- Spell timing effects
+        spell_accelerate = {
+            type = "aura",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.2,
+            endScale = 0.5,
+            color = Constants.Color.LIME,
+            radius = 30,
+            pulseRate = 5,
+            sound = "accelerate"
+        },
+        
+        spell_cancel = {
+            type = "impact",
+            duration = 0.7,
+            particleCount = 20,
+            startScale = 0.5,
+            endScale = 0.2,
+            color = Constants.Color.CRIMSON,
+            radius = 40,
+            sound = "cancel"
+        },
+        
+        spell_freeze = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 18,
+            startScale = 0.3,
+            endScale = 0.6,
+            color = Constants.Color.OCEAN,
+            radius = 35,
+            pulseRate = 3,
+            sound = "freeze"
+        },
+        
+        spell_echo = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 15,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.BONE,
+            radius = 40,
+            pulseRate = 4,
+            sound = "echo"
         }
     }
     
@@ -434,11 +604,33 @@ end
 
 -- Create a new effect instance
 function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
-    -- Get effect template
-    local template = VFX.effects[effectName:lower()]
+    local Constants = require("core.Constants")
+    
+    -- Handle both string and Constants.VFXType format
+    local effectNameStr
+    
+    -- Validate and normalize effectName 
+    if type(effectName) ~= "string" then
+        print("Error in VFX.createEffect: Effect name must be a string or Constants.VFXType value, got: " .. tostring(effectName))
+        -- Fall back to a default effect
+        effectNameStr = Constants.VFXType.IMPACT
+    else
+        effectNameStr = effectName
+    end
+    
+    -- Debug output
+    print("[VFX] Creating effect: " .. effectNameStr)
+    
+    -- Get effect template - use :lower() safely now that we've verified it's a string
+    local template = VFX.effects[effectNameStr:lower()]
     if not template then
-        print("Warning: Effect not found: " .. effectName)
-        return nil
+        print("Warning: Effect not found: " .. effectNameStr)
+        -- Fall back to impact effect if available
+        template = VFX.effects[Constants.VFXType.IMPACT]
+        if not template then
+            return nil -- Give up if no fallback is available
+        end
+        print("[VFX] Falling back to '" .. Constants.VFXType.IMPACT .. "' effect")
     end
     
     -- Create a new effect instance from pool
@@ -1004,8 +1196,8 @@ end
 
 -- Draw function for projectile effects
 function VFX.drawProjectile(effect)
-    local particleImage = VFX.assets.fireParticle
-    local glowImage = VFX.assets.fireGlow
+    local particleImage = getAsset("fireParticle")
+    local glowImage = getAsset("fireGlow")
     
     -- Draw trail
     love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
@@ -1060,8 +1252,8 @@ end
 
 -- Draw function for impact effects
 function VFX.drawImpact(effect)
-    local particleImage = VFX.assets.fireParticle
-    local impactImage = VFX.assets.impactRing
+    local particleImage = getAsset("fireParticle")
+    local impactImage = getAsset("impactRing")
     
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
@@ -1099,7 +1291,7 @@ end
 
 -- Draw function for aura effects
 function VFX.drawAura(effect)
-    local particleImage = VFX.assets.sparkle
+    local particleImage = getAsset("sparkle")
     
     -- Draw base aura circle
     local pulseAmount = math.sin(effect.timer * effect.pulseRate) * 0.2
@@ -1126,7 +1318,7 @@ end
 
 -- Draw function for vertical effects
 function VFX.drawVertical(effect)
-    local particleImage = VFX.assets.fireParticle
+    local particleImage = getAsset("fireParticle")
     
     -- Draw base effect at source
     local baseProgress = math.min(effect.progress * 3, 1.0) -- Quick initial flash
@@ -1164,7 +1356,7 @@ end
 
 -- Draw function for beam effects
 function VFX.drawBeam(effect)
-    local particleImage = VFX.assets.sparkle
+    local particleImage = getAsset("sparkle")
     local beamLength = effect.beamLength * effect.beamProgress
     
     -- Draw base beam
@@ -1220,8 +1412,8 @@ end
 
 -- Draw function for conjure effects
 function VFX.drawConjure(effect)
-    local particleImage = VFX.assets.sparkle
-    local glowImage = VFX.assets.fireGlow  -- We'll use this for all conjure types
+    local particleImage = getAsset("sparkle")
+    local glowImage = getAsset("fireGlow")  -- We'll use this for all conjure types
     
     -- Draw source glow if active
     if effect.sourceGlow and effect.sourceGlow > 0 then
@@ -1353,6 +1545,8 @@ end
 
 -- Helper function to create the appropriate effect for a spell
 function VFX.createSpellEffect(spell, caster, target)
+    local Constants = require("core.Constants")
+    
     -- Get mana pool position for conjuration spells
     local manaPoolX = caster.manaPool and caster.manaPool.x or 400
     local manaPoolY = caster.manaPool and caster.manaPool.y or 120
@@ -1366,62 +1560,62 @@ function VFX.createSpellEffect(spell, caster, target)
     
     -- Handle conjuration spells first
     if spellName == "conjurefire" then
-        return VFX.createEffect("conjurefire", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.CONJUREFIRE, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "conjuremoonlight" then
-        return VFX.createEffect("conjuremoonlight", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.CONJUREMOONLIGHT, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "conjureforce" then
-        return VFX.createEffect("force_conjure", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.FORCE_CONJURE, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "conjurestars" then
-        return VFX.createEffect("star_conjure", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.STAR_CONJURE, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "volatileconjuring" then
-        return VFX.createEffect("volatileconjuring", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.VOLATILECONJURING, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "novaconjuring" then
-        return VFX.createEffect("nova_conjure", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.NOVA_CONJURE, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     elseif spellName == "witchconjuring" then
-        return VFX.createEffect("witch_conjure", sourceX, sourceY, nil, nil, {
+        return VFX.createEffect(Constants.VFXType.WITCH_CONJURE, sourceX, sourceY, nil, nil, {
             manaPoolX = manaPoolX,
             manaPoolY = manaPoolY
         })
     
     -- Special handling for other specific spells
     elseif spellName == "firebolt" then
-        return VFX.createEffect("firebolt", sourceX, sourceY - 20, targetX, targetY - 20)
+        return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY - 20, targetX, targetY - 20)
     elseif spellName == "meteor" then
-        return VFX.createEffect("meteor", targetX, targetY - 100, targetX, targetY)
+        return VFX.createEffect(Constants.VFXType.METEOR, targetX, targetY - 100, targetX, targetY)
     elseif spellName == "mistveil" then
-        return VFX.createEffect("mistveil", sourceX, sourceY, nil, nil)
+        return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
     elseif spellName == "emberlift" then
-        return VFX.createEffect("emberlift", sourceX, sourceY, nil, nil)
+        return VFX.createEffect(Constants.VFXType.EMBERLIFT, sourceX, sourceY, nil, nil)
     elseif spellName == "fullmoonbeam" then
-        return VFX.createEffect("fullmoonbeam", sourceX, sourceY - 20, targetX, targetY - 20)
+        return VFX.createEffect(Constants.VFXType.FULLMOONBEAM, sourceX, sourceY - 20, targetX, targetY - 20)
     elseif spellName == "tidalforce" then
-        return VFX.createEffect("tidal_force", sourceX, sourceY - 15, targetX, targetY - 15)
+        return VFX.createEffect(Constants.VFXType.TIDAL_FORCE, sourceX, sourceY - 15, targetX, targetY - 15)
     elseif spellName == "lunardisjunction" then
-        return VFX.createEffect("lunardisjunction", sourceX, sourceY - 15, targetX, targetY - 15)
+        return VFX.createEffect(Constants.VFXType.LUNARDISJUNCTION, sourceX, sourceY - 15, targetX, targetY - 15)
     elseif spellName == "forceblast" then
-        return VFX.createEffect("force_blast", sourceX, sourceY - 15, targetX, targetY - 15)
+        return VFX.createEffect(Constants.VFXType.FORCE_BLAST, sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
         if spell.spellType == "projectile" then
-            return VFX.createEffect("firebolt", sourceX, sourceY, targetX, targetY)
+            return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
         else
             -- Look at spell cost to determine effect type
             local hasFireMana = false
@@ -1433,13 +1627,13 @@ function VFX.createSpellEffect(spell, caster, target)
             end
             
             if hasFireMana then
-                return VFX.createEffect("firebolt", sourceX, sourceY, targetX, targetY)
+                return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
             elseif hasMoonMana then
-                return VFX.createEffect("mistveil", sourceX, sourceY, nil, nil)
+                return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
             else
                 -- Default generic effect if no specific match
                 print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
-                return VFX.createEffect("impact", targetX, targetY, nil, nil) -- Default to a simple impact at target
+                return VFX.createEffect(Constants.VFXType.IMPACT, targetX, targetY, nil, nil) -- Default to a simple impact at target
             end
         end
     end
@@ -1453,6 +1647,26 @@ function VFX.showPoolStats()
         Pool.size("vfx_particle"), Pool.available("vfx_particle"), Pool.activeCount("vfx_particle")))
     print(string.format("Effect Pool Size: %d (Available: %d, Active: %d)",
         Pool.size("vfx_effect"), Pool.available("vfx_effect"), Pool.activeCount("vfx_effect")))
+end
+
+-- Create an effect with async callback support
+-- Currently just a stub - in the future, this could use coroutines or callbacks for complex effects
+function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, options)
+    -- Create the effect normally
+    local effect = VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
+    
+    -- Return a "promise-like" table with callback support
+    return {
+        effect = effect,  -- Store a reference to the actual effect
+        
+        -- Method to register a callback for when the effect completes
+        onComplete = function(callback)
+            print("[VFX] Async VFX callback registered (stub)")
+            -- In a full implementation, this would store the callback and call it 
+            -- when the effect completes (tracked via effect.progress reaching 1.0)
+            return effect
+        end
+    }
 end
 
 return VFX

@@ -209,7 +209,8 @@ function Wizard:update(dt)
                 -- Create landing VFX if we just returned to GROUNDED
                 if self.elevation == Constants.ElevationState.GROUNDED then
                      if self.gameState and self.gameState.vfx then
-                        self.gameState.vfx.createEffect("impact", self.x, self.y + 30, nil, nil, {
+                        local Constants = require("core.Constants")
+                        self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y + 30, nil, nil, {
                             duration = 0.5,
                             color = {0.7, 0.7, 0.7, 0.8},
                             particleCount = 8,
@@ -253,7 +254,7 @@ function Wizard:update(dt)
                         
                         -- Create burn damage effect
                         if self.gameState and self.gameState.vfx then
-                            self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                            self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y, nil, nil, {
                                 duration = 0.3,
                                 color = {1.0, 0.2, 0.0, 0.6},
                                 particleCount = 10,
@@ -273,7 +274,7 @@ function Wizard:update(dt)
                                 
                                 -- Create defeat effect
                                 if self.gameState.vfx then
-                                    self.gameState.vfx.createEffect("impact", self.x, self.y, nil, nil, {
+                                    self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y, nil, nil, {
                                         duration = 1.0,
                                         color = {1.0, 0.0, 0.0, 0.8},
                                         particleCount = 30,
@@ -689,7 +690,7 @@ function Wizard:freeAllSpells()
     
     -- Create visual effect for all spells being canceled
     if self.gameState and self.gameState.vfx then
-        self.gameState.vfx.createEffect("free_mana", self.x, self.y, nil, nil)
+        self.gameState.vfx.createEffect(Constants.VFXType.FREE_MANA, self.x, self.y, nil, nil)
     end
     
     -- Reset active key inputs
@@ -908,11 +909,6 @@ function Wizard:castSpell(spellSlot)
         return effect
     end
     
-    -- Create spell VFX
-    if self.gameState and self.gameState.vfx then
-        self.gameState.vfx.createSpellEffect(spellToUse, self, target)
-    end
-    
     -- Now execute the spell
     
     -- For tracking if the spell is a shield spell
@@ -925,22 +921,15 @@ function Wizard:castSpell(spellSlot)
     local effect = nil
     local shouldSustain = false  -- Initialize outside if-block so it's available throughout the function
     
-    -- Check if this spell has the newer, compiled format with executeAll function
-    if spellToUse.executeAll and type(spellToUse.executeAll) == "function" then
-        -- Use new compiled spell execution
-        print("Using compiled spell execution for " .. spellToUse.id)
-        
-        -- Execute the spell
-        effect = spellToUse.executeAll(self, target, {}, spellSlot)
-        
-        -- Check if this is a sustained spell (from sustain keyword)
-        shouldSustain = effect.isSustained or false
-        print("DEBUG: effect.isSustained = " .. tostring(effect.isSustained) .. ", shouldSustain = " .. tostring(shouldSustain))
-    else
-        -- Use legacy spell execution
-        print("WARNING: Using legacy spell execution for " .. spellToUse.id)
-        print("Legacy spell execution is deprecated. Update your spell scripts to use the new compiled spell system.")
-    end
+    -- Execute the spell using compiled spell format
+    print("Executing spell: " .. spellToUse.id)
+    
+    -- Execute the spell
+    effect = spellToUse.executeAll(self, target, {}, spellSlot)
+    
+    -- Check if this is a sustained spell (from sustain keyword)
+    shouldSustain = effect.isSustained or false
+    print("DEBUG: effect.isSustained = " .. tostring(effect.isSustained) .. ", shouldSustain = " .. tostring(shouldSustain))
     
     -- If no valid effect was returned, create an empty one
     if not effect then

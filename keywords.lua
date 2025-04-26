@@ -448,7 +448,7 @@ Keywords.conjure = {
             print("WARN: Conjure keyword received unexpected token type: " .. type(tokenTypeParam))
         end
         
-        -- Event-based system, no direct modification or legacy results needed
+        -- Event-based system, no direct modification needed
         return results
     end
 }
@@ -880,6 +880,73 @@ Keywords.consume = {
             amount = params.amount or "all" -- "all" means consume all tokens used for the spell
         })
         return results
+    end
+}
+
+-- vfx: Generates a visual effect for the spell via the event system
+Keywords.vfx = {
+    behavior = {
+        triggersVisualEffect = true,
+        category = "SPECIAL"
+    },
+    execute = function(params, caster, target, results, events)
+        -- Default target to ENEMY if not specified, matching most spell effects
+        local eventTarget = params.target or Constants.TargetType.ENEMY 
+        
+        -- Get the effect type using Constants.VFXType, with fallback to IMPACT
+        local effectType
+        
+        if params.effect then
+            -- If the param is already a string (not a constant), use it directly
+            if type(params.effect) == "string" then
+                effectType = params.effect
+            else
+                -- Otherwise, use it as provided (assuming it's a constant)
+                effectType = params.effect
+            end
+        else
+            -- Default to impact if no effect specified
+            effectType = Constants.VFXType.IMPACT
+        end
+        
+        -- Validate effect type
+        if not Constants.isValidVFXType(effectType) then
+            print(string.format("[VFX KEYWORD] Warning: Unknown effect type '%s', falling back to 'impact'", 
+                tostring(effectType)))
+            effectType = Constants.VFXType.IMPACT
+        end
+        
+        -- Add debug output (abbreviated version for production)
+        print(string.format("[VFX KEYWORD] Creating effect: %s for %s -> %s", 
+            effectType,
+            caster and caster.name or "unknown", 
+            target and target.name or "unknown"))
+        
+        -- Create the EFFECT event with a string target type (not a Constants value)
+        local targetTypeString = "enemy" -- Default
+        
+        -- Convert Constants.TargetType values to strings
+        if eventTarget == Constants.TargetType.ENEMY then
+            targetTypeString = "enemy"
+        elseif eventTarget == Constants.TargetType.SELF then
+            targetTypeString = "self"
+        elseif eventTarget == Constants.TargetType.BOTH then
+            targetTypeString = "both"
+        elseif type(eventTarget) == "string" then
+            -- If it's already a string, use it directly
+            targetTypeString = eventTarget
+        end
+        
+        table.insert(events or {}, {
+            type       = "EFFECT", -- Use the existing EFFECT event type
+            source     = "caster", -- Use string "caster" not Constants value
+            target     = targetTypeString, -- Use string type for target
+            effectType = effectType, -- The specific VFX template name (e.g., "firebolt")
+            duration   = params.duration, -- Optional duration override
+            -- Pass through any other params for the VFX system
+            vfxParams  = params -- Store original params for flexibility
+        })
+        return results -- Return unmodified results (only adds an event)
     end
 }
 

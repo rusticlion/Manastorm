@@ -66,24 +66,41 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         print("DEBUG: Invalid coordinates for VFX, using (0,0)")
     end
     
-    -- Try to call the specific method if it exists
+    -- Debug the parameters
+    print(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)", 
+        methodName, tostring(fallbackType), x or 0, y or 0))
+        
+    -- Try to call the specific method
     if type(vfx[methodName]) == "function" then
+        -- Method needs to be called as vfx:methodName() for self to be passed properly
         local success, err = pcall(function() 
-            vfx[methodName](vfx, x, y, params) 
+            if methodName == "createEffect" then
+                -- Print the type of vfx and fallbackType for debugging
+                print("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
+                
+                -- IMPORTANT: Need to use dot notation and pass VFX module as first arg for module functions
+                -- DO NOT use colon notation (vfx:createEffect) as it passes vfx as self which makes effectName a table
+                print("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
+                vfx.createEffect(fallbackType, x, y, nil, nil, params)
+            else
+                -- For other methods
+                print("[safeCreateVFX] Calling vfx." .. methodName)
+                vfx[methodName](vfx, x, y, params) 
+            end
         end)
         
         if not success then
             print("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
             -- Try fallback on error
-            if type(vfx.createEffect) == "function" then
-                pcall(function() vfx.createEffect(vfx, fallbackType, x, y, nil, nil, params) end)
+            if methodName ~= "createEffect" and type(vfx.createEffect) == "function" then
+                pcall(function() vfx.createEffect(fallbackType, x, y, nil, nil, params) end)
             end
         end
         return true
     -- Fall back to generic createEffect if available
     elseif type(vfx.createEffect) == "function" then
         local success, err = pcall(function() 
-            vfx.createEffect(vfx, fallbackType, x, y, nil, nil, params) 
+            vfx.createEffect(fallbackType, x, y, nil, nil, params) 
         end)
         
         if not success then
@@ -379,11 +396,11 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local effectType = "elevation"
+            local effectType = Constants.VFXType.ELEVATION_DOWN -- Default to down (grounded)
             if event.elevation == "AERIAL" then
-                effectType = "elevation_up"
+                effectType = Constants.VFXType.ELEVATION_UP
             else
-                effectType = "elevation_down"
+                effectType = Constants.VFXType.ELEVATION_DOWN
             end
             
             local params = {
@@ -433,7 +450,7 @@ EventRunner.EVENT_HANDLERS = {
             safeCreateVFX(
                 caster.gameState.vfx,
                 "createRangeChangeEffect",
-                "range_change",
+                Constants.VFXType.RANGE_CHANGE,
                 caster.x,
                 caster.y,
                 params
@@ -461,7 +478,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createPositionForceEffect",
-                    "force_position",
+                    Constants.VFXType.FORCE_POSITION,
                     (caster.x + target.x) / 2,  -- Midpoint
                     (caster.y + target.y) / 2,  -- Midpoint
                     params
@@ -497,17 +514,12 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Logic to find and mark tokens for removal
         for i, token in ipairs(manaPool.tokens) do
-            local isFree = (token.status == Constants.TokenStatus.FREE) or (token.state == "FREE")
+            local isFree = (token.status == Constants.TokenStatus.FREE)
             local matchesType = (event.tokenType == "any" or token.type == event.tokenType)
             
             if isFree and matchesType then
-                -- Request destruction animation using state machine if available
-                if token.requestDestructionAnimation then
-                    token:requestDestructionAnimation()
-                else
-                    -- Fallback to legacy direct state setting
-                    token.state = "DESTROYED"
-                end
+                -- Request destruction animation using state machine
+                token:requestDestructionAnimation()
                 
                 tokensRemoved = tokensRemoved + 1
                 results.tokensAffected = results.tokensAffected + 1
@@ -535,7 +547,7 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Find FREE tokens and shift them to random types
             for i, token in ipairs(manaPool.tokens) do
-                if token.state == "FREE" then
+                if token.status == Constants.TokenStatus.FREE then
                     -- Pick a random token type
                     local randomType = tokenTypes[math.random(#tokenTypes)]
                     local oldType = token.type
@@ -557,7 +569,7 @@ EventRunner.EVENT_HANDLERS = {
         else
             -- Find FREE tokens and shift them to the specified type
             for i, token in ipairs(manaPool.tokens) do
-                if token.state == "FREE" and token.type ~= event.tokenType then
+                if token.status == Constants.TokenStatus.FREE and token.type ~= event.tokenType then
                     token.type = event.tokenType
                     token.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png")
                     tokensShifted = tokensShifted + 1
@@ -585,7 +597,7 @@ EventRunner.EVENT_HANDLERS = {
         -- Find all FREE tokens matching the type (or 'any')
         local freeTokens = {}
         for i, token in ipairs(manaPool.tokens) do
-            if token.state == "FREE" and (event.tokenType == "any" or token.type == event.tokenType) then
+            if token.status == Constants.TokenStatus.FREE and (event.tokenType == "any" or token.type == event.tokenType) then
                 table.insert(freeTokens, token)
             end
         end
@@ -605,7 +617,9 @@ EventRunner.EVENT_HANDLERS = {
             local tokenToLock = table.remove(freeTokens, randomIndex)
             
             -- Lock the selected token
-            tokenToLock.state = "LOCKED"
+            if tokenToLock.setState then
+                tokenToLock:setState(Constants.TokenStatus.LOCKED)
+            end
             tokenToLock.lockTimer = event.duration
             tokensLocked = tokensLocked + 1
             results.tokensAffected = results.tokensAffected + 1
@@ -620,7 +634,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createTokenLockEffect",
-                    "token_lock",
+                    Constants.VFXType.TOKEN_LOCK,
                     tokenToLock.x,
                     tokenToLock.y,
                     params
@@ -661,7 +675,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createSpellAccelerateEffect",
-                    "spell_accelerate",
+                    Constants.VFXType.SPELL_ACCELERATE,
                     wizard.x,
                     wizard.y,
                     params
@@ -706,24 +720,14 @@ EventRunner.EVENT_HANDLERS = {
                 -- Return tokens to the pool (dispel)
                 for _, tokenData in ipairs(slot.tokens) do
                     if tokenData.token then
-                        if tokenData.token.requestReturnAnimation then
-                            tokenData.token:requestReturnAnimation()
-                        else
-                            -- Fallback to legacy direct state setting
-                            tokenData.token.state = "FREE"
-                        end
+                        tokenData.token:requestReturnAnimation()
                     end
                 end
             else
                 -- Destroy tokens (disjoint)
                 for _, tokenData in ipairs(slot.tokens) do
                     if tokenData.token then
-                        if tokenData.token.requestDestructionAnimation then
-                            tokenData.token:requestDestructionAnimation()
-                        else
-                            -- Fallback to legacy direct state setting
-                            tokenData.token.state = "DESTROYED"
-                        end
+                        tokenData.token:requestDestructionAnimation()
                     end
                 end
             end
@@ -742,7 +746,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createSpellCancelEffect",
-                    "spell_cancel",
+                    Constants.VFXType.SPELL_CANCEL,
                     wizard.x,
                     wizard.y,
                     params
@@ -832,7 +836,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createSpellFreezeEffect",
-                    "spell_freeze",
+                    Constants.VFXType.SPELL_FREEZE,
                     wizardToFreeze.x,
                     wizardToFreeze.y,
                     params
@@ -897,11 +901,7 @@ EventRunner.EVENT_HANDLERS = {
             results.tokensAffected = (results.tokensAffected or 0) + 1
             
             -- Request token return animation
-            if removedTokenObject.requestReturnAnimation then
-                 removedTokenObject:requestReturnAnimation()
-            else
-                 removedTokenObject.state = "FREE" -- Fallback if no animation method
-            end
+            removedTokenObject:requestReturnAnimation()
 
             -- Trigger a VFX for the type shift
             if caster.gameState and caster.gameState.vfx then
@@ -913,7 +913,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createTokenShiftEffect", -- Need to add this VFX method
-                    "token_shift",
+                    Constants.VFXType.TOKEN_SHIFT,
                     removedTokenObject.x, 
                     removedTokenObject.y,
                     params
@@ -956,13 +956,8 @@ EventRunner.EVENT_HANDLERS = {
                 end
                 
                 if shouldConsume then
-                    -- Request destruction animation if available
-                    if tokenData.token.requestDestructionAnimation then
-                        tokenData.token:requestDestructionAnimation()
-                    else
-                        -- Fallback to legacy direct state setting
-                        tokenData.token.state = "DESTROYED"
-                    end
+                    -- Request destruction animation
+                    tokenData.token:requestDestructionAnimation()
                     
                     tokensConsumed = tokensConsumed + 1
                     results.tokensAffected = (results.tokensAffected or 0) + 1
@@ -980,7 +975,7 @@ EventRunner.EVENT_HANDLERS = {
             safeCreateVFX(
                 caster.gameState.vfx,
                 "createTokenConsumeEffect",
-                "token_consume",
+                Constants.VFXType.TOKEN_CONSUME,
                 wizard.x,
                 wizard.y,
                 params
@@ -1069,7 +1064,7 @@ EventRunner.EVENT_HANDLERS = {
             -- Mark tokens as shielding
             for _, tokenData in ipairs(slot.tokens) do
                 if tokenData.token then
-                    tokenData.token.state = "SHIELDING"
+                    tokenData.token:setState(Constants.TokenStatus.SHIELDING)
                     print("DEBUG: Marked token as SHIELDING to prevent return to pool")
                 end
             end
@@ -1105,7 +1100,7 @@ EventRunner.EVENT_HANDLERS = {
             safeCreateVFX(
                 caster.gameState.vfx,
                 "createReflectEffect",
-                "reflect",
+                Constants.VFXType.REFLECT,
                 targetWizard.x,
                 targetWizard.y,
                 params
@@ -1146,7 +1141,7 @@ EventRunner.EVENT_HANDLERS = {
                 safeCreateVFX(
                     caster.gameState.vfx,
                     "createEchoEffect",
-                    "spell_echo",
+                    Constants.VFXType.SPELL_ECHO,
                     wizard.x,
                     wizard.y,
                     params
@@ -1195,37 +1190,94 @@ EventRunner.EVENT_HANDLERS = {
     
     -- Add a new EFFECT event handler for pure visual effects
     EFFECT = function(event, caster, target, spellSlot, results)
-        local targetInfo = EventRunner.resolveTarget(event, caster, target)
-        if not targetInfo or not targetInfo.wizard then return false end
+        print("[EFFECT EVENT] Processing EFFECT event")
         
-        local targetWizard = targetInfo.wizard
+        -- Get x and y coordinates for the effect
+        local x, y = nil, nil
+        
+        -- CASE 1: If vfxParams contains direct coordinates, use those
+        if event.vfxParams and event.vfxParams.x and event.vfxParams.y then
+            x = event.vfxParams.x
+            y = event.vfxParams.y
+            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d)", x, y))
+        
+        -- CASE 2: Otherwise try to resolve wizard target coordinates
+        else
+            local targetInfo = EventRunner.resolveTarget(event, caster, target)
+            if targetInfo and targetInfo.wizard then 
+                local targetWizard = targetInfo.wizard
+                x = targetWizard.x
+                y = targetWizard.y
+                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d)", x or 0, y or 0))
+            else
+                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, falling back to caster")
+                -- Fall back to caster position if target resolution fails
+                x = caster and caster.x or 0
+                y = caster and caster.y or 0
+            end
+        end
         
         -- Create visual effect if VFX system is available
         if caster.gameState and caster.gameState.vfx then
+            -- Get the effect type with validation/fallback using Constants
+            local effectType = event.effectType or Constants.VFXType.IMPACT
+            
+            -- Validate that effectType exists in Constants.VFXType values
+            if not Constants.isValidVFXType(effectType) then
+                print(string.format("[EFFECT EVENT] Warning: Unknown effectType '%s' requested by event. Defaulting to impact.", 
+                    tostring(effectType)))
+                effectType = Constants.VFXType.IMPACT
+            end
+            
+            -- Build parameters for the effect
             local params = {
                 duration = event.duration or 0.5,
-                source = caster.name,
-                target = targetWizard.name,
-                effectType = event.effectType
+                effectType = effectType
             }
             
-            -- Add any additional parameters from the event
+            -- Add source/target names if available
+            if caster and caster.name then
+                params.source = caster.name
+            end
+            
+            -- Add target name if available
+            if target and target.name then
+                params.target = target.name
+            end
+            
+            -- Add any additional parameters from vfxParams
+            if event.vfxParams then
+                for k, v in pairs(event.vfxParams) do
+                    -- Don't copy x/y as they're passed directly to safeCreateVFX
+                    if k ~= "x" and k ~= "y" then
+                        params[k] = v
+                    end
+                end
+            end
+            
+            -- Add any additional parameters from the event itself
             for k, v in pairs(event) do
                 if k ~= "type" and k ~= "source" and k ~= "target" and 
-                   k ~= "duration" and k ~= "effectType" then
+                   k ~= "duration" and k ~= "effectType" and k ~= "vfxParams" then
                     params[k] = v
                 end
             end
             
-            -- Use our safe VFX creation helper
+            -- Extra debug info (after validation)
+            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d)", 
+                tostring(effectType), x or 0, y or 0))
+                
+            -- Use our safe VFX creation helper with resolved coordinates
             safeCreateVFX(
                 caster.gameState.vfx,
                 "createEffect",
-                event.effectType or "generic_effect",
-                targetWizard.x,
-                targetWizard.y,
+                effectType, -- Pass the validated effect type
+                x or 0,
+                y or 0,
                 params
             )
+        else
+            print("[EFFECT EVENT] ERROR: VFX system not available")
         end
         
         return true

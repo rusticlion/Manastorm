@@ -118,7 +118,7 @@ function WizardVisuals.drawStatusEffects(wizard)
             local particleX = x + math.random(-barWidth/2, barWidth/2)
             local particleY = y + math.random(-10, 10)
             
-            wizard.gameState.vfx.createEffect("impact", particleX, particleY, nil, nil, {
+            wizard.gameState.vfx.createEffect(Constants.VFXType.IMPACT, particleX, particleY, nil, nil, {
                 duration = 0.3,
                 color = {0.5, 0.5, 1.0, 0.7},
                 particleCount = 3,
@@ -157,7 +157,7 @@ function WizardVisuals.drawStatusEffects(wizard)
             local particleX = x + math.random(-barWidth/2, barWidth/2)
             local particleY = y + math.random(-5, 5)
             
-            wizard.gameState.vfx.createEffect("impact", particleX, particleY, nil, nil, {
+            wizard.gameState.vfx.createEffect(Constants.VFXType.IMPACT, particleX, particleY, nil, nil, {
                 duration = 0.2,
                 color = {1.0, 1.0, 0.0, 0.7},
                 particleCount = 2,
@@ -210,7 +210,7 @@ function WizardVisuals.drawStatusEffects(wizard)
             local particleX = wizard.x + math.random(-20, 20)
             local particleY = wizard.y + math.random(-30, 10)
             
-            wizard.gameState.vfx.createEffect("impact", particleX, particleY, nil, nil, {
+            wizard.gameState.vfx.createEffect(Constants.VFXType.IMPACT, particleX, particleY, nil, nil, {
                 duration = 0.3,
                 color = {1.0, 0.4, 0.1, 0.6},
                 particleCount = 3,
@@ -447,7 +447,7 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                 local angle = math.random() * math.pi * 2
                                 local sparkleX = slotX + math.cos(angle) * radiusX * 0.7
                                 local sparkleY = slotY + math.sin(angle) * radiusY * 0.7
-                                wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                wizard.gameState.vfx.createEffect(Constants.VFXType.IMPACT, sparkleX, sparkleY, nil, nil, {
                                     duration = 0.3, color = {0.6, 0.6, 1.0, 0.5}, particleCount = 3, radius = 5
                                 })
                             end
@@ -464,7 +464,7 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                 local angle = math.random() * math.pi * 2
                                 local sparkleX = slotX + math.cos(angle) * radiusX * 0.6
                                 local sparkleY = slotY + math.sin(angle) * radiusY * 0.6
-                                wizard.gameState.vfx.createEffect("impact", sparkleX, sparkleY, nil, nil, {
+                                wizard.gameState.vfx.createEffect(Constants.VFXType.IMPACT, sparkleX, sparkleY, nil, nil, {
                                     duration = 0.3, color = {0.7, 0.2, 0.9, 0.5}, particleCount = 2, radius = 4
                                 })
                             end

@@ -108,10 +108,26 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         end
     end
     
-    -- Flag to determine which execution path to use (legacy or event-based)
-    local useEventSystem = true
+    -- Handle top-level vfx field (convert to vfx keyword if not already present)
+    if spellDef.vfx and not (spellDef.keywords and spellDef.keywords.vfx) and keywordData.vfx then
+        print("DEBUG: Converting top-level vfx to keyword for spell " .. spellDef.id)
+        
+        -- Create behavior entry for vfx keyword
+        compiledSpell.behavior.vfx = {}
+        
+        -- Copy the default behavior parameters from the keyword
+        mergeTables(compiledSpell.behavior.vfx, keywordData.vfx.behavior)
+        
+        -- Create params based on vfx value
+        compiledSpell.behavior.vfx.params = {
+            effect = spellDef.vfx -- Use the vfx string as the effect name
+        }
+        
+        -- Bind the execute function from the vfx keyword
+        compiledSpell.behavior.vfx.execute = keywordData.vfx.execute
+    end
     
-    -- Method to get the event runner module (lazy loading)
+        -- Method to get the event runner module (lazy loading)
     local function getEventRunner()
         if not EventRunner then
             EventRunner = require("systems.EventRunner")
@@ -178,7 +194,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 end
                 
                 -- Special handling for shield behaviors
-                if keyword == "block" and useEventSystem then
+                if keyword == "block" then
                     -- Debug the block keyword behavior
                     print("[COMPILER DEBUG] Processing block keyword in executeAll")
                     
@@ -283,51 +299,43 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             end
         end
         
-        if useEventSystem then
-            -- Wrap event processing in pcall to avoid crashing the game
-            local success, result = pcall(function()
-                -- We now use ONLY explicit events created during execution
-                -- No conversion from legacy result formats
-                
-                -- Debug output for events
-                if _G.DEBUG_EVENTS then
-                    getEventRunner().debugPrintEvents(events)
-                end
-                
-                -- Process the events to apply them to the game state
-                local eventResults = {}
-                if events and #events > 0 then
-                    print(string.format("DEBUG_EVENTS: Processing %d events for spell %s", 
-                        #events, compiledSpell.id or "unknown"))
-                    
-                    -- Print type of first event as sanity check
-                    if events[1] and events[1].type then
-                        print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
-                    end
-                    
-                    eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
-                else
-                    print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
-                end
-                
-                -- Add event processing results to the main results
-                results.events = events
-                results.eventsProcessed = eventResults.eventsProcessed
-                
-                return results
-            end)
-            
-            if success then
-                -- Return the combined results if everything went well
-                return result
-            else
-                -- Log the error but still return the original results for fallback
-                print("ERROR in event processing: " .. tostring(result))
-                print("Falling back to direct results without event processing")
-                return results
+        -- Wrap event processing in pcall to avoid crashing the game
+        local success, result = pcall(function()
+            -- Debug output for events
+            if _G.DEBUG_EVENTS then
+                getEventRunner().debugPrintEvents(events)
             end
+            
+            -- Process the events to apply them to the game state
+            local eventResults = {}
+            if events and #events > 0 then
+                print(string.format("DEBUG_EVENTS: Processing %d events for spell %s", 
+                    #events, compiledSpell.id or "unknown"))
+                
+                -- Print type of first event as sanity check
+                if events[1] and events[1].type then
+                    print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
+                end
+                
+                eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+            else
+                print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
+            end
+            
+            -- Add event processing results to the main results
+            results.events = events
+            results.eventsProcessed = eventResults.eventsProcessed
+            
+            return results
+        end)
+        
+        if success then
+            -- Return the combined results if everything went well
+            return result
         else
-            -- Return the results directly if not using the event system
+            -- Log the error but still return the original results for fallback
+            print("ERROR in event processing: " .. tostring(result))
+            print("Falling back to direct results without event processing")
             return results
         end
     end
@@ -438,21 +446,13 @@ function SpellCompiler.debugCompiled(compiledSpell)
     print("=====================================================")
 end
 
--- Function to toggle between legacy and event-based execution
-function SpellCompiler.setUseEventSystem(useEvents)
-    _G.USE_EVENT_SYSTEM = useEvents
-    useEventSystem = useEvents
-    print("Spell compiler execution mode set to " .. (useEvents and "EVENT-BASED" or "LEGACY"))
-end
-
 -- Function to enable/disable debug event output
 function SpellCompiler.setDebugEvents(debugEvents)
     _G.DEBUG_EVENTS = debugEvents
     print("Event debugging " .. (debugEvents and "ENABLED" or "DISABLED"))
 end
 
--- Initialize settings
-SpellCompiler.setUseEventSystem(true)
-SpellCompiler.setDebugEvents(false)
+-- Initialize event debugging to disabled by default
+_G.DEBUG_EVENTS = false
 
 return SpellCompiler

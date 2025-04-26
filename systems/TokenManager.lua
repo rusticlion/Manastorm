@@ -491,15 +491,9 @@ function TokenManager.validateTokenState(token, expectedState)
         return false, "Expected state is nil"
     end
     
-    -- Check state using the new status field if available
-    if token.status then
-        return token.status == expectedState, 
-               "Token state is " .. token.status .. ", expected " .. expectedState
-    else
-        -- Fallback to checking the legacy state field
-        return token.state == expectedState,
-               "Token state is " .. (token.state or "nil") .. ", expected " .. expectedState
-    end
+    -- Check state using the status field
+    return token.status == expectedState, 
+           "Token state is " .. (token.status or "unknown") .. ", expected " .. expectedState
 end
 
 return TokenManager
