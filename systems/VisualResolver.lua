@@ -137,8 +137,9 @@ function VisualResolver.pick(event)
             scale = 1.2,  -- Slightly larger scale for impact emphasis
             motion = Constants.MotionStyle.PULSE,
             addons = {},
-            posX = event.posX,
-            posY = event.posY
+            rangeBand = event.rangeBand,
+            elevation = event.elevation,
+            -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
         }
     end
     

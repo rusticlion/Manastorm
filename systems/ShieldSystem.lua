@@ -303,8 +303,12 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             affinity = defenseType, -- Use defense type as affinity for color mapping
             tags = { SHIELD_HIT = true },
             shieldType = defenseType,
-            posX = wizard.x,
-            posY = wizard.y,
+            vfxParams = {
+                x = wizard.x,
+                y = wizard.y,
+            },
+            rangeBand = wizard.rangeBand,
+            elevation = wizard.elevation,
         }
         
         -- Process the event immediately
@@ -378,8 +382,12 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
         affinity = blockInfo.blockType, -- Use defense type for color mapping
         tags = { SHIELD_HIT = true },
         shieldType = blockInfo.blockType,
-        posX = target.x,
-        posY = target.y,
+        vfxParams = {
+            x = target.x,
+            y = target.y,
+        },
+        rangeBand = target.rangeBand,
+        elevation = target.elevation,
     })
     
     -- Add impact feedback at caster position
@@ -391,8 +399,12 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
         affinity = "fire",  -- Red feedback for blocked spell
         tags = { SHIELD_HIT = true },
         scale = 0.7,        -- Smaller feedback effect
-        posX = caster.x,
-        posY = caster.y,
+        vfxParams = {
+            x = caster.x,
+            y = caster.y,
+        },
+        rangeBand = caster.rangeBand,
+        elevation = caster.elevation,
     })
     
     -- Process all events at once
