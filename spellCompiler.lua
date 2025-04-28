@@ -173,13 +173,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- for handling its params, including function evaluation.
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute({}, caster, target, results, events) -- Pass empty params
+                    behaviorResults = behavior.execute({}, caster, target, results, events, compiledSpell) -- Pass empty params and the spell
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events, compiledSpell)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, results, events)
+                    behaviorResults = behavior.execute(params, caster, target, results, events, compiledSpell)
                 end
                 
                 -- Debug output for events immediately after execute
@@ -191,6 +191,16 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- Merge the behavior results into the main results for backward compatibility
                 for k, v in pairs(behaviorResults) do
                     results[k] = v
+                end
+                
+                -- Special handling for vfx keyword's effectOverride
+                -- This is part of the VFX-R5 refactoring to deprecate manual VFX specification
+                if keyword == "vfx" and results.effectOverride then
+                    -- Remember the override for when a damage event generates an EFFECT event
+                    compiledSpell.effectOverride = results.effectOverride
+                    compiledSpell.effectTarget = results.effectTarget
+                    compiledSpell.effectDuration = results.effectDuration
+                    compiledSpell.vfxParams = results.vfxParams
                 end
                 
                 -- Special handling for shield behaviors
@@ -356,11 +366,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 if behavior.enabled then
                     -- Call the keyword execute function with an empty results table
                     -- The events parameter allows keywords to add events directly via table.insert
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 elseif behavior.value ~= nil then
-                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 else
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 end
                 
                 -- Special handling for shield behaviors (block keyword)

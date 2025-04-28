@@ -371,11 +371,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     if slot.isShield then
                         -- New shield rendering logic based on type
                         local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
-                        local shieldType = slot.spell and slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type
+                        -- Use slot.defenseType directly instead of looking at the spell keywords, which are not always available
+                        local shieldType = slot.defenseType
                         local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
                         local alpha = 0.7 + pulseAmount * 0.3 -- Pulsing alpha
 
-                        if shieldType == Constants.ShieldType.BARRIER then
+                        -- Fix the comparison to check string values directly
+                        -- This works regardless of whether Constants were used or string literals
+                        if shieldType == "barrier" then
                             -- Draw the base ellipse for the barrier
                             shouldDrawOrbit = true 
                             orbitColor = {
@@ -386,13 +389,31 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             }
                             -- The vertical lines will be drawn AFTER the main orbit below
                         
-                        elseif shieldType == Constants.ShieldType.WARD then
+                        elseif shieldType == "ward" then
                             shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
                             local numRunes = 5
                             local runeYOffset = 0 -- Position runes above the orbit
                             local runeScale = 1.0
 
-                            if VFX.assets.runes and #VFX.assets.runes > 0 then
+                            -- Get runes with more robust handling
+                            local runeAssets
+                            -- First try using the public getAsset function 
+                            if VFX.getAsset then
+                                runeAssets = VFX.getAsset("runes")
+                            end
+                            
+                            -- Fall back to direct access if needed
+                            if not runeAssets and VFX.assets then
+                                runeAssets = VFX.assets.runes
+                            end
+                            
+                            -- Last resort: create a dummy fallback for this frame
+                            if not runeAssets or #runeAssets == 0 then
+                                print("[WIZARD VISUALS] Warning: Unable to get rune assets, using fallback")
+                                shouldDrawOrbit = true
+                            end
+                            
+                            if runeAssets and #runeAssets > 0 then
                                 local runeColor = {
                                     shieldColor[1] * (1 + pulseAmount * 0.7), -- Stronger color pulse for runes
                                     shieldColor[2] * (1 + pulseAmount * 0.7),
@@ -406,10 +427,10 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                     -- Use slot index and rune index for seeding randomness consistently within a frame
                                     local seed = i * 10 + r + math.floor(love.timer.getTime())
                                     math.randomseed(seed)
-                                    local runeIndex = math.random(1, #VFX.assets.runes)
+                                    local runeIndex = math.random(1, #runeAssets)
                                     math.randomseed(os.time() + os.clock()*1000000) -- Reseed properly
 
-                                    local runeImg = VFX.assets.runes[runeIndex]
+                                    local runeImg = runeAssets[runeIndex]
                                     local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7 -- Slow rotation
                                     local runeX = slotX + math.cos(angle) * radiusX
                                     local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
@@ -496,8 +517,8 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
             -- NEW: Draw Barrier vertical cylinder lines if applicable
             if slot.active and slot.isShield then
-                 local shieldTypeCheck = slot.spell and slot.spell.keywords and slot.spell.keywords.block and slot.spell.keywords.block.type
-                 if shieldTypeCheck == Constants.ShieldType.BARRIER then
+                 -- Use the slot's defenseType value directly rather than trying to check the spell
+                 if slot.defenseType == "barrier" then
                     -- Recalculate color/alpha or retrieve if stored (recalculating is safer here)
                     local shieldColor = ShieldSystem.getShieldColor(slot.defenseType) 
                     local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3

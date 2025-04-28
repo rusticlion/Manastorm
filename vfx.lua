@@ -12,7 +12,7 @@ local Constants = require("core.Constants")
 VFX.activeEffects = {}
 
 -- Helper function to lazily load assets on demand
-local function getAsset(assetId)
+local function getAssetInternal(assetId)
     -- Check if asset path exists
     local path = VFX.assetPaths[assetId]
     if not path then 
@@ -30,11 +30,19 @@ local function getAsset(assetId)
     
     -- Special handling for runes array
     if assetId == "runes" then
-        if not VFX.assets.runes then
-            VFX.assets.runes = {}
+        -- Check if runes are already loaded
+        if VFX.assets.runes and #VFX.assets.runes > 0 then
+            return VFX.assets.runes
+        end
+        
+        -- Initialize runes array if needed
+        VFX.assets.runes = VFX.assets.runes or {}
+        
+        -- If array exists but is empty, load runes
+        if #VFX.assets.runes == 0 then
             local AssetCache = require("core.AssetCache")
             for i, runePath in ipairs(path) do
-                print("[VFX] Lazily loading asset: rune" .. i)
+                print("[VFX] Loading rune asset on demand: rune" .. i)
                 local runeImg = AssetCache.getImage(runePath)
                 if runeImg then
                     table.insert(VFX.assets.runes, runeImg)
@@ -43,6 +51,14 @@ local function getAsset(assetId)
                 end
             end
         end
+        
+        -- Log if runes were loaded successfully
+        if #VFX.assets.runes > 0 then
+            print("[VFX] Successfully loaded " .. #VFX.assets.runes .. " rune assets")
+        else 
+            print("[VFX] Warning: No rune assets were loaded!")
+        end
+        
         return VFX.assets.runes
     end
     
@@ -83,11 +99,108 @@ function VFX.init()
     -- Initialize empty assets table (will be filled on demand)
     VFX.assets = {}
     
+    -- Public function to get assets - expose the internal getAsset function
+    VFX.getAsset = getAssetInternal
+    
     -- Initialize particle pools
     Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
     
+    -- Preload critical assets immediately
+    -- This ensures essential effects like ward shields work even on first use
+    print("[VFX] Eagerly preloading critical assets...")
+    
+    -- Preload rune assets for ward shields
+    VFX.assets.runes = {}
+    local AssetCache = require("core.AssetCache")
+    for i, runePath in ipairs(VFX.assetPaths.runes) do
+        print("[VFX] Preloading essential asset: rune" .. i)
+        local runeImg = AssetCache.getImage(runePath)
+        if runeImg then
+            table.insert(VFX.assets.runes, runeImg)
+        else
+            print("[VFX] Warning: Failed to preload rune asset: " .. runePath)
+        end
+    end
+    
+    -- Preload sparkle asset (used in many effects)
+    print("[VFX] Preloading essential asset: sparkle")
+    VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
+    
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- Base templates for the rules-driven VFX system
+        proj_base = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 20,
+            startScale = 0.5,
+            endScale = 0.8,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            trailLength = 12,
+            impactSize = 1.2,
+            sound = nil  -- No default sound
+        },
+        
+        beam_base = {
+            type = "beam",
+            duration = 1.2,
+            particleCount = 25,
+            beamWidth = 30,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        zone_base = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 80,
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        util_base = {
+            type = "aura",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,
+            pulseRate = 4,
+            sound = nil
+        },
+        
+        impact_base = {
+            type = "impact",
+            duration = 0.5,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 0.3,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 40,
+            sound = nil
+        },
+        
+        shield_hit_base = {
+            type = "impact",
+            duration = 0.8,  -- Slightly longer impact duration
+            particleCount = 30, -- More particles
+            startScale = 0.5,
+            endScale = 1.3,  -- Larger end scale
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 70,     -- Increased radius
+            sound = "shield", -- Use shield sound
+            criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
+        },
+        
+        -- Existing effects
         -- General impact effect (used for many spell interactions)
         impact = {
             type = "impact",
@@ -195,7 +308,8 @@ function VFX.init()
             color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
             radius = 80,
             pulseRate = 2,
-            sound = "mist"
+            sound = "mist",
+            criticalAssets = {"sparkle", "runes"} -- Define assets critical for this effect
         },
         
         -- Emberlift effect
@@ -374,7 +488,9 @@ function VFX.init()
             color = Constants.Color.SKY,  -- Default blue-ish -> SKY
             radius = 60,
             pulseRate = 3,
-            sound = "shield"
+            sound = "shield",
+            criticalAssets = {"sparkle", "runes", "impactRing"}, -- Assets needed for shields
+            shieldType = nil -- Will be set at runtime based on the spell
         },
         
         -- Gravity Trap Set effect is already defined above,
@@ -555,6 +671,136 @@ function VFX.resetParticle(particle)
     return particle
 end
 
+-- Update particle based on motion style
+function VFX.updateParticle(particle, effect, dt, particleProgress)
+    local Constants = require("core.Constants")
+    
+    -- If no motion style specified, use default behavior
+    local motionStyle = particle.motion or Constants.MotionStyle.RADIAL
+    
+    -- Time since particle became active
+    particle.startTime = (particle.startTime or 0) + dt
+    local time = particle.startTime
+    
+    -- Get base position
+    local baseX = particle.baseX or effect.sourceX
+    local baseY = particle.baseY or effect.sourceY
+    
+    -- Apply motion based on style
+    if motionStyle == Constants.MotionStyle.RADIAL then
+        -- Standard radial outward motion (default)
+        -- This behavior is already handled in most effect update functions
+        -- Just update existing motion with time factor
+        
+    elseif motionStyle == Constants.MotionStyle.SWIRL then
+        -- Tangential swirl using sine/cosine
+        -- Start with the existing direction, then add rotational motion
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        local swirlFactor = 2.0 -- Controls the swirl tightness
+        local rotationSpeed = 4.0 -- Controls how fast particles orbit
+        
+        -- Orbit around the path while moving outward
+        local swirlAngle = angle + math.sin(time * rotationSpeed) * swirlFactor
+        particle.x = baseX + math.cos(swirlAngle) * distance
+        particle.y = baseY + math.sin(swirlAngle) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.HEX then
+        -- Approximated hex grid movement using snapped angles
+        -- Move along hex angles (0, 60, 120, 180, 240, 300 degrees)
+        local baseAngle = particle.angle or 0
+        local hexAngle = math.floor(baseAngle / (math.pi/3)) * (math.pi/3)
+        local jitterAmount = 0.2 * math.sin(time * 5) -- Small jitter
+        local speed = particle.speed or 100 -- Default speed if not set
+        local distance = speed * particleProgress
+        
+        particle.x = baseX + math.cos(hexAngle + jitterAmount) * distance
+        particle.y = baseY + math.sin(hexAngle + jitterAmount) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.STATIC then
+        -- Minimal movement with subtle breathing effect
+        local breatheFactor = 0.1 * math.sin(time * 3)
+        
+        -- Slight offset from original position
+        local offsetX = (particle.targetX - baseX) * 0.2 * particleProgress
+        local offsetY = (particle.targetY - baseY) * 0.2 * particleProgress
+        
+        -- Apply breathing effect
+        particle.x = baseX + offsetX + math.cos(particle.angle or 0) * breatheFactor
+        particle.y = baseY + offsetY + math.sin(particle.angle or 0) * breatheFactor
+        
+    elseif motionStyle == Constants.MotionStyle.RISE then
+        -- Particles float upward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY - verticalSpeed * particleProgress -- Subtract to move up
+        
+    elseif motionStyle == Constants.MotionStyle.FALL then
+        -- Particles fall downward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        local gravity = 100 -- Acceleration factor
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY + (verticalSpeed * particleProgress + 0.5 * gravity * particleProgress * particleProgress)
+        
+    elseif motionStyle == Constants.MotionStyle.PULSE then
+        -- Particles pulse outward and inward
+        local pulseDistance = math.sin(time * 4) * 0.5 + 0.5 -- 0 to 1 pulsing
+        local targetDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = targetDistance * pulseDistance * particleProgress
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * distance
+        particle.y = baseY + math.sin(particle.angle or 0) * distance
+        
+        -- Also pulse alpha
+        particle.alpha = 0.4 + pulseDistance * 0.6
+        
+    elseif motionStyle == Constants.MotionStyle.RIPPLE then
+        -- Wave-like ripple effect
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        
+        -- Add wave effect perpendicular to the radial direction
+        local waveAmplitude = 10 * math.sin(distance * 0.1 + time * 5)
+        local perpX = -math.sin(angle) * waveAmplitude
+        local perpY = math.cos(angle) * waveAmplitude
+        
+        particle.x = baseX + math.cos(angle) * distance + perpX
+        particle.y = baseY + math.sin(angle) * distance + perpY
+        
+    elseif motionStyle == Constants.MotionStyle.DIRECTIONAL then
+        -- Directional movement along a specific path
+        -- This simply follows the default trajectory but with less randomness
+        local dirX = (particle.targetX or baseX + 100) - baseX
+        local dirY = (particle.targetY or baseY) - baseY
+        local length = math.sqrt(dirX^2 + dirY^2)
+        
+        if length > 0 then
+            dirX = dirX / length
+            dirY = dirY / length
+            
+            -- Move with consistent speed
+            local speed = particle.speed or 100 -- Default speed if not set
+            particle.x = baseX + dirX * speed * particleProgress * time
+            particle.y = baseY + dirY * speed * particleProgress * time
+        end
+    end
+    
+    -- Handle special visual effects for certain motion styles
+    if motionStyle == Constants.MotionStyle.PULSE then
+        -- Special scaling for pulse motion
+        local pulseScale = 0.8 + 0.4 * math.sin(time * 4)
+        particle.scale = (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * pulseScale
+    end
+end
+
 -- Reset function for effect objects
 function VFX.resetEffect(effect)
     -- Release all particles back to their pool
@@ -595,6 +841,10 @@ function VFX.resetEffect(effect)
     effect.manaPoolY = nil
     effect.sourceGlow = nil
     effect.poolGlow = nil
+    effect.motion = nil
+    effect.rangeBand = nil
+    effect.elevation = nil
+    effect.addons = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -605,6 +855,26 @@ end
 -- Create a new effect instance
 function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
     local Constants = require("core.Constants")
+    
+    -- Enhanced debugging for VFX-R5 implementation
+    print("\n====== VFX CREATION CALL ======")
+    print("[VFX] CALL STACK: " .. debug.traceback())
+    print("[VFX] effectName: " .. tostring(effectName))
+    print("[VFX] sourceX: " .. tostring(sourceX) .. " sourceY: " .. tostring(sourceY))
+    if targetX and targetY then
+        print("[VFX] targetX: " .. tostring(targetX) .. " targetY: " .. tostring(targetY))
+    end
+    if options then
+        print("[VFX] Options:")
+        for k, v in pairs(options) do
+            if type(v) == "table" then
+                print("  " .. k .. ": [table]")
+            else
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    print("================================\n")
     
     -- Handle both string and Constants.VFXType format
     local effectNameStr
@@ -618,19 +888,92 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         effectNameStr = effectName
     end
     
-    -- Debug output
+    -- Regular debug output
     print("[VFX] Creating effect: " .. effectNameStr)
+    print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
+    if targetX and targetY then
+        print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+    end
     
-    -- Get effect template - use :lower() safely now that we've verified it's a string
-    local template = VFX.effects[effectNameStr:lower()]
-    if not template then
-        print("Warning: Effect not found: " .. effectNameStr)
-        -- Fall back to impact effect if available
-        template = VFX.effects[Constants.VFXType.IMPACT]
-        if not template then
-            return nil -- Give up if no fallback is available
+    -- Process options
+    local opts = options or {}
+    
+    -- Process options.addons if provided (for future work)
+    if opts.addons and #opts.addons > 0 then
+        for _, addon in ipairs(opts.addons) do
+            print("[VFX] TODO addon: " .. tostring(addon))
+            -- In future work, we would create or modify effects based on addons
+            -- Example: Apply a fire overlay to a projectile, add a sparkle effect, etc.
         end
-        print("[VFX] Falling back to '" .. Constants.VFXType.IMPACT .. "' effect")
+    end
+    
+    -- Try to get the effect template first to check for critical assets
+    local template = VFX.effects[effectNameStr:lower()]
+    if template then
+        -- Template exists, check for critical assets
+        if template.criticalAssets then
+            for _, assetId in ipairs(template.criticalAssets) do
+                -- Try to get the asset, will trigger loading if not available
+                local asset = VFX.getAsset(assetId)
+                if not asset or (assetId == "runes" and #asset == 0) then
+                    -- Asset failed to load, try emergency loading
+                    print("[VFX] Critical asset missing: " .. assetId .. ", attempting emergency load")
+                    
+                    -- Emergency loading of critical asset
+                    if assetId == "runes" and VFX.assetPaths and VFX.assetPaths.runes then
+                        print("[VFX] Emergency loading of rune assets")
+                        local AssetCache = require("core.AssetCache")
+                        VFX.assets.runes = VFX.assets.runes or {}
+                        for i, runePath in ipairs(VFX.assetPaths.runes) do
+                            local runeImg = AssetCache.getImage(runePath)
+                            if runeImg then
+                                table.insert(VFX.assets.runes, runeImg)
+                            end
+                        end
+                    elseif VFX.assetPaths and VFX.assetPaths[assetId] then
+                        print("[VFX] Emergency loading of asset: " .. assetId)
+                        local AssetCache = require("core.AssetCache")
+                        VFX.assets[assetId] = AssetCache.getImage(VFX.assetPaths[assetId])
+                    end
+                end
+            end
+        end
+    else
+        -- Backward compatibility for effects without templates that may need runes
+        -- (e.g., mistveil, effects with "ward" in the name)
+        if effectNameStr:lower():find("ward") or effectNameStr:lower() == "mistveil" then
+            -- Ensure runes are loaded for ward-related effects
+            local runeAssets = VFX.getAsset("runes")
+            if not runeAssets or #runeAssets == 0 then
+                print("[VFX] Warning: Ward effect requested but rune assets not available.")
+                -- Force-load runes
+                if VFX.assetPaths and VFX.assetPaths.runes then
+                    local AssetCache = require("core.AssetCache")
+                    VFX.assets.runes = {}
+                    for i, runePath in ipairs(VFX.assetPaths.runes) do
+                        print("[VFX] Emergency loading of rune asset: " .. i)
+                        local runeImg = AssetCache.getImage(runePath)
+                        if runeImg then
+                            table.insert(VFX.assets.runes, runeImg)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Get or reuse effect template - use :lower() safely now that we've verified it's a string
+    if not template then -- Only if we didn't already get it above
+        template = VFX.effects[effectNameStr:lower()]
+        if not template then
+            print("Warning: Effect not found: " .. effectNameStr)
+            -- Fall back to impact effect if available
+            template = VFX.effects[Constants.VFXType.IMPACT]
+            if not template then
+                return nil -- Give up if no fallback is available
+            end
+            print("[VFX] Falling back to '" .. Constants.VFXType.IMPACT .. "' effect")
+        end
     end
     
     -- Create a new effect instance from pool
@@ -653,6 +996,29 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.startScale = template.startScale
     effect.endScale = template.endScale
     effect.color = {template.color[1], template.color[2], template.color[3], template.color[4]}
+    
+    -- Apply options modifiers
+    if opts.color then
+        -- Override color with the provided color
+        effect.color = {opts.color[1], opts.color[2], opts.color[3], opts.color[4] or 1.0}
+    end
+    
+    if opts.scale then
+        -- Apply scale factor to particle counts, sizes, radii, etc.
+        local scaleFactor = opts.scale
+        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        effect.startScale = effect.startScale * scaleFactor
+        effect.endScale = effect.endScale * scaleFactor
+        if effect.radius then effect.radius = effect.radius * scaleFactor end
+        if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
+        if effect.height then effect.height = effect.height * scaleFactor end
+    end
+    
+    -- Store motion style and positional info
+    effect.motion = opts.motion
+    effect.rangeBand = opts.rangeBand
+    effect.elevation = opts.elevation
+    effect.addons = opts.addons
     
     -- Effect specific properties
     effect.particles = {}
@@ -701,6 +1067,16 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.targetX
+            particle.targetY = effect.targetY
+            particle.speed = 150 -- Default speed for projectile particles
+            particle.angle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
             
             table.insert(effect.particles, particle)
         end
@@ -723,6 +1099,13 @@ function VFX.initializeParticles(effect)
             particle.rotation = angle
             particle.delay = math.random() * 0.2 -- Slight random delay
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.targetX
+            particle.baseY = effect.targetY
+            particle.angle = angle
             
             table.insert(effect.particles, particle)
         end
@@ -743,6 +1126,15 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.5
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.sourceX + math.cos(angle) * distance
+            particle.targetY = effect.sourceY + math.sin(angle) * distance
+            particle.speed = orbitalSpeed * 30
             
             table.insert(effect.particles, particle)
         end
@@ -880,6 +1272,8 @@ end
 
 -- Update function for projectile effects
 function VFX.updateProjectile(effect, dt)
+    local Constants = require("core.Constants")
+    
     -- Update trail points
     if #effect.trailPoints == 0 then
         -- Initialize trail with source position
@@ -890,12 +1284,40 @@ function VFX.updateProjectile(effect, dt)
     
     -- Calculate projectile position based on progress
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * effect.progress
+    
+    -- Adjust trajectory based on rangeBand and elevation
     local posY = effect.sourceY + (effect.targetY - effect.sourceY) * effect.progress
     
-    -- Add curved trajectory based on height
+    -- Base arc height before adjustments
+    local baseArcHeight = 60
+    
+    -- Adjust trajectory based on rangeBand
+    local rangeBandModifier = 1.0
+    if effect.rangeBand == Constants.RangeState.FAR then
+        rangeBandModifier = 1.8  -- Higher arc for far range (increased from 1.5)
+    elseif effect.rangeBand == Constants.RangeState.NEAR then
+        rangeBandModifier = 0.5  -- Lower, flatter arc for near range (decreased from 0.7)
+    end
+    
+    -- Adjust trajectory based on elevation
+    local elevationOffset = 0
+    if effect.elevation then
+        if effect.elevation == Constants.ElevationState.AERIAL then
+            -- When target is aerial, arc is less pronounced and higher end position
+            rangeBandModifier = rangeBandModifier * 0.6  -- Reduced from 0.7
+            elevationOffset = -60  -- Higher final position (increased from -40)
+        elseif effect.elevation == Constants.ElevationState.GROUNDED then
+            -- When target is grounded, arc is more pronounced and lower end position
+            elevationOffset = 30   -- Lower final position (increased from 20)
+        end
+    end
+    
+    -- Calculate arc with modifiers
     local midpointProgress = effect.progress - 0.5
-    local verticalOffset = -60 * (1 - (midpointProgress * 2)^2)
-    posY = posY + verticalOffset
+    local verticalOffset = -baseArcHeight * rangeBandModifier * (1 - (midpointProgress * 2)^2)
+    
+    -- Apply final position
+    posY = posY + verticalOffset + (elevationOffset * effect.progress)
     
     -- Update trail
     table.remove(effect.trailPoints)
@@ -912,16 +1334,31 @@ function VFX.updateProjectile(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Distribute particles along the trail
-            local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-            if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
-            
-            local trailPoint = effect.trailPoints[trailIndex]
-            
-            -- Add some randomness to particle positions
-            local spreadFactor = 8 * (1 - particleProgress)
-            particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
-            particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- First set baseX/baseY to the trail point for this particle
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                particle.baseX = trailPoint.x
+                particle.baseY = trailPoint.y
+                
+                -- Use the motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior
+                -- Distribute particles along the trail
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                -- Add some randomness to particle positions
+                local spreadFactor = 8 * (1 - particleProgress)
+                particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
+                particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            end
             
             -- Update visual properties
             particle.scale = effect.startScale + (effect.endScale - effect.startScale) * particleProgress
@@ -950,21 +1387,31 @@ function VFX.updateImpact(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Move particle outward from center
-            local dirX = particle.targetX - effect.targetX
-            local dirY = particle.targetY - effect.targetY
-            local length = math.sqrt(dirX^2 + dirY^2)
-            if length > 0 then
-                dirX = dirX / length
-                dirY = dirY / length
+            -- Check if we have a motion style to apply
+            if effect.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior (radial expansion)
+                local dirX = particle.targetX - effect.targetX
+                local dirY = particle.targetY - effect.targetY
+                local length = math.sqrt(dirX^2 + dirY^2)
+                if length > 0 then
+                    dirX = dirX / length
+                    dirY = dirY / length
+                end
+                
+                particle.x = effect.targetX + dirX * length * particleProgress
+                particle.y = effect.targetY + dirY * length * particleProgress
             end
             
-            particle.x = effect.targetX + dirX * length * particleProgress
-            particle.y = effect.targetY + dirY * length * particleProgress
+            -- Update visual properties if not already handled by the motion style
+            if not (effect.motion == require("core.Constants").MotionStyle.PULSE) then
+                particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
+                particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            end
             
-            -- Update visual properties
-            particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
-            particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            -- Update rotation regardless of motion style
             particle.rotation = particle.rotation + dt * 3
         end
     end
@@ -983,12 +1430,19 @@ function VFX.updateAura(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Update angle for orbital motion
-            particle.angle = particle.angle + dt * particle.orbitalSpeed
-            
-            -- Calculate position based on orbit
-            particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
-            particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default orbital motion behavior
+                -- Update angle for orbital motion
+                particle.angle = particle.angle + dt * particle.orbitalSpeed
+                
+                -- Calculate position based on orbit
+                particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
+                particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            end
             
             -- Pulse effect
             local pulseOffset = math.sin(effect.timer * effect.pulseRate) * 0.2
@@ -1196,8 +1650,8 @@ end
 
 -- Draw function for projectile effects
 function VFX.drawProjectile(effect)
-    local particleImage = getAsset("fireParticle")
-    local glowImage = getAsset("fireGlow")
+    local particleImage = getAssetInternal("fireParticle")
+    local glowImage = getAssetInternal("fireGlow")
     
     -- Draw trail
     love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
@@ -1252,8 +1706,8 @@ end
 
 -- Draw function for impact effects
 function VFX.drawImpact(effect)
-    local particleImage = getAsset("fireParticle")
-    local impactImage = getAsset("impactRing")
+    local particleImage = getAssetInternal("fireParticle")
+    local impactImage = getAssetInternal("impactRing")
     
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
@@ -1291,7 +1745,7 @@ end
 
 -- Draw function for aura effects
 function VFX.drawAura(effect)
-    local particleImage = getAsset("sparkle")
+    local particleImage = getAssetInternal("sparkle")
     
     -- Draw base aura circle
     local pulseAmount = math.sin(effect.timer * effect.pulseRate) * 0.2
@@ -1318,7 +1772,7 @@ end
 
 -- Draw function for vertical effects
 function VFX.drawVertical(effect)
-    local particleImage = getAsset("fireParticle")
+    local particleImage = getAssetInternal("fireParticle")
     
     -- Draw base effect at source
     local baseProgress = math.min(effect.progress * 3, 1.0) -- Quick initial flash
@@ -1356,7 +1810,7 @@ end
 
 -- Draw function for beam effects
 function VFX.drawBeam(effect)
-    local particleImage = getAsset("sparkle")
+    local particleImage = getAssetInternal("sparkle")
     local beamLength = effect.beamLength * effect.beamProgress
     
     -- Draw base beam
@@ -1412,8 +1866,8 @@ end
 
 -- Draw function for conjure effects
 function VFX.drawConjure(effect)
-    local particleImage = getAsset("sparkle")
-    local glowImage = getAsset("fireGlow")  -- We'll use this for all conjure types
+    local particleImage = getAssetInternal("sparkle")
+    local glowImage = getAssetInternal("fireGlow")  -- We'll use this for all conjure types
     
     -- Draw source glow if active
     if effect.sourceGlow and effect.sourceGlow > 0 then
@@ -1553,8 +2007,9 @@ function VFX.createSpellEffect(spell, caster, target)
     
     -- Determine source and target positions
     local sourceX, sourceY = caster.x, caster.y
+    print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
     local targetX, targetY = target.x, target.y
-    
+    print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
     -- Handle different spell types
     local spellName = spell.name:lower():gsub("%s+", "") -- Convert to lowercase and remove spaces
     

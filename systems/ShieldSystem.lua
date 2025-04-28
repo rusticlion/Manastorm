@@ -30,7 +30,9 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Set shield parameters - simplified to use token count as the only source of truth
     slot.isShield = true
-    slot.defenseType = blockParams.type or "barrier"
+    
+    -- Look for shield type in both parameters for compatibility
+    slot.defenseType = blockParams.defenseType or blockParams.type or "barrier"
     
     -- Store the original spell completion
     slot.active = true
@@ -290,21 +292,19 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
         end
     end
     
-    -- Trigger shield hit VFX using event system
+    -- Emit shield hit event for visual feedback through VisualResolver
     if wizard.gameState and wizard.gameState.eventRunner then
+        local Constants = require("core.Constants")
         local shieldHitEvent = {
             type = "EFFECT",
-            source = "shield_hit",
-            target = "SELF",
-            effectType = Constants.VFXType.IMPACT,
-            duration = 0.5,
-            vfxParams = {
-                x = wizard.x,
-                y = wizard.y,
-                color = {0.8, 0.8, 0.2, 0.7},
-                particleCount = 8,
-                radius = 30
-            }
+            source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+            target = Constants.TargetType.TARGET,
+            effectType = "shield_hit", -- logical tag for VisualResolver
+            affinity = defenseType, -- Use defense type as affinity for color mapping
+            tags = { SHIELD_HIT = true },
+            shieldType = defenseType,
+            posX = wizard.x,
+            posY = wizard.y,
         }
         
         -- Process the event immediately
@@ -365,43 +365,34 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
         return
     end
     
-    -- Shield color based on type
-    local shieldColor = ShieldSystem.getShieldColor(blockInfo.blockType)
-    -- Add alpha for VFX
-    shieldColor[4] = 0.7
-    
+    local Constants = require("core.Constants")
     -- Create a batch of VFX events
     local events = {}
     
-    -- Add shield flare effect at target position
+    -- Emit shield hit event at target position using VisualResolver
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block",
-        target = "ENEMY", -- Target is enemy wizard
-        effectType = Constants.VFXType.SHIELD,
-        duration = 0.5,
-        vfxParams = {
-            x = target.x,
-            y = target.y,
-            color = shieldColor,
-            shieldType = blockInfo.blockType
-        }
+        source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+        target = Constants.TargetType.TARGET,  -- defender is target
+        effectType = "shield_hit", -- logical tag for VisualResolver
+        affinity = blockInfo.blockType, -- Use defense type for color mapping
+        tags = { SHIELD_HIT = true },
+        shieldType = blockInfo.blockType,
+        posX = target.x,
+        posY = target.y,
     })
     
-    -- Add impact effect at caster position (for feedback)
+    -- Add impact feedback at caster position
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block_feedback",
-        target = "SELF", -- Target is caster
-        effectType = Constants.VFXType.IMPACT,
-        duration = 0.3,
-        vfxParams = {
-            x = caster.x,
-            y = caster.y,
-            color = {0.8, 0.2, 0.2, 0.5},
-            particleCount = 5,
-            radius = 15
-        }
+        source = Constants.TargetType.CASTER, -- caster is source
+        target = Constants.TargetType.CASTER, -- and target for feedback
+        effectType = Constants.VFXType.IMPACT_BASE,
+        affinity = "fire",  -- Red feedback for blocked spell
+        tags = { SHIELD_HIT = true },
+        scale = 0.7,        -- Smaller feedback effect
+        posX = caster.x,
+        posY = caster.y,
     })
     
     -- Process all events at once

@@ -221,6 +221,25 @@ Constants.VFXType = {
     -- General effects
     IMPACT = "impact",
     
+    -- Base template effects (used by VisualResolver)
+    PROJ_BASE = "proj_base",       -- Base projectile effect
+    BEAM_BASE = "beam_base",       -- Base beam/remote effect
+    ZONE_BASE = "zone_base",       -- Base zone/area effect
+    UTIL_BASE = "util_base",       -- Base utility effect
+    IMPACT_BASE = "impact_base",   -- Base impact effect
+    
+    -- Overlay addon effects (used by VisualResolver)
+    DAMAGE_OVERLAY = "damage_overlay",
+    EMBER_OVERLAY = "ember_overlay",
+    DOT_OVERLAY = "dot_overlay",
+    SPARKLE_OVERLAY = "sparkle_overlay",
+    RESOURCE_OVERLAY = "resource_overlay",
+    MOVEMENT_OVERLAY = "movement_overlay",
+    RISE_OVERLAY = "rise_overlay",
+    FALL_OVERLAY = "fall_overlay",
+    SHIELD_OVERLAY = "shield_overlay",
+    BARRIER_OVERLAY = "barrier_overlay",
+    
     -- Movement and positioning effects
     TIDAL_FORCE_GROUND = "tidal_force_ground",
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
@@ -287,6 +306,27 @@ function Constants.isValidVFXType(value)
         end
     end
     return false
+end
+
+-- Motion styles for VFX particles
+Constants.MotionStyle = {
+    RADIAL = "radial",     -- Particles expand outward in all directions (default)
+    DIRECTIONAL = "directional", -- Particles move in a specific direction
+    SWIRL = "swirl",       -- Particles move in a circular/spiral pattern
+    RISE = "rise",         -- Particles float upward
+    FALL = "fall",         -- Particles fall downward
+    PULSE = "pulse",       -- Particles expand and contract rhythmically
+    RIPPLE = "ripple",     -- Particles move in wave-like patterns
+    STATIC = "static"      -- Particles stay in place with minimal motion
+}
+
+-- Utility function to get all motion styles
+function Constants.getAllMotionStyles()
+    local styles = {}
+    for _, value in pairs(Constants.MotionStyle) do
+        table.insert(styles, value)
+    end
+    return styles
 end
 
 return Constants

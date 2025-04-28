@@ -193,7 +193,7 @@ Keywords.damage = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolve to handle conditional parameter
         local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
         
@@ -203,14 +203,30 @@ Keywords.damage = {
             local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
             local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
-            -- Generate event
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+
+            -- Generate event with enriched visual metadata
             table.insert(events or {}, {
                 type = "DAMAGE", 
                 source = "caster", 
                 target = "enemy",
                 amount = calculatedDamage, 
                 damageType = damageType,
-                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+                scaledDamage = (type(params.amount) == "function"), -- Keep scaledDamage flag based on original param type
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { DAMAGE = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil,
+                -- Add debug flag to track this event's flow
+                _debug_enriched = true
             })
         end
 
@@ -236,7 +252,13 @@ Keywords.burn = {
     },
     
     -- Implementation function - Generates APPLY_STATUS event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
+        
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
@@ -244,7 +266,15 @@ Keywords.burn = {
             statusType = "burn",
             duration = params.duration or 3.0,
             tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0
+            tickInterval = params.tickInterval or 1.0,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { BURN = true, DOT = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -298,14 +328,35 @@ Keywords.elevate = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
+        -- Create elevation event
+        local vfxValue = params.vfx or "emberlift"
+        -- Check if we have a vfx parameter that's a table and should be a string
+        if type(vfxValue) == "table" and vfxValue.effect then
+            vfxValue = vfxValue.effect
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
+        
         table.insert(events or {}, {
             type = "SET_ELEVATION",
             source = "caster",
             target = params.target or "self", -- Use specified target or default to self
             elevation = Constants.ElevationState.AERIAL,
             duration = params.duration or 5.0,
-            vfx = params.vfx or "emberlift"
+            vfx = vfxValue,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { MOVEMENT = true, ELEVATE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = Constants.ElevationState.AERIAL  -- The new elevation state
         })
         return results
     end
@@ -323,7 +374,7 @@ Keywords.ground = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolver for conditional parameter
         local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
@@ -332,12 +383,33 @@ Keywords.ground = {
             local targetEntity = resolve(params.target, caster, target, results.currentSlot, "enemy")
             local vfxEffect = resolve(params.vfx, caster, target, results.currentSlot, "tidal_force_ground")
             
+            -- Handle vfx parameter conversion if needed
+            local vfxString = vfxEffect
+            -- If vfxEffect is a table with an effect property, extract that string
+            if type(vfxEffect) == "table" and vfxEffect.effect then
+                vfxString = vfxEffect.effect
+            end
+            
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
                 target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = vfxEffect
+                vfx = vfxString,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { MOVEMENT = true, GROUND = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = Constants.ElevationState.GROUNDED  -- The new elevation state
             })
         end
         return results
@@ -408,7 +480,7 @@ Keywords.conjure = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
         local targetPool = params.target or "POOL_SELF" -- Default target pool
@@ -418,6 +490,12 @@ Keywords.conjure = {
         -- Set the justConjuredMana flag on the wizard
         if caster and caster.justConjuredMana ~= nil then
             caster.justConjuredMana = true
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
 
         if type(tokenTypeParam) == "table" then
@@ -429,7 +507,15 @@ Keywords.conjure = {
                         source = "caster",
                         target = targetPool,
                         tokenType = specificTokenType,
-                        amount = 1 -- Conjure one of this specific type
+                        amount = 1, -- Conjure one of this specific type
+                        
+                        -- Visual metadata for VisualResolver
+                        affinity = spell and spell.affinity or nil,
+                        attackType = spell and spell.attackType or nil,
+                        manaCost = manaCost,
+                        tags = { CONJURE = true, RESOURCE = true },
+                        rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                        elevation = caster and caster.elevation or nil
                     })
                 end
             end
@@ -441,7 +527,15 @@ Keywords.conjure = {
                      source = "caster",
                      target = targetPool,
                      tokenType = tokenTypeParam,
-                     amount = 1 -- Conjure one of this specific type
+                     amount = 1, -- Conjure one of this specific type
+                     
+                     -- Visual metadata for VisualResolver
+                     affinity = spell and spell.affinity or nil,
+                     attackType = spell and spell.attackType or nil,
+                     manaCost = manaCost,
+                     tags = { CONJURE = true, RESOURCE = true },
+                     rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                     elevation = caster and caster.elevation or nil
                  })
              end
         else
@@ -717,10 +811,16 @@ Keywords.block = {
     },
     
     -- Implementation function - Generates CREATE_SHIELD event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Mark the spell as sustained
         results.isSustained = true
         print("[DEBUG] Block keyword setting results.isSustained = true")
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
         
         table.insert(events or {}, {
             type = "CREATE_SHIELD",
@@ -730,7 +830,15 @@ Keywords.block = {
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
             reflect = params.reflect or false,
-            onBlock = params.onBlock -- Add support for the onBlock callback
+            onBlock = params.onBlock, -- Add support for the onBlock callback
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -883,70 +991,45 @@ Keywords.consume = {
     end
 }
 
--- vfx: Generates a visual effect for the spell via the event system
+-- vfx: Handles explicit visual effect overrides for spells
 Keywords.vfx = {
     behavior = {
-        triggersVisualEffect = true,
+        overridesVisualEffect = true,
         category = "SPECIAL"
     },
-    execute = function(params, caster, target, results, events)
-        -- Default target to ENEMY if not specified, matching most spell effects
-        local eventTarget = params.target or Constants.TargetType.ENEMY 
-        
-        -- Get the effect type using Constants.VFXType, with fallback to IMPACT
-        local effectType
-        
+    execute = function(params, caster, target, results, events, spell)
+        -- Instead of creating an event, just set effectOverride in results
         if params.effect then
-            -- If the param is already a string (not a constant), use it directly
+            -- Get the effect type, whether it's a string or constant
+            local effectType
             if type(params.effect) == "string" then
                 effectType = params.effect
             else
-                -- Otherwise, use it as provided (assuming it's a constant)
                 effectType = params.effect
             end
-        else
-            -- Default to impact if no effect specified
-            effectType = Constants.VFXType.IMPACT
+            
+            -- Store the override in the results object
+            results.effectOverride = effectType
+            
+            -- Debug output
+            print(string.format("[VFX KEYWORD] Setting effectOverride: %s for %s", 
+                tostring(effectType),
+                caster and caster.name or "unknown"))
         end
         
-        -- Validate effect type
-        if not Constants.isValidVFXType(effectType) then
-            print(string.format("[VFX KEYWORD] Warning: Unknown effect type '%s', falling back to 'impact'", 
-                tostring(effectType)))
-            effectType = Constants.VFXType.IMPACT
+        -- Also store any other relevant parameters
+        if params.duration then
+            results.effectDuration = params.duration
         end
         
-        -- Add debug output (abbreviated version for production)
-        print(string.format("[VFX KEYWORD] Creating effect: %s for %s -> %s", 
-            effectType,
-            caster and caster.name or "unknown", 
-            target and target.name or "unknown"))
-        
-        -- Create the EFFECT event with a string target type (not a Constants value)
-        local targetTypeString = "enemy" -- Default
-        
-        -- Convert Constants.TargetType values to strings
-        if eventTarget == Constants.TargetType.ENEMY then
-            targetTypeString = "enemy"
-        elseif eventTarget == Constants.TargetType.SELF then
-            targetTypeString = "self"
-        elseif eventTarget == Constants.TargetType.BOTH then
-            targetTypeString = "both"
-        elseif type(eventTarget) == "string" then
-            -- If it's already a string, use it directly
-            targetTypeString = eventTarget
+        if params.target then
+            results.effectTarget = params.target
         end
         
-        table.insert(events or {}, {
-            type       = "EFFECT", -- Use the existing EFFECT event type
-            source     = "caster", -- Use string "caster" not Constants value
-            target     = targetTypeString, -- Use string type for target
-            effectType = effectType, -- The specific VFX template name (e.g., "firebolt")
-            duration   = params.duration, -- Optional duration override
-            -- Pass through any other params for the VFX system
-            vfxParams  = params -- Store original params for flexibility
-        })
-        return results -- Return unmodified results (only adds an event)
+        -- Store other vfx parameters that might be useful
+        results.vfxParams = params
+        
+        return results
     end
 }
 

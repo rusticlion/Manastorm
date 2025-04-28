@@ -154,7 +154,7 @@ Spells.conjurenothing = {
             amount = 3
         }
     },
-    vfx = "void_conjure",
+    -- VFX provided by rules-driven system
     sfx = "void_conjure",
 }
 
@@ -171,9 +171,9 @@ Spells.conjurefire = {
         conjure = {
             token = Constants.TokenType.FIRE,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "fire_conjure",
     blockableBy = {},  -- Unblockable
     
     -- Custom cast time calculation based on existing fire tokens
@@ -218,7 +218,7 @@ Spells.firebolt = {
             end,
             type = Constants.DamageType.FIRE
         },
-        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -240,9 +240,9 @@ Spells.blastwave = {
                 default = 5
             }),
             type = Constants.DamageType.FIRE
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "blastwave",
     sfx = "blastwave",
 }
 
@@ -270,7 +270,7 @@ Spells.meteor = {
         ground = {
             target = Constants.TargetType.SELF 
         },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep one example with manual VFX for regression testing
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -287,9 +287,9 @@ Spells.combustMana = {
     keywords = {
         disruptAndShift = {
             targetType = "salt"
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "combust_lock",
 }
 
 Spells.conjuresalt = {
@@ -304,9 +304,9 @@ Spells.conjuresalt = {
         conjure = {
             token = Constants.TokenType.SALT,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "force_conjure", -- Assuming a VFX name
     blockableBy = {},
 
     getCastTime = function(caster)
@@ -339,17 +339,17 @@ Spells.emberlift = {
         elevate = {
             duration = 5.0,
             target = "SELF",
-            vfx = "emberlift"
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
         rangeShift = {
             position = expr.byRange({
                 NEAR = "FAR",
                 FAR = "NEAR",
                 default = "NEAR"
-            })
+            }),
+            -- VFX provided by rules-driven system (see R5 refactor)
         }
     },
-    vfx = "ember_lift",
     sfx = "whoosh_up",
     blockableBy = {}  -- Utility spell, can't be blocked
 }
@@ -367,9 +367,9 @@ Spells.conjuremoonlight = {
         conjure = {
             token = Constants.TokenType.MOON,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "moon_conjure",
     blockableBy = {},  -- Unblockable
     
     -- Custom cast time calculation based on existing moon tokens
@@ -406,9 +406,9 @@ Spells.conjurestars = {
         conjure = {
             token = Constants.TokenType.STAR,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "star_conjure", -- Assuming a VFX name
     blockableBy = {},
 
     getCastTime = function(caster)
@@ -440,10 +440,10 @@ Spells.novaconjuring = {
             token = {
                 Constants.TokenType.SUN,
             },
-            amount = 1 -- Conjures 2 of each listed type
-        }
+            amount = 1 -- Conjures 1 of each listed type
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "nova_conjure",
     sfx = "conjure_nova",
     blockableBy = {}  -- Unblockable
 }
@@ -465,9 +465,9 @@ Spells.witchconjuring = {
                 Constants.TokenType.LIFE 
             },
             amount = 1 -- Conjures 1 of each listed type
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "witch_conjure",
     sfx = "conjure_witch",
     blockableBy = {}  -- Unblockable
 }
@@ -486,9 +486,9 @@ Spells.infiniteprocession = {
             -- Make this target a specific token as appropriate later
             type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "infinite_procession",
     sfx = "conjure_infinite",
 }
 Spells.wrapinmoonlight = {
@@ -518,15 +518,15 @@ Spells.wrapinmoonlight = {
                     target = "self",
                     elevation = Constants.ElevationState.AERIAL,
                     duration = 4.0,
-                    vfx = "mist_veil"
+                    -- VFX provided by rules-driven system (see R5 refactor)
                 })
                 
                 print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
                 return events
             end
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "mist_veil",
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
 }
@@ -550,10 +550,10 @@ Spells.tidalforce = {
                 return target and target.elevation == "AERIAL"
             end,
             target = "ENEMY", -- Explicitly specify the enemy as the target
-            vfx = "tidal_force_ground" -- Specify the visual effect to use
-        }
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "tidal_force",
     sfx = "tidal_wave",
     blockableBy = {"ward", "field"}
 }
@@ -580,9 +580,9 @@ Spells.lunardisjunction = {
                 end
             end,
             target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "lunardisjunction",
     sfx = "lunardisjunction_sound",
     blockableBy = {"ward"} -- Disjunction is a projectile
 }
@@ -620,17 +620,17 @@ Spells.gravityTrap = {
             },
             ground = { 
                 target = "ENEMY", 
-                vfx = "gravity_pin_ground" 
             },
             burn = { 
                 duration = 1.0,
                 tickDamage = 4,
                 tickInterval = 0.5,
                 target = "ENEMY"
-            }
-        }
+            },
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "gravity_trap_set",
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
 }
@@ -688,15 +688,14 @@ Spells.gravity = {
                 return target and target.elevation == "AERIAL"
             end,
             target = "ENEMY",
-            vfx = "gravity_pin_ground"
         },
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "gravity_pin",
     sfx = "gravity_slam",
-    blockableBy = {Constants.S, "field"}
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 Spells.eclipse = {
@@ -716,9 +715,9 @@ Spells.eclipse = {
         conjure = {
             token = Constants.TokenType.SUN,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
-    vfx = "eclipse_burst", -- Keep visual/sound for now
     sfx = "eclipse_shatter",
     blockableBy = {} -- Utility spells are not blockable
 }
@@ -766,11 +765,11 @@ Spells.fullmoonbeam = {
                 return damage
             end,
             type = Constants.TokenType.MOON
-        }
+        },
+        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep second example with manual VFX for beam effects
     },
-    vfx = "moon_beam",
     sfx = "beam_charge",
-    blockableBy = {Constants.ShieldType.BARRIER, "ward"}
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Shield spells
@@ -785,70 +784,10 @@ Spells.forcebarrier = {
         block = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "force_barrier",
     sfx = "shield_up",
-    blockableBy = {}  -- Utility spell, can't be blocked
-}
-
-Spells.moonward = {
-    id = "moonward",
-    name = "Moon Ward",
-    description = "A mystical ward that blocks projectiles and remotes",
-    attackType = "utility",
-    castTime = Constants.CastSpeed.NORMAL,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
-    keywords = {
-        block = {
-            type = "ward",
-            blocks = {Constants.AttackType, "remote"}
-            -- All shields are mana-linked now (consume tokens when blocking)
-        }
-    },
-    vfx = "moon_ward",
-    sfx = "shield_up",
-    blockableBy = {}  -- Utility spell, can't be blocked
-}
-
-Spells.naturefield = {
-    id = "naturefield",
-    name = "Nature Field",
-    description = "A field of natural energy that blocks remotes and zones",
-    attackType = "utility",
-    castTime = 4.0,
-    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
-    keywords = {
-        block = {
-            type = "field",
-            blocks = {"remote", Constants.AttackType.ZONE}
-            -- All shields are mana-linked now (consume tokens when blocking)
-        }
-    },
-    vfx = "nature_field",
-    sfx = "nature_grow",
-    blockableBy = {}  -- Utility spell, can't be blocked
-}
-
--- Advanced reflective shield
-Spells.mirrorshield = {
-    id = "mirrorshield",
-    name = "Mirror Shield",
-    description = "A reflective barrier that returns damage to attackers",
-    attackType = "utility",
-    castTime = 5.0,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, "star"},
-    keywords = {
-        block = {
-            type = Constants.ShieldType.BARRIER,  -- Barrier type blocks projectiles and zones
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
-            reflect = true      -- Reflects damage back to attacker
-            -- All shields are mana-linked now (consume tokens when blocking)
-            -- Token count is the source of truth for shield strength
-        }
-    },
-    vfx = "mirror_shield",
-    sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
 }
 
@@ -894,9 +833,9 @@ Spells.enhancedmirrorshield = {
                 
                 return events
             end
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "enhanced_mirror_shield",
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
 }
@@ -962,49 +901,11 @@ Spells.battleshield = {
                 print("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
                 return events
             end
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "battle_shield",
     sfx = "fire_shield",
     blockableBy = {}  -- Utility spell, can't be blocked
-}
-
--- Simple test shield just for debugging
-Spells.testshield = {
-    id = "testshield",
-    name = "Test Shield",
-    description = "A simple test shield that prints debug info when it blocks",
-    attackType = "utility",
-    castTime = 3.0,
-    cost = {"fire"},
-    keywords = {
-        block = {
-            type = "barrier",
-            blocks = {"projectile"},
-            
-            -- Super simple onBlock handler
-            onBlock = function(defender, attacker, slotIndex, blockInfo)
-                print("TEST SHIELD BLOCK TRIGGERED")
-                print("Defender: " .. (defender and defender.name or "nil"))
-                print("Attacker: " .. (attacker and attacker.name or "nil"))
-                print("Slot: " .. tostring(slotIndex))
-                
-                -- Return a damage event
-                return {
-                    {
-                        type = "DAMAGE",
-                        source = "caster",
-                        target = "enemy",
-                        amount = 5,
-                        damageType = "fire"
-                    }
-                }
-            end
-        }
-    },
-    vfx = "force_barrier",
-    sfx = "shield_up",
-    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -1014,7 +915,7 @@ Spells.shieldbreaker = {
     description = "A powerful force blast that shatters shields and barriers",
     attackType = Constants.AttackType.PROJECTILE, -- Projectile type (can be blocked by barriers and wards)
     castTime = 6.0,
-    cost = {"force", "force", "star"},
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
         -- Regular damage component
         damage = {
@@ -1037,14 +938,14 @@ Spells.shieldbreaker = {
                 return baseDamage + shieldBonus
             end,
             type = "force"
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     -- Add special property that indicates this is a shield-breaker spell
     -- This will be used in the shield-blocking logic
     shieldBreaker = 3, -- Deals 3 hits worth of damage to shields
-    vfx = "force_blast",
     sfx = "shield_break",
-    blockableBy = {Constants.S, "ward"}, -- Can be blocked by barriers and wards
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}, -- Can be blocked by barriers and wards
     
     -- Custom handler for when this spell is blocked
     onBlock = function(caster, target, slot, blockInfo)
@@ -1089,11 +990,11 @@ Spells.eruption = {
         burn = {
             duration = 4.0,
             tickDamage = 3
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "lava_eruption",
     sfx = "volcano_rumble",
-    blockableBy = {Constants.S, "field"},
+    blockableBy = {Constants.ShieldType.BARRIER},
     
     -- Custom handler for when this spell misses
     onMiss = function(caster, target, slot)
@@ -1120,32 +1021,6 @@ Spells.eruption = {
     end
 }
 
--- Utility spell that changes tokens
-Spells.stormMeld = {
-    id = "stormmeld",
-    name = "Storm Meld",
-    description = "An elemental fusion spell that changes tokens to random types",
-    attackType = "utility",
-    castTime = 3.0,
-    cost = {"fire", Constants.TokenType.MOON},
-    keywords = {
-        tokenShift = {
-            type = "random",
-            amount = 3
-        },
-        damage = {
-            amount = 5,
-            type = "mixed"
-        },
-        echo = {
-            delay = 3.0
-        }
-    },
-    vfx = "storm_meld",
-    sfx = "elemental_fusion",
-    blockableBy = {}  -- Utility spells can't be blocked
-}
-
 -- Offensive spell with multiple effects
 Spells.cosmicRift = {
     id = "cosmicrift",
@@ -1153,7 +1028,7 @@ Spells.cosmicRift = {
     description = "Opens a rift that damages opponents and disrupts spellcasting",
     attackType = Constants.AttackType.ZONE,
     castTime = 5.5,
-    cost = {"star", "star", "force"},
+    cost = {"star", "star", "star"},
     keywords = {
         damage = {
             amount = 12,
@@ -1164,21 +1039,21 @@ Spells.cosmicRift = {
             duration = 10.0, -- Effect persists for 10s waiting for a cast
             slot = nil -- Affects the next spell cast from any slot
         },
-        zoneMulti = true  -- Affects both NEAR and FAR
+        zoneMulti = true,  -- Affects both NEAR and FAR
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "cosmic_rift",
     sfx = "space_tear",
-    blockableBy = {Constants.S, "field"}
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Force blast spell that launches opponents into the air
 Spells.forceBlast = {
     id = "forceblast",
-    name = "Force Blast",
-    description = "Unleashes a blast of force that launches opponents into the air",
+    name = "Steam Vent",
+    description = "Unleashes a blast of steam that launches opponents into the air",
     attackType = "remote",
     castTime = 4.0,
-    cost = {"force", "force"},
+    cost = {"fire", "water"},
     keywords = {
         damage = {
             amount = 8,
@@ -1187,12 +1062,12 @@ Spells.forceBlast = {
         elevate = {
             duration = 3.0,         -- Lasts for 3 seconds
             target = "ENEMY",       -- Targets the opponent
-            vfx = "force_blast_up"  -- Custom VFX for the effect
-        }
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "force_blast",
     sfx = "force_wind",
-    blockableBy = {"ward", "field"}
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Movement spell with multiple effects
@@ -1202,7 +1077,7 @@ Spells.blazingAscent = {
     description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
     attackType = Constants.AttackType.ZONE,
     castTime = 3.0,
-    cost = {"fire", "fire", "force"},
+    cost = {"fire", "fire", "star"},
     keywords = {
         damage = {
             amount = function(caster, target)
@@ -1217,11 +1092,11 @@ Spells.blazingAscent = {
         dissipate = {
             token = Constants.TokenType.WATER,
             amount = 1
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "blazing_ascent",
     sfx = "fire_whoosh",
-    blockableBy = {Constants.S, "ward"}
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Complex multi-target spell using the new targeting system
@@ -1308,11 +1183,11 @@ Spells.arcaneReversal = {
             amount = 2.0,
             slot = 1,  -- First slot
             target = "SLOT_SELF"
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "arcane_reversal",
     sfx = "time_shift",
-    blockableBy = {"ward", "field"}
+    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Complex positional spell
@@ -1355,11 +1230,11 @@ Spells.lunarTides = {
                 return 3.0 + (activeSlots * 1.0)  -- Base 3 seconds + 1 per active slot
             end,
             target = "POOL_ENEMY"  -- Affects opponent's mana pool
-        }
+        },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "lunar_tide",
     sfx = "tide_rush",
-    blockableBy = {"field"}
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Example test spell showcasing new expression helpers
@@ -1398,9 +1273,9 @@ Spells.adaptive_surge = {
                 duration = 5.0
             },
             nil -- Don't apply slow otherwise
-        )
+        ),
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
-    vfx = "adaptive_surge",
     sfx = "adaptive_sound",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }

@@ -1,7 +1,25 @@
 -- EventRunner.lua
 -- Processes spell events and applies them to game state
+--
+-- IMPORTANT: Visual Effects Pattern
+-- =================================
+-- This module now uses the VisualResolver for determining which VFX to trigger.
+-- The pattern for creating visuals is:
+--
+-- 1. For typical gameplay events (damage, status, etc.):
+--    - Keywords in keywords.lua should include visual metadata in their events
+--    - The EFFECT handler in this module will use VisualResolver.pick() to determine visuals
+--
+-- 2. For specialized effects in other handlers:
+--    - Generate an EFFECT event with proper metadata and dispatch it
+--    - This ensures consistent visual handling through the VisualResolver
+--
+-- 3. Legacy direct VFX calls:
+--    - Some handlers still use safeCreateVFX() directly (marked with TODO comments)
+--    - These will be gradually migrated to use the VisualResolver pattern
 
 local Constants = require("core.Constants")
+local VisualResolver = require("systems.VisualResolver")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -320,9 +338,60 @@ EventRunner.EVENT_HANDLERS = {
         -- Debug log damage application
         print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
             event.amount, targetWizard.name, targetWizard.health))
+            
+        -- Debug log visual metadata
+        print(string.format("[DAMAGE EVENT] Visual metadata: affinity=%s, attackType=%s, damageType=%s, manaCost=%s", 
+            tostring(event.affinity),
+            tostring(event.attackType),
+            tostring(event.damageType),
+            tostring(event.manaCost)))
+        print(string.format("[DAMAGE EVENT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            event.tags and "present" or "nil",
+            tostring(event.rangeBand),
+            tostring(event.elevation)))
         
         -- Track damage for results
         results.damageDealt = results.damageDealt + event.amount
+        
+        -- Generate an EFFECT event for the damage
+        -- Check if we have a spell with effectOverride first
+        local effectOverride = nil
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+        end
+        
+        -- Create EFFECT event
+        local effectEvent = {
+            type = "EFFECT",
+            source = "caster",
+            target = event.target,
+            effectOverride = effectOverride, -- Use override if we have one
+            
+            -- Copy visual metadata from the damage event
+            affinity = event.affinity,
+            attackType = event.attackType,
+            damageType = event.damageType,
+            manaCost = event.manaCost,
+            tags = event.tags or { DAMAGE = true },
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+        
+        -- Debug log the generated EFFECT event
+        print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s", 
+            tostring(effectOverride)))
+        print(string.format("[DAMAGE->EFFECT] Transferred metadata: affinity=%s, attackType=%s, damageType=%s", 
+            tostring(effectEvent.affinity),
+            tostring(effectEvent.attackType),
+            tostring(effectEvent.damageType)))
+        print(string.format("[DAMAGE->EFFECT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            effectEvent.tags and "present" or "nil",
+            tostring(effectEvent.rangeBand),
+            tostring(effectEvent.elevation)))
+        
+        -- Process the effect event to create visuals
+        EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         
         return true
     end,
@@ -396,28 +465,29 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local effectType = Constants.VFXType.ELEVATION_DOWN -- Default to down (grounded)
-            if event.elevation == "AERIAL" then
-                effectType = Constants.VFXType.ELEVATION_UP
-            else
-                effectType = Constants.VFXType.ELEVATION_DOWN
-            end
-            
-            local params = {
-                duration = 1.0,
+            -- Interim Approach: Generate an EFFECT event to handle VFX consistently
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                -- If the event has a custom vfx specified, use it as an override
+                effectOverride = (event.vfx and type(event.vfx) == "string") and event.vfx or nil,
+                -- Provide elevation metadata for the resolver
+                affinity = event.affinity, -- Use affinity from original event
+                attackType = "utility",    -- Elevation is a utility spell type
+                manaCost = event.manaCost or 1,
+                tags = { MOVEMENT = true, [event.elevation == "AERIAL" and "ELEVATE" or "GROUND"] = true },
+                rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
-                source = caster.name
+                duration = 1.0
             }
             
-            -- Use our safe VFX creation helper, targeting the wizard's coords
-            safeCreateVFX(
-                caster.gameState.vfx, 
-                "createElevationEffect", 
-                effectType, 
-                targetWizard.x, 
-                targetWizard.y, 
-                params
-            )
+            -- Process the effect event, which will use the VisualResolver internally
+            -- This ensures consistent visual handling for all effects
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+            
+            -- Note: The above approach is cleaner than calling VisualResolver directly
+            -- as it ensures all event parameters are properly passed through
         end
         
         return true
@@ -442,19 +512,26 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create range change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                position = event.position,
-                duration = 1.0
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "both", -- Range changes affect both wizards
+                effectOverride = Constants.VFXType.RANGE_CHANGE, -- Use explicit override for this special effect
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity,
+                attackType = "utility",
+                manaCost = 1,
+                tags = { MOVEMENT = true },
+                rangeBand = event.position, -- The new range state
+                elevation = caster.elevation,
+                duration = 1.0,
+                -- Extra params specific to range changes
+                position = event.position
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createRangeChangeEffect",
-                Constants.VFXType.RANGE_CHANGE,
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -469,6 +546,9 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Create position force VFX if available
             if caster.gameState.vfx then
+                -- TODO: VFX-R5 - Update this to use VisualResolver pattern
+                -- This handler should be refactored to generate an EFFECT event
+                -- for consistency, but we'll leave it for now as it's a specialized effect
                 local params = {
                     duration = 1.0,
                     source = caster.name,
@@ -1029,6 +1109,7 @@ EventRunner.EVENT_HANDLERS = {
         local shieldParams = {
             createShield = true,
             defenseType = event.defenseType or "barrier",
+            type = event.defenseType or "barrier", -- Add type as well for compatibility
             blocksAttackTypes = event.blocksAttackTypes or {"projectile"},
             reflect = event.reflect or false,
             onBlock = event.onBlock or nil
@@ -1093,18 +1174,24 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create reflect VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                duration = event.duration
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.REFLECT, -- Use explicit override for now
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity, 
+                attackType = "utility",
+                manaCost = event.manaCost or 2,
+                tags = { DEFENSE = true, SHIELD = true },
+                rangeBand = caster.gameState.rangeState,
+                elevation = targetWizard.elevation,
+                duration = event.duration or 3.0
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createReflectEffect",
-                Constants.VFXType.REFLECT,
-                targetWizard.x,
-                targetWizard.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -1192,92 +1279,149 @@ EventRunner.EVENT_HANDLERS = {
     EFFECT = function(event, caster, target, spellSlot, results)
         print("[EFFECT EVENT] Processing EFFECT event")
         
-        -- Get x and y coordinates for the effect
-        local x, y = nil, nil
+        -- Detailed event inspection for debugging
+        print("[EFFECT EVENT] Full event details:")
+        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        print(string.format("  effectType=%s", tostring(event.effectType)))
+        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
+            tostring(event.affinity), 
+            tostring(event.attackType), 
+            tostring(event.damageType)))
+        print(string.format("  source=%s, target=%s", 
+            tostring(event.source), 
+            tostring(event.target)))
+            
+        -- Check if spell has override
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell then
+            local spell = caster.spellSlots[spellSlot].spell
+            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+                tostring(spell.name), tostring(spell.effectOverride)))
+        end
+        
+        -- Get source and target coordinates for the effect
+        local srcX, srcY, tgtX, tgtY = nil, nil, nil, nil
         
         -- CASE 1: If vfxParams contains direct coordinates, use those
         if event.vfxParams and event.vfxParams.x and event.vfxParams.y then
-            x = event.vfxParams.x
-            y = event.vfxParams.y
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d)", x, y))
+            srcX = event.vfxParams.x
+            srcY = event.vfxParams.y
+            tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
+            tgtY = event.vfxParams.targetY or srcY
+            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+                srcX, srcY, tgtX, tgtY))
         
-        -- CASE 2: Otherwise try to resolve wizard target coordinates
+        -- CASE 2: Otherwise resolve based on source/target entities
         else
+            -- Source coordinates (caster)
+            srcX = caster and caster.x or 0
+            srcY = caster and caster.y or 0
+            
+            -- Target coordinates 
             local targetInfo = EventRunner.resolveTarget(event, caster, target)
             if targetInfo and targetInfo.wizard then 
                 local targetWizard = targetInfo.wizard
-                x = targetWizard.x
-                y = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d)", x or 0, y or 0))
+                tgtX = targetWizard.x
+                tgtY = targetWizard.y
+                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                    srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, falling back to caster")
-                -- Fall back to caster position if target resolution fails
-                x = caster and caster.x or 0
-                y = caster and caster.y or 0
+                -- If target resolution fails, use same coordinates as source
+                tgtX = srcX
+                tgtY = srcY
+                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
+        end
+        
+        -- Check if this spell slot contains a spell with an effectOverride
+        local overrideName = nil
+        
+        -- Check in priority order for effect name
+        if event.effectOverride then
+            -- First check the event for an effectOverride (highest priority)
+            overrideName = event.effectOverride
+            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+        elseif event.effectType then
+            -- Then check if there's an effectType directly in the event (legacy VFX keyword)
+            overrideName = event.effectType
+            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+        elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+               caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            -- Finally check the spell slot for effectOverride (set by vfx keyword)
+            overrideName = caster.spellSlots[spellSlot].spell.effectOverride
+            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
         if caster.gameState and caster.gameState.vfx then
-            -- Get the effect type with validation/fallback using Constants
-            local effectType = event.effectType or Constants.VFXType.IMPACT
+            -- Use the override or let VisualResolver pick based on metadata
+            local baseEffectName, vfxOpts
             
-            -- Validate that effectType exists in Constants.VFXType values
-            if not Constants.isValidVFXType(effectType) then
-                print(string.format("[EFFECT EVENT] Warning: Unknown effectType '%s' requested by event. Defaulting to impact.", 
-                    tostring(effectType)))
-                effectType = Constants.VFXType.IMPACT
+            -- Debug before VisualResolver.pick
+            print("[EFFECT EVENT] About to call VisualResolver.pick()")
+            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            
+            if overrideName then
+                -- Manual override - use it directly but still get options from resolver
+                event.effectOverride = overrideName -- Ensure the event has the override
+                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
+            else
+                -- Standard resolver path using event metadata
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
             end
             
-            -- Build parameters for the effect
-            local params = {
-                duration = event.duration or 0.5,
-                effectType = effectType
-            }
+            -- Debug after VisualResolver.pick
+            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
+                tostring(baseEffectName), 
+                vfxOpts and "present" or "nil"))
             
-            -- Add source/target names if available
+            -- Skip VFX if no valid base effect name
+            if not baseEffectName then
+                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                return false
+            end
+            
+            -- Merge additional parameters from event
+            if not vfxOpts then vfxOpts = {} end
+            
+            -- Add source/target names
             if caster and caster.name then
-                params.source = caster.name
+                vfxOpts.source = caster.name
             end
-            
-            -- Add target name if available
             if target and target.name then
-                params.target = target.name
+                vfxOpts.target = target.name
             end
             
-            -- Add any additional parameters from vfxParams
-            if event.vfxParams then
-                for k, v in pairs(event.vfxParams) do
-                    -- Don't copy x/y as they're passed directly to safeCreateVFX
-                    if k ~= "x" and k ~= "y" then
-                        params[k] = v
-                    end
-                end
+            -- Set default duration if not provided
+            if not vfxOpts.duration then
+                vfxOpts.duration = event.duration or 0.5
             end
             
-            -- Add any additional parameters from the event itself
-            for k, v in pairs(event) do
-                if k ~= "type" and k ~= "source" and k ~= "target" and 
-                   k ~= "duration" and k ~= "effectType" and k ~= "vfxParams" then
-                    params[k] = v
-                end
-            end
-            
-            -- Extra debug info (after validation)
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d)", 
-                tostring(effectType), x or 0, y or 0))
+            -- Extra debug info
+            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+                tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
-            -- Use our safe VFX creation helper with resolved coordinates
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createEffect",
-                effectType, -- Pass the validated effect type
-                x or 0,
-                y or 0,
-                params
-            )
+            -- Call VFX.createEffect directly instead of using safeCreateVFX
+            -- This pattern matches how we want VFX module to be called in the future
+            -- with directional information (source -> target)
+            local vfxModule = caster.gameState.vfx
+            if vfxModule and vfxModule.createEffect then
+                local success, err = pcall(function()
+                    vfxModule.createEffect(baseEffectName, srcX, srcY, tgtX, tgtY, vfxOpts)
+                end)
+                
+                if not success then
+                    print("ERROR: Failed to create effect: " .. tostring(err))
+                    return false
+                end
+            else
+                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                return false
+            end
         else
             print("[EFFECT EVENT] ERROR: VFX system not available")
+            return false
         end
         
         return true
