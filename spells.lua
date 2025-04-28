@@ -495,14 +495,14 @@ Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Ward that elevates the caster each time it blocks.",
+    description = "Magical ward that blocks projectile and remote attacks, elevating the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
     keywords = {
         block = {
-            type = Constants.ShieldType.WARD,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            type = Constants.ShieldType.WARD, -- Ward blocks projectile and remote
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
             
             -- Simplified onBlock implementation
             onBlock = function(defender, attacker, slot, info)

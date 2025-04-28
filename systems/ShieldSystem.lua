@@ -28,6 +28,12 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     local slot = wizard.spellSlots[spellSlot]
     
+    -- DEFENSIVE CHECK: Don't create shield if slot already has one
+    if slot.isShield then
+        print("[SHIELD ERROR] Slot " .. spellSlot .. " already has a shield! Preventing duplicate creation.")
+        return { shieldCreated = false, reason = "duplicate" }
+    end
+    
     -- Set shield parameters - simplified to use token count as the only source of truth
     slot.isShield = true
     
@@ -48,6 +54,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
         print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
     end
     
+    -- Remove duplicate onBlock assignment from line 67
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -63,8 +71,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- Set onBlock callback
-    slot.onBlock = blockParams.onBlock or nil
+    -- Note: onBlock is already set above (line 48)
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
