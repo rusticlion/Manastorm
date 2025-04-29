@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Tue Apr 29 12:31:05 CDT 2025
+Generated: Tue Apr 29 18:47:54 CDT 2025
 
 # Source Code
 
@@ -250,7 +250,9 @@ Constants.TokenStatus = {
     CHANNELED = "CHANNELED",   -- Being used in a spell slot
     SHIELDING = "SHIELDING",   -- Being used for a shield spell
     LOCKED = "LOCKED",         -- Temporarily unavailable
-    RETURNING = "RETURNING",   -- Animating back to pool (transition state)
+    APPEARING = "APPEARING",   -- Animating into existence from wizard to pool (transition state)
+    RETURNING = "RETURNING",   -- Animating back to pool center (transition state)
+    ORBITING = "ORBITING",     -- Animating from pool center to orbit (transition state)
     DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
     POOLED = "POOLED"          -- Released to the object pool
 }
@@ -302,8 +304,6 @@ function Constants.getColorForTokenType(tokenType)
     elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
     elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
     elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
-    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
-    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
@@ -314,23 +314,24 @@ end
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
     WARD = "ward",          -- Magical ward (blocks remote spells)
-    FIELD = "field"         -- Field (blocks zone effects)
 }
 
 -- Attack types for spells
+-- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
+-- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
-    PROJECTILE = "projectile",  -- Dodgeable, affected by range
-    REMOTE = "remote",          -- Magic directly affects target
-    ZONE = "zone",              -- Area effect, position-dependent
-    UTILITY = "utility"         -- Non-damaging effect
+    PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
+    REMOTE = "remote",          -- Magic directly affects target, beats Barriers, expensive or slow
+    ZONE = "zone",              -- Magic affects a physical area, beats Wards, position-dependent
+    UTILITY = "utility"         -- Non-damaging effect, can't be blocked
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 13,
-    SLOW = 10,
-    NORMAL = 7,
-    FAST = 4,
-    VERY_FAST = 1,
+    VERY_SLOW = 12,
+    SLOW = 8,
+    NORMAL = 5,
+    FAST = 3,
+    VERY_FAST = 1.5,
     ONE_TIER = 3
 }
 
@@ -3943,6 +3944,10 @@ function ManaPool.new(x, y)
     -- Chance for a token to switch valences
     self.valenceJumpChance = 0.002  -- Per frame chance of switching
     
+    -- Initialize token trails system
+    self.tokenTrails = {}
+    self.trailLength = 30  -- Max number of positions to store per token
+    
     -- Initialize the token pool if not already done
     if not Pool.pools["token"] then
         Pool.create("token", 50, function() 
@@ -3974,8 +3979,10 @@ function TokenMethods:setState(newStatus)
        newStatus == Constants.TokenStatus.CHANNELED or 
        newStatus == Constants.TokenStatus.SHIELDING then
         self.state = newStatus
-    elseif newStatus == Constants.TokenStatus.RETURNING then
-        self.state = self.originalStatus -- Keep original state during animation
+    elseif newStatus == Constants.TokenStatus.RETURNING or
+           newStatus == Constants.TokenStatus.APPEARING or
+           newStatus == Constants.TokenStatus.ORBITING then
+        self.state = self.originalStatus or Constants.TokenState.FREE -- Keep original state during animation
     elseif newStatus == Constants.TokenStatus.DISSOLVING then
         self.state = Constants.TokenState.DESTROYED
     elseif newStatus == Constants.TokenStatus.POOLED then
@@ -4075,7 +4082,7 @@ function TokenMethods:requestDestructionAnimation()
     return true
 end
 
--- Finalize return to pool after animation
+-- Finalize return to pool after animation (first phase)
 function TokenMethods:finalizeReturn()
     -- Validate current state
     if self.status ~= Constants.TokenStatus.RETURNING then
@@ -4083,8 +4090,7 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Reset animation flags
-    self.isAnimating = false
+    -- Reset some animation flags but keep isAnimating true for orbit animation
     self.returning = false  -- For backward compatibility
     
     -- Clear wizard/spell references
@@ -4099,42 +4105,47 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Set new state
-    self:setState(Constants.TokenStatus.FREE)
-    
-    -- Initialize orbit parameters (borrowed from ManaPool:finalizeTokenReturn)
-    -- Choose a random valence
+    -- Choose a random valence for the token's destination
     local valenceIndex = math.random(1, #manaPool.valences)
     local valence = manaPool.valences[valenceIndex]
     self.valenceIndex = valenceIndex
     
-    -- Calculate angle from pool center
-    local dx = self.x - manaPool.x
-    local dy = self.y - manaPool.y
-    local angle = math.atan2(dy, dx)
-    
-    -- Set orbit angle
+    -- Calculate a random angle for the token's destination
+    -- We'll use a random angle rather than the current angle to ensure
+    -- tokens don't all follow the same path
+    local angle = math.random() * math.pi * 2
     self.orbitAngle = angle
     
-    -- Calculate position based on valence
-    local newX = manaPool.x + math.cos(angle) * valence.radiusX
-    local newY = manaPool.y + math.sin(angle) * valence.radiusY
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
     
-    -- Add slight position variation
+    -- Add slight position variation to the target
     local variationX = math.random(-2, 2)
     local variationY = math.random(-1, 1)
-    self.x = newX + variationX
-    self.y = newY + variationY
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
     
     -- Randomize orbit direction and speed
     local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
     self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
     self.originalSpeed = self.orbitSpeed
-    
-    -- Set transition flags for smooth animation
-    self.transitionTime = 0
-    self.transitionDuration = 1.0
-    self.inTransition = true
     
     -- Initialize valence properties
     self.valenceJumpTimer = 2 + math.random() * 8
@@ -4152,6 +4163,157 @@ function TokenMethods:finalizeReturn()
     
     -- Visual variance
     self.scale = 0.85 + math.random() * 0.3
+    self.zOrder = math.random()
+    
+    return true
+end
+
+-- Finalize orbit transition (second phase)
+function TokenMethods:finalizeOrbit()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.ORBITING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize orbit from ORBITING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Reset animation flags
+    self.isAnimating = false
+    
+    -- Get the ManaPool instance from the token's game state or another reference
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token orbit!")
+        return false
+    end
+    
+    -- Update position to make sure it's at the target
+    self.x = self.targetOrbitX
+    self.y = self.targetOrbitY
+    
+    -- Clean up orbit animation properties
+    self.startOrbitX = nil
+    self.startOrbitY = nil
+    self.targetOrbitX = nil
+    self.targetOrbitY = nil
+    self.orbitAnimTime = nil
+    self.orbitAnimDuration = nil
+    
+    -- Set state to FREE
+    self:setState(Constants.TokenStatus.FREE)
+    
+    -- Set transition flags for smooth animation of orbital motion
+    self.transitionTime = 0
+    self.transitionDuration = 0.4  -- Shorter orbital transition (was 1.0)
+    self.inTransition = true
+    
+    return true
+end
+
+-- Initialize conjured token appearance animation
+function TokenMethods:requestAppearAnimation(fromWizard)
+    -- Set up animation parameters
+    self.isAnimating = true
+    
+    -- Store the source position (wizard position)
+    self.startX = fromWizard.x
+    self.startY = fromWizard.y - 40  -- Start a little above the wizard
+    
+    -- Initialize animation timing
+    self.appearAnimTime = 0
+    self.appearAnimDuration = 0.7  -- Slightly longer than return animation
+    
+    -- Set the target scale
+    self.targetScale = 0.85 + math.random() * 0.3
+    
+    -- Start very small
+    self.scale = 0.1
+    
+    -- Initial position is at the wizard
+    self.x = self.startX
+    self.y = self.startY
+    
+    -- Prepare callback for when animation completes
+    self.animationCallback = function() self:finalizeAppear() end
+    
+    -- Set status to APPEARING
+    self:setState(Constants.TokenStatus.APPEARING)
+    
+    return true
+end
+
+-- Finalize appear animation and transition to orbiting
+function TokenMethods:finalizeAppear()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.APPEARING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize appear from APPEARING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Maintain animation flag
+    self.isAnimating = true
+    
+    -- Get the ManaPool instance from the token's game state
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token appearance!")
+        return false
+    end
+    
+    -- Choose a random valence for the token's destination
+    local valenceIndex = math.random(1, #manaPool.valences)
+    local valence = manaPool.valences[valenceIndex]
+    self.valenceIndex = valenceIndex
+    
+    -- Calculate a random angle for the token's destination
+    local angle = math.random() * math.pi * 2
+    self.orbitAngle = angle
+    
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
+    
+    -- Add slight position variation to the target
+    local variationX = math.random(-2, 2)
+    local variationY = math.random(-1, 1)
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
+    
+    -- Randomize orbit direction and speed
+    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
+    self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
+    self.originalSpeed = self.orbitSpeed
+    
+    -- Initialize valence properties
+    self.valenceJumpTimer = 2 + math.random() * 8
+    self.inValenceTransition = false
+    self.valenceTransitionTime = 0
+    self.valenceTransitionDuration = 0.8
+    self.sourceValenceIndex = valenceIndex
+    self.targetValenceIndex = valenceIndex
+    self.sourceRadiusX = valence.radiusX
+    self.sourceRadiusY = valence.radiusY
+    self.targetRadiusX = valence.radiusX
+    self.targetRadiusY = valence.radiusY
+    self.currentRadiusX = valence.radiusX
+    self.currentRadiusY = valence.radiusY
+    
+    -- Visual variance set during appearing animation
     self.zOrder = math.random()
     
     return true
@@ -4210,6 +4372,11 @@ function ManaPool.resetToken(token)
         token[name] = nil
     end
     
+    -- Clear token trails if they exist
+    if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+        token.manaPool.tokenTrails[token] = nil
+    end
+    
     -- Clear all references and fields
     token.type = nil
     token.image = nil
@@ -4240,7 +4407,20 @@ function ManaPool.resetToken(token)
     token.currentRadiusX = nil
     token.currentRadiusY = nil
     token.scale = nil
+    token.targetScale = nil
     token.zOrder = nil
+    
+    -- Clear animation-specific fields
+    token.startOrbitX = nil
+    token.startOrbitY = nil
+    token.targetOrbitX = nil
+    token.targetOrbitY = nil
+    token.orbitAnimTime = nil
+    token.orbitAnimDuration = nil
+    token.appearAnimTime = nil
+    token.appearAnimDuration = nil
+    token.startX = nil
+    token.startY = nil
     token.originalSpeed = nil
     token.wizardOwner = nil
     token.spellSlot = nil
@@ -4281,8 +4461,10 @@ function ManaPool:clear()
     
     self.tokens = {}
     self.reservedTokens = {}
+    self.tokenTrails = {} -- Clear token trails when clearing the pool
 end
 
+-- Standard token addition - creates token directly at its final position
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)
@@ -4314,10 +4496,10 @@ function ManaPool:addToken(tokenType, imagePath)
         love.graphics.setCanvas()
     end
     
-    -- Create a new token with valence-based properties
+    -- Create a new token from the pool
     local token = Pool.acquire("token")
     
-    -- Add methods from TokenMethods table (Lua's way of adding methods to an object)
+    -- Add methods from TokenMethods table
     for name, method in pairs(TokenMethods) do
         token[name] = method
     end
@@ -4329,13 +4511,12 @@ function ManaPool:addToken(tokenType, imagePath)
     token.y = y + variationY
     
     -- Initialize state machine properties
-    token.status = Constants.TokenStatus.FREE  -- New state machine status
-    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
+    token.status = Constants.TokenStatus.FREE
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
     token.isAnimating = false
-    token.manaPool = self  -- Reference to this mana pool instance
-    token.id = #self.tokens + 1  -- Simple ID based on token position
+    token.manaPool = self -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
     
-    -- Valence-based orbit properties
     token.valenceIndex = valenceIndex
     token.orbitAngle = angle
     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
@@ -4381,6 +4562,71 @@ function ManaPool:addToken(tokenType, imagePath)
     return token
 end
 
+-- Add token with appearance animation from wizard
+function ManaPool:addTokenWithAnimation(tokenType, imagePath, sourceWizard)
+    if not sourceWizard then
+        -- Fall back to regular addition if no wizard provided
+        return self:addToken(tokenType, imagePath)
+    end
+    
+    -- Get image from cache, with fallback
+    local tokenImage = AssetCache.getImage(imagePath)
+    if not tokenImage then
+        print("WARNING: Failed to load token image: " .. imagePath .. " - using placeholder")
+        -- Create a placeholder image using LÖVE's built-in canvas
+        tokenImage = love.graphics.newCanvas(32, 32)
+        love.graphics.setCanvas(tokenImage)
+        love.graphics.clear(0.8, 0.2, 0.8, 1) -- Bright color to make missing textures obvious
+        love.graphics.rectangle("fill", 0, 0, 32, 32)
+        love.graphics.setCanvas()
+    end
+    
+    -- Create a new token with animation-ready properties
+    local token = Pool.acquire("token")
+    
+    -- Add methods from TokenMethods table
+    for name, method in pairs(TokenMethods) do
+        token[name] = method
+    end
+    
+    -- Initialize basic properties
+    token.type = tokenType
+    token.image = tokenImage
+    
+    -- Position will be set by animation
+    token.x = sourceWizard.x
+    token.y = sourceWizard.y - 40 -- Start slightly above wizard
+    
+    -- Initialize state machine properties
+    token.status = nil -- Will be set to APPEARING by requestAppearAnimation
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
+    token.isAnimating = true
+    token.manaPool = self  -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
+    
+    -- Visual effects
+    token.pulsePhase = math.random() * math.pi * 2
+    token.pulseSpeed = 2 + math.random() * 3
+    token.rotAngle = math.random() * math.pi * 2
+    token.rotSpeed = math.random(-2, 2) * 0.5
+    
+    -- Scale starts small and grows during animation
+    token.scale = 0.1
+    
+    -- If game state is available, store it for VFX access
+    if self.gameState then
+        token.gameState = self.gameState
+    end
+    
+    -- Add to the pool's token list
+    table.insert(self.tokens, token)
+    
+    -- Start appearance animation
+    token:requestAppearAnimation(sourceWizard)
+    
+    return token
+end
+
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
@@ -4391,6 +4637,39 @@ function ManaPool:update(dt)
         -- Skip updating POOLED tokens, they've been reset and their properties are nil
         if token.status == Constants.TokenStatus.POOLED then
             goto continue_token
+        end
+        
+        -- Update token trail position history
+        if not self.tokenTrails[token] then
+            self.tokenTrails[token] = {}
+        end
+        
+        -- Only add a new trail point if the token has moved significantly
+        local lastPosition = self.tokenTrails[token][1]
+        local shouldAddTrail = true
+        
+        if lastPosition then
+            -- Calculate distance moved since last trail point
+            local dx = token.x - lastPosition.x
+            local dy = token.y - lastPosition.y
+            local distSquared = dx*dx + dy*dy
+            
+            -- Only add trail points if moved more than a minimum distance
+            shouldAddTrail = distSquared > 4
+        end
+        
+        if shouldAddTrail then
+            -- Store new position at the beginning of history array
+            table.insert(self.tokenTrails[token], 1, {
+                x = token.x, 
+                y = token.y, 
+                time = love.timer.getTime()
+            })
+            
+            -- Limit trail length
+            if #self.tokenTrails[token] > self.trailLength then
+                table.remove(self.tokenTrails[token])
+            end
         end
         
         -- Update token based on its status in the state machine
@@ -4643,6 +4922,107 @@ function ManaPool:update(dt)
                 token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
             end
             
+        elseif token.status == Constants.TokenStatus.APPEARING then
+            -- Token is being animated into existence from a wizard to the mana pool
+            token.appearAnimTime = token.appearAnimTime + dt
+            local progress = math.min(1, token.appearAnimTime / token.appearAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startX
+            local y0 = token.startY
+            local x3 = self.x  -- Center of mana pool
+            local y3 = self.y
+            
+            -- Calculate higher arc height for appearing tokens
+            local height = 80 -- Higher arc for appearing tokens
+            
+            -- Control points for bezier (creating an arc)
+            local midX = (x0 + x3) / 2
+            local midY = (y0 + y3) / 2 - height  -- Negative for upward arc
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Gradual scaling up with progress
+            local startScale = 0.1  -- Start very small
+            local endScale = token.targetScale or 1.0
+            token.scale = startScale + (endScale - startScale) * progress
+            
+            -- Update token rotation during flight - spin faster while appearing
+            token.rotAngle = token.rotAngle + dt * 10
+            
+            -- Check if animation is complete
+            if token.appearAnimTime >= token.appearAnimDuration then
+                -- Token has reached the pool center - transition to orbiting
+                token.animationCallback()
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
+        elseif token.status == Constants.TokenStatus.ORBITING then
+            -- Token is in second phase of return, animating from pool center to orbit position
+            token.orbitAnimTime = token.orbitAnimTime + dt
+            local progress = math.min(1, token.orbitAnimTime / token.orbitAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startOrbitX
+            local y0 = token.startOrbitY
+            local x3 = token.targetOrbitX
+            local y3 = token.targetOrbitY
+            
+            -- Control points for bezier (creating an arc)
+            -- Make the arc go outward in the direction of the target
+            local dx = x3 - x0
+            local dy = y3 - y0
+            local dist = math.sqrt(dx*dx + dy*dy)
+            local nx = dx / dist  -- Normalized direction vector
+            local ny = dy / dist
+            
+            -- Control point perpendicular to the path with a height proportional to distance
+            local arcHeight = math.min(dist * 0.4, 35)  -- Cap the arc height
+            local midX = (x0 + x3) / 2 + ny * arcHeight  -- Perpendicular offset
+            local midY = (y0 + y3) / 2 - nx * arcHeight
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Update token rotation during flight - spin faster but not as fast as returning
+            token.rotAngle = token.rotAngle + dt * 5
+            
+            -- Check if animation is complete
+            if token.orbitAnimTime >= token.orbitAnimDuration then
+                -- Token has reached its orbit position - call the animation callback
+                if token.animationCallback then
+                    token.animationCallback()
+                else
+                    print("[MANAPOOL] WARNING: No animation callback defined for orbiting token")
+                    -- Fallback
+                    token:setState(Constants.TokenStatus.FREE)
+                end
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
             token.dissolveTime = token.dissolveTime + dt
@@ -4675,6 +5055,47 @@ function ManaPool:drawToken(token)
         return
     end
     
+    -- Draw trailing effect behind the token first (similar to main menu tokens)
+    if self.tokenTrails[token] and #self.tokenTrails[token] > 2 then
+        local colorTable = Constants.getColorForTokenType(token.type)
+        local stepSize = (#self.tokenTrails[token] > 20) and 2 or 1
+        
+        for j = #self.tokenTrails[token], 2, -stepSize do
+            local pos = self.tokenTrails[token][j]
+            local time = love.timer.getTime()
+            local timeDiff = time - pos.time
+            
+            -- Calculate fade based on position in trail (older = more transparent)
+            local trailAlpha = 0.2 * (1 - (j / self.trailLength)^1.5)
+            
+            -- Trail size based on position (older = smaller)
+            local trailScale = 12 * (1 - (j / self.trailLength) * 0.6)
+            
+            -- Adjust trail appearance based on token state
+            if token.status == Constants.TokenStatus.APPEARING then
+                -- Enhanced trail for appearing tokens (brightest)
+                trailAlpha = trailAlpha * 1.8
+                trailScale = trailScale * 1.4
+            elseif token.status == Constants.TokenStatus.RETURNING then
+                -- Enhanced trail for returning tokens
+                trailAlpha = trailAlpha * 1.5
+                trailScale = trailScale * 1.2
+            elseif token.status == Constants.TokenStatus.ORBITING then
+                -- Enhanced trail for orbiting tokens
+                trailAlpha = trailAlpha * 1.3
+                trailScale = trailScale * 1.1
+            elseif token.status ~= Constants.TokenStatus.FREE then
+                -- Reduce trails for other token states
+                trailAlpha = trailAlpha * 0.7
+                trailScale = trailScale * 0.7
+            end
+            
+            -- Draw trail particle
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+            love.graphics.circle("fill", pos.x, pos.y, trailScale)
+        end
+    end
+    
     -- Draw a larger, more vibrant glow around the token based on its type
     local glowSize = 15 -- Larger glow radius
     local glowIntensity = 0.6  -- Stronger glow intensity
@@ -4692,8 +5113,14 @@ function ManaPool:drawToken(token)
             layerIntensity = layerIntensity + transitionBoost * 0.5
         end
         
+        -- Special visual effects for APPEARING tokens
+        if token.status == Constants.TokenStatus.APPEARING then
+            -- Intense, bright glow for appearing tokens
+            local appearProgress = token.appearAnimTime / token.appearAnimDuration
+            layerSize = layerSize * (1.4 + appearProgress * 1.0) -- Extra large glow
+            layerIntensity = layerIntensity + appearProgress * 0.6 -- Very bright
         -- Special visual effects for RETURNING tokens
-        if token.status == Constants.TokenStatus.RETURNING then
+        elseif token.status == Constants.TokenStatus.RETURNING then
             -- Bright, trailing glow for returning tokens
             local returnProgress = token.animTime / token.animDuration
             layerSize = layerSize * (1.2 + returnProgress * 0.8) -- Growing glow
@@ -4887,7 +5314,10 @@ function ManaPool:draw()
     end
     
     table.sort(sortedTokens, function(a, b)
-        return a.token.zOrder > b.token.zOrder
+        -- Safe sorting - handle nil zOrder values
+        local zOrderA = a.token.zOrder or 0
+        local zOrderB = b.token.zOrder or 0
+        return zOrderA > zOrderB
     end)
     
     -- Draw tokens in sorted order, skipping those attached to wizards
@@ -5683,9 +6113,9 @@ Spells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 15
+                    return 12
                 end
-                return 10
+                return 7
             end,
             type = Constants.DamageType.FIRE
         },
@@ -5816,6 +6246,155 @@ Spells.conjuresalt = {
         return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
+
+Spells.glitterfang = {
+    id = "glitterfang",
+    name = "Glitter Fang",
+    affinity = "salt",
+    description = "Very fast, unblockable attack. Only hits NEAR/GROUNDED enemies",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = 7,
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.gameState.rangeState == Constants.RangeState.NEAR
+                    and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        sfx = "glitter_fang",
+        blockableBy = {}
+    }
+}
+
+Spells.imprison = {
+    id = "imprison",
+    name = "Imprison",
+    affinity = "salt",
+    description = "Trap: Deals damage and prevents enemy movement to FAR",
+    attackType = "utility",  -- Changed to utility since it's not a direct attack
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        -- Mark as a sustained spell
+        sustain = true,
+        
+        -- Define trap trigger condition
+        trap_trigger = { 
+            condition = "on_opponent_far" 
+        },
+        
+        -- Define trap window/expiry
+        -- TODO: make trap "expend mana" to go off instead of one-shot (similar to a shield)
+        trap_window = { 
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
+        },
+        
+        -- Define trap effect when triggered
+        trap_effect = {
+            -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
+            damage = { 
+                amount = 7, 
+                type = Constants.DamageType.SALT,  
+                target = "ENEMY" 
+            },
+            rangeShift = { 
+                position = Constants.RangeState.NEAR,
+            },
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "gravity_trap_set",
+    blockableBy = {} 
+}
+
+Spells.saltcircle = {
+    id = "saltcircle",
+    name = "Salt Circle",
+    affinity = "salt",
+    description = "Ward: Creates a circle of Salt around the caster",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.WARD,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "salt_circle",
+    blockableBy = {}
+}
+
+Spells.stoneshield = {
+    id = "stoneshield",
+    name = "Stone Shield",
+    affinity = "salt",
+    description = "Barrier: Creates a shield of stone around the caster",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "stone_shield",
+    blockableBy = {}
+}
+
+Spells.jaggedearth = {
+    -- todo - beefier trap conditions - this needs an "onLanding" condition that watches for the frame when opponent hits the ground
+    id = "jaggedearth",
+    name = "Jagged Earth",
+    affinity = "salt",
+    description = "Trap: Creates a zone of jagged earth around the target that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 7, 
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        rangeShift = {  
+            position = Constants.RangeState.NEAR,
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "jagged_earth",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}
+
+Spells.saltstorm = {
+    id = "saltstorm",
+    name = "Salt Storm",
+    affinity = "salt",
+    description = "Zone: Creates a zone of salt around the caster that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.VERY_SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 15,
+            type = Constants.DamageType.SALT
+        },
+        zoneMulti = true,
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "salt_storm",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}   
 
 Spells.emberlift = {
     id = "emberlift",
@@ -6133,7 +6712,7 @@ Spells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Switch Range. Freeze <6> enemy Root slot.",
+    description = "Switch Range. Freeze <3> enemy Root slot.",
     attackType = "remote",
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON},
@@ -6151,7 +6730,7 @@ Spells.moondance = {
             target = "SELF" 
         },
         freeze = {
-            duration = Constants.CastSpeed.ONE_TIER*2,
+            duration = 3,
             target = "SLOT_ENEMY",
             slot = 1
         }
@@ -6405,10 +6984,10 @@ Spells.battleshield = {
 -- Shield-breaking spell
 Spells.shieldbreaker = {
     id = "shieldbreaker",
-    name = "Shield Breaker",
-    description = "A powerful force blast that shatters shields and barriers",
+    name = "Salt Spear",
+    description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE, -- Projectile type (can be blocked by barriers and wards)
-    castTime = 6.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
         -- Regular damage component
@@ -7282,6 +7861,10 @@ EventRunner.EVENT_HANDLERS = {
             }
         end
         
+        -- No need to manually trigger position animation here -
+        -- The wizard's positionAnimation is automatically detected and handled
+        -- in WizardVisuals.drawWizard when elevation changes
+        
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
             -- Interim Approach: Generate an EFFECT event to handle VFX consistently
@@ -7326,7 +7909,12 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Update game state with new range
         if caster.gameState then
+            -- Store the new range state
             caster.gameState.rangeState = event.position
+            
+            -- No need to call any extra position animation functions - the wizards'
+            -- positionAnimation state is automatically detected and updated in 
+            -- WizardVisuals.drawWizard when it sees the range state has changed
         end
         
         -- Create range change VFX if available
@@ -7394,10 +7982,27 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Add tokens to the mana pool
+        -- Create VFX for token conjuration if available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                tokenType = event.tokenType,
+                amount = event.amount
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConjureEffect",
+                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
+                caster.x,
+                caster.y,
+                params
+            )
+        end
+        
+        -- Add tokens to the mana pool with animation
         for i = 1, event.amount do
             local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
-            manaPool:addToken(event.tokenType, assetPath)
+            manaPool:addTokenWithAnimation(event.tokenType, assetPath, caster)
             results.tokensAffected = results.tokensAffected + 1
         end
         
@@ -8617,6 +9222,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
+        -- misnomer since default bahvior changed
+        -- TODO: restore logic to actually "consume" tokens if shield has some keyword
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
@@ -8624,24 +9231,24 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             
             -- Safety check for removed token object
             if removedTokenObject and removedTokenObject.type then
-                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) freed by block -> FREE", 
                     tostring(removedTokenObject.type)))
             else
-                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) freed by block -> FREE")
             end
                 
-            -- Mark the consumed token for destruction using TokenManager
+            -- Mark the consumed token for freeing using TokenManager
             if removedTokenObject then
                 -- Get TokenManager
                 local TokenManager = require("systems.TokenManager")
                 
                 -- Create a token array for TokenManager to handle
-                local tokenToDestroy = {
+                local tokenToFree = {
                     {token = removedTokenObject, index = 1}
                 }
                 
-                -- Use TokenManager to destroy the token
-                TokenManager.destroyTokens(tokenToDestroy)
+                -- Use TokenManager to free the token
+                TokenManager.returnTokensToPool(tokenToFree)
                 
                 -- Call the wizard's centralized check *after* removing the token
                 wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
@@ -8981,6 +9588,11 @@ function SustainedSpellManager.update(dt)
                     -- For now, trigger continuously while the opponent is elevated
                     conditionMet = true
                     print(string.format("[SustainedManager] Trap triggered by opponent elevation: %s", targetWizard.elevation))
+                end
+
+                if condition == "on_opponent_far" and targetWizard.rangeState == "FAR" then
+                    conditionMet = true
+                    print(string.format("[SustainedManager] Trap triggered by opponent being far"))
                 end
                 
                 -- Check cast trigger condition
@@ -9570,6 +10182,11 @@ function TokenManager.destroyTokens(tokens)
             goto continue_token
         end
         
+        -- Clear token trails if available
+        if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+            token.manaPool.tokenTrails[token] = nil
+        end
+        
         -- Use token state machine if available
         if token.requestDestructionAnimation then
             token:requestDestructionAnimation()
@@ -10056,6 +10673,11 @@ function WizardVisuals.drawEllipticalArc(x, y, radiusX, radiusY, startAngle, end
     
     -- Draw the arc as a line
     love.graphics.line(points)
+end
+
+-- Easing function for smoother animations
+function WizardVisuals.easeOutCubic(t)
+    return 1 - math.pow(1 - t, 3)
 end
 
 -- Draw status effects with durations using horizontal bars
@@ -10565,13 +11187,13 @@ end
 
 -- Main function to draw the wizard
 function WizardVisuals.drawWizard(wizard)
-    -- Calculate position adjustments based on elevation and range state
-    local yOffset = 0
-    local xOffset = 0
+    -- Calculate target position adjustments based on elevation and range state
+    local targetYOffset = 0
+    local targetXOffset = 0
     
     -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if wizard.elevation == "AERIAL" then
-        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
+        targetYOffset = -50  -- Lift the wizard up more significantly when AERIAL
     end
     
     -- Horizontal adjustment for NEAR/FAR state
@@ -10580,9 +11202,37 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Push wizards closer to center in NEAR mode, further in FAR mode
     if wizard.name == "Ashgar" then -- Player 1 (left side)
-        xOffset = isNear and 60 or 0 -- Move right when NEAR
+        targetXOffset = isNear and 60 or 0 -- Move right when NEAR
     else -- Player 2 (right side)
-        xOffset = isNear and -60 or 0 -- Move left when NEAR
+        targetXOffset = isNear and -60 or 0 -- Move left when NEAR
+    end
+    
+    -- Check if position needs to change and start animation if needed
+    if not wizard.positionAnimation.active and
+       ((wizard.currentXOffset or 0) ~= targetXOffset or 
+        (wizard.currentYOffset or 0) ~= targetYOffset) then
+        -- Start animation
+        wizard.positionAnimation.active = true
+        wizard.positionAnimation.startX = wizard.currentXOffset or 0
+        wizard.positionAnimation.startY = wizard.currentYOffset or 0
+        wizard.positionAnimation.targetX = targetXOffset
+        wizard.positionAnimation.targetY = targetYOffset
+        wizard.positionAnimation.progress = 0
+    end
+    
+    -- Calculate and apply current offsets (animated or target)
+    local xOffset, yOffset
+    if wizard.positionAnimation.active then
+        -- Use interpolated position with easing
+        local progress = WizardVisuals.easeOutCubic(wizard.positionAnimation.progress)
+        xOffset = wizard.positionAnimation.startX + 
+                 (wizard.positionAnimation.targetX - wizard.positionAnimation.startX) * progress
+        yOffset = wizard.positionAnimation.startY + 
+                 (wizard.positionAnimation.targetY - wizard.positionAnimation.startY) * progress
+    else
+        -- Use target position directly
+        xOffset = targetXOffset
+        yOffset = targetYOffset
     end
     
     -- Set color and draw wizard
@@ -12363,9 +13013,10 @@ return UI```
 local VFX = {}
 VFX.__index = VFX
 
--- Import pool module
+-- Import dependencies
 local Pool = require("core.Pool")
 local Constants = require("core.Constants")
+local AssetCache = require("core.AssetCache")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -12399,7 +13050,6 @@ local function getAssetInternal(assetId)
         
         -- If array exists but is empty, load runes
         if #VFX.assets.runes == 0 then
-            local AssetCache = require("core.AssetCache")
             for i, runePath in ipairs(path) do
                 print("[VFX] Loading rune asset on demand: rune" .. i)
                 local runeImg = AssetCache.getImage(runePath)
@@ -12423,7 +13073,6 @@ local function getAssetInternal(assetId)
     
     -- Load on demand using AssetCache
     print("[VFX] Lazily loading asset: " .. assetId)
-    local AssetCache = require("core.AssetCache")
     VFX.assets[assetId] = AssetCache.getImage(path)
     return VFX.assets[assetId]
 end
@@ -12470,7 +13119,6 @@ function VFX.init()
     
     -- Preload rune assets for ward shields
     VFX.assets.runes = {}
-    local AssetCache = require("core.AssetCache")
     for i, runePath in ipairs(VFX.assetPaths.runes) do
         print("[VFX] Preloading essential asset: rune" .. i)
         local runeImg = AssetCache.getImage(runePath)
@@ -12491,13 +13139,19 @@ function VFX.init()
         proj_base = {
             type = "projectile",
             duration = 1.0,
-            particleCount = 20,
+            particleCount = 30,           -- Increased from 20 for richer visuals
             startScale = 0.5,
             endScale = 0.8,
             color = Constants.Color.SMOKE,  -- Default color, will be overridden
-            trailLength = 12,
+            trailLength = 15,             -- Slightly longer trail
             impactSize = 1.2,
-            sound = nil  -- No default sound
+            sound = nil,                  -- No default sound
+            coreDensity = 0.6,            -- Controls density of center particles (0-1)
+            trailDensity = 0.4,           -- Controls density of trail particles (0-1)
+            turbulence = 0.5,             -- Random motion factor (0-1)
+            arcHeight = 60,               -- Base arc height for trajectories
+            particleLifespan = 0.6,       -- How long individual particles last (as fraction of total duration)
+            leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
         
         beam_base = {
@@ -12632,17 +13286,24 @@ function VFX.init()
             sound = "release"
         },
 
-        -- Firebolt effect
+        -- Firebolt effect - showcasing the improved projectile system
         firebolt = {
             type = "projectile",
-            duration = 1.0,  -- 1 second total duration
-            particleCount = 20,
+            duration = 0.75,               -- Reduced from 1.0 for faster projectile
+            particleCount = 40,            -- Good particle count for rich visuals
             startScale = 0.5,
             endScale = 1.0,
             color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
-            trailLength = 12,
+            trailLength = 12,               -- Trail points for calculation
             impactSize = 1.4,
-            sound = "firebolt"
+            sound = "firebolt",
+            coreDensity = 0.75,             -- More particles at the leading edge
+            trailDensity = 0.5,             -- Fewer trail particles
+            turbulence = 0.8,               -- Higher turbulence for fire feeling
+            arcHeight = 15,                 -- Much shallower arc (more direct flight)
+            particleLifespan = 0.5,         -- Shorter individual particle life
+            leadingIntensity = 1.8,         -- Brighter leading edge for fire
+            motion = Constants.MotionStyle.RISE  -- Use rising motion for fire
         },
         
         -- Meteor effect
@@ -13416,26 +14077,113 @@ end
 function VFX.initializeParticles(effect)
     -- Different initialization based on effect type
     if effect.type == "projectile" then
-        -- For projectiles, create a trail of particles
-        for i = 1, effect.particleCount do
+        -- For projectiles, create core and trailing particles
+        -- Calculate base trajectory properties
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local distance = math.sqrt(dirX*dirX + dirY*dirY)
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Get turbulence factor or use default
+        local turbulence = effect.turbulence or 0.5
+        local coreDensity = effect.coreDensity or 0.6
+        local trailDensity = effect.trailDensity or 0.4
+        
+        -- Core particles (at the leading edge of the projectile)
+        local coreCount = math.floor(effect.particleCount * coreDensity)
+        local trailCount = effect.particleCount - coreCount
+        
+        -- Create core/leading particles
+        for i = 1, coreCount do
             local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = 0
-            particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
+            -- Random position near the projectile core (tighter cluster)
+            local spreadFactor = 4 * turbulence
+            local offsetX = math.random(-spreadFactor, spreadFactor)
+            local offsetY = math.random(-spreadFactor, spreadFactor)
             
-            -- Additional properties for special motion
+            -- Set initial state
+            particle.x = effect.sourceX + offsetX
+            particle.y = effect.sourceY + offsetY
+            particle.scale = effect.startScale * math.random(0.9, 1.4) -- Slightly larger scales
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            
+            -- Create leading-edge cluster with even less delay for faster appearance
+            particle.delay = math.random() * 0.05 -- Minimal delay
+            particle.active = false
+            particle.isCore = true -- Mark as core particle for special rendering
+            particle.motion = effect.motion -- Store motion style
+            
+            -- Motion properties
             particle.startTime = 0
             particle.baseX = effect.sourceX
             particle.baseY = effect.sourceY
             particle.targetX = effect.targetX
             particle.targetY = effect.targetY
-            particle.speed = 150 -- Default speed for projectile particles
-            particle.angle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+            
+            -- Add less randomness to motion for more focused projectile
+            local angleVar = (math.random() - 0.5) * 0.2 * turbulence
+            particle.angle = baseAngle + angleVar
+            particle.speed = math.random(200, 260) -- Significantly faster speeds
+            
+            -- Life cycle control
+            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
+            particle.timeOffset = math.random() * 0.1
+            particle.turbulence = turbulence
+            
+            -- Apply motion style variations 
+            if effect.motion == Constants.MotionStyle.SWIRL then
+                particle.swirlRadius = math.random(5, 15)
+                particle.swirlSpeed = math.random(3, 8)
+            elseif effect.motion == Constants.MotionStyle.PULSE then
+                particle.pulseFreq = math.random(3, 7)
+                particle.pulseAmplitude = 0.2 + math.random() * 0.3
+            end
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Create trail particles
+        for i = 1, trailCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Trail particles start closer to the core
+            local spreadRadius = 6 * trailDensity * turbulence -- Tighter spread
+            local spreadAngle = math.random() * math.pi * 2
+            local spreadDist = math.random() * spreadRadius
+            
+            -- Set initial state - more directional alignment
+            particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
+            particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
+            particle.scale = effect.startScale * math.random(0.7, 0.9) -- Slightly smaller
+            particle.alpha = 0.7 -- Lower alpha for less visibility
+            particle.rotation = math.random() * math.pi * 2
+            
+            -- Much shorter staggered delay for trail particles
+            particle.delay = (i / trailCount) * 0.15 -- Cut delay in half for faster response
+            particle.active = false
+            particle.isCore = false -- Mark as trail particle
+            particle.motion = effect.motion
+            
+            -- Motion properties
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.targetX
+            particle.targetY = effect.targetY
+            
+            -- Reduce trail spread angle for more directional appearance
+            local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
+            particle.angle = baseAngle + angleVar
+            particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
+            
+            -- Trail particles have shorter lifespans for smoother fade
+            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
+            particle.timeOffset = math.random() * 0.2
+            particle.turbulence = turbulence
+            
+            -- Which segment of the trail this particle belongs to
+            particle.trailSegment = math.random()
             
             table.insert(effect.particles, particle)
         end
@@ -13633,54 +14381,106 @@ end
 function VFX.updateProjectile(effect, dt)
     local Constants = require("core.Constants")
     
-    -- Update trail points
+    -- Initialize trail points if needed
     if #effect.trailPoints == 0 then
         -- Initialize trail with source position
         for i = 1, effect.trailLength do
-            table.insert(effect.trailPoints, {x = effect.sourceX, y = effect.sourceY})
+            table.insert(effect.trailPoints, {
+                x = effect.sourceX, 
+                y = effect.sourceY,
+                alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
+            })
         end
     end
     
-    -- Calculate projectile position based on progress
-    local posX = effect.sourceX + (effect.targetX - effect.sourceX) * effect.progress
+    -- Get effect parameters with defaults
+    local arcHeight = effect.arcHeight or 60
+    local baseProgress = effect.progress
     
-    -- Adjust trajectory based on rangeBand and elevation
-    local posY = effect.sourceY + (effect.targetY - effect.sourceY) * effect.progress
+    -- Calculate base projectile position
+    local posX = effect.sourceX + (effect.targetX - effect.sourceX) * baseProgress
+    local posY = effect.sourceY + (effect.targetY - effect.sourceY) * baseProgress
     
-    -- Base arc height before adjustments
-    local baseArcHeight = 60
-    
+    -- Calculate improved trajectory arc with natural physics
     -- Adjust trajectory based on rangeBand
     local rangeBandModifier = 1.0
     if effect.rangeBand == Constants.RangeState.FAR then
-        rangeBandModifier = 1.8  -- Higher arc for far range (increased from 1.5)
+        rangeBandModifier = 1.6  -- Higher arc for far range
     elseif effect.rangeBand == Constants.RangeState.NEAR then
-        rangeBandModifier = 0.5  -- Lower, flatter arc for near range (decreased from 0.7)
+        rangeBandModifier = 0.5  -- Lower, flatter arc for near range
     end
     
-    -- Adjust trajectory based on elevation
+    -- Adjust trajectory based on elevation with smoother transitions
     local elevationOffset = 0
+    local arcModifier = 1.0
+    
     if effect.elevation then
         if effect.elevation == Constants.ElevationState.AERIAL then
-            -- When target is aerial, arc is less pronounced and higher end position
-            rangeBandModifier = rangeBandModifier * 0.6  -- Reduced from 0.7
-            elevationOffset = -60  -- Higher final position (increased from -40)
+            -- When target is aerial, use more curved upward trajectory
+            arcModifier = 0.7 -- Less pronounced arc
+            elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
         elseif effect.elevation == Constants.ElevationState.GROUNDED then
-            -- When target is grounded, arc is more pronounced and lower end position
-            elevationOffset = 30   -- Lower final position (increased from 20)
+            -- When target is grounded, use more gravity-influenced downward arc
+            arcModifier = 1.3 -- More pronounced arc
+            elevationOffset = 40 * baseProgress^2 -- Accelerating downward
         end
     end
     
-    -- Calculate arc with modifiers
-    local midpointProgress = effect.progress - 0.5
-    local verticalOffset = -baseArcHeight * rangeBandModifier * (1 - (midpointProgress * 2)^2)
+    -- Apply motion style variations to the arc
+    if effect.motion == Constants.MotionStyle.RISE then
+        -- Rising motion: mostly flat but with subtle upward momentum for fire
+        local riseProgress = math.sin(baseProgress * math.pi * 0.4)
+        elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
+        arcModifier = arcModifier * 0.5 -- Reduce arc height further
+    elseif effect.motion == Constants.MotionStyle.FALL then
+        -- Falling motion: starts high, accelerates downward
+        elevationOffset = elevationOffset + 20 * baseProgress^1.5
+        arcModifier = arcModifier * 1.3
+    elseif effect.motion == Constants.MotionStyle.SWIRL then
+        -- Swirl adds a slight sine wave to the path
+        local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
+        posX = posX + swirlFactor
+        posY = posY + swirlFactor * 0.5
+    elseif effect.motion == Constants.MotionStyle.PULSE then
+        -- Pulse adds a throbbing effect to the arc height
+        local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
+        arcModifier = arcModifier * (1 + pulseFactor)
+    end
+    
+    -- Apply dynamic arc - smoother easing function
+    local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
+    local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
     
     -- Apply final position
-    posY = posY + verticalOffset + (elevationOffset * effect.progress)
+    posY = posY + verticalOffset + elevationOffset * baseProgress
     
-    -- Update trail
+    -- Special effect for projectile impact transition
+    local impactTransition = math.max(0, (baseProgress - 0.9) / 0.1) -- 0-1 in last 10% of flight
+    if impactTransition > 0 then
+        -- Add slight slowdown and expansion as projectile approaches target
+        local impactX = effect.targetX + math.cos(effect.timer * 5) * 2 * impactTransition
+        local impactY = effect.targetY + math.sin(effect.timer * 5) * 2 * impactTransition
+        
+        -- Blend between normal trajectory and impact position
+        posX = posX * (1 - impactTransition) + impactX * impactTransition
+        posY = posY * (1 - impactTransition) + impactY * impactTransition
+    end
+    
+    -- Update trail points - add current position to front of trail
     table.remove(effect.trailPoints)
-    table.insert(effect.trailPoints, 1, {x = posX, y = posY})
+    table.insert(effect.trailPoints, 1, {
+        x = posX, 
+        y = posY,
+        alpha = 1.0
+    })
+    
+    -- Fade trail points based on position
+    for i = 2, #effect.trailPoints do
+        effect.trailPoints[i].alpha = 1.0 - (i-1)/#effect.trailPoints
+    end
+    
+    -- Store leading point for particle updates
+    effect.leadingPoint = {x = posX, y = posY}
     
     -- Update particles
     for i, particle in ipairs(effect.particles) do
@@ -13690,46 +14490,158 @@ function VFX.updateProjectile(effect, dt)
         end
         
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
+            -- Calculate particle lifecycle
+            particle.startTime = particle.startTime + dt
+            local totalLifespan = particle.lifespan or (effect.duration * 0.6)
+            local particleLife = particle.startTime / totalLifespan
             
-            -- Check if we have a motion style to apply
-            if effect.motion and particle.motion then
-                -- First set baseX/baseY to the trail point for this particle
-                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
-                local trailPoint = effect.trailPoints[trailIndex]
+            -- If particle has exceeded its lifespan, reset it near the current position
+            if particleLife >= 1.0 then
+                -- Reset position to current projectile location with small offset
+                local turbulence = particle.turbulence or 0.5
+                local offset = particle.isCore and 5 or 15
+                local randomOffsetX = math.random(-offset, offset) * turbulence
+                local randomOffsetY = math.random(-offset, offset) * turbulence
                 
-                particle.baseX = trailPoint.x
-                particle.baseY = trailPoint.y
+                particle.x = posX + randomOffsetX
+                particle.y = posY + randomOffsetY
+                particle.startTime = 0
                 
-                -- Use the motion style
-                VFX.updateParticle(particle, effect, dt, particleProgress)
+                -- Refresh motion properties but keep same general parameters
+                particle.rotation = math.random() * math.pi * 2
+                
+                -- Core particles stay brighter
+                if particle.isCore then
+                    particle.alpha = 1.0
+                else
+                    particle.alpha = 0.7 + math.random() * 0.3
+                end
             else
-                -- Use the default behavior
-                -- Distribute particles along the trail
-                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                -- Update particle based on motion style and position in the trail
+                local particleProgress 
                 
-                local trailPoint = effect.trailPoints[trailIndex]
+                if particle.isCore then
+                    -- Core particles follow the leading edge closely
+                    particleProgress = math.min(particle.startTime / (totalLifespan * 0.7), 1.0)
+                    
+                    -- Determine position based on turbulence and trail
+                    local turbulence = particle.turbulence or 0.5
+                    local spreadFactor = 4 * turbulence * (1 - particleProgress)
+                    
+                    -- Core particles cluster near the front of the projectile
+                    local leadOffset = math.random(-spreadFactor, spreadFactor)
+                    local leadX = effect.leadingPoint.x + math.cos(particle.angle) * leadOffset
+                    local leadY = effect.leadingPoint.y + math.sin(particle.angle) * leadOffset
+                    
+                    -- Apply specific motion style modifications
+                    if effect.motion == Constants.MotionStyle.SWIRL then
+                        -- Swirling motion around leading point
+                        local swirlAngle = particle.startTime * (particle.swirlSpeed or 5)
+                        local swirlRadius = (particle.swirlRadius or 10) * (1 - 0.5 * particleProgress)
+                        leadX = leadX + math.cos(swirlAngle) * swirlRadius
+                        leadY = leadY + math.sin(swirlAngle) * swirlRadius
+                    elseif effect.motion == Constants.MotionStyle.PULSE then
+                        -- Pulsing size and position
+                        local pulseFactor = math.sin(particle.startTime * (particle.pulseFreq or 5))
+                        local pulseAmount = (particle.pulseAmplitude or 0.3) * pulseFactor
+                        
+                        -- Apply to scale and position
+                        particle.scale = particle.scale * (1 + pulseAmount * 0.2)
+                        leadX = leadX + math.cos(particle.angle) * pulseAmount * 5
+                        leadY = leadY + math.sin(particle.angle) * pulseAmount * 5
+                    elseif effect.motion == Constants.MotionStyle.RIPPLE then
+                        -- Wave-like motion
+                        local wavePhase = particle.startTime * 4 + i * 0.2
+                        local waveAmplitude = 5 * turbulence * (1 - 0.5 * particleProgress)
+                        
+                        -- Perpendicular wave motion
+                        local perpX = -math.sin(particle.angle) * math.sin(wavePhase) * waveAmplitude
+                        local perpY = math.cos(particle.angle) * math.sin(wavePhase) * waveAmplitude
+                        leadX = leadX + perpX
+                        leadY = leadY + perpY
+                    end
+                    
+                    -- Smoothly move particle toward calculated position
+                    local moveSpeed = 15 -- Adjust for smoother or more responsive motion
+                    particle.x = particle.x + (leadX - particle.x) * moveSpeed * dt
+                    particle.y = particle.y + (leadY - particle.y) * moveSpeed * dt
+                    
+                    -- Handle impact transition effects for core particles
+                    if impactTransition > 0 then
+                        -- Create spreading/expanding effect as projectile hits
+                        local impactSpread = 30 * impactTransition
+                        local spreadDirX = math.cos(particle.angle + particle.rotation)
+                        local spreadDirY = math.sin(particle.angle + particle.rotation)
+                        particle.x = particle.x + spreadDirX * impactSpread * dt * 10
+                        particle.y = particle.y + spreadDirY * impactSpread * dt * 10
+                        
+                        -- Increase scale for impact
+                        particle.scale = particle.scale * (1 + impactTransition * 0.5)
+                    end
+                else
+                    -- Trail particles follow behind with more variance
+                    particleProgress = math.min(particle.startTime / totalLifespan, 1.0)
+                    
+                    -- Trail particles distribute along trail points
+                    local trailPos = math.min(math.floor(particle.trailSegment * #effect.trailPoints) + 1, #effect.trailPoints)
+                    local trailPoint = effect.trailPoints[trailPos]
+                    
+                    -- Add some randomness to trail particle positions
+                    local turbulence = particle.turbulence or 0.5
+                    local spreadFactor = 12 * turbulence * (1 - 0.5 * particleProgress)
+                    local spreadX = math.random(-spreadFactor, spreadFactor)
+                    local spreadY = math.random(-spreadFactor, spreadFactor)
+                    
+                    -- Calculate target position on trail
+                    local targetX = trailPoint.x + spreadX
+                    local targetY = trailPoint.y + spreadY
+                    
+                    -- Move smoothly toward target position
+                    local trailSpeed = 8 -- Slower than core particles
+                    particle.x = particle.x + (targetX - particle.x) * trailSpeed * dt
+                    particle.y = particle.y + (targetY - particle.y) * trailSpeed * dt
+                    
+                    -- Apply slight drift based on motion style
+                    if effect.motion == Constants.MotionStyle.RISE then
+                        particle.y = particle.y - (5 * particleProgress * dt)
+                    elseif effect.motion == Constants.MotionStyle.FALL then
+                        particle.y = particle.y + (8 * particleProgress * dt)
+                    end
+                    
+                    -- Trail particles fade faster as they age
+                    particle.alpha = particle.alpha * (1 - dt)
+                end
                 
-                -- Add some randomness to particle positions
-                local spreadFactor = 8 * (1 - particleProgress)
-                particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
-                particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+                -- Update visual properties for all particles
+                local baseScale = particle.isCore 
+                    and (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * 1.2 
+                    or (effect.startScale + (effect.endScale - effect.startScale) * particleProgress * 0.8)
+                
+                -- Apply scale
+                particle.scale = baseScale * (particle.scale or 1.0)
+                
+                -- Apply rotation
+                particle.rotation = particle.rotation + dt * (particle.isCore and 3 or 2)
+                
+                -- Handle particle fade out
+                if particleProgress > 0.6 then
+                    local fadeProgress = (particleProgress - 0.6) / 0.4 -- 0-1 in last 40% of life
+                    particle.alpha = particle.alpha * (1 - fadeProgress)
+                end
             end
-            
-            -- Update visual properties
-            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * particleProgress
-            particle.alpha = math.min(2.0 - particleProgress * 2, 1.0) -- Fade out in last half
-            particle.rotation = particle.rotation + dt * 2
         end
     end
     
     -- Create impact effect when reaching the target
-    if effect.progress > 0.95 and not effect.impactCreated then
+    if effect.progress > 0.9 and not effect.impactPrep then
+        effect.impactPrep = true
+        -- Begin impact preparation - particles start to expand
+    end
+    
+    -- Actually trigger impact
+    if effect.progress > 0.97 and not effect.impactCreated then
         effect.impactCreated = true
-        -- Would create a separate impact effect here in a full implementation
+        -- In full implementation, would create impact effect here
     end
 end
 
@@ -14011,38 +14923,131 @@ end
 function VFX.drawProjectile(effect)
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
+    local impactImage = getAssetInternal("impactRing")
     
-    -- Draw trail
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
-    if #effect.trailPoints >= 3 then
-        local points = {}
-        for i, point in ipairs(effect.trailPoints) do
-            table.insert(points, point.x)
-            table.insert(points, point.y)
-        end
-        love.graphics.setLineWidth(effect.startScale * 10)
-        love.graphics.line(points)
-        love.graphics.setLineWidth(1)
-    end
+    -- Calculate trail points but don't draw central line anymore
+    -- We'll keep the trail points for particle positioning
     
-    -- Draw glow at head of projectile
+    -- Draw head glow with motion blur effect
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
-        local glowScale = effect.startScale * 3
+        local leadingIntensity = effect.leadingIntensity or 1.5
+        
+        -- Draw multiple layered glows for a more intense effect
+        -- Outer glow
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            0.3
+        )
+        local outerGlowScale = effect.startScale * 4.5
         love.graphics.draw(
             glowImage,
             head.x, head.y,
             0,
-            glowScale, glowScale,
+            outerGlowScale, outerGlowScale,
             glowImage:getWidth()/2, glowImage:getHeight()/2
         )
+        
+        -- Middle glow
+        love.graphics.setColor(
+            math.min(1.0, effect.color[1] * 1.2), 
+            math.min(1.0, effect.color[2] * 1.2), 
+            math.min(1.0, effect.color[3] * 1.2), 
+            0.5
+        )
+        local middleGlowScale = effect.startScale * 3
+        love.graphics.draw(
+            glowImage,
+            head.x, head.y,
+            0,
+            middleGlowScale, middleGlowScale,
+            glowImage:getWidth()/2, glowImage:getHeight()/2
+        )
+        
+        -- Inner glow (brightest)
+        love.graphics.setColor(
+            math.min(1.0, effect.color[1] * leadingIntensity), 
+            math.min(1.0, effect.color[2] * leadingIntensity), 
+            math.min(1.0, effect.color[3] * leadingIntensity), 
+            0.7
+        )
+        local innerGlowScale = effect.startScale * 2
+        love.graphics.draw(
+            glowImage,
+            head.x, head.y,
+            0,
+            innerGlowScale, innerGlowScale,
+            glowImage:getWidth()/2, glowImage:getHeight()/2
+        )
+        
+        -- Add enhanced directional motion blur based on trajectory
+        if #effect.trailPoints >= 2 then
+            local p1 = effect.trailPoints[1]
+            local p2 = effect.trailPoints[2]
+            
+            -- Get direction vector
+            local dirX = p1.x - p2.x
+            local dirY = p1.y - p2.y
+            local len = math.sqrt(dirX*dirX + dirY*dirY)
+            
+            if len > 0 then
+                -- Normalize and create blur effect in the direction of motion
+                dirX = dirX / len
+                dirY = dirY / len
+                
+                -- Draw more motion blur particles for stronger speed effect
+                for i = 1, 5 do
+                    local distance = i * 8  -- Longer blur trail
+                    local blurX = head.x - dirX * distance
+                    local blurY = head.y - dirY * distance
+                    local blurAlpha = 0.4 * (1 - i/5)  -- Slightly stronger alpha
+                    
+                    -- Elongated blur in direction of motion
+                    local blurScaleX = effect.startScale * (2.2 - i * 0.3) * 1.3  -- Stretched in X
+                    local blurScaleY = effect.startScale * (1.8 - i * 0.3) * 0.7  -- Compressed in Y
+                    
+                    -- Calculate angle for directional stretching
+                    local angle = math.atan2(dirY, dirX)
+                    
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], blurAlpha)
+                    love.graphics.draw(
+                        glowImage,
+                        blurX, blurY,
+                        angle,  -- Apply rotation to align with movement
+                        blurScaleX, blurScaleY,
+                        glowImage:getWidth()/2, glowImage:getHeight()/2
+                    )
+                    
+                    -- Add small secondary particles for turbulence effect
+                    if i < 3 and math.random() > 0.5 then
+                        local offsetX = math.random(-5, 5)
+                        local offsetY = math.random(-5, 5)
+                        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], blurAlpha * 0.7)
+                        love.graphics.draw(
+                            particleImage,
+                            blurX + offsetX, blurY + offsetY,
+                            math.random() * math.pi * 2,
+                            effect.startScale * 0.4, effect.startScale * 0.4,
+                            particleImage:getWidth()/2, particleImage:getHeight()/2
+                        )
+                    end
+                end
+            end
+        end
     end
     
-    -- Draw particles
+    -- Draw particles with effect-specific rendering
+    -- First draw trail particles (behind core)
     for _, particle in ipairs(effect.particles) do
-        if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
+        if particle.active and particle.alpha > 0 and not particle.isCore then
+            -- Use a slightly different color for trail particles
+            local r = effect.color[1] * 0.9
+            local g = effect.color[2] * 0.9
+            local b = effect.color[3] * 0.9
+            
+            love.graphics.setColor(r, g, b, particle.alpha * 0.8)
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -14053,12 +15058,134 @@ function VFX.drawProjectile(effect)
         end
     end
     
-    -- Draw impact flash when projectile reaches target
-    if effect.progress > 0.95 then
-        local flashIntensity = (1 - (effect.progress - 0.95) * 20) -- Flash quickly fades
+    -- Then draw core particles (on top, brighter)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.isCore then
+            -- Core particles are brighter
+            local leadingIntensity = effect.leadingIntensity or 1.5
+            local r = math.min(1.0, effect.color[1] * leadingIntensity)
+            local g = math.min(1.0, effect.color[2] * leadingIntensity)
+            local b = math.min(1.0, effect.color[3] * leadingIntensity)
+            
+            love.graphics.setColor(r, g, b, particle.alpha)
+            
+            -- Draw with slight stretching in the direction of motion if we have trail points
+            if #effect.trailPoints >= 2 then
+                local p1 = effect.trailPoints[1]
+                local p2 = effect.trailPoints[2]
+                local angle = math.atan2(p1.y - p2.y, p1.x - p2.x)
+                
+                -- Draw with slight directional stretching
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    angle + particle.rotation,
+                    particle.scale * 1.2, particle.scale * 0.9, -- Stretch in direction of motion
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+                
+                -- Add small secondary glow for core particles
+                love.graphics.setColor(r, g, b, particle.alpha * 0.4)
+                love.graphics.draw(
+                    glowImage,
+                    particle.x, particle.y,
+                    angle + particle.rotation,
+                    particle.scale * 1.5, particle.scale * 1.5,
+                    glowImage:getWidth()/2, glowImage:getHeight()/2
+                )
+            else
+                -- Fallback if no trail points
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    particle.rotation,
+                    particle.scale, particle.scale,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            end
+        end
+    end
+    
+    -- Draw impact transition effects
+    local impactTransition = math.max(0, (effect.progress - 0.9) / 0.1)
+    if impactTransition > 0 then
+        -- Draw expanding ring
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            impactTransition * (1 - impactTransition) * 4 -- Peak at 0.5 transition progress
+        )
+        
+        -- Calculate ring size
+        local ringScale = effect.impactSize * impactTransition * 1.5
+        
+        -- Draw impact ring
+        love.graphics.draw(
+            impactImage,
+            effect.targetX, effect.targetY,
+            0,
+            ringScale, ringScale,
+            impactImage:getWidth()/2, impactImage:getHeight()/2
+        )
+        
+        -- Draw center flash/glow
+        local flashIntensity = (1 - impactTransition) * impactTransition * 4
         if flashIntensity > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity) -- Use base color, apply flash alpha
-            love.graphics.circle("fill", effect.targetX, effect.targetY, effect.impactSize * 30 * (1 - flashIntensity))
+            -- Bright center flash
+            love.graphics.setColor(
+                math.min(1.0, effect.color[1] * 1.5), 
+                math.min(1.0, effect.color[2] * 1.5), 
+                math.min(1.0, effect.color[3] * 1.5), 
+                flashIntensity
+            )
+            
+            local flashSize = effect.impactSize * 25 * impactTransition
+            love.graphics.draw(
+                glowImage,
+                effect.targetX, effect.targetY,
+                0,
+                flashSize / glowImage:getWidth(), flashSize / glowImage:getHeight(),
+                glowImage:getWidth()/2, glowImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Add element-specific effects based on color/motion style
+    if effect.motion == Constants.MotionStyle.RISE then
+        -- Add rising embers for fire-like effects
+        local emberCount = 3
+        local emberProgress = math.min(effect.progress * 1.5, 1.0)
+        
+        for i = 1, emberCount do
+            local pointIdx = math.min(math.floor(i / emberCount * #effect.trailPoints) + 1, #effect.trailPoints)
+            local point = effect.trailPoints[pointIdx]
+            local riseOffset = i * 5 * emberProgress
+            
+            -- Draw small embers rising from the trail
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - i/emberCount))
+            love.graphics.draw(
+                particleImage,
+                point.x + math.sin(effect.timer * 2 + i) * 3, 
+                point.y - riseOffset,
+                effect.timer * 2 + i,
+                effect.startScale * 0.4, effect.startScale * 0.4,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    elseif effect.motion == Constants.MotionStyle.RIPPLE then
+        -- Add ripple effect for water-like effects
+        for i = 1, 2 do
+            local idx = math.min(i * 3, #effect.trailPoints)
+            if idx <= #effect.trailPoints then
+                local point = effect.trailPoints[idx]
+                local rippleSize = effect.startScale * (2 - i * 0.5) * math.sin(effect.timer * 3 + i * 0.7)
+                
+                if rippleSize > 0 then
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.2 * rippleSize)
+                    love.graphics.circle("line", point.x, point.y, rippleSize * 10)
+                end
+            end
         end
     end
 end
@@ -14551,6 +15678,17 @@ function Wizard.new(name, x, y, color)
     self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     
+    -- Position animation state
+    self.positionAnimation = {
+        active = false,
+        startX = 0,
+        startY = 0, 
+        targetX = 0,
+        targetY = 0,
+        progress = 0,
+        duration = 0.3 -- 300ms animation by default
+    }
+    
     -- Status effects
     self.statusEffects = {
         burn = {
@@ -14586,9 +15724,9 @@ function Wizard.new(name, x, y, color)
     if name == "Ashgar" then
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjurefire,
-            ["2"] = Spells.novaconjuring,
-            ["3"] = Spells.firebolt,
+            ["1"]  = Spells.conjurefire,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -14598,15 +15736,32 @@ function Wizard.new(name, x, y, color)
             -- Three key combo
             ["123"] = Spells.meteor
         }
+
+    elseif name == "Silex" then   -- New salt-themed wizard
+        self.spellbook = {
+            -- Single key spells
+            ["1"]  = Spells.conjuresalt,
+            ["2"]  = Spells.glitterfang,
+            ["3"]  = Spells.imprison,
+
+            -- Two key combos
+            ["12"] = Spells.saltcircle,
+            ["13"] = Spells.stoneshield,
+            ["23"] = Spells.shieldbreaker,
+
+            -- Three key combo
+            ["123"] = Spells.saltstorm
+        }
+
     else -- Default to Selene
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.watergun,
-            ["3"] = Spells.moondance,
+            ["1"]  = Spells.conjuremoonlight,
+            ["2"]  = Spells.wrapinmoonlight,
+            ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.wrapinmoonlight,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -14673,6 +15828,19 @@ function Wizard:update(dt)
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
     
+    -- Update position animation
+    if self.positionAnimation.active then
+        self.positionAnimation.progress = self.positionAnimation.progress + dt / self.positionAnimation.duration
+        
+        -- Check if animation is complete
+        if self.positionAnimation.progress >= 1.0 then
+            self.positionAnimation.active = false
+            self.positionAnimation.progress = 1.0
+            self.currentXOffset = self.positionAnimation.targetX
+            self.currentYOffset = self.positionAnimation.targetY
+        end
+    end
+    
     -- Update stun timer
     if self.stunTimer > 0 then
         self.stunTimer = math.max(0, self.stunTimer - dt)
@@ -14697,7 +15865,7 @@ function Wizard:update(dt)
                 
                 -- Create landing VFX if we just returned to GROUNDED
                 if self.elevation == Constants.ElevationState.GROUNDED then
-                     if self.gameState and self.gameState.vfx then
+                    if self.gameState and self.gameState.vfx then
                         local Constants = require("core.Constants")
                         self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y + 30, nil, nil, {
                             duration = 0.5,
@@ -17086,7 +18254,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Tue Apr 29 12:31:05 CDT 2025
+Generated: Tue Apr 29 18:47:54 CDT 2025
 
 # Source Code
 
@@ -17337,7 +18505,9 @@ Constants.TokenStatus = {
     CHANNELED = "CHANNELED",   -- Being used in a spell slot
     SHIELDING = "SHIELDING",   -- Being used for a shield spell
     LOCKED = "LOCKED",         -- Temporarily unavailable
-    RETURNING = "RETURNING",   -- Animating back to pool (transition state)
+    APPEARING = "APPEARING",   -- Animating into existence from wizard to pool (transition state)
+    RETURNING = "RETURNING",   -- Animating back to pool center (transition state)
+    ORBITING = "ORBITING",     -- Animating from pool center to orbit (transition state)
     DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
     POOLED = "POOLED"          -- Released to the object pool
 }
@@ -17389,8 +18559,6 @@ function Constants.getColorForTokenType(tokenType)
     elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
     elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
     elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
-    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
-    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
@@ -17401,23 +18569,24 @@ end
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
     WARD = "ward",          -- Magical ward (blocks remote spells)
-    FIELD = "field"         -- Field (blocks zone effects)
 }
 
 -- Attack types for spells
+-- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
+-- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
-    PROJECTILE = "projectile",  -- Dodgeable, affected by range
-    REMOTE = "remote",          -- Magic directly affects target
-    ZONE = "zone",              -- Area effect, position-dependent
-    UTILITY = "utility"         -- Non-damaging effect
+    PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
+    REMOTE = "remote",          -- Magic directly affects target, beats Barriers, expensive or slow
+    ZONE = "zone",              -- Magic affects a physical area, beats Wards, position-dependent
+    UTILITY = "utility"         -- Non-damaging effect, can't be blocked
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 13,
-    SLOW = 10,
-    NORMAL = 7,
-    FAST = 4,
-    VERY_FAST = 1,
+    VERY_SLOW = 12,
+    SLOW = 8,
+    NORMAL = 5,
+    FAST = 3,
+    VERY_FAST = 1.5,
     ONE_TIER = 3
 }
 
@@ -21030,6 +22199,10 @@ function ManaPool.new(x, y)
     -- Chance for a token to switch valences
     self.valenceJumpChance = 0.002  -- Per frame chance of switching
     
+    -- Initialize token trails system
+    self.tokenTrails = {}
+    self.trailLength = 30  -- Max number of positions to store per token
+    
     -- Initialize the token pool if not already done
     if not Pool.pools["token"] then
         Pool.create("token", 50, function() 
@@ -21061,8 +22234,10 @@ function TokenMethods:setState(newStatus)
        newStatus == Constants.TokenStatus.CHANNELED or 
        newStatus == Constants.TokenStatus.SHIELDING then
         self.state = newStatus
-    elseif newStatus == Constants.TokenStatus.RETURNING then
-        self.state = self.originalStatus -- Keep original state during animation
+    elseif newStatus == Constants.TokenStatus.RETURNING or
+           newStatus == Constants.TokenStatus.APPEARING or
+           newStatus == Constants.TokenStatus.ORBITING then
+        self.state = self.originalStatus or Constants.TokenState.FREE -- Keep original state during animation
     elseif newStatus == Constants.TokenStatus.DISSOLVING then
         self.state = Constants.TokenState.DESTROYED
     elseif newStatus == Constants.TokenStatus.POOLED then
@@ -21162,7 +22337,7 @@ function TokenMethods:requestDestructionAnimation()
     return true
 end
 
--- Finalize return to pool after animation
+-- Finalize return to pool after animation (first phase)
 function TokenMethods:finalizeReturn()
     -- Validate current state
     if self.status ~= Constants.TokenStatus.RETURNING then
@@ -21170,8 +22345,7 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Reset animation flags
-    self.isAnimating = false
+    -- Reset some animation flags but keep isAnimating true for orbit animation
     self.returning = false  -- For backward compatibility
     
     -- Clear wizard/spell references
@@ -21186,42 +22360,47 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Set new state
-    self:setState(Constants.TokenStatus.FREE)
-    
-    -- Initialize orbit parameters (borrowed from ManaPool:finalizeTokenReturn)
-    -- Choose a random valence
+    -- Choose a random valence for the token's destination
     local valenceIndex = math.random(1, #manaPool.valences)
     local valence = manaPool.valences[valenceIndex]
     self.valenceIndex = valenceIndex
     
-    -- Calculate angle from pool center
-    local dx = self.x - manaPool.x
-    local dy = self.y - manaPool.y
-    local angle = math.atan2(dy, dx)
-    
-    -- Set orbit angle
+    -- Calculate a random angle for the token's destination
+    -- We'll use a random angle rather than the current angle to ensure
+    -- tokens don't all follow the same path
+    local angle = math.random() * math.pi * 2
     self.orbitAngle = angle
     
-    -- Calculate position based on valence
-    local newX = manaPool.x + math.cos(angle) * valence.radiusX
-    local newY = manaPool.y + math.sin(angle) * valence.radiusY
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
     
-    -- Add slight position variation
+    -- Add slight position variation to the target
     local variationX = math.random(-2, 2)
     local variationY = math.random(-1, 1)
-    self.x = newX + variationX
-    self.y = newY + variationY
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
     
     -- Randomize orbit direction and speed
     local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
     self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
     self.originalSpeed = self.orbitSpeed
-    
-    -- Set transition flags for smooth animation
-    self.transitionTime = 0
-    self.transitionDuration = 1.0
-    self.inTransition = true
     
     -- Initialize valence properties
     self.valenceJumpTimer = 2 + math.random() * 8
@@ -21239,6 +22418,157 @@ function TokenMethods:finalizeReturn()
     
     -- Visual variance
     self.scale = 0.85 + math.random() * 0.3
+    self.zOrder = math.random()
+    
+    return true
+end
+
+-- Finalize orbit transition (second phase)
+function TokenMethods:finalizeOrbit()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.ORBITING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize orbit from ORBITING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Reset animation flags
+    self.isAnimating = false
+    
+    -- Get the ManaPool instance from the token's game state or another reference
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token orbit!")
+        return false
+    end
+    
+    -- Update position to make sure it's at the target
+    self.x = self.targetOrbitX
+    self.y = self.targetOrbitY
+    
+    -- Clean up orbit animation properties
+    self.startOrbitX = nil
+    self.startOrbitY = nil
+    self.targetOrbitX = nil
+    self.targetOrbitY = nil
+    self.orbitAnimTime = nil
+    self.orbitAnimDuration = nil
+    
+    -- Set state to FREE
+    self:setState(Constants.TokenStatus.FREE)
+    
+    -- Set transition flags for smooth animation of orbital motion
+    self.transitionTime = 0
+    self.transitionDuration = 0.4  -- Shorter orbital transition (was 1.0)
+    self.inTransition = true
+    
+    return true
+end
+
+-- Initialize conjured token appearance animation
+function TokenMethods:requestAppearAnimation(fromWizard)
+    -- Set up animation parameters
+    self.isAnimating = true
+    
+    -- Store the source position (wizard position)
+    self.startX = fromWizard.x
+    self.startY = fromWizard.y - 40  -- Start a little above the wizard
+    
+    -- Initialize animation timing
+    self.appearAnimTime = 0
+    self.appearAnimDuration = 0.7  -- Slightly longer than return animation
+    
+    -- Set the target scale
+    self.targetScale = 0.85 + math.random() * 0.3
+    
+    -- Start very small
+    self.scale = 0.1
+    
+    -- Initial position is at the wizard
+    self.x = self.startX
+    self.y = self.startY
+    
+    -- Prepare callback for when animation completes
+    self.animationCallback = function() self:finalizeAppear() end
+    
+    -- Set status to APPEARING
+    self:setState(Constants.TokenStatus.APPEARING)
+    
+    return true
+end
+
+-- Finalize appear animation and transition to orbiting
+function TokenMethods:finalizeAppear()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.APPEARING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize appear from APPEARING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Maintain animation flag
+    self.isAnimating = true
+    
+    -- Get the ManaPool instance from the token's game state
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token appearance!")
+        return false
+    end
+    
+    -- Choose a random valence for the token's destination
+    local valenceIndex = math.random(1, #manaPool.valences)
+    local valence = manaPool.valences[valenceIndex]
+    self.valenceIndex = valenceIndex
+    
+    -- Calculate a random angle for the token's destination
+    local angle = math.random() * math.pi * 2
+    self.orbitAngle = angle
+    
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
+    
+    -- Add slight position variation to the target
+    local variationX = math.random(-2, 2)
+    local variationY = math.random(-1, 1)
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
+    
+    -- Randomize orbit direction and speed
+    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
+    self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
+    self.originalSpeed = self.orbitSpeed
+    
+    -- Initialize valence properties
+    self.valenceJumpTimer = 2 + math.random() * 8
+    self.inValenceTransition = false
+    self.valenceTransitionTime = 0
+    self.valenceTransitionDuration = 0.8
+    self.sourceValenceIndex = valenceIndex
+    self.targetValenceIndex = valenceIndex
+    self.sourceRadiusX = valence.radiusX
+    self.sourceRadiusY = valence.radiusY
+    self.targetRadiusX = valence.radiusX
+    self.targetRadiusY = valence.radiusY
+    self.currentRadiusX = valence.radiusX
+    self.currentRadiusY = valence.radiusY
+    
+    -- Visual variance set during appearing animation
     self.zOrder = math.random()
     
     return true
@@ -21297,6 +22627,11 @@ function ManaPool.resetToken(token)
         token[name] = nil
     end
     
+    -- Clear token trails if they exist
+    if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+        token.manaPool.tokenTrails[token] = nil
+    end
+    
     -- Clear all references and fields
     token.type = nil
     token.image = nil
@@ -21327,7 +22662,20 @@ function ManaPool.resetToken(token)
     token.currentRadiusX = nil
     token.currentRadiusY = nil
     token.scale = nil
+    token.targetScale = nil
     token.zOrder = nil
+    
+    -- Clear animation-specific fields
+    token.startOrbitX = nil
+    token.startOrbitY = nil
+    token.targetOrbitX = nil
+    token.targetOrbitY = nil
+    token.orbitAnimTime = nil
+    token.orbitAnimDuration = nil
+    token.appearAnimTime = nil
+    token.appearAnimDuration = nil
+    token.startX = nil
+    token.startY = nil
     token.originalSpeed = nil
     token.wizardOwner = nil
     token.spellSlot = nil
@@ -21368,8 +22716,10 @@ function ManaPool:clear()
     
     self.tokens = {}
     self.reservedTokens = {}
+    self.tokenTrails = {} -- Clear token trails when clearing the pool
 end
 
+-- Standard token addition - creates token directly at its final position
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)
@@ -21401,10 +22751,10 @@ function ManaPool:addToken(tokenType, imagePath)
         love.graphics.setCanvas()
     end
     
-    -- Create a new token with valence-based properties
+    -- Create a new token from the pool
     local token = Pool.acquire("token")
     
-    -- Add methods from TokenMethods table (Lua's way of adding methods to an object)
+    -- Add methods from TokenMethods table
     for name, method in pairs(TokenMethods) do
         token[name] = method
     end
@@ -21416,13 +22766,12 @@ function ManaPool:addToken(tokenType, imagePath)
     token.y = y + variationY
     
     -- Initialize state machine properties
-    token.status = Constants.TokenStatus.FREE  -- New state machine status
-    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
+    token.status = Constants.TokenStatus.FREE
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
     token.isAnimating = false
-    token.manaPool = self  -- Reference to this mana pool instance
-    token.id = #self.tokens + 1  -- Simple ID based on token position
+    token.manaPool = self -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
     
-    -- Valence-based orbit properties
     token.valenceIndex = valenceIndex
     token.orbitAngle = angle
     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
@@ -21468,6 +22817,71 @@ function ManaPool:addToken(tokenType, imagePath)
     return token
 end
 
+-- Add token with appearance animation from wizard
+function ManaPool:addTokenWithAnimation(tokenType, imagePath, sourceWizard)
+    if not sourceWizard then
+        -- Fall back to regular addition if no wizard provided
+        return self:addToken(tokenType, imagePath)
+    end
+    
+    -- Get image from cache, with fallback
+    local tokenImage = AssetCache.getImage(imagePath)
+    if not tokenImage then
+        print("WARNING: Failed to load token image: " .. imagePath .. " - using placeholder")
+        -- Create a placeholder image using LÖVE's built-in canvas
+        tokenImage = love.graphics.newCanvas(32, 32)
+        love.graphics.setCanvas(tokenImage)
+        love.graphics.clear(0.8, 0.2, 0.8, 1) -- Bright color to make missing textures obvious
+        love.graphics.rectangle("fill", 0, 0, 32, 32)
+        love.graphics.setCanvas()
+    end
+    
+    -- Create a new token with animation-ready properties
+    local token = Pool.acquire("token")
+    
+    -- Add methods from TokenMethods table
+    for name, method in pairs(TokenMethods) do
+        token[name] = method
+    end
+    
+    -- Initialize basic properties
+    token.type = tokenType
+    token.image = tokenImage
+    
+    -- Position will be set by animation
+    token.x = sourceWizard.x
+    token.y = sourceWizard.y - 40 -- Start slightly above wizard
+    
+    -- Initialize state machine properties
+    token.status = nil -- Will be set to APPEARING by requestAppearAnimation
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
+    token.isAnimating = true
+    token.manaPool = self  -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
+    
+    -- Visual effects
+    token.pulsePhase = math.random() * math.pi * 2
+    token.pulseSpeed = 2 + math.random() * 3
+    token.rotAngle = math.random() * math.pi * 2
+    token.rotSpeed = math.random(-2, 2) * 0.5
+    
+    -- Scale starts small and grows during animation
+    token.scale = 0.1
+    
+    -- If game state is available, store it for VFX access
+    if self.gameState then
+        token.gameState = self.gameState
+    end
+    
+    -- Add to the pool's token list
+    table.insert(self.tokens, token)
+    
+    -- Start appearance animation
+    token:requestAppearAnimation(sourceWizard)
+    
+    return token
+end
+
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
@@ -21478,6 +22892,39 @@ function ManaPool:update(dt)
         -- Skip updating POOLED tokens, they've been reset and their properties are nil
         if token.status == Constants.TokenStatus.POOLED then
             goto continue_token
+        end
+        
+        -- Update token trail position history
+        if not self.tokenTrails[token] then
+            self.tokenTrails[token] = {}
+        end
+        
+        -- Only add a new trail point if the token has moved significantly
+        local lastPosition = self.tokenTrails[token][1]
+        local shouldAddTrail = true
+        
+        if lastPosition then
+            -- Calculate distance moved since last trail point
+            local dx = token.x - lastPosition.x
+            local dy = token.y - lastPosition.y
+            local distSquared = dx*dx + dy*dy
+            
+            -- Only add trail points if moved more than a minimum distance
+            shouldAddTrail = distSquared > 4
+        end
+        
+        if shouldAddTrail then
+            -- Store new position at the beginning of history array
+            table.insert(self.tokenTrails[token], 1, {
+                x = token.x, 
+                y = token.y, 
+                time = love.timer.getTime()
+            })
+            
+            -- Limit trail length
+            if #self.tokenTrails[token] > self.trailLength then
+                table.remove(self.tokenTrails[token])
+            end
         end
         
         -- Update token based on its status in the state machine
@@ -21730,6 +23177,107 @@ function ManaPool:update(dt)
                 token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
             end
             
+        elseif token.status == Constants.TokenStatus.APPEARING then
+            -- Token is being animated into existence from a wizard to the mana pool
+            token.appearAnimTime = token.appearAnimTime + dt
+            local progress = math.min(1, token.appearAnimTime / token.appearAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startX
+            local y0 = token.startY
+            local x3 = self.x  -- Center of mana pool
+            local y3 = self.y
+            
+            -- Calculate higher arc height for appearing tokens
+            local height = 80 -- Higher arc for appearing tokens
+            
+            -- Control points for bezier (creating an arc)
+            local midX = (x0 + x3) / 2
+            local midY = (y0 + y3) / 2 - height  -- Negative for upward arc
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Gradual scaling up with progress
+            local startScale = 0.1  -- Start very small
+            local endScale = token.targetScale or 1.0
+            token.scale = startScale + (endScale - startScale) * progress
+            
+            -- Update token rotation during flight - spin faster while appearing
+            token.rotAngle = token.rotAngle + dt * 10
+            
+            -- Check if animation is complete
+            if token.appearAnimTime >= token.appearAnimDuration then
+                -- Token has reached the pool center - transition to orbiting
+                token.animationCallback()
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
+        elseif token.status == Constants.TokenStatus.ORBITING then
+            -- Token is in second phase of return, animating from pool center to orbit position
+            token.orbitAnimTime = token.orbitAnimTime + dt
+            local progress = math.min(1, token.orbitAnimTime / token.orbitAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startOrbitX
+            local y0 = token.startOrbitY
+            local x3 = token.targetOrbitX
+            local y3 = token.targetOrbitY
+            
+            -- Control points for bezier (creating an arc)
+            -- Make the arc go outward in the direction of the target
+            local dx = x3 - x0
+            local dy = y3 - y0
+            local dist = math.sqrt(dx*dx + dy*dy)
+            local nx = dx / dist  -- Normalized direction vector
+            local ny = dy / dist
+            
+            -- Control point perpendicular to the path with a height proportional to distance
+            local arcHeight = math.min(dist * 0.4, 35)  -- Cap the arc height
+            local midX = (x0 + x3) / 2 + ny * arcHeight  -- Perpendicular offset
+            local midY = (y0 + y3) / 2 - nx * arcHeight
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Update token rotation during flight - spin faster but not as fast as returning
+            token.rotAngle = token.rotAngle + dt * 5
+            
+            -- Check if animation is complete
+            if token.orbitAnimTime >= token.orbitAnimDuration then
+                -- Token has reached its orbit position - call the animation callback
+                if token.animationCallback then
+                    token.animationCallback()
+                else
+                    print("[MANAPOOL] WARNING: No animation callback defined for orbiting token")
+                    -- Fallback
+                    token:setState(Constants.TokenStatus.FREE)
+                end
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
             token.dissolveTime = token.dissolveTime + dt
@@ -21762,6 +23310,47 @@ function ManaPool:drawToken(token)
         return
     end
     
+    -- Draw trailing effect behind the token first (similar to main menu tokens)
+    if self.tokenTrails[token] and #self.tokenTrails[token] > 2 then
+        local colorTable = Constants.getColorForTokenType(token.type)
+        local stepSize = (#self.tokenTrails[token] > 20) and 2 or 1
+        
+        for j = #self.tokenTrails[token], 2, -stepSize do
+            local pos = self.tokenTrails[token][j]
+            local time = love.timer.getTime()
+            local timeDiff = time - pos.time
+            
+            -- Calculate fade based on position in trail (older = more transparent)
+            local trailAlpha = 0.2 * (1 - (j / self.trailLength)^1.5)
+            
+            -- Trail size based on position (older = smaller)
+            local trailScale = 12 * (1 - (j / self.trailLength) * 0.6)
+            
+            -- Adjust trail appearance based on token state
+            if token.status == Constants.TokenStatus.APPEARING then
+                -- Enhanced trail for appearing tokens (brightest)
+                trailAlpha = trailAlpha * 1.8
+                trailScale = trailScale * 1.4
+            elseif token.status == Constants.TokenStatus.RETURNING then
+                -- Enhanced trail for returning tokens
+                trailAlpha = trailAlpha * 1.5
+                trailScale = trailScale * 1.2
+            elseif token.status == Constants.TokenStatus.ORBITING then
+                -- Enhanced trail for orbiting tokens
+                trailAlpha = trailAlpha * 1.3
+                trailScale = trailScale * 1.1
+            elseif token.status ~= Constants.TokenStatus.FREE then
+                -- Reduce trails for other token states
+                trailAlpha = trailAlpha * 0.7
+                trailScale = trailScale * 0.7
+            end
+            
+            -- Draw trail particle
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+            love.graphics.circle("fill", pos.x, pos.y, trailScale)
+        end
+    end
+    
     -- Draw a larger, more vibrant glow around the token based on its type
     local glowSize = 15 -- Larger glow radius
     local glowIntensity = 0.6  -- Stronger glow intensity
@@ -21779,8 +23368,14 @@ function ManaPool:drawToken(token)
             layerIntensity = layerIntensity + transitionBoost * 0.5
         end
         
+        -- Special visual effects for APPEARING tokens
+        if token.status == Constants.TokenStatus.APPEARING then
+            -- Intense, bright glow for appearing tokens
+            local appearProgress = token.appearAnimTime / token.appearAnimDuration
+            layerSize = layerSize * (1.4 + appearProgress * 1.0) -- Extra large glow
+            layerIntensity = layerIntensity + appearProgress * 0.6 -- Very bright
         -- Special visual effects for RETURNING tokens
-        if token.status == Constants.TokenStatus.RETURNING then
+        elseif token.status == Constants.TokenStatus.RETURNING then
             -- Bright, trailing glow for returning tokens
             local returnProgress = token.animTime / token.animDuration
             layerSize = layerSize * (1.2 + returnProgress * 0.8) -- Growing glow
@@ -21974,7 +23569,10 @@ function ManaPool:draw()
     end
     
     table.sort(sortedTokens, function(a, b)
-        return a.token.zOrder > b.token.zOrder
+        -- Safe sorting - handle nil zOrder values
+        local zOrderA = a.token.zOrder or 0
+        local zOrderB = b.token.zOrder or 0
+        return zOrderA > zOrderB
     end)
     
     -- Draw tokens in sorted order, skipping those attached to wizards
@@ -22770,9 +24368,9 @@ Spells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 15
+                    return 12
                 end
-                return 10
+                return 7
             end,
             type = Constants.DamageType.FIRE
         },
@@ -22903,6 +24501,155 @@ Spells.conjuresalt = {
         return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
+
+Spells.glitterfang = {
+    id = "glitterfang",
+    name = "Glitter Fang",
+    affinity = "salt",
+    description = "Very fast, unblockable attack. Only hits NEAR/GROUNDED enemies",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = 7,
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.gameState.rangeState == Constants.RangeState.NEAR
+                    and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        sfx = "glitter_fang",
+        blockableBy = {}
+    }
+}
+
+Spells.imprison = {
+    id = "imprison",
+    name = "Imprison",
+    affinity = "salt",
+    description = "Trap: Deals damage and prevents enemy movement to FAR",
+    attackType = "utility",  -- Changed to utility since it's not a direct attack
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        -- Mark as a sustained spell
+        sustain = true,
+        
+        -- Define trap trigger condition
+        trap_trigger = { 
+            condition = "on_opponent_far" 
+        },
+        
+        -- Define trap window/expiry
+        -- TODO: make trap "expend mana" to go off instead of one-shot (similar to a shield)
+        trap_window = { 
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
+        },
+        
+        -- Define trap effect when triggered
+        trap_effect = {
+            -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
+            damage = { 
+                amount = 7, 
+                type = Constants.DamageType.SALT,  
+                target = "ENEMY" 
+            },
+            rangeShift = { 
+                position = Constants.RangeState.NEAR,
+            },
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "gravity_trap_set",
+    blockableBy = {} 
+}
+
+Spells.saltcircle = {
+    id = "saltcircle",
+    name = "Salt Circle",
+    affinity = "salt",
+    description = "Ward: Creates a circle of Salt around the caster",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.WARD,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "salt_circle",
+    blockableBy = {}
+}
+
+Spells.stoneshield = {
+    id = "stoneshield",
+    name = "Stone Shield",
+    affinity = "salt",
+    description = "Barrier: Creates a shield of stone around the caster",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "stone_shield",
+    blockableBy = {}
+}
+
+Spells.jaggedearth = {
+    -- todo - beefier trap conditions - this needs an "onLanding" condition that watches for the frame when opponent hits the ground
+    id = "jaggedearth",
+    name = "Jagged Earth",
+    affinity = "salt",
+    description = "Trap: Creates a zone of jagged earth around the target that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 7, 
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        rangeShift = {  
+            position = Constants.RangeState.NEAR,
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "jagged_earth",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}
+
+Spells.saltstorm = {
+    id = "saltstorm",
+    name = "Salt Storm",
+    affinity = "salt",
+    description = "Zone: Creates a zone of salt around the caster that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.VERY_SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 15,
+            type = Constants.DamageType.SALT
+        },
+        zoneMulti = true,
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "salt_storm",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}   
 
 Spells.emberlift = {
     id = "emberlift",
@@ -23220,7 +24967,7 @@ Spells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Switch Range. Freeze <6> enemy Root slot.",
+    description = "Switch Range. Freeze <3> enemy Root slot.",
     attackType = "remote",
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON},
@@ -23238,7 +24985,7 @@ Spells.moondance = {
             target = "SELF" 
         },
         freeze = {
-            duration = Constants.CastSpeed.ONE_TIER*2,
+            duration = 3,
             target = "SLOT_ENEMY",
             slot = 1
         }
@@ -23492,10 +25239,10 @@ Spells.battleshield = {
 -- Shield-breaking spell
 Spells.shieldbreaker = {
     id = "shieldbreaker",
-    name = "Shield Breaker",
-    description = "A powerful force blast that shatters shields and barriers",
+    name = "Salt Spear",
+    description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE, -- Projectile type (can be blocked by barriers and wards)
-    castTime = 6.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
         -- Regular damage component
@@ -24369,6 +26116,10 @@ EventRunner.EVENT_HANDLERS = {
             }
         end
         
+        -- No need to manually trigger position animation here -
+        -- The wizard's positionAnimation is automatically detected and handled
+        -- in WizardVisuals.drawWizard when elevation changes
+        
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
             -- Interim Approach: Generate an EFFECT event to handle VFX consistently
@@ -24413,7 +26164,12 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Update game state with new range
         if caster.gameState then
+            -- Store the new range state
             caster.gameState.rangeState = event.position
+            
+            -- No need to call any extra position animation functions - the wizards'
+            -- positionAnimation state is automatically detected and updated in 
+            -- WizardVisuals.drawWizard when it sees the range state has changed
         end
         
         -- Create range change VFX if available
@@ -24481,10 +26237,27 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Add tokens to the mana pool
+        -- Create VFX for token conjuration if available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                tokenType = event.tokenType,
+                amount = event.amount
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConjureEffect",
+                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
+                caster.x,
+                caster.y,
+                params
+            )
+        end
+        
+        -- Add tokens to the mana pool with animation
         for i = 1, event.amount do
             local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
-            manaPool:addToken(event.tokenType, assetPath)
+            manaPool:addTokenWithAnimation(event.tokenType, assetPath, caster)
             results.tokensAffected = results.tokensAffected + 1
         end
         
@@ -25704,6 +27477,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
+        -- misnomer since default bahvior changed
+        -- TODO: restore logic to actually "consume" tokens if shield has some keyword
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
@@ -25711,24 +27486,24 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             
             -- Safety check for removed token object
             if removedTokenObject and removedTokenObject.type then
-                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) freed by block -> FREE", 
                     tostring(removedTokenObject.type)))
             else
-                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) freed by block -> FREE")
             end
                 
-            -- Mark the consumed token for destruction using TokenManager
+            -- Mark the consumed token for freeing using TokenManager
             if removedTokenObject then
                 -- Get TokenManager
                 local TokenManager = require("systems.TokenManager")
                 
                 -- Create a token array for TokenManager to handle
-                local tokenToDestroy = {
+                local tokenToFree = {
                     {token = removedTokenObject, index = 1}
                 }
                 
-                -- Use TokenManager to destroy the token
-                TokenManager.destroyTokens(tokenToDestroy)
+                -- Use TokenManager to free the token
+                TokenManager.returnTokensToPool(tokenToFree)
                 
                 -- Call the wizard's centralized check *after* removing the token
                 wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
@@ -26068,6 +27843,11 @@ function SustainedSpellManager.update(dt)
                     -- For now, trigger continuously while the opponent is elevated
                     conditionMet = true
                     print(string.format("[SustainedManager] Trap triggered by opponent elevation: %s", targetWizard.elevation))
+                end
+
+                if condition == "on_opponent_far" and targetWizard.rangeState == "FAR" then
+                    conditionMet = true
+                    print(string.format("[SustainedManager] Trap triggered by opponent being far"))
                 end
                 
                 -- Check cast trigger condition
@@ -26657,6 +28437,11 @@ function TokenManager.destroyTokens(tokens)
             goto continue_token
         end
         
+        -- Clear token trails if available
+        if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+            token.manaPool.tokenTrails[token] = nil
+        end
+        
         -- Use token state machine if available
         if token.requestDestructionAnimation then
             token:requestDestructionAnimation()
@@ -27143,6 +28928,11 @@ function WizardVisuals.drawEllipticalArc(x, y, radiusX, radiusY, startAngle, end
     
     -- Draw the arc as a line
     love.graphics.line(points)
+end
+
+-- Easing function for smoother animations
+function WizardVisuals.easeOutCubic(t)
+    return 1 - math.pow(1 - t, 3)
 end
 
 -- Draw status effects with durations using horizontal bars
@@ -27652,13 +29442,13 @@ end
 
 -- Main function to draw the wizard
 function WizardVisuals.drawWizard(wizard)
-    -- Calculate position adjustments based on elevation and range state
-    local yOffset = 0
-    local xOffset = 0
+    -- Calculate target position adjustments based on elevation and range state
+    local targetYOffset = 0
+    local targetXOffset = 0
     
     -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if wizard.elevation == "AERIAL" then
-        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
+        targetYOffset = -50  -- Lift the wizard up more significantly when AERIAL
     end
     
     -- Horizontal adjustment for NEAR/FAR state
@@ -27667,9 +29457,37 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Push wizards closer to center in NEAR mode, further in FAR mode
     if wizard.name == "Ashgar" then -- Player 1 (left side)
-        xOffset = isNear and 60 or 0 -- Move right when NEAR
+        targetXOffset = isNear and 60 or 0 -- Move right when NEAR
     else -- Player 2 (right side)
-        xOffset = isNear and -60 or 0 -- Move left when NEAR
+        targetXOffset = isNear and -60 or 0 -- Move left when NEAR
+    end
+    
+    -- Check if position needs to change and start animation if needed
+    if not wizard.positionAnimation.active and
+       ((wizard.currentXOffset or 0) ~= targetXOffset or 
+        (wizard.currentYOffset or 0) ~= targetYOffset) then
+        -- Start animation
+        wizard.positionAnimation.active = true
+        wizard.positionAnimation.startX = wizard.currentXOffset or 0
+        wizard.positionAnimation.startY = wizard.currentYOffset or 0
+        wizard.positionAnimation.targetX = targetXOffset
+        wizard.positionAnimation.targetY = targetYOffset
+        wizard.positionAnimation.progress = 0
+    end
+    
+    -- Calculate and apply current offsets (animated or target)
+    local xOffset, yOffset
+    if wizard.positionAnimation.active then
+        -- Use interpolated position with easing
+        local progress = WizardVisuals.easeOutCubic(wizard.positionAnimation.progress)
+        xOffset = wizard.positionAnimation.startX + 
+                 (wizard.positionAnimation.targetX - wizard.positionAnimation.startX) * progress
+        yOffset = wizard.positionAnimation.startY + 
+                 (wizard.positionAnimation.targetY - wizard.positionAnimation.startY) * progress
+    else
+        -- Use target position directly
+        xOffset = targetXOffset
+        yOffset = targetYOffset
     end
     
     -- Set color and draw wizard
@@ -29450,9 +31268,10 @@ return UI```
 local VFX = {}
 VFX.__index = VFX
 
--- Import pool module
+-- Import dependencies
 local Pool = require("core.Pool")
 local Constants = require("core.Constants")
+local AssetCache = require("core.AssetCache")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -29486,7 +31305,6 @@ local function getAssetInternal(assetId)
         
         -- If array exists but is empty, load runes
         if #VFX.assets.runes == 0 then
-            local AssetCache = require("core.AssetCache")
             for i, runePath in ipairs(path) do
                 print("[VFX] Loading rune asset on demand: rune" .. i)
                 local runeImg = AssetCache.getImage(runePath)
@@ -29510,7 +31328,6 @@ local function getAssetInternal(assetId)
     
     -- Load on demand using AssetCache
     print("[VFX] Lazily loading asset: " .. assetId)
-    local AssetCache = require("core.AssetCache")
     VFX.assets[assetId] = AssetCache.getImage(path)
     return VFX.assets[assetId]
 end
@@ -29557,7 +31374,6 @@ function VFX.init()
     
     -- Preload rune assets for ward shields
     VFX.assets.runes = {}
-    local AssetCache = require("core.AssetCache")
     for i, runePath in ipairs(VFX.assetPaths.runes) do
         print("[VFX] Preloading essential asset: rune" .. i)
         local runeImg = AssetCache.getImage(runePath)
@@ -29578,13 +31394,19 @@ function VFX.init()
         proj_base = {
             type = "projectile",
             duration = 1.0,
-            particleCount = 20,
+            particleCount = 30,           -- Increased from 20 for richer visuals
             startScale = 0.5,
             endScale = 0.8,
             color = Constants.Color.SMOKE,  -- Default color, will be overridden
-            trailLength = 12,
+            trailLength = 15,             -- Slightly longer trail
             impactSize = 1.2,
-            sound = nil  -- No default sound
+            sound = nil,                  -- No default sound
+            coreDensity = 0.6,            -- Controls density of center particles (0-1)
+            trailDensity = 0.4,           -- Controls density of trail particles (0-1)
+            turbulence = 0.5,             -- Random motion factor (0-1)
+            arcHeight = 60,               -- Base arc height for trajectories
+            particleLifespan = 0.6,       -- How long individual particles last (as fraction of total duration)
+            leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
         
         beam_base = {
@@ -29719,17 +31541,24 @@ function VFX.init()
             sound = "release"
         },
 
-        -- Firebolt effect
+        -- Firebolt effect - showcasing the improved projectile system
         firebolt = {
             type = "projectile",
-            duration = 1.0,  -- 1 second total duration
-            particleCount = 20,
+            duration = 0.75,               -- Reduced from 1.0 for faster projectile
+            particleCount = 40,            -- Good particle count for rich visuals
             startScale = 0.5,
             endScale = 1.0,
             color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
-            trailLength = 12,
+            trailLength = 12,               -- Trail points for calculation
             impactSize = 1.4,
-            sound = "firebolt"
+            sound = "firebolt",
+            coreDensity = 0.75,             -- More particles at the leading edge
+            trailDensity = 0.5,             -- Fewer trail particles
+            turbulence = 0.8,               -- Higher turbulence for fire feeling
+            arcHeight = 15,                 -- Much shallower arc (more direct flight)
+            particleLifespan = 0.5,         -- Shorter individual particle life
+            leadingIntensity = 1.8,         -- Brighter leading edge for fire
+            motion = Constants.MotionStyle.RISE  -- Use rising motion for fire
         },
         
         -- Meteor effect
@@ -30503,26 +32332,113 @@ end
 function VFX.initializeParticles(effect)
     -- Different initialization based on effect type
     if effect.type == "projectile" then
-        -- For projectiles, create a trail of particles
-        for i = 1, effect.particleCount do
+        -- For projectiles, create core and trailing particles
+        -- Calculate base trajectory properties
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local distance = math.sqrt(dirX*dirX + dirY*dirY)
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Get turbulence factor or use default
+        local turbulence = effect.turbulence or 0.5
+        local coreDensity = effect.coreDensity or 0.6
+        local trailDensity = effect.trailDensity or 0.4
+        
+        -- Core particles (at the leading edge of the projectile)
+        local coreCount = math.floor(effect.particleCount * coreDensity)
+        local trailCount = effect.particleCount - coreCount
+        
+        -- Create core/leading particles
+        for i = 1, coreCount do
             local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = 0
-            particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
+            -- Random position near the projectile core (tighter cluster)
+            local spreadFactor = 4 * turbulence
+            local offsetX = math.random(-spreadFactor, spreadFactor)
+            local offsetY = math.random(-spreadFactor, spreadFactor)
             
-            -- Additional properties for special motion
+            -- Set initial state
+            particle.x = effect.sourceX + offsetX
+            particle.y = effect.sourceY + offsetY
+            particle.scale = effect.startScale * math.random(0.9, 1.4) -- Slightly larger scales
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            
+            -- Create leading-edge cluster with even less delay for faster appearance
+            particle.delay = math.random() * 0.05 -- Minimal delay
+            particle.active = false
+            particle.isCore = true -- Mark as core particle for special rendering
+            particle.motion = effect.motion -- Store motion style
+            
+            -- Motion properties
             particle.startTime = 0
             particle.baseX = effect.sourceX
             particle.baseY = effect.sourceY
             particle.targetX = effect.targetX
             particle.targetY = effect.targetY
-            particle.speed = 150 -- Default speed for projectile particles
-            particle.angle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+            
+            -- Add less randomness to motion for more focused projectile
+            local angleVar = (math.random() - 0.5) * 0.2 * turbulence
+            particle.angle = baseAngle + angleVar
+            particle.speed = math.random(200, 260) -- Significantly faster speeds
+            
+            -- Life cycle control
+            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
+            particle.timeOffset = math.random() * 0.1
+            particle.turbulence = turbulence
+            
+            -- Apply motion style variations 
+            if effect.motion == Constants.MotionStyle.SWIRL then
+                particle.swirlRadius = math.random(5, 15)
+                particle.swirlSpeed = math.random(3, 8)
+            elseif effect.motion == Constants.MotionStyle.PULSE then
+                particle.pulseFreq = math.random(3, 7)
+                particle.pulseAmplitude = 0.2 + math.random() * 0.3
+            end
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Create trail particles
+        for i = 1, trailCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Trail particles start closer to the core
+            local spreadRadius = 6 * trailDensity * turbulence -- Tighter spread
+            local spreadAngle = math.random() * math.pi * 2
+            local spreadDist = math.random() * spreadRadius
+            
+            -- Set initial state - more directional alignment
+            particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
+            particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
+            particle.scale = effect.startScale * math.random(0.7, 0.9) -- Slightly smaller
+            particle.alpha = 0.7 -- Lower alpha for less visibility
+            particle.rotation = math.random() * math.pi * 2
+            
+            -- Much shorter staggered delay for trail particles
+            particle.delay = (i / trailCount) * 0.15 -- Cut delay in half for faster response
+            particle.active = false
+            particle.isCore = false -- Mark as trail particle
+            particle.motion = effect.motion
+            
+            -- Motion properties
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.targetX
+            particle.targetY = effect.targetY
+            
+            -- Reduce trail spread angle for more directional appearance
+            local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
+            particle.angle = baseAngle + angleVar
+            particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
+            
+            -- Trail particles have shorter lifespans for smoother fade
+            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
+            particle.timeOffset = math.random() * 0.2
+            particle.turbulence = turbulence
+            
+            -- Which segment of the trail this particle belongs to
+            particle.trailSegment = math.random()
             
             table.insert(effect.particles, particle)
         end
@@ -30720,54 +32636,106 @@ end
 function VFX.updateProjectile(effect, dt)
     local Constants = require("core.Constants")
     
-    -- Update trail points
+    -- Initialize trail points if needed
     if #effect.trailPoints == 0 then
         -- Initialize trail with source position
         for i = 1, effect.trailLength do
-            table.insert(effect.trailPoints, {x = effect.sourceX, y = effect.sourceY})
+            table.insert(effect.trailPoints, {
+                x = effect.sourceX, 
+                y = effect.sourceY,
+                alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
+            })
         end
     end
     
-    -- Calculate projectile position based on progress
-    local posX = effect.sourceX + (effect.targetX - effect.sourceX) * effect.progress
+    -- Get effect parameters with defaults
+    local arcHeight = effect.arcHeight or 60
+    local baseProgress = effect.progress
     
-    -- Adjust trajectory based on rangeBand and elevation
-    local posY = effect.sourceY + (effect.targetY - effect.sourceY) * effect.progress
+    -- Calculate base projectile position
+    local posX = effect.sourceX + (effect.targetX - effect.sourceX) * baseProgress
+    local posY = effect.sourceY + (effect.targetY - effect.sourceY) * baseProgress
     
-    -- Base arc height before adjustments
-    local baseArcHeight = 60
-    
+    -- Calculate improved trajectory arc with natural physics
     -- Adjust trajectory based on rangeBand
     local rangeBandModifier = 1.0
     if effect.rangeBand == Constants.RangeState.FAR then
-        rangeBandModifier = 1.8  -- Higher arc for far range (increased from 1.5)
+        rangeBandModifier = 1.6  -- Higher arc for far range
     elseif effect.rangeBand == Constants.RangeState.NEAR then
-        rangeBandModifier = 0.5  -- Lower, flatter arc for near range (decreased from 0.7)
+        rangeBandModifier = 0.5  -- Lower, flatter arc for near range
     end
     
-    -- Adjust trajectory based on elevation
+    -- Adjust trajectory based on elevation with smoother transitions
     local elevationOffset = 0
+    local arcModifier = 1.0
+    
     if effect.elevation then
         if effect.elevation == Constants.ElevationState.AERIAL then
-            -- When target is aerial, arc is less pronounced and higher end position
-            rangeBandModifier = rangeBandModifier * 0.6  -- Reduced from 0.7
-            elevationOffset = -60  -- Higher final position (increased from -40)
+            -- When target is aerial, use more curved upward trajectory
+            arcModifier = 0.7 -- Less pronounced arc
+            elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
         elseif effect.elevation == Constants.ElevationState.GROUNDED then
-            -- When target is grounded, arc is more pronounced and lower end position
-            elevationOffset = 30   -- Lower final position (increased from 20)
+            -- When target is grounded, use more gravity-influenced downward arc
+            arcModifier = 1.3 -- More pronounced arc
+            elevationOffset = 40 * baseProgress^2 -- Accelerating downward
         end
     end
     
-    -- Calculate arc with modifiers
-    local midpointProgress = effect.progress - 0.5
-    local verticalOffset = -baseArcHeight * rangeBandModifier * (1 - (midpointProgress * 2)^2)
+    -- Apply motion style variations to the arc
+    if effect.motion == Constants.MotionStyle.RISE then
+        -- Rising motion: mostly flat but with subtle upward momentum for fire
+        local riseProgress = math.sin(baseProgress * math.pi * 0.4)
+        elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
+        arcModifier = arcModifier * 0.5 -- Reduce arc height further
+    elseif effect.motion == Constants.MotionStyle.FALL then
+        -- Falling motion: starts high, accelerates downward
+        elevationOffset = elevationOffset + 20 * baseProgress^1.5
+        arcModifier = arcModifier * 1.3
+    elseif effect.motion == Constants.MotionStyle.SWIRL then
+        -- Swirl adds a slight sine wave to the path
+        local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
+        posX = posX + swirlFactor
+        posY = posY + swirlFactor * 0.5
+    elseif effect.motion == Constants.MotionStyle.PULSE then
+        -- Pulse adds a throbbing effect to the arc height
+        local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
+        arcModifier = arcModifier * (1 + pulseFactor)
+    end
+    
+    -- Apply dynamic arc - smoother easing function
+    local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
+    local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
     
     -- Apply final position
-    posY = posY + verticalOffset + (elevationOffset * effect.progress)
+    posY = posY + verticalOffset + elevationOffset * baseProgress
     
-    -- Update trail
+    -- Special effect for projectile impact transition
+    local impactTransition = math.max(0, (baseProgress - 0.9) / 0.1) -- 0-1 in last 10% of flight
+    if impactTransition > 0 then
+        -- Add slight slowdown and expansion as projectile approaches target
+        local impactX = effect.targetX + math.cos(effect.timer * 5) * 2 * impactTransition
+        local impactY = effect.targetY + math.sin(effect.timer * 5) * 2 * impactTransition
+        
+        -- Blend between normal trajectory and impact position
+        posX = posX * (1 - impactTransition) + impactX * impactTransition
+        posY = posY * (1 - impactTransition) + impactY * impactTransition
+    end
+    
+    -- Update trail points - add current position to front of trail
     table.remove(effect.trailPoints)
-    table.insert(effect.trailPoints, 1, {x = posX, y = posY})
+    table.insert(effect.trailPoints, 1, {
+        x = posX, 
+        y = posY,
+        alpha = 1.0
+    })
+    
+    -- Fade trail points based on position
+    for i = 2, #effect.trailPoints do
+        effect.trailPoints[i].alpha = 1.0 - (i-1)/#effect.trailPoints
+    end
+    
+    -- Store leading point for particle updates
+    effect.leadingPoint = {x = posX, y = posY}
     
     -- Update particles
     for i, particle in ipairs(effect.particles) do
@@ -30777,46 +32745,158 @@ function VFX.updateProjectile(effect, dt)
         end
         
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
+            -- Calculate particle lifecycle
+            particle.startTime = particle.startTime + dt
+            local totalLifespan = particle.lifespan or (effect.duration * 0.6)
+            local particleLife = particle.startTime / totalLifespan
             
-            -- Check if we have a motion style to apply
-            if effect.motion and particle.motion then
-                -- First set baseX/baseY to the trail point for this particle
-                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
-                local trailPoint = effect.trailPoints[trailIndex]
+            -- If particle has exceeded its lifespan, reset it near the current position
+            if particleLife >= 1.0 then
+                -- Reset position to current projectile location with small offset
+                local turbulence = particle.turbulence or 0.5
+                local offset = particle.isCore and 5 or 15
+                local randomOffsetX = math.random(-offset, offset) * turbulence
+                local randomOffsetY = math.random(-offset, offset) * turbulence
                 
-                particle.baseX = trailPoint.x
-                particle.baseY = trailPoint.y
+                particle.x = posX + randomOffsetX
+                particle.y = posY + randomOffsetY
+                particle.startTime = 0
                 
-                -- Use the motion style
-                VFX.updateParticle(particle, effect, dt, particleProgress)
+                -- Refresh motion properties but keep same general parameters
+                particle.rotation = math.random() * math.pi * 2
+                
+                -- Core particles stay brighter
+                if particle.isCore then
+                    particle.alpha = 1.0
+                else
+                    particle.alpha = 0.7 + math.random() * 0.3
+                end
             else
-                -- Use the default behavior
-                -- Distribute particles along the trail
-                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                -- Update particle based on motion style and position in the trail
+                local particleProgress 
                 
-                local trailPoint = effect.trailPoints[trailIndex]
+                if particle.isCore then
+                    -- Core particles follow the leading edge closely
+                    particleProgress = math.min(particle.startTime / (totalLifespan * 0.7), 1.0)
+                    
+                    -- Determine position based on turbulence and trail
+                    local turbulence = particle.turbulence or 0.5
+                    local spreadFactor = 4 * turbulence * (1 - particleProgress)
+                    
+                    -- Core particles cluster near the front of the projectile
+                    local leadOffset = math.random(-spreadFactor, spreadFactor)
+                    local leadX = effect.leadingPoint.x + math.cos(particle.angle) * leadOffset
+                    local leadY = effect.leadingPoint.y + math.sin(particle.angle) * leadOffset
+                    
+                    -- Apply specific motion style modifications
+                    if effect.motion == Constants.MotionStyle.SWIRL then
+                        -- Swirling motion around leading point
+                        local swirlAngle = particle.startTime * (particle.swirlSpeed or 5)
+                        local swirlRadius = (particle.swirlRadius or 10) * (1 - 0.5 * particleProgress)
+                        leadX = leadX + math.cos(swirlAngle) * swirlRadius
+                        leadY = leadY + math.sin(swirlAngle) * swirlRadius
+                    elseif effect.motion == Constants.MotionStyle.PULSE then
+                        -- Pulsing size and position
+                        local pulseFactor = math.sin(particle.startTime * (particle.pulseFreq or 5))
+                        local pulseAmount = (particle.pulseAmplitude or 0.3) * pulseFactor
+                        
+                        -- Apply to scale and position
+                        particle.scale = particle.scale * (1 + pulseAmount * 0.2)
+                        leadX = leadX + math.cos(particle.angle) * pulseAmount * 5
+                        leadY = leadY + math.sin(particle.angle) * pulseAmount * 5
+                    elseif effect.motion == Constants.MotionStyle.RIPPLE then
+                        -- Wave-like motion
+                        local wavePhase = particle.startTime * 4 + i * 0.2
+                        local waveAmplitude = 5 * turbulence * (1 - 0.5 * particleProgress)
+                        
+                        -- Perpendicular wave motion
+                        local perpX = -math.sin(particle.angle) * math.sin(wavePhase) * waveAmplitude
+                        local perpY = math.cos(particle.angle) * math.sin(wavePhase) * waveAmplitude
+                        leadX = leadX + perpX
+                        leadY = leadY + perpY
+                    end
+                    
+                    -- Smoothly move particle toward calculated position
+                    local moveSpeed = 15 -- Adjust for smoother or more responsive motion
+                    particle.x = particle.x + (leadX - particle.x) * moveSpeed * dt
+                    particle.y = particle.y + (leadY - particle.y) * moveSpeed * dt
+                    
+                    -- Handle impact transition effects for core particles
+                    if impactTransition > 0 then
+                        -- Create spreading/expanding effect as projectile hits
+                        local impactSpread = 30 * impactTransition
+                        local spreadDirX = math.cos(particle.angle + particle.rotation)
+                        local spreadDirY = math.sin(particle.angle + particle.rotation)
+                        particle.x = particle.x + spreadDirX * impactSpread * dt * 10
+                        particle.y = particle.y + spreadDirY * impactSpread * dt * 10
+                        
+                        -- Increase scale for impact
+                        particle.scale = particle.scale * (1 + impactTransition * 0.5)
+                    end
+                else
+                    -- Trail particles follow behind with more variance
+                    particleProgress = math.min(particle.startTime / totalLifespan, 1.0)
+                    
+                    -- Trail particles distribute along trail points
+                    local trailPos = math.min(math.floor(particle.trailSegment * #effect.trailPoints) + 1, #effect.trailPoints)
+                    local trailPoint = effect.trailPoints[trailPos]
+                    
+                    -- Add some randomness to trail particle positions
+                    local turbulence = particle.turbulence or 0.5
+                    local spreadFactor = 12 * turbulence * (1 - 0.5 * particleProgress)
+                    local spreadX = math.random(-spreadFactor, spreadFactor)
+                    local spreadY = math.random(-spreadFactor, spreadFactor)
+                    
+                    -- Calculate target position on trail
+                    local targetX = trailPoint.x + spreadX
+                    local targetY = trailPoint.y + spreadY
+                    
+                    -- Move smoothly toward target position
+                    local trailSpeed = 8 -- Slower than core particles
+                    particle.x = particle.x + (targetX - particle.x) * trailSpeed * dt
+                    particle.y = particle.y + (targetY - particle.y) * trailSpeed * dt
+                    
+                    -- Apply slight drift based on motion style
+                    if effect.motion == Constants.MotionStyle.RISE then
+                        particle.y = particle.y - (5 * particleProgress * dt)
+                    elseif effect.motion == Constants.MotionStyle.FALL then
+                        particle.y = particle.y + (8 * particleProgress * dt)
+                    end
+                    
+                    -- Trail particles fade faster as they age
+                    particle.alpha = particle.alpha * (1 - dt)
+                end
                 
-                -- Add some randomness to particle positions
-                local spreadFactor = 8 * (1 - particleProgress)
-                particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
-                particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+                -- Update visual properties for all particles
+                local baseScale = particle.isCore 
+                    and (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * 1.2 
+                    or (effect.startScale + (effect.endScale - effect.startScale) * particleProgress * 0.8)
+                
+                -- Apply scale
+                particle.scale = baseScale * (particle.scale or 1.0)
+                
+                -- Apply rotation
+                particle.rotation = particle.rotation + dt * (particle.isCore and 3 or 2)
+                
+                -- Handle particle fade out
+                if particleProgress > 0.6 then
+                    local fadeProgress = (particleProgress - 0.6) / 0.4 -- 0-1 in last 40% of life
+                    particle.alpha = particle.alpha * (1 - fadeProgress)
+                end
             end
-            
-            -- Update visual properties
-            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * particleProgress
-            particle.alpha = math.min(2.0 - particleProgress * 2, 1.0) -- Fade out in last half
-            particle.rotation = particle.rotation + dt * 2
         end
     end
     
     -- Create impact effect when reaching the target
-    if effect.progress > 0.95 and not effect.impactCreated then
+    if effect.progress > 0.9 and not effect.impactPrep then
+        effect.impactPrep = true
+        -- Begin impact preparation - particles start to expand
+    end
+    
+    -- Actually trigger impact
+    if effect.progress > 0.97 and not effect.impactCreated then
         effect.impactCreated = true
-        -- Would create a separate impact effect here in a full implementation
+        -- In full implementation, would create impact effect here
     end
 end
 
@@ -31098,38 +33178,131 @@ end
 function VFX.drawProjectile(effect)
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
+    local impactImage = getAssetInternal("impactRing")
     
-    -- Draw trail
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3) -- Use base color, apply fixed alpha
-    if #effect.trailPoints >= 3 then
-        local points = {}
-        for i, point in ipairs(effect.trailPoints) do
-            table.insert(points, point.x)
-            table.insert(points, point.y)
-        end
-        love.graphics.setLineWidth(effect.startScale * 10)
-        love.graphics.line(points)
-        love.graphics.setLineWidth(1)
-    end
+    -- Calculate trail points but don't draw central line anymore
+    -- We'll keep the trail points for particle positioning
     
-    -- Draw glow at head of projectile
+    -- Draw head glow with motion blur effect
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7) -- Use base color, apply fixed alpha
-        local glowScale = effect.startScale * 3
+        local leadingIntensity = effect.leadingIntensity or 1.5
+        
+        -- Draw multiple layered glows for a more intense effect
+        -- Outer glow
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            0.3
+        )
+        local outerGlowScale = effect.startScale * 4.5
         love.graphics.draw(
             glowImage,
             head.x, head.y,
             0,
-            glowScale, glowScale,
+            outerGlowScale, outerGlowScale,
             glowImage:getWidth()/2, glowImage:getHeight()/2
         )
+        
+        -- Middle glow
+        love.graphics.setColor(
+            math.min(1.0, effect.color[1] * 1.2), 
+            math.min(1.0, effect.color[2] * 1.2), 
+            math.min(1.0, effect.color[3] * 1.2), 
+            0.5
+        )
+        local middleGlowScale = effect.startScale * 3
+        love.graphics.draw(
+            glowImage,
+            head.x, head.y,
+            0,
+            middleGlowScale, middleGlowScale,
+            glowImage:getWidth()/2, glowImage:getHeight()/2
+        )
+        
+        -- Inner glow (brightest)
+        love.graphics.setColor(
+            math.min(1.0, effect.color[1] * leadingIntensity), 
+            math.min(1.0, effect.color[2] * leadingIntensity), 
+            math.min(1.0, effect.color[3] * leadingIntensity), 
+            0.7
+        )
+        local innerGlowScale = effect.startScale * 2
+        love.graphics.draw(
+            glowImage,
+            head.x, head.y,
+            0,
+            innerGlowScale, innerGlowScale,
+            glowImage:getWidth()/2, glowImage:getHeight()/2
+        )
+        
+        -- Add enhanced directional motion blur based on trajectory
+        if #effect.trailPoints >= 2 then
+            local p1 = effect.trailPoints[1]
+            local p2 = effect.trailPoints[2]
+            
+            -- Get direction vector
+            local dirX = p1.x - p2.x
+            local dirY = p1.y - p2.y
+            local len = math.sqrt(dirX*dirX + dirY*dirY)
+            
+            if len > 0 then
+                -- Normalize and create blur effect in the direction of motion
+                dirX = dirX / len
+                dirY = dirY / len
+                
+                -- Draw more motion blur particles for stronger speed effect
+                for i = 1, 5 do
+                    local distance = i * 8  -- Longer blur trail
+                    local blurX = head.x - dirX * distance
+                    local blurY = head.y - dirY * distance
+                    local blurAlpha = 0.4 * (1 - i/5)  -- Slightly stronger alpha
+                    
+                    -- Elongated blur in direction of motion
+                    local blurScaleX = effect.startScale * (2.2 - i * 0.3) * 1.3  -- Stretched in X
+                    local blurScaleY = effect.startScale * (1.8 - i * 0.3) * 0.7  -- Compressed in Y
+                    
+                    -- Calculate angle for directional stretching
+                    local angle = math.atan2(dirY, dirX)
+                    
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], blurAlpha)
+                    love.graphics.draw(
+                        glowImage,
+                        blurX, blurY,
+                        angle,  -- Apply rotation to align with movement
+                        blurScaleX, blurScaleY,
+                        glowImage:getWidth()/2, glowImage:getHeight()/2
+                    )
+                    
+                    -- Add small secondary particles for turbulence effect
+                    if i < 3 and math.random() > 0.5 then
+                        local offsetX = math.random(-5, 5)
+                        local offsetY = math.random(-5, 5)
+                        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], blurAlpha * 0.7)
+                        love.graphics.draw(
+                            particleImage,
+                            blurX + offsetX, blurY + offsetY,
+                            math.random() * math.pi * 2,
+                            effect.startScale * 0.4, effect.startScale * 0.4,
+                            particleImage:getWidth()/2, particleImage:getHeight()/2
+                        )
+                    end
+                end
+            end
+        end
     end
     
-    -- Draw particles
+    -- Draw particles with effect-specific rendering
+    -- First draw trail particles (behind core)
     for _, particle in ipairs(effect.particles) do
-        if particle.active and particle.alpha > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha) -- Use base color, apply particle alpha
+        if particle.active and particle.alpha > 0 and not particle.isCore then
+            -- Use a slightly different color for trail particles
+            local r = effect.color[1] * 0.9
+            local g = effect.color[2] * 0.9
+            local b = effect.color[3] * 0.9
+            
+            love.graphics.setColor(r, g, b, particle.alpha * 0.8)
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -31140,12 +33313,134 @@ function VFX.drawProjectile(effect)
         end
     end
     
-    -- Draw impact flash when projectile reaches target
-    if effect.progress > 0.95 then
-        local flashIntensity = (1 - (effect.progress - 0.95) * 20) -- Flash quickly fades
+    -- Then draw core particles (on top, brighter)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.isCore then
+            -- Core particles are brighter
+            local leadingIntensity = effect.leadingIntensity or 1.5
+            local r = math.min(1.0, effect.color[1] * leadingIntensity)
+            local g = math.min(1.0, effect.color[2] * leadingIntensity)
+            local b = math.min(1.0, effect.color[3] * leadingIntensity)
+            
+            love.graphics.setColor(r, g, b, particle.alpha)
+            
+            -- Draw with slight stretching in the direction of motion if we have trail points
+            if #effect.trailPoints >= 2 then
+                local p1 = effect.trailPoints[1]
+                local p2 = effect.trailPoints[2]
+                local angle = math.atan2(p1.y - p2.y, p1.x - p2.x)
+                
+                -- Draw with slight directional stretching
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    angle + particle.rotation,
+                    particle.scale * 1.2, particle.scale * 0.9, -- Stretch in direction of motion
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+                
+                -- Add small secondary glow for core particles
+                love.graphics.setColor(r, g, b, particle.alpha * 0.4)
+                love.graphics.draw(
+                    glowImage,
+                    particle.x, particle.y,
+                    angle + particle.rotation,
+                    particle.scale * 1.5, particle.scale * 1.5,
+                    glowImage:getWidth()/2, glowImage:getHeight()/2
+                )
+            else
+                -- Fallback if no trail points
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    particle.rotation,
+                    particle.scale, particle.scale,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            end
+        end
+    end
+    
+    -- Draw impact transition effects
+    local impactTransition = math.max(0, (effect.progress - 0.9) / 0.1)
+    if impactTransition > 0 then
+        -- Draw expanding ring
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            impactTransition * (1 - impactTransition) * 4 -- Peak at 0.5 transition progress
+        )
+        
+        -- Calculate ring size
+        local ringScale = effect.impactSize * impactTransition * 1.5
+        
+        -- Draw impact ring
+        love.graphics.draw(
+            impactImage,
+            effect.targetX, effect.targetY,
+            0,
+            ringScale, ringScale,
+            impactImage:getWidth()/2, impactImage:getHeight()/2
+        )
+        
+        -- Draw center flash/glow
+        local flashIntensity = (1 - impactTransition) * impactTransition * 4
         if flashIntensity > 0 then
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], flashIntensity) -- Use base color, apply flash alpha
-            love.graphics.circle("fill", effect.targetX, effect.targetY, effect.impactSize * 30 * (1 - flashIntensity))
+            -- Bright center flash
+            love.graphics.setColor(
+                math.min(1.0, effect.color[1] * 1.5), 
+                math.min(1.0, effect.color[2] * 1.5), 
+                math.min(1.0, effect.color[3] * 1.5), 
+                flashIntensity
+            )
+            
+            local flashSize = effect.impactSize * 25 * impactTransition
+            love.graphics.draw(
+                glowImage,
+                effect.targetX, effect.targetY,
+                0,
+                flashSize / glowImage:getWidth(), flashSize / glowImage:getHeight(),
+                glowImage:getWidth()/2, glowImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Add element-specific effects based on color/motion style
+    if effect.motion == Constants.MotionStyle.RISE then
+        -- Add rising embers for fire-like effects
+        local emberCount = 3
+        local emberProgress = math.min(effect.progress * 1.5, 1.0)
+        
+        for i = 1, emberCount do
+            local pointIdx = math.min(math.floor(i / emberCount * #effect.trailPoints) + 1, #effect.trailPoints)
+            local point = effect.trailPoints[pointIdx]
+            local riseOffset = i * 5 * emberProgress
+            
+            -- Draw small embers rising from the trail
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - i/emberCount))
+            love.graphics.draw(
+                particleImage,
+                point.x + math.sin(effect.timer * 2 + i) * 3, 
+                point.y - riseOffset,
+                effect.timer * 2 + i,
+                effect.startScale * 0.4, effect.startScale * 0.4,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    elseif effect.motion == Constants.MotionStyle.RIPPLE then
+        -- Add ripple effect for water-like effects
+        for i = 1, 2 do
+            local idx = math.min(i * 3, #effect.trailPoints)
+            if idx <= #effect.trailPoints then
+                local point = effect.trailPoints[idx]
+                local rippleSize = effect.startScale * (2 - i * 0.5) * math.sin(effect.timer * 3 + i * 0.7)
+                
+                if rippleSize > 0 then
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.2 * rippleSize)
+                    love.graphics.circle("line", point.x, point.y, rippleSize * 10)
+                end
+            end
         end
     end
 end
@@ -31638,6 +33933,17 @@ function Wizard.new(name, x, y, color)
     self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     
+    -- Position animation state
+    self.positionAnimation = {
+        active = false,
+        startX = 0,
+        startY = 0, 
+        targetX = 0,
+        targetY = 0,
+        progress = 0,
+        duration = 0.3 -- 300ms animation by default
+    }
+    
     -- Status effects
     self.statusEffects = {
         burn = {
@@ -31673,9 +33979,9 @@ function Wizard.new(name, x, y, color)
     if name == "Ashgar" then
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjurefire,
-            ["2"] = Spells.novaconjuring,
-            ["3"] = Spells.firebolt,
+            ["1"]  = Spells.conjurefire,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -31685,15 +33991,32 @@ function Wizard.new(name, x, y, color)
             -- Three key combo
             ["123"] = Spells.meteor
         }
+
+    elseif name == "Silex" then   -- New salt-themed wizard
+        self.spellbook = {
+            -- Single key spells
+            ["1"]  = Spells.conjuresalt,
+            ["2"]  = Spells.glitterfang,
+            ["3"]  = Spells.imprison,
+
+            -- Two key combos
+            ["12"] = Spells.saltcircle,
+            ["13"] = Spells.stoneshield,
+            ["23"] = Spells.shieldbreaker,
+
+            -- Three key combo
+            ["123"] = Spells.saltstorm
+        }
+
     else -- Default to Selene
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.watergun,
-            ["3"] = Spells.moondance,
+            ["1"]  = Spells.conjuremoonlight,
+            ["2"]  = Spells.wrapinmoonlight,
+            ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.wrapinmoonlight,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -31760,6 +34083,19 @@ function Wizard:update(dt)
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
     
+    -- Update position animation
+    if self.positionAnimation.active then
+        self.positionAnimation.progress = self.positionAnimation.progress + dt / self.positionAnimation.duration
+        
+        -- Check if animation is complete
+        if self.positionAnimation.progress >= 1.0 then
+            self.positionAnimation.active = false
+            self.positionAnimation.progress = 1.0
+            self.currentXOffset = self.positionAnimation.targetX
+            self.currentYOffset = self.positionAnimation.targetY
+        end
+    end
+    
     -- Update stun timer
     if self.stunTimer > 0 then
         self.stunTimer = math.max(0, self.stunTimer - dt)
@@ -31784,7 +34120,7 @@ function Wizard:update(dt)
                 
                 -- Create landing VFX if we just returned to GROUNDED
                 if self.elevation == Constants.ElevationState.GROUNDED then
-                     if self.gameState and self.gameState.vfx then
+                    if self.gameState and self.gameState.vfx then
                         local Constants = require("core.Constants")
                         self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y + 30, nil, nil, {
                             duration = 0.5,

@@ -109,8 +109,8 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
+            ["2"]  = Spells.firebolt,
+            ["3"]  = Spells.fireball,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -141,11 +141,11 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.watergun,
+            ["2"]  = Spells.wrapinmoonlight,
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.wrapinmoonlight,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -249,7 +249,7 @@ function Wizard:update(dt)
                 
                 -- Create landing VFX if we just returned to GROUNDED
                 if self.elevation == Constants.ElevationState.GROUNDED then
-                     if self.gameState and self.gameState.vfx then
+                    if self.gameState and self.gameState.vfx then
                         local Constants = require("core.Constants")
                         self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y + 30, nil, nil, {
                             duration = 0.5,

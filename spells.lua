@@ -224,6 +224,26 @@ Spells.firebolt = {
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
+Spells.fireball = {
+    id = "fireball",
+    name = "Fireball",
+    affinity = "fire",
+    description = "Fireball",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.PROJECTILE,
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = 10,
+            burn = {
+                amount = 2,
+                duration = 2
+            }
+        },
+        blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+    }
+}
+
 Spells.watergun = {
     id = "watergun",
     name = "Water Gun",

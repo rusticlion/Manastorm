@@ -463,6 +463,10 @@ EventRunner.EVENT_HANDLERS = {
             }
         end
         
+        -- No need to manually trigger position animation here -
+        -- The wizard's positionAnimation is automatically detected and handled
+        -- in WizardVisuals.drawWizard when elevation changes
+        
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
             -- Interim Approach: Generate an EFFECT event to handle VFX consistently
@@ -507,7 +511,12 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Update game state with new range
         if caster.gameState then
+            -- Store the new range state
             caster.gameState.rangeState = event.position
+            
+            -- No need to call any extra position animation functions - the wizards'
+            -- positionAnimation state is automatically detected and updated in 
+            -- WizardVisuals.drawWizard when it sees the range state has changed
         end
         
         -- Create range change VFX if available
