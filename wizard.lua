@@ -6,7 +6,7 @@ Wizard.__index = Wizard
 -- Load required modules
 local Constants = require("core.Constants")
 local SpellsModule = require("spells")
-local Spells = SpellsModule.spells  -- For backwards compatibility
+local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
@@ -113,7 +113,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.infiniteprocession,
+            ["2"] = Spells.watergun,
             ["3"] = Spells.moondance,
             
             -- Two key combos

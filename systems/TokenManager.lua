@@ -62,8 +62,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     -- Special case for "any" - try to find any token type
                     local foundAny = false
                     
-                    -- Try each token type
-                    for _, availableType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, availableType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(availableType)
                         if token then
                             table.insert(requiredTokens, {
@@ -101,8 +109,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                 for j = 1, count do
                     local foundRandom = false
                     
-                    -- Try each token type
-                    for _, tokenType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, tokenType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(tokenType)
                         if token then
                             table.insert(requiredTokens, {
@@ -137,8 +153,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     if tokenType == "random" or tokenType == "any" then
                         local foundRandom = false
                         
-                        -- Try each token type
-                        for _, type in ipairs(Constants.getAllTokenTypes()) do
+                        -- Get all available token types
+                        local availableTypes = Constants.getAllTokenTypes()
+                        -- Shuffle the types to randomize selection
+                        for i = #availableTypes, 2, -1 do
+                            local j = math.random(i)
+                            availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                        end
+                        
+                        -- Try each token type in random order
+                        for _, type in ipairs(availableTypes) do
                             local token, tokenIndex = manaPool:findFreeToken(type)
                             if token then
                                 table.insert(requiredTokens, {

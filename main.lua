@@ -35,6 +35,8 @@ game = {
     winScreenDuration = 5,  -- How long to show the win screen before auto-reset
     keywords = Keywords,
     spellCompiler = SpellCompiler,
+    -- State management
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -377,22 +379,32 @@ function resetGame()
     game.rangeState = Constants.RangeState.FAR
     
     -- Clear sustained spells
-    game.sustainedSpellManager.activeSpells = {}
-    
-    -- Clear mana pool and add a single token to start
-    game.manaPool:clear()
-    local tokenType = game.addRandomToken()
-    
-    -- Reset health display animation state
-    for i = 1, 2 do
-        local display = UI.healthDisplay["player" .. i]
-        display.currentHealth = 100
-        display.targetHealth = 100
-        display.pendingDamage = 0
-        display.lastDamageTime = 0
+    if game.sustainedSpellManager then
+        game.sustainedSpellManager.activeSpells = {}
     end
     
-    print("Game reset! Starting with a single " .. tokenType .. " token")
+    -- Clear mana pool and add a single token to start
+    if game.manaPool then
+        game.manaPool:clear()
+        local tokenType = game.addRandomToken()
+        print("Game reset! Starting with a single " .. tokenType .. " token")
+    end
+    
+    -- Reset health display animation state
+    if UI and UI.healthDisplay then
+        for i = 1, 2 do
+            local display = UI.healthDisplay["player" .. i]
+            if display then
+                display.currentHealth = 100
+                display.targetHealth = 100
+                display.pendingDamage = 0
+                display.lastDamageTime = 0
+            end
+        end
+    end
+    
+    -- The current state is handled by the caller
+    print("Game reset complete")
 end
 
 -- Add resetGame function to game state so Input system can call it
@@ -401,75 +413,96 @@ function game.resetGame()
 end
 
 function love.update(dt)
-    -- Check for win condition before updates
-    if game.gameOver then
+    -- Different update logic based on current game state
+    if game.currentState == "MENU" then
+        -- Menu state updates (minimal, just for animations)
+        -- VFX system is still updated for menu animations
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        
+        -- No other updates needed in menu state
+        return
+    elseif game.currentState == "BATTLE" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to game over state
+            game.currentState = "GAME_OVER"
+            game.winScreenTimer = 0
+            return
+        end
+        
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+                
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+                    
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+                    
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+                
+                print(winner.name .. " wins!")
+                
+                -- Transition to game over state
+                game.currentState = "GAME_OVER"
+                return
+            end
+        end
+        
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+        
+        -- Update mana pool
+        game.manaPool:update(dt)
+        
+        -- Update VFX system
+        game.vfx.update(dt)
+        
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+        
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+    elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
         
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and go back to menu
             resetGame()
+            game.currentState = "MENU"
         end
         
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
-        return
     end
-    
-    -- Check if any wizard's health has reached zero
-    for i, wizard in ipairs(game.wizards) do
-        if wizard.health <= 0 then
-            game.gameOver = true
-            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
-            game.winScreenTimer = 0
-            
-            -- Create victory VFX around the winner
-            local winner = game.wizards[game.winner]
-            for j = 1, 15 do
-                local angle = math.random() * math.pi * 2
-                local distance = math.random(40, 100)
-                local x = winner.x + math.cos(angle) * distance
-                local y = winner.y + math.sin(angle) * distance
-                
-                -- Determine winner's color for effects
-                local color
-                if game.winner == 1 then -- Ashgar
-                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
-                else -- Selene
-                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
-                end
-                
-                -- Create sparkle effect with delay
-                game.vfx.createEffect("impact", x, y, nil, nil, {
-                    duration = 0.8 + math.random() * 0.5,
-                    color = color,
-                    particleCount = 5,
-                    radius = 15,
-                    delay = j * 0.1
-                })
-            end
-            
-            print(winner.name .. " wins!")
-            break
-        end
-    end
-    
-    -- Update wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:update(dt)
-    end
-    
-    -- Update mana pool
-    game.manaPool:update(dt)
-    
-    -- Update VFX system
-    game.vfx.update(dt)
-    
-    -- Update SustainedSpellManager for trap and shield management
-    game.sustainedSpellManager.update(dt)
-    
-    -- Update animated health displays
-    UI.updateHealthDisplays(dt, game.wizards)
 end
 
 function love.draw()
@@ -481,71 +514,100 @@ function love.draw()
     love.graphics.translate(offsetX, offsetY)
     love.graphics.scale(scale, scale)
     
-    -- Clear game area with game background color
-    love.graphics.setColor(20/255, 20/255, 40/255, 1)
-    love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-    love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    
-    -- Draw range state indicator (NEAR/FAR)
-    drawRangeIndicator()
-    
-    -- Draw mana pool
-    game.manaPool:draw()
-    
-    -- Draw wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:draw()
-    end
-    
-    -- Draw visual effects layer (between wizards and UI)
-    game.vfx.draw()
-    
-    -- Draw UI elements in proper z-order
-    love.graphics.setColor(1, 1, 1)
-    
-    -- First draw health bars and basic UI components
-    UI.drawSpellInfo(game.wizards)
-    
-    -- Then draw spellbook buttons (the input feedback bar)
-    UI.drawSpellbookButtons()
-    
-    -- Finally draw spellbook modals on top of everything else
-    UI.drawSpellbookModals(game.wizards)
-    
-    -- Draw win screen if game is over
-    if game.gameOver and game.winner then
+    -- Draw based on current game state
+    if game.currentState == "MENU" then
+        -- Draw the main menu
+        drawMainMenu()
+    elseif game.currentState == "BATTLE" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw range state indicator (NEAR/FAR)
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer (between wizards and UI)
+        game.vfx.draw()
+        
+        -- Draw UI elements in proper z-order
+        love.graphics.setColor(1, 1, 1)
+        
+        -- First draw health bars and basic UI components
+        UI.drawSpellInfo(game.wizards)
+        
+        -- Then draw spellbook buttons (the input feedback bar)
+        UI.drawSpellbookButtons()
+        
+        -- Finally draw spellbook modals on top of everything else
+        UI.drawSpellbookModals(game.wizards)
+    elseif game.currentState == "GAME_OVER" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw game elements in the background (frozen in time)
+        -- Draw range state indicator
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer
+        game.vfx.draw()
+        
+        -- Draw win screen on top
         drawWinScreen()
     end
     
-    -- Debug info only when debug key is pressed
+    -- Debug info only when debug key is pressed (available in all states)
     if love.keyboard.isDown("`") then
         UI.drawHelpText(game.font)
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
         
+        -- Show current game state in debug mode
+        love.graphics.print("State: " .. game.currentState, 10, 30)
+        
         -- Show scaling info in debug mode
-        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 30)
+        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 50)
         
         -- Show asset cache stats in debug mode
         local stats = AssetCache.dumpStats()
         love.graphics.print(string.format("Assets: %d images, %d sounds loaded", 
-                            stats.images.loaded, stats.sounds.loaded), 10, 50)
+                            stats.images.loaded, stats.sounds.loaded), 10, 70)
 
         -- Show Pool stats in debug mode
         if love.keyboard.isDown("p") then
             -- Draw pool statistics overlay
             Pool.drawDebugOverlay()
             -- Also show VFX-specific stats
-            game.vfx.showPoolStats()
+            if game.vfx and game.vfx.showPoolStats then
+                game.vfx.showPoolStats()
+            end
         else
-            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 70)
+            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 90)
         end
         
         -- Show hotkey summary when debug overlay is active
         if love.keyboard.isDown("tab") then
             drawHotkeyHelp()
         else
-            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 90)
+            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 110)
         end
     else
         -- Always show a small hint about the debug key
@@ -746,6 +808,211 @@ function drawRangeIndicator()
     
     -- Reset line width
     love.graphics.setLineWidth(1)
+end
+
+-- Draw the main menu
+function drawMainMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    
+    -- Draw a magical background effect
+    love.graphics.setColor(20/255, 20/255, 40/255, 1) -- Dark blue background
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Draw animated arcane runes in the background
+    for i = 1, 9 do
+        local time = love.timer.getTime()
+        local x = screenWidth * (0.1 + (i % 3) * 0.3)
+        local y = screenHeight * (0.1 + math.floor(i / 3) * 0.3)
+        local scale = 0.4 + 0.1 * math.sin(time + i)
+        local alpha = 0.1 + 0.05 * math.sin(time * 0.5 + i * 0.7)
+        local rotation = time * 0.1 * (i % 2 == 0 and 1 or -1)
+        local runeTexture = AssetCache.getImage("assets/sprites/runes/rune" .. i .. ".png")
+        
+        if runeTexture then
+            love.graphics.setColor(0.4, 0.4, 0.8, alpha)
+            love.graphics.draw(
+                runeTexture, 
+                x, y, 
+                rotation,
+                scale, scale,
+                runeTexture:getWidth()/2, runeTexture:getHeight()/2
+            )
+        end
+    end
+    
+    -- Draw title with a magical glow effect
+    local titleY = screenHeight * 0.25
+    local titleScale = 4
+    local titleText = "MANASTORM"
+    local titleWidth = game.font:getWidth(titleText) * titleScale
+    
+    -- Draw glow behind title
+    local glowColor = {0.3, 0.3, 0.9, 0.3}
+    local glowSize = 15 + 5 * math.sin(love.timer.getTime() * 2)
+    love.graphics.setColor(glowColor)
+    for i = 1, 3 do
+        love.graphics.print(
+            titleText,
+            screenWidth/2 - titleWidth/2 + math.random(-2, 2), 
+            titleY + math.random(-2, 2),
+            0,
+            titleScale, titleScale
+        )
+    end
+    
+    -- Draw main title
+    love.graphics.setColor(0.9, 0.9, 1, 1)
+    love.graphics.print(
+        titleText,
+        screenWidth/2 - titleWidth/2, 
+        titleY,
+        0,
+        titleScale, titleScale
+    )
+    
+    -- Draw subtitle
+    local subtitleText = "Wizard Duel"
+    local subtitleScale = 2
+    local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
+    
+    love.graphics.setColor(0.7, 0.7, 1, 0.9)
+    love.graphics.print(
+        subtitleText,
+        screenWidth/2 - subtitleWidth/2,
+        titleY + 60,
+        0,
+        subtitleScale, subtitleScale
+    )
+    
+    -- Draw menu options
+    local menuY = screenHeight * 0.6
+    local menuSpacing = 50
+    local menuScale = 1.5
+    
+    -- Start Duel option
+    local startText = "[Enter] Start Duel"
+    local startWidth = game.font:getWidth(startText) * menuScale
+    
+    -- Pulse effect for start option
+    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
+    love.graphics.print(
+        startText,
+        screenWidth/2 - startWidth/2,
+        menuY,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Quit option
+    local quitText = "[Esc] Quit"
+    local quitWidth = game.font:getWidth(quitText) * menuScale
+    
+    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
+    love.graphics.print(
+        quitText,
+        screenWidth/2 - quitWidth/2,
+        menuY + menuSpacing,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Draw version and credit
+    local versionText = "v0.1 - Demo"
+    love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
+    love.graphics.print(versionText, 10, screenHeight - 30)
+    
+    -- Initialize token position history on first run
+    if not game.menuTokenTrails then
+        game.menuTokenTrails = {}
+        for i = 1, 9 do
+            game.menuTokenTrails[i] = {}
+        end
+    end
+    
+    -- Draw floating mana tokens in a circular arrangement around the content
+    local centerX = screenWidth / 2
+    local centerY = screenHeight / 2
+    local orbitRadius = 200  -- Larger orbit radius for the tokens to circle around content
+    local numTokens = 9      -- Exactly 9 tokens to show all token types
+    local trailLength = 75   -- Length of the trail (5x longer than original 15)
+    
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Ensure we display each token type exactly once
+        local tokenType = game.tokenTypes[i]
+        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
+        
+        if tokenImage then
+            -- Calculate position on a circle with some oscillation
+            local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+            local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+            
+            -- Calculate x,y position on the orbit
+            local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+            local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+            
+            -- Add some vertical bounce
+            y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+            
+            -- Keep token size large but vary slightly for animation
+            local tokenScale = 1.8 + 0.3 * math.sin(time + i * 0.3)
+            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
+            
+            -- Get color for this token type
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Update position history for trail effect
+            if not game.menuTokenTrails[i] then
+                game.menuTokenTrails[i] = {}
+            end
+            
+            -- Store new position at the beginning of history array
+            table.insert(game.menuTokenTrails[i], 1, {x = x, y = y, time = time})
+            
+            -- Limit trail length
+            if #game.menuTokenTrails[i] > trailLength then
+                table.remove(game.menuTokenTrails[i])
+            end
+            
+            -- Draw the trailing effect first (behind the token)
+            -- For efficiency with longer trails, only draw every other point for trails > 30
+            local stepSize = (#game.menuTokenTrails[i] > 30) and 2 or 1
+            
+            for j = #game.menuTokenTrails[i], 2, -stepSize do
+                local pos = game.menuTokenTrails[i][j]
+                local timeDiff = time - pos.time
+                
+                -- Calculate fade based on position in trail (older = more transparent)
+                -- Use a slower fade rate for longer trails
+                local trailAlpha = 0.25 * (1 - (j / trailLength)^1.5)
+                
+                -- Gradually reduce size for trail particles
+                -- Adjusted scale formula for longer trails - slower decrease
+                local trailScale = 18 * (1 - (j / trailLength) * 0.6)
+                
+                -- Draw trail particle
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+                love.graphics.circle("fill", pos.x, pos.y, trailScale)
+            end
+            
+            -- Draw smaller glow behind token (reduced aura size)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
+            -- Reduce the aura size multiplier from 50 to 35
+            love.graphics.circle("fill", x, y, 35 * tokenScale)
+            
+            -- Draw token with same large scale as before
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.draw(
+                tokenImage, 
+                x, y, 
+                rotation,
+                tokenScale, tokenScale,
+                tokenImage:getWidth()/2, tokenImage:getHeight()/2
+            )
+        end
+    end
 end
 
 -- Unified key handler using the Input module

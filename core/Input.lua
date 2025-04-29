@@ -125,10 +125,25 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
-    -- Exit / Quit the game
+    -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
-        love.event.quit()
-        return true
+        -- If in MENU state, quit the game
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        -- If in BATTLE state, return to menu
+        elseif gameState.currentState == "BATTLE" then
+            gameState.currentState = "MENU"
+            print("Returning to main menu")
+            return true
+        -- If in GAME_OVER state, return to menu 
+        elseif gameState.currentState == "GAME_OVER" then
+            gameState.currentState = "MENU"
+            gameState.resetGame()
+            print("Returning to main menu")
+            return true
+        end
+        return false
     end
     
     -- SYSTEM CONTROLS (with ALT modifier)
@@ -172,11 +187,29 @@ function Input.setupRoutes()
         return true
     end
     
+    -- MENU CONTROLS
+    -- Start game from menu
+    Input.Routes.ui["return"] = function()
+        if gameState.currentState == "MENU" then
+            -- Reset game state for a fresh start
+            gameState.resetGame()
+            -- Change to battle state
+            gameState.currentState = "BATTLE"
+            print("Starting new game from menu")
+            return true
+        end
+        return false
+    end
+    
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
     Input.Routes.gameOver["space"] = function()
-        gameState.resetGame()
-        return true
+        if gameState.currentState == "GAME_OVER" then
+            gameState.resetGame()
+            gameState.currentState = "MENU" -- Return to menu after game over
+            return true
+        end
+        return false
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
@@ -445,12 +478,21 @@ end
 Input.reservedKeys = {
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
-        "Escape", -- Quit
         "Ctrl+R", -- Asset reload
     },
     
+    menu = {
+        "Enter", -- Start game from menu
+        "Escape", -- Quit game from menu
+    },
+    
+    battle = {
+        "Escape", -- Return to menu from battle
+    },
+    
     gameOver = {
-        "Space", -- Reset game
+        "Space", -- Return to menu after game over
+        "Escape", -- Return to menu immediately
     },
     
     player1 = {

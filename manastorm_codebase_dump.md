@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Mon Apr 28 10:34:57 CDT 2025
+Generated: Tue Apr 29 10:24:08 CDT 2025
 
 # Source Code
 
@@ -437,6 +437,25 @@ Constants.VFXType = {
     -- General effects
     IMPACT = "impact",
     
+    -- Base template effects (used by VisualResolver)
+    PROJ_BASE = "proj_base",       -- Base projectile effect
+    BEAM_BASE = "beam_base",       -- Base beam/remote effect
+    ZONE_BASE = "zone_base",       -- Base zone/area effect
+    UTIL_BASE = "util_base",       -- Base utility effect
+    IMPACT_BASE = "impact_base",   -- Base impact effect
+    
+    -- Overlay addon effects (used by VisualResolver)
+    DAMAGE_OVERLAY = "damage_overlay",
+    EMBER_OVERLAY = "ember_overlay",
+    DOT_OVERLAY = "dot_overlay",
+    SPARKLE_OVERLAY = "sparkle_overlay",
+    RESOURCE_OVERLAY = "resource_overlay",
+    MOVEMENT_OVERLAY = "movement_overlay",
+    RISE_OVERLAY = "rise_overlay",
+    FALL_OVERLAY = "fall_overlay",
+    SHIELD_OVERLAY = "shield_overlay",
+    BARRIER_OVERLAY = "barrier_overlay",
+    
     -- Movement and positioning effects
     TIDAL_FORCE_GROUND = "tidal_force_ground",
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
@@ -503,6 +522,27 @@ function Constants.isValidVFXType(value)
         end
     end
     return false
+end
+
+-- Motion styles for VFX particles
+Constants.MotionStyle = {
+    RADIAL = "radial",     -- Particles expand outward in all directions (default)
+    DIRECTIONAL = "directional", -- Particles move in a specific direction
+    SWIRL = "swirl",       -- Particles move in a circular/spiral pattern
+    RISE = "rise",         -- Particles float upward
+    FALL = "fall",         -- Particles fall downward
+    PULSE = "pulse",       -- Particles expand and contract rhythmically
+    RIPPLE = "ripple",     -- Particles move in wave-like patterns
+    STATIC = "static"      -- Particles stay in place with minimal motion
+}
+
+-- Utility function to get all motion styles
+function Constants.getAllMotionStyles()
+    local styles = {}
+    for _, value in pairs(Constants.MotionStyle) do
+        table.insert(styles, value)
+    end
+    return styles
 end
 
 return Constants```
@@ -636,10 +676,25 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
-    -- Exit / Quit the game
+    -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
-        love.event.quit()
-        return true
+        -- If in MENU state, quit the game
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        -- If in BATTLE state, return to menu
+        elseif gameState.currentState == "BATTLE" then
+            gameState.currentState = "MENU"
+            print("Returning to main menu")
+            return true
+        -- If in GAME_OVER state, return to menu 
+        elseif gameState.currentState == "GAME_OVER" then
+            gameState.currentState = "MENU"
+            gameState.resetGame()
+            print("Returning to main menu")
+            return true
+        end
+        return false
     end
     
     -- SYSTEM CONTROLS (with ALT modifier)
@@ -683,11 +738,29 @@ function Input.setupRoutes()
         return true
     end
     
+    -- MENU CONTROLS
+    -- Start game from menu
+    Input.Routes.ui["return"] = function()
+        if gameState.currentState == "MENU" then
+            -- Reset game state for a fresh start
+            gameState.resetGame()
+            -- Change to battle state
+            gameState.currentState = "BATTLE"
+            print("Starting new game from menu")
+            return true
+        end
+        return false
+    end
+    
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
     Input.Routes.gameOver["space"] = function()
-        gameState.resetGame()
-        return true
+        if gameState.currentState == "GAME_OVER" then
+            gameState.resetGame()
+            gameState.currentState = "MENU" -- Return to menu after game over
+            return true
+        end
+        return false
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
@@ -956,12 +1029,21 @@ end
 Input.reservedKeys = {
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
-        "Escape", -- Quit
         "Ctrl+R", -- Asset reload
     },
     
+    menu = {
+        "Enter", -- Start game from menu
+        "Escape", -- Quit game from menu
+    },
+    
+    battle = {
+        "Escape", -- Return to menu from battle
+    },
+    
     gameOver = {
-        "Space", -- Reset game
+        "Space", -- Return to menu after game over
+        "Escape", -- Return to menu immediately
     },
     
     player1 = {
@@ -1849,7 +1931,7 @@ Keywords.damage = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolve to handle conditional parameter
         local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
         
@@ -1859,14 +1941,30 @@ Keywords.damage = {
             local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
             local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
-            -- Generate event
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+
+            -- Generate event with enriched visual metadata
             table.insert(events or {}, {
                 type = "DAMAGE", 
                 source = "caster", 
                 target = "enemy",
                 amount = calculatedDamage, 
                 damageType = damageType,
-                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+                scaledDamage = (type(params.amount) == "function"), -- Keep scaledDamage flag based on original param type
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { DAMAGE = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil,
+                -- Add debug flag to track this event's flow
+                _debug_enriched = true
             })
         end
 
@@ -1892,7 +1990,13 @@ Keywords.burn = {
     },
     
     -- Implementation function - Generates APPLY_STATUS event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
+        
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
@@ -1900,7 +2004,15 @@ Keywords.burn = {
             statusType = "burn",
             duration = params.duration or 3.0,
             tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0
+            tickInterval = params.tickInterval or 1.0,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { BURN = true, DOT = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -1954,12 +2066,18 @@ Keywords.elevate = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Create elevation event
         local vfxValue = params.vfx or "emberlift"
         -- Check if we have a vfx parameter that's a table and should be a string
         if type(vfxValue) == "table" and vfxValue.effect then
             vfxValue = vfxValue.effect
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
         
         table.insert(events or {}, {
@@ -1968,7 +2086,15 @@ Keywords.elevate = {
             target = params.target or "self", -- Use specified target or default to self
             elevation = Constants.ElevationState.AERIAL,
             duration = params.duration or 5.0,
-            vfx = vfxValue
+            vfx = vfxValue,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { MOVEMENT = true, ELEVATE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = Constants.ElevationState.AERIAL  -- The new elevation state
         })
         return results
     end
@@ -1986,7 +2112,7 @@ Keywords.ground = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolver for conditional parameter
         local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
@@ -2002,12 +2128,26 @@ Keywords.ground = {
                 vfxString = vfxEffect.effect
             end
             
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
                 target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = vfxString
+                vfx = vfxString,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { MOVEMENT = true, GROUND = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = Constants.ElevationState.GROUNDED  -- The new elevation state
             })
         end
         return results
@@ -2078,7 +2218,7 @@ Keywords.conjure = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
         local targetPool = params.target or "POOL_SELF" -- Default target pool
@@ -2088,6 +2228,12 @@ Keywords.conjure = {
         -- Set the justConjuredMana flag on the wizard
         if caster and caster.justConjuredMana ~= nil then
             caster.justConjuredMana = true
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
 
         if type(tokenTypeParam) == "table" then
@@ -2099,7 +2245,15 @@ Keywords.conjure = {
                         source = "caster",
                         target = targetPool,
                         tokenType = specificTokenType,
-                        amount = 1 -- Conjure one of this specific type
+                        amount = 1, -- Conjure one of this specific type
+                        
+                        -- Visual metadata for VisualResolver
+                        affinity = spell and spell.affinity or nil,
+                        attackType = spell and spell.attackType or nil,
+                        manaCost = manaCost,
+                        tags = { CONJURE = true, RESOURCE = true },
+                        rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                        elevation = caster and caster.elevation or nil
                     })
                 end
             end
@@ -2111,7 +2265,15 @@ Keywords.conjure = {
                      source = "caster",
                      target = targetPool,
                      tokenType = tokenTypeParam,
-                     amount = 1 -- Conjure one of this specific type
+                     amount = 1, -- Conjure one of this specific type
+                     
+                     -- Visual metadata for VisualResolver
+                     affinity = spell and spell.affinity or nil,
+                     attackType = spell and spell.attackType or nil,
+                     manaCost = manaCost,
+                     tags = { CONJURE = true, RESOURCE = true },
+                     rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                     elevation = caster and caster.elevation or nil
                  })
              end
         else
@@ -2387,10 +2549,16 @@ Keywords.block = {
     },
     
     -- Implementation function - Generates CREATE_SHIELD event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Mark the spell as sustained
         results.isSustained = true
         print("[DEBUG] Block keyword setting results.isSustained = true")
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
         
         table.insert(events or {}, {
             type = "CREATE_SHIELD",
@@ -2400,7 +2568,15 @@ Keywords.block = {
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
             reflect = params.reflect or false,
-            onBlock = params.onBlock -- Add support for the onBlock callback
+            onBlock = params.onBlock, -- Add support for the onBlock callback
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -2553,100 +2729,45 @@ Keywords.consume = {
     end
 }
 
--- vfx: Generates a visual effect for the spell via the event system
+-- vfx: Handles explicit visual effect overrides for spells
 Keywords.vfx = {
     behavior = {
-        triggersVisualEffect = true,
+        overridesVisualEffect = true,
         category = "SPECIAL"
     },
-    execute = function(params, caster, target, results, events)
-        -- Default target to ENEMY if not specified, matching most spell effects
-        local eventTarget = params.target or Constants.TargetType.ENEMY 
-        
-        -- Get the effect type using Constants.VFXType, with fallback to IMPACT
-        local effectType
-        
+    execute = function(params, caster, target, results, events, spell)
+        -- Instead of creating an event, just set effectOverride in results
         if params.effect then
-            -- If the param is already a string (not a constant), use it directly
+            -- Get the effect type, whether it's a string or constant
+            local effectType
             if type(params.effect) == "string" then
                 effectType = params.effect
             else
-                -- Otherwise, use it as provided (assuming it's a constant)
                 effectType = params.effect
             end
-        else
-            -- Default to impact if no effect specified
-            effectType = Constants.VFXType.IMPACT
+            
+            -- Store the override in the results object
+            results.effectOverride = effectType
+            
+            -- Debug output
+            print(string.format("[VFX KEYWORD] Setting effectOverride: %s for %s", 
+                tostring(effectType),
+                caster and caster.name or "unknown"))
         end
         
-        -- Validate effect type with more extensive checks
-        local isValidEffect = false
-        
-        -- First check if it's a direct string match
-        isValidEffect = Constants.isValidVFXType(effectType)
-        
-        -- If not, check if it's a constant reference (not a string)
-        if not isValidEffect and type(effectType) ~= "string" then
-            -- Check if it's a direct value from Constants.VFXType
-            for _, value in pairs(Constants.VFXType) do
-                if effectType == value then
-                    isValidEffect = true
-                    break
-                end
-            end
+        -- Also store any other relevant parameters
+        if params.duration then
+            results.effectDuration = params.duration
         end
         
-        -- If still not valid, see if it's a string that closely matches a defined effect
-        if not isValidEffect and type(effectType) == "string" then
-            -- Try without case sensitivity
-            local lowerEffect = effectType:lower()
-            for _, value in pairs(Constants.VFXType) do
-                if lowerEffect == value:lower() then
-                    effectType = value -- Use the correctly cased version
-                    isValidEffect = true
-                    break
-                end
-            end
+        if params.target then
+            results.effectTarget = params.target
         end
         
-        -- Fall back to IMPACT if we couldn't validate the effect
-        if not isValidEffect then
-            print(string.format("[VFX KEYWORD] Warning: Unknown effect type '%s', falling back to 'impact'", 
-                tostring(effectType)))
-            effectType = Constants.VFXType.IMPACT
-        end
+        -- Store other vfx parameters that might be useful
+        results.vfxParams = params
         
-        -- Add debug output (abbreviated version for production)
-        print(string.format("[VFX KEYWORD] Creating effect: %s for %s -> %s", 
-            effectType,
-            caster and caster.name or "unknown", 
-            target and target.name or "unknown"))
-        
-        -- Create the EFFECT event with a string target type (not a Constants value)
-        local targetTypeString = "enemy" -- Default
-        
-        -- Convert Constants.TargetType values to strings
-        if eventTarget == Constants.TargetType.ENEMY then
-            targetTypeString = "enemy"
-        elseif eventTarget == Constants.TargetType.SELF then
-            targetTypeString = "self"
-        elseif eventTarget == Constants.TargetType.BOTH then
-            targetTypeString = "both"
-        elseif type(eventTarget) == "string" then
-            -- If it's already a string, use it directly
-            targetTypeString = eventTarget
-        end
-        
-        table.insert(events or {}, {
-            type       = "EFFECT", -- Use the existing EFFECT event type
-            source     = "caster", -- Use string "caster" not Constants value
-            target     = targetTypeString, -- Use string type for target
-            effectType = effectType, -- The specific VFX template name (e.g., "firebolt")
-            duration   = params.duration, -- Optional duration override
-            -- Pass through any other params for the VFX system
-            vfxParams  = params -- Store original params for flexibility
-        })
-        return results -- Return unmodified results (only adds an event)
+        return results
     end
 }
 
@@ -2691,6 +2812,8 @@ game = {
     winScreenDuration = 5,  -- How long to show the win screen before auto-reset
     keywords = Keywords,
     spellCompiler = SpellCompiler,
+    -- State management
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -3033,22 +3156,32 @@ function resetGame()
     game.rangeState = Constants.RangeState.FAR
     
     -- Clear sustained spells
-    game.sustainedSpellManager.activeSpells = {}
-    
-    -- Clear mana pool and add a single token to start
-    game.manaPool:clear()
-    local tokenType = game.addRandomToken()
-    
-    -- Reset health display animation state
-    for i = 1, 2 do
-        local display = UI.healthDisplay["player" .. i]
-        display.currentHealth = 100
-        display.targetHealth = 100
-        display.pendingDamage = 0
-        display.lastDamageTime = 0
+    if game.sustainedSpellManager then
+        game.sustainedSpellManager.activeSpells = {}
     end
     
-    print("Game reset! Starting with a single " .. tokenType .. " token")
+    -- Clear mana pool and add a single token to start
+    if game.manaPool then
+        game.manaPool:clear()
+        local tokenType = game.addRandomToken()
+        print("Game reset! Starting with a single " .. tokenType .. " token")
+    end
+    
+    -- Reset health display animation state
+    if UI and UI.healthDisplay then
+        for i = 1, 2 do
+            local display = UI.healthDisplay["player" .. i]
+            if display then
+                display.currentHealth = 100
+                display.targetHealth = 100
+                display.pendingDamage = 0
+                display.lastDamageTime = 0
+            end
+        end
+    end
+    
+    -- The current state is handled by the caller
+    print("Game reset complete")
 end
 
 -- Add resetGame function to game state so Input system can call it
@@ -3057,75 +3190,96 @@ function game.resetGame()
 end
 
 function love.update(dt)
-    -- Check for win condition before updates
-    if game.gameOver then
+    -- Different update logic based on current game state
+    if game.currentState == "MENU" then
+        -- Menu state updates (minimal, just for animations)
+        -- VFX system is still updated for menu animations
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        
+        -- No other updates needed in menu state
+        return
+    elseif game.currentState == "BATTLE" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to game over state
+            game.currentState = "GAME_OVER"
+            game.winScreenTimer = 0
+            return
+        end
+        
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+                
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+                    
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+                    
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+                
+                print(winner.name .. " wins!")
+                
+                -- Transition to game over state
+                game.currentState = "GAME_OVER"
+                return
+            end
+        end
+        
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+        
+        -- Update mana pool
+        game.manaPool:update(dt)
+        
+        -- Update VFX system
+        game.vfx.update(dt)
+        
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+        
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+    elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
         
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and go back to menu
             resetGame()
+            game.currentState = "MENU"
         end
         
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
-        return
     end
-    
-    -- Check if any wizard's health has reached zero
-    for i, wizard in ipairs(game.wizards) do
-        if wizard.health <= 0 then
-            game.gameOver = true
-            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
-            game.winScreenTimer = 0
-            
-            -- Create victory VFX around the winner
-            local winner = game.wizards[game.winner]
-            for j = 1, 15 do
-                local angle = math.random() * math.pi * 2
-                local distance = math.random(40, 100)
-                local x = winner.x + math.cos(angle) * distance
-                local y = winner.y + math.sin(angle) * distance
-                
-                -- Determine winner's color for effects
-                local color
-                if game.winner == 1 then -- Ashgar
-                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
-                else -- Selene
-                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
-                end
-                
-                -- Create sparkle effect with delay
-                game.vfx.createEffect("impact", x, y, nil, nil, {
-                    duration = 0.8 + math.random() * 0.5,
-                    color = color,
-                    particleCount = 5,
-                    radius = 15,
-                    delay = j * 0.1
-                })
-            end
-            
-            print(winner.name .. " wins!")
-            break
-        end
-    end
-    
-    -- Update wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:update(dt)
-    end
-    
-    -- Update mana pool
-    game.manaPool:update(dt)
-    
-    -- Update VFX system
-    game.vfx.update(dt)
-    
-    -- Update SustainedSpellManager for trap and shield management
-    game.sustainedSpellManager.update(dt)
-    
-    -- Update animated health displays
-    UI.updateHealthDisplays(dt, game.wizards)
 end
 
 function love.draw()
@@ -3137,71 +3291,100 @@ function love.draw()
     love.graphics.translate(offsetX, offsetY)
     love.graphics.scale(scale, scale)
     
-    -- Clear game area with game background color
-    love.graphics.setColor(20/255, 20/255, 40/255, 1)
-    love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-    love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    
-    -- Draw range state indicator (NEAR/FAR)
-    drawRangeIndicator()
-    
-    -- Draw mana pool
-    game.manaPool:draw()
-    
-    -- Draw wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:draw()
-    end
-    
-    -- Draw visual effects layer (between wizards and UI)
-    game.vfx.draw()
-    
-    -- Draw UI elements in proper z-order
-    love.graphics.setColor(1, 1, 1)
-    
-    -- First draw health bars and basic UI components
-    UI.drawSpellInfo(game.wizards)
-    
-    -- Then draw spellbook buttons (the input feedback bar)
-    UI.drawSpellbookButtons()
-    
-    -- Finally draw spellbook modals on top of everything else
-    UI.drawSpellbookModals(game.wizards)
-    
-    -- Draw win screen if game is over
-    if game.gameOver and game.winner then
+    -- Draw based on current game state
+    if game.currentState == "MENU" then
+        -- Draw the main menu
+        drawMainMenu()
+    elseif game.currentState == "BATTLE" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw range state indicator (NEAR/FAR)
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer (between wizards and UI)
+        game.vfx.draw()
+        
+        -- Draw UI elements in proper z-order
+        love.graphics.setColor(1, 1, 1)
+        
+        -- First draw health bars and basic UI components
+        UI.drawSpellInfo(game.wizards)
+        
+        -- Then draw spellbook buttons (the input feedback bar)
+        UI.drawSpellbookButtons()
+        
+        -- Finally draw spellbook modals on top of everything else
+        UI.drawSpellbookModals(game.wizards)
+    elseif game.currentState == "GAME_OVER" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw game elements in the background (frozen in time)
+        -- Draw range state indicator
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer
+        game.vfx.draw()
+        
+        -- Draw win screen on top
         drawWinScreen()
     end
     
-    -- Debug info only when debug key is pressed
+    -- Debug info only when debug key is pressed (available in all states)
     if love.keyboard.isDown("`") then
         UI.drawHelpText(game.font)
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
         
+        -- Show current game state in debug mode
+        love.graphics.print("State: " .. game.currentState, 10, 30)
+        
         -- Show scaling info in debug mode
-        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 30)
+        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 50)
         
         -- Show asset cache stats in debug mode
         local stats = AssetCache.dumpStats()
         love.graphics.print(string.format("Assets: %d images, %d sounds loaded", 
-                            stats.images.loaded, stats.sounds.loaded), 10, 50)
+                            stats.images.loaded, stats.sounds.loaded), 10, 70)
 
         -- Show Pool stats in debug mode
         if love.keyboard.isDown("p") then
             -- Draw pool statistics overlay
             Pool.drawDebugOverlay()
             -- Also show VFX-specific stats
-            game.vfx.showPoolStats()
+            if game.vfx and game.vfx.showPoolStats then
+                game.vfx.showPoolStats()
+            end
         else
-            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 70)
+            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 90)
         end
         
         -- Show hotkey summary when debug overlay is active
         if love.keyboard.isDown("tab") then
             drawHotkeyHelp()
         else
-            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 90)
+            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 110)
         end
     else
         -- Always show a small hint about the debug key
@@ -3402,6 +3585,149 @@ function drawRangeIndicator()
     
     -- Reset line width
     love.graphics.setLineWidth(1)
+end
+
+-- Draw the main menu
+function drawMainMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    
+    -- Draw a magical background effect
+    love.graphics.setColor(20/255, 20/255, 40/255, 1) -- Dark blue background
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Draw animated arcane runes in the background
+    for i = 1, 9 do
+        local time = love.timer.getTime()
+        local x = screenWidth * (0.1 + (i % 3) * 0.3)
+        local y = screenHeight * (0.1 + math.floor(i / 3) * 0.3)
+        local scale = 0.4 + 0.1 * math.sin(time + i)
+        local alpha = 0.1 + 0.05 * math.sin(time * 0.5 + i * 0.7)
+        local rotation = time * 0.1 * (i % 2 == 0 and 1 or -1)
+        local runeTexture = AssetCache.getImage("assets/sprites/runes/rune" .. i .. ".png")
+        
+        if runeTexture then
+            love.graphics.setColor(0.4, 0.4, 0.8, alpha)
+            love.graphics.draw(
+                runeTexture, 
+                x, y, 
+                rotation,
+                scale, scale,
+                runeTexture:getWidth()/2, runeTexture:getHeight()/2
+            )
+        end
+    end
+    
+    -- Draw title with a magical glow effect
+    local titleY = screenHeight * 0.25
+    local titleScale = 4
+    local titleText = "MANASTORM"
+    local titleWidth = game.font:getWidth(titleText) * titleScale
+    
+    -- Draw glow behind title
+    local glowColor = {0.3, 0.3, 0.9, 0.3}
+    local glowSize = 15 + 5 * math.sin(love.timer.getTime() * 2)
+    love.graphics.setColor(glowColor)
+    for i = 1, 3 do
+        love.graphics.print(
+            titleText,
+            screenWidth/2 - titleWidth/2 + math.random(-2, 2), 
+            titleY + math.random(-2, 2),
+            0,
+            titleScale, titleScale
+        )
+    end
+    
+    -- Draw main title
+    love.graphics.setColor(0.9, 0.9, 1, 1)
+    love.graphics.print(
+        titleText,
+        screenWidth/2 - titleWidth/2, 
+        titleY,
+        0,
+        titleScale, titleScale
+    )
+    
+    -- Draw subtitle
+    local subtitleText = "Wizard Duel"
+    local subtitleScale = 2
+    local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
+    
+    love.graphics.setColor(0.7, 0.7, 1, 0.9)
+    love.graphics.print(
+        subtitleText,
+        screenWidth/2 - subtitleWidth/2,
+        titleY + 60,
+        0,
+        subtitleScale, subtitleScale
+    )
+    
+    -- Draw menu options
+    local menuY = screenHeight * 0.6
+    local menuSpacing = 50
+    local menuScale = 1.5
+    
+    -- Start Duel option
+    local startText = "[Enter] Start Duel"
+    local startWidth = game.font:getWidth(startText) * menuScale
+    
+    -- Pulse effect for start option
+    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
+    love.graphics.print(
+        startText,
+        screenWidth/2 - startWidth/2,
+        menuY,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Quit option
+    local quitText = "[Esc] Quit"
+    local quitWidth = game.font:getWidth(quitText) * menuScale
+    
+    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
+    love.graphics.print(
+        quitText,
+        screenWidth/2 - quitWidth/2,
+        menuY + menuSpacing,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Draw version and credit
+    local versionText = "v0.1 - Demo"
+    love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
+    love.graphics.print(versionText, 10, screenHeight - 30)
+    
+    -- Draw floating mana tokens as decoration
+    for i = 1, 5 do
+        local time = love.timer.getTime()
+        local tokenType = game.tokenTypes[i]
+        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
+        
+        if tokenImage then
+            local x = screenWidth * (0.2 + 0.15 * i + 0.03 * math.sin(time * 0.5 + i))
+            local y = screenHeight * (0.4 + 0.05 * math.sin(time * 0.7 + i * 0.5))
+            local tokenScale = 0.5 + 0.1 * math.sin(time + i * 0.3)
+            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
+            
+            -- Draw glow behind token
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
+            love.graphics.circle("fill", x, y, 20 * tokenScale)
+            
+            -- Draw token
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.draw(
+                tokenImage, 
+                x, y, 
+                rotation,
+                tokenScale, tokenScale,
+                tokenImage:getWidth()/2, tokenImage:getHeight()/2
+            )
+        end
+    end
 end
 
 -- Unified key handler using the Input module
@@ -4723,13 +5049,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- for handling its params, including function evaluation.
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute({}, caster, target, results, events) -- Pass empty params
+                    behaviorResults = behavior.execute({}, caster, target, results, events, compiledSpell) -- Pass empty params and the spell
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events, compiledSpell)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, results, events)
+                    behaviorResults = behavior.execute(params, caster, target, results, events, compiledSpell)
                 end
                 
                 -- Debug output for events immediately after execute
@@ -4743,9 +5069,19 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     results[k] = v
                 end
                 
-                -- Special handling for shield behaviors
+                -- Special handling for vfx keyword's effectOverride
+                -- This is part of the VFX-R5 refactoring to deprecate manual VFX specification
+                if keyword == "vfx" and results.effectOverride then
+                    -- Remember the override for when a damage event generates an EFFECT event
+                    compiledSpell.effectOverride = results.effectOverride
+                    compiledSpell.effectTarget = results.effectTarget
+                    compiledSpell.effectDuration = results.effectDuration
+                    compiledSpell.vfxParams = results.vfxParams
+                end
+                
+                -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
-                    -- Debug the block keyword behavior
+                    -- Debug the block keyword behavior 
                     print("[COMPILER DEBUG] Processing block keyword in executeAll")
                     
                     -- Check for onBlock in params
@@ -4755,39 +5091,15 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         print("[COMPILER DEBUG] No onBlock handler in params")
                     end
                     
-                    -- Create a CREATE_SHIELD event
-                    local shieldEvent = {
-                        type = "CREATE_SHIELD",
-                        source = "caster",
-                        target = "self", -- Use "self" to be consistent with Keywords.block targetType
-                        slotIndex = spellSlot,
-                        defenseType = "barrier",
-                        blocksAttackTypes = {"projectile"},
-                        reflect = false,
-                        onBlock = params.onBlock -- Include onBlock directly from params
-                    }
+                    -- NOTE: We no longer create a CREATE_SHIELD event here
+                    -- The Keywords.block.execute function already creates this event
+                    -- Creating it here would cause a duplicate event
                     
-                    -- Debug the onBlock in the shield event
-                    if shieldEvent.onBlock then
-                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
-                    else
-                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
-                    end
-                    
-                    -- Safely add shield parameters if available
+                    -- Debug info about shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
-                        shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
-                        shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
-                        shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
-                        
-                        -- Also add onBlock from shieldParams if available and not already set
-                        if behaviorResults.shieldParams.onBlock and not shieldEvent.onBlock then
-                            shieldEvent.onBlock = behaviorResults.shieldParams.onBlock
-                            print("[COMPILER DEBUG] Added onBlock from shieldParams to CREATE_SHIELD event")
-                        end
+                        local defenseType = behaviorResults.shieldParams.defenseType or "barrier"
+                        print("[COMPILER DEBUG] Shield type: " .. defenseType)
                     end
-                    
-                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -4906,50 +5218,31 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 if behavior.enabled then
                     -- Call the keyword execute function with an empty results table
                     -- The events parameter allows keywords to add events directly via table.insert
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 elseif behavior.value ~= nil then
-                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 else
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 end
                 
-                -- Special handling for shield behaviors (block keyword)
+                -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
                     -- Debug the block keyword behavior
                     print("[COMPILER DEBUG] Processing block keyword in generateEvents")
                     
-                    -- Create a CREATE_SHIELD event explicitly
-                    local shieldParams = localResults.shieldParams or {}
+                    -- NOTE: We no longer create a CREATE_SHIELD event here
+                    -- The Keywords.block.execute function already creates this event
+                    -- Creating it here would cause a duplicate event
                     
-                    -- Check if onBlock is in the params
+                    -- Debug info about shield parameters
+                    local shieldParams = localResults.shieldParams or {}
+                    local defenseType = shieldParams.defenseType or "barrier"
+                    print("[COMPILER DEBUG] Shield type from generateEvents: " .. defenseType)
+                    
+                    -- Check if onBlock is in the params (just for debug info)
                     if params and params.onBlock then
                         print("[COMPILER DEBUG] Found onBlock handler in params")
-                        -- Add onBlock to shieldParams if not already there
-                        if not shieldParams.onBlock then
-                            shieldParams.onBlock = params.onBlock
-                        end
                     end
-                    
-                    -- Create event with onBlock included
-                    local shieldEvent = {
-                        type = "CREATE_SHIELD",
-                        source = "caster",
-                        target = "self",
-                        slotIndex = spellSlot,
-                        defenseType = shieldParams.defenseType or "barrier",
-                        blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = shieldParams.reflect or false,
-                        onBlock = shieldParams.onBlock -- Include onBlock in the event
-                    }
-                    
-                    -- Debug the onBlock in the shield event
-                    if shieldEvent.onBlock then
-                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
-                    else
-                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
-                    end
-                    
-                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -5165,7 +5458,7 @@ Spells.conjurenothing = {
             amount = 3
         }
     },
-    vfx = "void_conjure",
+    -- VFX provided by rules-driven system
     sfx = "void_conjure",
 }
 
@@ -5183,7 +5476,7 @@ Spells.conjurefire = {
             token = Constants.TokenType.FIRE,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.CONJUREFIRE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},  -- Unblockable
     
@@ -5215,7 +5508,7 @@ Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Quick ranged hit, more damage against AERIAL opponents",
+    description = "Quick ranged hit, more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
@@ -5229,7 +5522,30 @@ Spells.firebolt = {
             end,
             type = Constants.DamageType.FIRE
         },
-        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.watergun = {
+    id = "watergun",
+    name = "Water Gun",
+    affinity = "water",
+    description = "Quick ranged hit, more damage against NEAR opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    return 15
+                end
+                return 10
+            end,
+            type = Constants.DamageType.WATER
+        }
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -5252,7 +5568,7 @@ Spells.blastwave = {
             }),
             type = Constants.DamageType.FIRE
         },
-        vfx = { effect = Constants.VFXType.BLASTWAVE, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "blastwave",
 }
@@ -5281,7 +5597,7 @@ Spells.meteor = {
         ground = {
             target = Constants.TargetType.SELF 
         },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep one example with manual VFX for regression testing
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -5299,7 +5615,7 @@ Spells.combustMana = {
         disruptAndShift = {
             targetType = "salt"
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
 }
 
@@ -5316,7 +5632,7 @@ Spells.conjuresalt = {
             token = Constants.TokenType.SALT,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.FORCE_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},
 
@@ -5350,7 +5666,7 @@ Spells.emberlift = {
         elevate = {
             duration = 5.0,
             target = "SELF",
-            vfx = { effect = Constants.VFXType.ELEVATION_UP, target = Constants.TargetType.SELF }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
         rangeShift = {
             position = expr.byRange({
@@ -5358,7 +5674,7 @@ Spells.emberlift = {
                 FAR = "NEAR",
                 default = "NEAR"
             }),
-            vfx = { effect = Constants.VFXType.RANGE_CHANGE, target = Constants.TargetType.SELF }
+            -- VFX provided by rules-driven system (see R5 refactor)
         }
     },
     sfx = "whoosh_up",
@@ -5379,7 +5695,7 @@ Spells.conjuremoonlight = {
             token = Constants.TokenType.MOON,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.CONJUREMOONLIGHT, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},  -- Unblockable
     
@@ -5418,7 +5734,7 @@ Spells.conjurestars = {
             token = Constants.TokenType.STAR,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.STAR_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},
 
@@ -5453,7 +5769,7 @@ Spells.novaconjuring = {
             },
             amount = 1 -- Conjures 1 of each listed type
         },
-        vfx = { effect = Constants.VFXType.NOVA_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_nova",
     blockableBy = {}  -- Unblockable
@@ -5477,7 +5793,7 @@ Spells.witchconjuring = {
             },
             amount = 1 -- Conjures 1 of each listed type
         },
-        vfx = { effect = Constants.VFXType.WITCH_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_witch",
     blockableBy = {}  -- Unblockable
@@ -5498,7 +5814,7 @@ Spells.infiniteprocession = {
             type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.TOKEN_SHIFT, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_infinite",
 }
@@ -5506,14 +5822,14 @@ Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Ward that elevates the caster each time it blocks.",
+    description = "Magical ward that blocks projectile and remote attacks, elevating the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
     keywords = {
         block = {
-            type = Constants.ShieldType.WARD,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            type = Constants.ShieldType.WARD, -- Ward blocks projectile and remote
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
             
             -- Simplified onBlock implementation
             onBlock = function(defender, attacker, slot, info)
@@ -5529,14 +5845,14 @@ Spells.wrapinmoonlight = {
                     target = "self",
                     elevation = Constants.ElevationState.AERIAL,
                     duration = 4.0,
-                    vfx = { effect = Constants.VFXType.MISTVEIL, target = Constants.TargetType.SELF }
+                    -- VFX provided by rules-driven system (see R5 refactor)
                 })
                 
                 print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
@@ -5561,9 +5877,9 @@ Spells.tidalforce = {
                 return target and target.elevation == "AERIAL"
             end,
             target = "ENEMY", -- Explicitly specify the enemy as the target
-            vfx = { effect = Constants.VFXType.TIDAL_FORCE_GROUND, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "tidal_wave",
     blockableBy = {"ward", "field"}
@@ -5592,7 +5908,7 @@ Spells.lunardisjunction = {
             end,
             target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
         },
-        vfx = { effect = Constants.VFXType.LUNARDISJUNCTION, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "lunardisjunction_sound",
     blockableBy = {"ward"} -- Disjunction is a projectile
@@ -5638,9 +5954,9 @@ Spells.gravityTrap = {
                 tickInterval = 0.5,
                 target = "ENEMY"
             },
-            vfx = { effect = Constants.VFXType.GRAVITY_PIN_GROUND, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.GRAVITY_TRAP_SET, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
@@ -5703,7 +6019,7 @@ Spells.gravity = {
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
         },
-        vfx = { effect = Constants.VFXType.GRAVITY_PIN_GROUND, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "gravity_slam",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -5727,7 +6043,7 @@ Spells.eclipse = {
             token = Constants.TokenType.SUN,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.FORCE_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "eclipse_shatter",
     blockableBy = {} -- Utility spells are not blockable
@@ -5777,7 +6093,7 @@ Spells.fullmoonbeam = {
             end,
             type = Constants.TokenType.MOON
         },
-        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY },
+        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep second example with manual VFX for beam effects
     },
     sfx = "beam_charge",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -5796,7 +6112,7 @@ Spells.forcebarrier = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
         },
-        vfx = { effect = Constants.VFXType.IMPACT, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "shield_up",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -5845,7 +6161,7 @@ Spells.enhancedmirrorshield = {
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -5913,7 +6229,7 @@ Spells.battleshield = {
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "fire_shield",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -5950,7 +6266,7 @@ Spells.shieldbreaker = {
             end,
             type = "force"
         },
-        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     -- Add special property that indicates this is a shield-breaker spell
     -- This will be used in the shield-blocking logic
@@ -6002,7 +6318,7 @@ Spells.eruption = {
             duration = 4.0,
             tickDamage = 3
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "volcano_rumble",
     blockableBy = {Constants.ShieldType.BARRIER},
@@ -6051,7 +6367,7 @@ Spells.cosmicRift = {
             slot = nil -- Affects the next spell cast from any slot
         },
         zoneMulti = true,  -- Affects both NEAR and FAR
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "space_tear",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -6073,9 +6389,9 @@ Spells.forceBlast = {
         elevate = {
             duration = 3.0,         -- Lasts for 3 seconds
             target = "ENEMY",       -- Targets the opponent
-            vfx = { effect = Constants.VFXType.FORCE_BLAST_UP, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "force_wind",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -6104,7 +6420,7 @@ Spells.blazingAscent = {
             token = Constants.TokenType.WATER,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.ELEVATION_UP, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -6195,7 +6511,7 @@ Spells.arcaneReversal = {
             slot = 1,  -- First slot
             target = "SLOT_SELF"
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "time_shift",
     blockableBy = {Constants.ShieldType.WARD}
@@ -6242,7 +6558,7 @@ Spells.lunarTides = {
             end,
             target = "POOL_ENEMY"  -- Affects opponent's mana pool
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "tide_rush",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -6285,7 +6601,7 @@ Spells.adaptive_surge = {
             },
             nil -- Don't apply slow otherwise
         ),
-        vfx = { effect = Constants.VFXType.IMPACT, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "adaptive_sound",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -6336,8 +6652,26 @@ return SpellsModule```
 ```lua
 -- EventRunner.lua
 -- Processes spell events and applies them to game state
+--
+-- IMPORTANT: Visual Effects Pattern
+-- =================================
+-- This module now uses the VisualResolver for determining which VFX to trigger.
+-- The pattern for creating visuals is:
+--
+-- 1. For typical gameplay events (damage, status, etc.):
+--    - Keywords in keywords.lua should include visual metadata in their events
+--    - The EFFECT handler in this module will use VisualResolver.pick() to determine visuals
+--
+-- 2. For specialized effects in other handlers:
+--    - Generate an EFFECT event with proper metadata and dispatch it
+--    - This ensures consistent visual handling through the VisualResolver
+--
+-- 3. Legacy direct VFX calls:
+--    - Some handlers still use safeCreateVFX() directly (marked with TODO comments)
+--    - These will be gradually migrated to use the VisualResolver pattern
 
 local Constants = require("core.Constants")
+local VisualResolver = require("systems.VisualResolver")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -6656,9 +6990,60 @@ EventRunner.EVENT_HANDLERS = {
         -- Debug log damage application
         print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
             event.amount, targetWizard.name, targetWizard.health))
+            
+        -- Debug log visual metadata
+        print(string.format("[DAMAGE EVENT] Visual metadata: affinity=%s, attackType=%s, damageType=%s, manaCost=%s", 
+            tostring(event.affinity),
+            tostring(event.attackType),
+            tostring(event.damageType),
+            tostring(event.manaCost)))
+        print(string.format("[DAMAGE EVENT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            event.tags and "present" or "nil",
+            tostring(event.rangeBand),
+            tostring(event.elevation)))
         
         -- Track damage for results
         results.damageDealt = results.damageDealt + event.amount
+        
+        -- Generate an EFFECT event for the damage
+        -- Check if we have a spell with effectOverride first
+        local effectOverride = nil
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+        end
+        
+        -- Create EFFECT event
+        local effectEvent = {
+            type = "EFFECT",
+            source = "caster",
+            target = event.target,
+            effectOverride = effectOverride, -- Use override if we have one
+            
+            -- Copy visual metadata from the damage event
+            affinity = event.affinity,
+            attackType = event.attackType,
+            damageType = event.damageType,
+            manaCost = event.manaCost,
+            tags = event.tags or { DAMAGE = true },
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+        
+        -- Debug log the generated EFFECT event
+        print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s", 
+            tostring(effectOverride)))
+        print(string.format("[DAMAGE->EFFECT] Transferred metadata: affinity=%s, attackType=%s, damageType=%s", 
+            tostring(effectEvent.affinity),
+            tostring(effectEvent.attackType),
+            tostring(effectEvent.damageType)))
+        print(string.format("[DAMAGE->EFFECT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            effectEvent.tags and "present" or "nil",
+            tostring(effectEvent.rangeBand),
+            tostring(effectEvent.elevation)))
+        
+        -- Process the effect event to create visuals
+        EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         
         return true
     end,
@@ -6732,37 +7117,29 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            -- Use the specified VFX if provided in the event, otherwise use a default based on elevation
-            local effectType = nil
-            
-            -- First check if the event has a custom vfx specified
-            if event.vfx and type(event.vfx) == "string" then
-                effectType = event.vfx
-                print("[EventRunner] Using custom elevation VFX: " .. effectType)
-            else
-                -- Fall back to default VFXs based on elevation direction
-                if event.elevation == "AERIAL" then
-                    effectType = Constants.VFXType.ELEVATION_UP
-                else
-                    effectType = Constants.VFXType.ELEVATION_DOWN
-                end
-            end
-            
-            local params = {
-                duration = 1.0,
+            -- Interim Approach: Generate an EFFECT event to handle VFX consistently
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                -- If the event has a custom vfx specified, use it as an override
+                effectOverride = (event.vfx and type(event.vfx) == "string") and event.vfx or nil,
+                -- Provide elevation metadata for the resolver
+                affinity = event.affinity, -- Use affinity from original event
+                attackType = "utility",    -- Elevation is a utility spell type
+                manaCost = event.manaCost or 1,
+                tags = { MOVEMENT = true, [event.elevation == "AERIAL" and "ELEVATE" or "GROUND"] = true },
+                rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
-                source = caster.name
+                duration = 1.0
             }
             
-            -- Use our safe VFX creation helper, targeting the wizard's coords
-            safeCreateVFX(
-                caster.gameState.vfx, 
-                "createElevationEffect", 
-                effectType, 
-                targetWizard.x, 
-                targetWizard.y, 
-                params
-            )
+            -- Process the effect event, which will use the VisualResolver internally
+            -- This ensures consistent visual handling for all effects
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+            
+            -- Note: The above approach is cleaner than calling VisualResolver directly
+            -- as it ensures all event parameters are properly passed through
         end
         
         return true
@@ -6787,19 +7164,26 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create range change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                position = event.position,
-                duration = 1.0
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "both", -- Range changes affect both wizards
+                effectOverride = Constants.VFXType.RANGE_CHANGE, -- Use explicit override for this special effect
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity,
+                attackType = "utility",
+                manaCost = 1,
+                tags = { MOVEMENT = true },
+                rangeBand = event.position, -- The new range state
+                elevation = caster.elevation,
+                duration = 1.0,
+                -- Extra params specific to range changes
+                position = event.position
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createRangeChangeEffect",
-                Constants.VFXType.RANGE_CHANGE,
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -6814,6 +7198,9 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Create position force VFX if available
             if caster.gameState.vfx then
+                -- TODO: VFX-R5 - Update this to use VisualResolver pattern
+                -- This handler should be refactored to generate an EFFECT event
+                -- for consistency, but we'll leave it for now as it's a specialized effect
                 local params = {
                     duration = 1.0,
                     source = caster.name,
@@ -7439,18 +7826,24 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create reflect VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                duration = event.duration
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.REFLECT, -- Use explicit override for now
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity, 
+                attackType = "utility",
+                manaCost = event.manaCost or 2,
+                tags = { DEFENSE = true, SHIELD = true },
+                rangeBand = caster.gameState.rangeState,
+                elevation = targetWizard.elevation,
+                duration = event.duration or 3.0
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createReflectEffect",
-                Constants.VFXType.REFLECT,
-                targetWizard.x,
-                targetWizard.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -7538,92 +7931,149 @@ EventRunner.EVENT_HANDLERS = {
     EFFECT = function(event, caster, target, spellSlot, results)
         print("[EFFECT EVENT] Processing EFFECT event")
         
-        -- Get x and y coordinates for the effect
-        local x, y = nil, nil
+        -- Detailed event inspection for debugging
+        print("[EFFECT EVENT] Full event details:")
+        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        print(string.format("  effectType=%s", tostring(event.effectType)))
+        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
+            tostring(event.affinity), 
+            tostring(event.attackType), 
+            tostring(event.damageType)))
+        print(string.format("  source=%s, target=%s", 
+            tostring(event.source), 
+            tostring(event.target)))
+            
+        -- Check if spell has override
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell then
+            local spell = caster.spellSlots[spellSlot].spell
+            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+                tostring(spell.name), tostring(spell.effectOverride)))
+        end
+        
+        -- Get source and target coordinates for the effect
+        local srcX, srcY, tgtX, tgtY = nil, nil, nil, nil
         
         -- CASE 1: If vfxParams contains direct coordinates, use those
         if event.vfxParams and event.vfxParams.x and event.vfxParams.y then
-            x = event.vfxParams.x
-            y = event.vfxParams.y
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d)", x, y))
+            srcX = event.vfxParams.x
+            srcY = event.vfxParams.y
+            tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
+            tgtY = event.vfxParams.targetY or srcY
+            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+                srcX, srcY, tgtX, tgtY))
         
-        -- CASE 2: Otherwise try to resolve wizard target coordinates
+        -- CASE 2: Otherwise resolve based on source/target entities
         else
+            -- Source coordinates (caster)
+            srcX = caster and caster.x or 0
+            srcY = caster and caster.y or 0
+            
+            -- Target coordinates 
             local targetInfo = EventRunner.resolveTarget(event, caster, target)
             if targetInfo and targetInfo.wizard then 
                 local targetWizard = targetInfo.wizard
-                x = targetWizard.x
-                y = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d)", x or 0, y or 0))
+                tgtX = targetWizard.x
+                tgtY = targetWizard.y
+                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                    srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, falling back to caster")
-                -- Fall back to caster position if target resolution fails
-                x = caster and caster.x or 0
-                y = caster and caster.y or 0
+                -- If target resolution fails, use same coordinates as source
+                tgtX = srcX
+                tgtY = srcY
+                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
+        end
+        
+        -- Check if this spell slot contains a spell with an effectOverride
+        local overrideName = nil
+        
+        -- Check in priority order for effect name
+        if event.effectOverride then
+            -- First check the event for an effectOverride (highest priority)
+            overrideName = event.effectOverride
+            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+        elseif event.effectType then
+            -- Then check if there's an effectType directly in the event (legacy VFX keyword)
+            overrideName = event.effectType
+            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+        elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+               caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            -- Finally check the spell slot for effectOverride (set by vfx keyword)
+            overrideName = caster.spellSlots[spellSlot].spell.effectOverride
+            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
         if caster.gameState and caster.gameState.vfx then
-            -- Get the effect type with validation/fallback using Constants
-            local effectType = event.effectType or Constants.VFXType.IMPACT
+            -- Use the override or let VisualResolver pick based on metadata
+            local baseEffectName, vfxOpts
             
-            -- Validate that effectType exists in Constants.VFXType values
-            if not Constants.isValidVFXType(effectType) then
-                print(string.format("[EFFECT EVENT] Warning: Unknown effectType '%s' requested by event. Defaulting to impact.", 
-                    tostring(effectType)))
-                effectType = Constants.VFXType.IMPACT
+            -- Debug before VisualResolver.pick
+            print("[EFFECT EVENT] About to call VisualResolver.pick()")
+            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            
+            if overrideName then
+                -- Manual override - use it directly but still get options from resolver
+                event.effectOverride = overrideName -- Ensure the event has the override
+                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
+            else
+                -- Standard resolver path using event metadata
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
             end
             
-            -- Build parameters for the effect
-            local params = {
-                duration = event.duration or 0.5,
-                effectType = effectType
-            }
+            -- Debug after VisualResolver.pick
+            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
+                tostring(baseEffectName), 
+                vfxOpts and "present" or "nil"))
             
-            -- Add source/target names if available
+            -- Skip VFX if no valid base effect name
+            if not baseEffectName then
+                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                return false
+            end
+            
+            -- Merge additional parameters from event
+            if not vfxOpts then vfxOpts = {} end
+            
+            -- Add source/target names
             if caster and caster.name then
-                params.source = caster.name
+                vfxOpts.source = caster.name
             end
-            
-            -- Add target name if available
             if target and target.name then
-                params.target = target.name
+                vfxOpts.target = target.name
             end
             
-            -- Add any additional parameters from vfxParams
-            if event.vfxParams then
-                for k, v in pairs(event.vfxParams) do
-                    -- Don't copy x/y as they're passed directly to safeCreateVFX
-                    if k ~= "x" and k ~= "y" then
-                        params[k] = v
-                    end
-                end
+            -- Set default duration if not provided
+            if not vfxOpts.duration then
+                vfxOpts.duration = event.duration or 0.5
             end
             
-            -- Add any additional parameters from the event itself
-            for k, v in pairs(event) do
-                if k ~= "type" and k ~= "source" and k ~= "target" and 
-                   k ~= "duration" and k ~= "effectType" and k ~= "vfxParams" then
-                    params[k] = v
-                end
-            end
-            
-            -- Extra debug info (after validation)
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d)", 
-                tostring(effectType), x or 0, y or 0))
+            -- Extra debug info
+            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+                tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
-            -- Use our safe VFX creation helper with resolved coordinates
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createEffect",
-                effectType, -- Pass the validated effect type
-                x or 0,
-                y or 0,
-                params
-            )
+            -- Call VFX.createEffect directly instead of using safeCreateVFX
+            -- This pattern matches how we want VFX module to be called in the future
+            -- with directional information (source -> target)
+            local vfxModule = caster.gameState.vfx
+            if vfxModule and vfxModule.createEffect then
+                local success, err = pcall(function()
+                    vfxModule.createEffect(baseEffectName, srcX, srcY, tgtX, tgtY, vfxOpts)
+                end)
+                
+                if not success then
+                    print("ERROR: Failed to create effect: " .. tostring(err))
+                    return false
+                end
+            else
+                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                return false
+            end
         else
             print("[EFFECT EVENT] ERROR: VFX system not available")
+            return false
         end
         
         return true
@@ -7769,6 +8219,12 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     local slot = wizard.spellSlots[spellSlot]
     
+    -- DEFENSIVE CHECK: Don't create shield if slot already has one
+    if slot.isShield then
+        print("[SHIELD ERROR] Slot " .. spellSlot .. " already has a shield! Preventing duplicate creation.")
+        return { shieldCreated = false, reason = "duplicate" }
+    end
+    
     -- Set shield parameters - simplified to use token count as the only source of truth
     slot.isShield = true
     
@@ -7789,6 +8245,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
         print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
     end
     
+    -- Remove duplicate onBlock assignment from line 67
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -7804,8 +8262,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- Set onBlock callback
-    slot.onBlock = blockParams.onBlock or nil
+    -- Note: onBlock is already set above (line 48)
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
@@ -8033,21 +8490,23 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
         end
     end
     
-    -- Trigger shield hit VFX using event system
+    -- Emit shield hit event for visual feedback through VisualResolver
     if wizard.gameState and wizard.gameState.eventRunner then
+        local Constants = require("core.Constants")
         local shieldHitEvent = {
             type = "EFFECT",
-            source = "shield_hit",
-            target = "SELF",
-            effectType = Constants.VFXType.IMPACT,
-            duration = 0.5,
+            source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+            target = Constants.TargetType.TARGET,
+            effectType = "shield_hit", -- logical tag for VisualResolver
+            affinity = defenseType, -- Use defense type as affinity for color mapping
+            tags = { SHIELD_HIT = true },
+            shieldType = defenseType,
             vfxParams = {
                 x = wizard.x,
                 y = wizard.y,
-                color = {0.8, 0.8, 0.2, 0.7},
-                particleCount = 8,
-                radius = 30
-            }
+            },
+            rangeBand = wizard.rangeBand,
+            elevation = wizard.elevation,
         }
         
         -- Process the event immediately
@@ -8108,43 +8567,42 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
         return
     end
     
-    -- Shield color based on type
-    local shieldColor = ShieldSystem.getShieldColor(blockInfo.blockType)
-    -- Add alpha for VFX
-    shieldColor[4] = 0.7
-    
+    local Constants = require("core.Constants")
     -- Create a batch of VFX events
     local events = {}
     
-    -- Add shield flare effect at target position
+    -- Emit shield hit event at target position using VisualResolver
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block",
-        target = "ENEMY", -- Target is enemy wizard
-        effectType = Constants.VFXType.SHIELD,
-        duration = 0.5,
+        source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+        target = Constants.TargetType.TARGET,  -- defender is target
+        effectType = "shield_hit", -- logical tag for VisualResolver
+        affinity = blockInfo.blockType, -- Use defense type for color mapping
+        tags = { SHIELD_HIT = true },
+        shieldType = blockInfo.blockType,
         vfxParams = {
             x = target.x,
             y = target.y,
-            color = shieldColor,
-            shieldType = blockInfo.blockType
-        }
+        },
+        rangeBand = target.rangeBand,
+        elevation = target.elevation,
     })
     
-    -- Add impact effect at caster position (for feedback)
+    -- Add impact feedback at caster position
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block_feedback",
-        target = "SELF", -- Target is caster
-        effectType = Constants.VFXType.IMPACT,
-        duration = 0.3,
+        source = Constants.TargetType.CASTER, -- caster is source
+        target = Constants.TargetType.CASTER, -- and target for feedback
+        effectType = Constants.VFXType.IMPACT_BASE,
+        affinity = "fire",  -- Red feedback for blocked spell
+        tags = { SHIELD_HIT = true },
+        scale = 0.7,        -- Smaller feedback effect
         vfxParams = {
             x = caster.x,
             y = caster.y,
-            color = {0.8, 0.2, 0.2, 0.5},
-            particleCount = 5,
-            radius = 15
-        }
+        },
+        rangeBand = caster.rangeBand,
+        elevation = caster.elevation,
     })
     
     -- Process all events at once
@@ -8606,8 +9064,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     -- Special case for "any" - try to find any token type
                     local foundAny = false
                     
-                    -- Try each token type
-                    for _, availableType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, availableType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(availableType)
                         if token then
                             table.insert(requiredTokens, {
@@ -8645,8 +9111,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                 for j = 1, count do
                     local foundRandom = false
                     
-                    -- Try each token type
-                    for _, tokenType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, tokenType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(tokenType)
                         if token then
                             table.insert(requiredTokens, {
@@ -8681,8 +9155,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     if tokenType == "random" or tokenType == "any" then
                         local foundRandom = false
                         
-                        -- Try each token type
-                        for _, type in ipairs(Constants.getAllTokenTypes()) do
+                        -- Get all available token types
+                        local availableTypes = Constants.getAllTokenTypes()
+                        -- Shuffle the types to randomize selection
+                        for i = #availableTypes, 2, -1 do
+                            local j = math.random(i)
+                            availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                        end
+                        
+                        -- Try each token type in random order
+                        for _, type in ipairs(availableTypes) do
                             local token, tokenIndex = manaPool:findFreeToken(type)
                             if token then
                                 table.insert(requiredTokens, {
@@ -9041,6 +9523,304 @@ function TokenManager.validateTokenState(token, expectedState)
 end
 
 return TokenManager```
+
+## ./systems/VisualResolver.lua
+```lua
+-- systems/VisualResolver.lua
+-- Resolves events to appropriate visual effects based on event metadata
+
+local Constants = require("core.Constants")
+
+local VisualResolver = {}
+
+-- Map attack types to base VFX template names
+local BASE_BY_ATTACK = {
+    [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
+    [Constants.AttackType.REMOTE] = Constants.VFXType.BEAM_BASE,
+    [Constants.AttackType.ZONE] = Constants.VFXType.ZONE_BASE,
+    [Constants.AttackType.UTILITY] = Constants.VFXType.UTIL_BASE
+}
+
+-- Map affinities (token types) to colors
+local COLOR_BY_AFF = {
+    [Constants.TokenType.FIRE] = Constants.Color.CRIMSON,
+    [Constants.TokenType.WATER] = Constants.Color.OCEAN,
+    [Constants.TokenType.SALT] = Constants.Color.SAND,
+    [Constants.TokenType.SUN] = Constants.Color.ORANGE,
+    [Constants.TokenType.MOON] = Constants.Color.SKY,
+    [Constants.TokenType.STAR] = Constants.Color.YELLOW,
+    [Constants.TokenType.LIFE] = Constants.Color.LIME,
+    [Constants.TokenType.MIND] = Constants.Color.PINK,
+    [Constants.TokenType.VOID] = Constants.Color.BONE
+}
+
+-- Map specific tags to overlay visual effects
+local TAG_ADDONS = {
+    DAMAGE = Constants.VFXType.DAMAGE_OVERLAY,
+    BURN = Constants.VFXType.EMBER_OVERLAY,
+    DOT = Constants.VFXType.DOT_OVERLAY,
+    CONJURE = Constants.VFXType.SPARKLE_OVERLAY,
+    RESOURCE = Constants.VFXType.RESOURCE_OVERLAY,
+    MOVEMENT = Constants.VFXType.MOVEMENT_OVERLAY,
+    ELEVATE = Constants.VFXType.RISE_OVERLAY,
+    GROUND = Constants.VFXType.FALL_OVERLAY,
+    SHIELD = Constants.VFXType.SHIELD_OVERLAY,
+    DEFENSE = Constants.VFXType.BARRIER_OVERLAY
+}
+
+-- Map affinities to motion styles
+local AFFINITY_MOTION = {
+    [Constants.TokenType.FIRE] = Constants.MotionStyle.RISE,
+    [Constants.TokenType.WATER] = Constants.MotionStyle.SWIRL,
+    [Constants.TokenType.SALT] = Constants.MotionStyle.FALL,
+    [Constants.TokenType.SUN] = Constants.MotionStyle.PULSE,
+    [Constants.TokenType.MOON] = Constants.MotionStyle.RIPPLE,
+    [Constants.TokenType.STAR] = Constants.MotionStyle.DIRECTIONAL,
+    [Constants.TokenType.LIFE] = Constants.MotionStyle.RISE,
+    [Constants.TokenType.MIND] = Constants.MotionStyle.SWIRL,
+    [Constants.TokenType.VOID] = Constants.MotionStyle.STATIC
+}
+
+-- Default values
+local DEFAULT_BASE = Constants.VFXType.IMPACT_BASE
+local DEFAULT_COLOR = Constants.Color.SMOKE
+local DEFAULT_MOTION = Constants.MotionStyle.RADIAL
+
+-- Helper function for debug output without requiring vfx module dependency
+function VisualResolver.debug(message)
+    print("[VisualResolver] " .. message)
+end
+
+-- Main resolver function: Maps event data to visual parameters
+-- Returns (baseTemplateName, options) as two separate values
+function VisualResolver.pick(event)
+    VisualResolver.debug("==========================================")
+    VisualResolver.debug("VisualResolver.pick() called with event:")
+    VisualResolver.debug("Event type: " .. (event and event.type or "nil"))
+    VisualResolver.debug("Event source: " .. (event and event.source or "nil"))
+    VisualResolver.debug("Event target: " .. (event and event.target or "nil"))
+    VisualResolver.debug("==========================================")
+    
+    -- Validate event
+    if not event or type(event) ~= "table" then
+        VisualResolver.debug("Invalid event provided to pick()")
+        return DEFAULT_BASE, { color = DEFAULT_COLOR, scale = 1.0, motion = DEFAULT_MOTION, addons = {} }
+    end
+    
+    -- Handle manual override: If the event has an effectOverride, use it directly
+    -- This handles the manual vfx specifications from the vfx keyword
+    if event.effectOverride then
+        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
+        
+        -- Full event logging for debug
+        VisualResolver.debug("Effect override source event details:")
+        VisualResolver.debug("  - Event type: " .. (event.type or "nil"))
+        VisualResolver.debug("  - Affinity: " .. (event.affinity or "nil"))
+        VisualResolver.debug("  - Attack type: " .. (event.attackType or "nil"))
+        VisualResolver.debug("  - Tags: " .. (event.tags and "present" or "nil"))
+        
+        -- Use the specified effect but still use the new parameter system
+        return event.effectOverride, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0,
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Also handle the case where we get the effect directly within an event.effect property
+    -- This is needed for the showcase examples in spells.lua
+    if event.effect and type(event.effect) == "string" then
+        VisualResolver.debug("Using effect from direct event.effect property: " .. event.effect)
+        return event.effect, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0, 
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Handle shield hit event (from shield system)
+    if event.effectType == "shield_hit" then
+        VisualResolver.debug("Handling shield hit effect")
+        
+        -- Determine shield color based on shield type
+        local color = DEFAULT_COLOR
+        
+        if event.shieldType == "barrier" then
+            color = {1.0, 1.0, 0.3, 0.8}  -- Yellow for barriers
+        elseif event.shieldType == "ward" then 
+            color = {0.3, 0.3, 1.0, 0.8}  -- Blue for wards
+        elseif event.shieldType == "field" then
+            color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
+        end
+        
+        -- Return shield hit template with proper color
+        return "shield_hit_base", {
+            color = color,
+            scale = 1.2,  -- Slightly larger scale for impact emphasis
+            motion = Constants.MotionStyle.PULSE,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation,
+            -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
+        }
+    end
+    
+    -- Legacy manual VFX: If the event has manualVfx flag and effectType
+    if event.manualVfx and event.effectType then
+        VisualResolver.debug("Using legacy manual effect via effectType: " .. event.effectType)
+        -- Use the specified effect but still use the new parameter system
+        return event.effectType, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0,
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Step 1: Determine base template from attack type
+    local baseTemplate = DEFAULT_BASE
+    if event.attackType and BASE_BY_ATTACK[event.attackType] then
+        baseTemplate = BASE_BY_ATTACK[event.attackType]
+    end
+    
+    -- Step 2: Determine color from affinity
+    local color = DEFAULT_COLOR
+    if event.affinity and COLOR_BY_AFF[event.affinity] then
+        color = COLOR_BY_AFF[event.affinity]
+    end
+    
+    -- Step 3: Calculate scale based on mana cost
+    local manaValue = event.manaCost or 1
+    local scale = 0.8 + (0.15 * manaValue)
+    if scale > 2.0 then scale = 2.0 end  -- Cap at 2.0x scale
+    
+    -- Step 4: Determine motion style from affinity
+    local motion = DEFAULT_MOTION
+    if event.affinity and AFFINITY_MOTION[event.affinity] then
+        motion = AFFINITY_MOTION[event.affinity]
+    end
+    
+    -- Step 5: Build addons list from tags
+    local addons = {}
+    if event.tags and type(event.tags) == "table" then
+        for tag, _ in pairs(event.tags) do
+            if TAG_ADDONS[tag] then
+                table.insert(addons, TAG_ADDONS[tag])
+            end
+        end
+    end
+    
+    -- Build and return the options table
+    local opts = {
+        color = color,
+        scale = scale,
+        motion = motion,
+        addons = addons,
+        rangeBand = event.rangeBand,
+        elevation = event.elevation
+    }
+    
+    VisualResolver.debug(string.format(
+        "Resolved event to base=%s, color=%s, scale=%.2f, motion=%s, addons=%d",
+        baseTemplate,
+        table.concat(color, ","),
+        scale,
+        motion,
+        #addons
+    ))
+    
+    -- Additional debug for tag processing
+    if event.tags and type(event.tags) == "table" then
+        local tagList = ""
+        for tag, _ in pairs(event.tags) do
+            tagList = tagList .. tag .. ", "
+        end
+        VisualResolver.debug("Event tags: " .. tagList)
+        
+        local addonList = ""
+        for _, addon in ipairs(addons) do
+            addonList = addonList .. addon .. ", "
+        end
+        VisualResolver.debug("Resolved addons: " .. (addonList ~= "" and addonList or "none"))
+    else
+        VisualResolver.debug("Event has no tags")
+    end
+    
+    VisualResolver.debug("==========================================")
+    return baseTemplate, opts
+end
+
+-- Helper function to test the resolver with sample events
+function VisualResolver.test()
+    local testEvents = {
+        -- Test 1: Fire projectile spell
+        {
+            type = "DAMAGE",
+            affinity = "fire",
+            attackType = "projectile",
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        },
+        -- Test 2: Water remote spell with higher cost
+        {
+            type = "DAMAGE",
+            affinity = "water",
+            attackType = "remote",
+            manaCost = 4,
+            tags = { DAMAGE = true },
+            rangeBand = "FAR",
+            elevation = "AERIAL"
+        },
+        -- Test 3: Moon-based shield
+        {
+            type = "CREATE_SHIELD",
+            affinity = "moon",
+            attackType = "utility",
+            manaCost = 3,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        },
+        -- Test 4: Manually specified effect (vfx keyword)
+        {
+            type = "EFFECT",
+            effectType = "firebolt",
+            manualVfx = true,
+            affinity = "fire",
+            attackType = "projectile",
+            manaCost = 2,
+            tags = { VFX = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        }
+    }
+    
+    print("===== VisualResolver Test =====")
+    for i, event in ipairs(testEvents) do
+        print("\nTest " .. i .. ": " .. event.type .. " event with " .. (event.affinity or "unknown") .. " affinity")
+        local base, opts = VisualResolver.pick(event)
+        print("Base template: " .. base)
+        print("Color: " .. table.concat(opts.color, ","))
+        print("Scale: " .. opts.scale)
+        print("Motion: " .. opts.motion)
+        print("Addons: " .. (#opts.addons > 0 and table.concat(opts.addons, ", ") or "none"))
+        print("Range: " .. (opts.rangeBand or "none"))
+        print("Elevation: " .. (opts.elevation or "none"))
+    end
+    print("\n================================")
+end
+
+return VisualResolver```
 
 ## ./systems/WizardVisuals.lua
 ```lua
@@ -11540,6 +12320,79 @@ function VFX.init()
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- Base templates for the rules-driven VFX system
+        proj_base = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 20,
+            startScale = 0.5,
+            endScale = 0.8,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            trailLength = 12,
+            impactSize = 1.2,
+            sound = nil  -- No default sound
+        },
+        
+        beam_base = {
+            type = "beam",
+            duration = 1.2,
+            particleCount = 25,
+            beamWidth = 30,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        zone_base = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 80,
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        util_base = {
+            type = "aura",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,
+            pulseRate = 4,
+            sound = nil
+        },
+        
+        impact_base = {
+            type = "impact",
+            duration = 0.5,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 0.3,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 40,
+            sound = nil
+        },
+        
+        shield_hit_base = {
+            type = "impact",
+            duration = 0.8,  -- Slightly longer impact duration
+            particleCount = 30, -- More particles
+            startScale = 0.5,
+            endScale = 1.3,  -- Larger end scale
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 70,     -- Increased radius
+            sound = "shield", -- Use shield sound
+            criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
+        },
+        
+        -- Existing effects
         -- General impact effect (used for many spell interactions)
         impact = {
             type = "impact",
@@ -12010,6 +12863,136 @@ function VFX.resetParticle(particle)
     return particle
 end
 
+-- Update particle based on motion style
+function VFX.updateParticle(particle, effect, dt, particleProgress)
+    local Constants = require("core.Constants")
+    
+    -- If no motion style specified, use default behavior
+    local motionStyle = particle.motion or Constants.MotionStyle.RADIAL
+    
+    -- Time since particle became active
+    particle.startTime = (particle.startTime or 0) + dt
+    local time = particle.startTime
+    
+    -- Get base position
+    local baseX = particle.baseX or effect.sourceX
+    local baseY = particle.baseY or effect.sourceY
+    
+    -- Apply motion based on style
+    if motionStyle == Constants.MotionStyle.RADIAL then
+        -- Standard radial outward motion (default)
+        -- This behavior is already handled in most effect update functions
+        -- Just update existing motion with time factor
+        
+    elseif motionStyle == Constants.MotionStyle.SWIRL then
+        -- Tangential swirl using sine/cosine
+        -- Start with the existing direction, then add rotational motion
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        local swirlFactor = 2.0 -- Controls the swirl tightness
+        local rotationSpeed = 4.0 -- Controls how fast particles orbit
+        
+        -- Orbit around the path while moving outward
+        local swirlAngle = angle + math.sin(time * rotationSpeed) * swirlFactor
+        particle.x = baseX + math.cos(swirlAngle) * distance
+        particle.y = baseY + math.sin(swirlAngle) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.HEX then
+        -- Approximated hex grid movement using snapped angles
+        -- Move along hex angles (0, 60, 120, 180, 240, 300 degrees)
+        local baseAngle = particle.angle or 0
+        local hexAngle = math.floor(baseAngle / (math.pi/3)) * (math.pi/3)
+        local jitterAmount = 0.2 * math.sin(time * 5) -- Small jitter
+        local speed = particle.speed or 100 -- Default speed if not set
+        local distance = speed * particleProgress
+        
+        particle.x = baseX + math.cos(hexAngle + jitterAmount) * distance
+        particle.y = baseY + math.sin(hexAngle + jitterAmount) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.STATIC then
+        -- Minimal movement with subtle breathing effect
+        local breatheFactor = 0.1 * math.sin(time * 3)
+        
+        -- Slight offset from original position
+        local offsetX = (particle.targetX - baseX) * 0.2 * particleProgress
+        local offsetY = (particle.targetY - baseY) * 0.2 * particleProgress
+        
+        -- Apply breathing effect
+        particle.x = baseX + offsetX + math.cos(particle.angle or 0) * breatheFactor
+        particle.y = baseY + offsetY + math.sin(particle.angle or 0) * breatheFactor
+        
+    elseif motionStyle == Constants.MotionStyle.RISE then
+        -- Particles float upward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY - verticalSpeed * particleProgress -- Subtract to move up
+        
+    elseif motionStyle == Constants.MotionStyle.FALL then
+        -- Particles fall downward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        local gravity = 100 -- Acceleration factor
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY + (verticalSpeed * particleProgress + 0.5 * gravity * particleProgress * particleProgress)
+        
+    elseif motionStyle == Constants.MotionStyle.PULSE then
+        -- Particles pulse outward and inward
+        local pulseDistance = math.sin(time * 4) * 0.5 + 0.5 -- 0 to 1 pulsing
+        local targetDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = targetDistance * pulseDistance * particleProgress
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * distance
+        particle.y = baseY + math.sin(particle.angle or 0) * distance
+        
+        -- Also pulse alpha
+        particle.alpha = 0.4 + pulseDistance * 0.6
+        
+    elseif motionStyle == Constants.MotionStyle.RIPPLE then
+        -- Wave-like ripple effect
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        
+        -- Add wave effect perpendicular to the radial direction
+        local waveAmplitude = 10 * math.sin(distance * 0.1 + time * 5)
+        local perpX = -math.sin(angle) * waveAmplitude
+        local perpY = math.cos(angle) * waveAmplitude
+        
+        particle.x = baseX + math.cos(angle) * distance + perpX
+        particle.y = baseY + math.sin(angle) * distance + perpY
+        
+    elseif motionStyle == Constants.MotionStyle.DIRECTIONAL then
+        -- Directional movement along a specific path
+        -- This simply follows the default trajectory but with less randomness
+        local dirX = (particle.targetX or baseX + 100) - baseX
+        local dirY = (particle.targetY or baseY) - baseY
+        local length = math.sqrt(dirX^2 + dirY^2)
+        
+        if length > 0 then
+            dirX = dirX / length
+            dirY = dirY / length
+            
+            -- Move with consistent speed
+            local speed = particle.speed or 100 -- Default speed if not set
+            particle.x = baseX + dirX * speed * particleProgress * time
+            particle.y = baseY + dirY * speed * particleProgress * time
+        end
+    end
+    
+    -- Handle special visual effects for certain motion styles
+    if motionStyle == Constants.MotionStyle.PULSE then
+        -- Special scaling for pulse motion
+        local pulseScale = 0.8 + 0.4 * math.sin(time * 4)
+        particle.scale = (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * pulseScale
+    end
+end
+
 -- Reset function for effect objects
 function VFX.resetEffect(effect)
     -- Release all particles back to their pool
@@ -12050,6 +13033,10 @@ function VFX.resetEffect(effect)
     effect.manaPoolY = nil
     effect.sourceGlow = nil
     effect.poolGlow = nil
+    effect.motion = nil
+    effect.rangeBand = nil
+    effect.elevation = nil
+    effect.addons = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -12060,6 +13047,26 @@ end
 -- Create a new effect instance
 function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
     local Constants = require("core.Constants")
+    
+    -- Enhanced debugging for VFX-R5 implementation
+    print("\n====== VFX CREATION CALL ======")
+    print("[VFX] CALL STACK: " .. debug.traceback())
+    print("[VFX] effectName: " .. tostring(effectName))
+    print("[VFX] sourceX: " .. tostring(sourceX) .. " sourceY: " .. tostring(sourceY))
+    if targetX and targetY then
+        print("[VFX] targetX: " .. tostring(targetX) .. " targetY: " .. tostring(targetY))
+    end
+    if options then
+        print("[VFX] Options:")
+        for k, v in pairs(options) do
+            if type(v) == "table" then
+                print("  " .. k .. ": [table]")
+            else
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    print("================================\n")
     
     -- Handle both string and Constants.VFXType format
     local effectNameStr
@@ -12073,20 +13080,36 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         effectNameStr = effectName
     end
     
-    -- Debug output
+    -- Regular debug output
     print("[VFX] Creating effect: " .. effectNameStr)
     print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
-    print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+    if targetX and targetY then
+        print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+    end
+    
+    -- Process options
+    local opts = options or {}
+    
+    -- Process options.addons if provided (for future work)
+    if opts.addons and #opts.addons > 0 then
+        for _, addon in ipairs(opts.addons) do
+            print("[VFX] TODO addon: " .. tostring(addon))
+            -- In future work, we would create or modify effects based on addons
+            -- Example: Apply a fire overlay to a projectile, add a sparkle effect, etc.
+        end
+    end
+    
     -- Try to get the effect template first to check for critical assets
     local template = VFX.effects[effectNameStr:lower()]
     if template then
-        -- Check if the effect template defines critical assets
+        -- Template exists, check for critical assets
         if template.criticalAssets then
             for _, assetId in ipairs(template.criticalAssets) do
-                -- Ensure the critical asset is loaded
+                -- Try to get the asset, will trigger loading if not available
                 local asset = VFX.getAsset(assetId)
-                if not asset or (type(asset) == "table" and #asset == 0) then
-                    print("[VFX] Warning: Critical asset " .. assetId .. " not available for effect " .. effectNameStr)
+                if not asset or (assetId == "runes" and #asset == 0) then
+                    -- Asset failed to load, try emergency loading
+                    print("[VFX] Critical asset missing: " .. assetId .. ", attempting emergency load")
                     
                     -- Emergency loading of critical asset
                     if assetId == "runes" and VFX.assetPaths and VFX.assetPaths.runes then
@@ -12166,6 +13189,29 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.endScale = template.endScale
     effect.color = {template.color[1], template.color[2], template.color[3], template.color[4]}
     
+    -- Apply options modifiers
+    if opts.color then
+        -- Override color with the provided color
+        effect.color = {opts.color[1], opts.color[2], opts.color[3], opts.color[4] or 1.0}
+    end
+    
+    if opts.scale then
+        -- Apply scale factor to particle counts, sizes, radii, etc.
+        local scaleFactor = opts.scale
+        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        effect.startScale = effect.startScale * scaleFactor
+        effect.endScale = effect.endScale * scaleFactor
+        if effect.radius then effect.radius = effect.radius * scaleFactor end
+        if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
+        if effect.height then effect.height = effect.height * scaleFactor end
+    end
+    
+    -- Store motion style and positional info
+    effect.motion = opts.motion
+    effect.rangeBand = opts.rangeBand
+    effect.elevation = opts.elevation
+    effect.addons = opts.addons
+    
     -- Effect specific properties
     effect.particles = {}
     effect.trailPoints = {}
@@ -12213,6 +13259,16 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.targetX
+            particle.targetY = effect.targetY
+            particle.speed = 150 -- Default speed for projectile particles
+            particle.angle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
             
             table.insert(effect.particles, particle)
         end
@@ -12235,6 +13291,13 @@ function VFX.initializeParticles(effect)
             particle.rotation = angle
             particle.delay = math.random() * 0.2 -- Slight random delay
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.targetX
+            particle.baseY = effect.targetY
+            particle.angle = angle
             
             table.insert(effect.particles, particle)
         end
@@ -12255,6 +13318,15 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.5
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.sourceX + math.cos(angle) * distance
+            particle.targetY = effect.sourceY + math.sin(angle) * distance
+            particle.speed = orbitalSpeed * 30
             
             table.insert(effect.particles, particle)
         end
@@ -12392,6 +13464,8 @@ end
 
 -- Update function for projectile effects
 function VFX.updateProjectile(effect, dt)
+    local Constants = require("core.Constants")
+    
     -- Update trail points
     if #effect.trailPoints == 0 then
         -- Initialize trail with source position
@@ -12402,12 +13476,40 @@ function VFX.updateProjectile(effect, dt)
     
     -- Calculate projectile position based on progress
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * effect.progress
+    
+    -- Adjust trajectory based on rangeBand and elevation
     local posY = effect.sourceY + (effect.targetY - effect.sourceY) * effect.progress
     
-    -- Add curved trajectory based on height
+    -- Base arc height before adjustments
+    local baseArcHeight = 60
+    
+    -- Adjust trajectory based on rangeBand
+    local rangeBandModifier = 1.0
+    if effect.rangeBand == Constants.RangeState.FAR then
+        rangeBandModifier = 1.8  -- Higher arc for far range (increased from 1.5)
+    elseif effect.rangeBand == Constants.RangeState.NEAR then
+        rangeBandModifier = 0.5  -- Lower, flatter arc for near range (decreased from 0.7)
+    end
+    
+    -- Adjust trajectory based on elevation
+    local elevationOffset = 0
+    if effect.elevation then
+        if effect.elevation == Constants.ElevationState.AERIAL then
+            -- When target is aerial, arc is less pronounced and higher end position
+            rangeBandModifier = rangeBandModifier * 0.6  -- Reduced from 0.7
+            elevationOffset = -60  -- Higher final position (increased from -40)
+        elseif effect.elevation == Constants.ElevationState.GROUNDED then
+            -- When target is grounded, arc is more pronounced and lower end position
+            elevationOffset = 30   -- Lower final position (increased from 20)
+        end
+    end
+    
+    -- Calculate arc with modifiers
     local midpointProgress = effect.progress - 0.5
-    local verticalOffset = -60 * (1 - (midpointProgress * 2)^2)
-    posY = posY + verticalOffset
+    local verticalOffset = -baseArcHeight * rangeBandModifier * (1 - (midpointProgress * 2)^2)
+    
+    -- Apply final position
+    posY = posY + verticalOffset + (elevationOffset * effect.progress)
     
     -- Update trail
     table.remove(effect.trailPoints)
@@ -12424,16 +13526,31 @@ function VFX.updateProjectile(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Distribute particles along the trail
-            local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-            if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
-            
-            local trailPoint = effect.trailPoints[trailIndex]
-            
-            -- Add some randomness to particle positions
-            local spreadFactor = 8 * (1 - particleProgress)
-            particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
-            particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- First set baseX/baseY to the trail point for this particle
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                particle.baseX = trailPoint.x
+                particle.baseY = trailPoint.y
+                
+                -- Use the motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior
+                -- Distribute particles along the trail
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                -- Add some randomness to particle positions
+                local spreadFactor = 8 * (1 - particleProgress)
+                particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
+                particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            end
             
             -- Update visual properties
             particle.scale = effect.startScale + (effect.endScale - effect.startScale) * particleProgress
@@ -12462,21 +13579,31 @@ function VFX.updateImpact(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Move particle outward from center
-            local dirX = particle.targetX - effect.targetX
-            local dirY = particle.targetY - effect.targetY
-            local length = math.sqrt(dirX^2 + dirY^2)
-            if length > 0 then
-                dirX = dirX / length
-                dirY = dirY / length
+            -- Check if we have a motion style to apply
+            if effect.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior (radial expansion)
+                local dirX = particle.targetX - effect.targetX
+                local dirY = particle.targetY - effect.targetY
+                local length = math.sqrt(dirX^2 + dirY^2)
+                if length > 0 then
+                    dirX = dirX / length
+                    dirY = dirY / length
+                end
+                
+                particle.x = effect.targetX + dirX * length * particleProgress
+                particle.y = effect.targetY + dirY * length * particleProgress
             end
             
-            particle.x = effect.targetX + dirX * length * particleProgress
-            particle.y = effect.targetY + dirY * length * particleProgress
+            -- Update visual properties if not already handled by the motion style
+            if not (effect.motion == require("core.Constants").MotionStyle.PULSE) then
+                particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
+                particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            end
             
-            -- Update visual properties
-            particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
-            particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            -- Update rotation regardless of motion style
             particle.rotation = particle.rotation + dt * 3
         end
     end
@@ -12495,12 +13622,19 @@ function VFX.updateAura(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Update angle for orbital motion
-            particle.angle = particle.angle + dt * particle.orbitalSpeed
-            
-            -- Calculate position based on orbit
-            particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
-            particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default orbital motion behavior
+                -- Update angle for orbital motion
+                particle.angle = particle.angle + dt * particle.orbitalSpeed
+                
+                -- Calculate position based on orbit
+                particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
+                particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            end
             
             -- Pulse effect
             local pulseOffset = math.sin(effect.timer * effect.pulseRate) * 0.2
@@ -13194,7 +14328,7 @@ Wizard.__index = Wizard
 -- Load required modules
 local Constants = require("core.Constants")
 local SpellsModule = require("spells")
-local Spells = SpellsModule.spells  -- For backwards compatibility
+local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
@@ -13301,7 +14435,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.infiniteprocession,
+            ["2"] = Spells.watergun,
             ["3"] = Spells.moondance,
             
             -- Two key combos
@@ -15785,7 +16919,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Mon Apr 28 10:34:57 CDT 2025
+Generated: Tue Apr 29 10:24:08 CDT 2025
 
 # Source Code
 
@@ -16223,6 +17357,25 @@ Constants.VFXType = {
     -- General effects
     IMPACT = "impact",
     
+    -- Base template effects (used by VisualResolver)
+    PROJ_BASE = "proj_base",       -- Base projectile effect
+    BEAM_BASE = "beam_base",       -- Base beam/remote effect
+    ZONE_BASE = "zone_base",       -- Base zone/area effect
+    UTIL_BASE = "util_base",       -- Base utility effect
+    IMPACT_BASE = "impact_base",   -- Base impact effect
+    
+    -- Overlay addon effects (used by VisualResolver)
+    DAMAGE_OVERLAY = "damage_overlay",
+    EMBER_OVERLAY = "ember_overlay",
+    DOT_OVERLAY = "dot_overlay",
+    SPARKLE_OVERLAY = "sparkle_overlay",
+    RESOURCE_OVERLAY = "resource_overlay",
+    MOVEMENT_OVERLAY = "movement_overlay",
+    RISE_OVERLAY = "rise_overlay",
+    FALL_OVERLAY = "fall_overlay",
+    SHIELD_OVERLAY = "shield_overlay",
+    BARRIER_OVERLAY = "barrier_overlay",
+    
     -- Movement and positioning effects
     TIDAL_FORCE_GROUND = "tidal_force_ground",
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
@@ -16289,6 +17442,27 @@ function Constants.isValidVFXType(value)
         end
     end
     return false
+end
+
+-- Motion styles for VFX particles
+Constants.MotionStyle = {
+    RADIAL = "radial",     -- Particles expand outward in all directions (default)
+    DIRECTIONAL = "directional", -- Particles move in a specific direction
+    SWIRL = "swirl",       -- Particles move in a circular/spiral pattern
+    RISE = "rise",         -- Particles float upward
+    FALL = "fall",         -- Particles fall downward
+    PULSE = "pulse",       -- Particles expand and contract rhythmically
+    RIPPLE = "ripple",     -- Particles move in wave-like patterns
+    STATIC = "static"      -- Particles stay in place with minimal motion
+}
+
+-- Utility function to get all motion styles
+function Constants.getAllMotionStyles()
+    local styles = {}
+    for _, value in pairs(Constants.MotionStyle) do
+        table.insert(styles, value)
+    end
+    return styles
 end
 
 return Constants```
@@ -16422,10 +17596,25 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
-    -- Exit / Quit the game
+    -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
-        love.event.quit()
-        return true
+        -- If in MENU state, quit the game
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        -- If in BATTLE state, return to menu
+        elseif gameState.currentState == "BATTLE" then
+            gameState.currentState = "MENU"
+            print("Returning to main menu")
+            return true
+        -- If in GAME_OVER state, return to menu 
+        elseif gameState.currentState == "GAME_OVER" then
+            gameState.currentState = "MENU"
+            gameState.resetGame()
+            print("Returning to main menu")
+            return true
+        end
+        return false
     end
     
     -- SYSTEM CONTROLS (with ALT modifier)
@@ -16469,11 +17658,29 @@ function Input.setupRoutes()
         return true
     end
     
+    -- MENU CONTROLS
+    -- Start game from menu
+    Input.Routes.ui["return"] = function()
+        if gameState.currentState == "MENU" then
+            -- Reset game state for a fresh start
+            gameState.resetGame()
+            -- Change to battle state
+            gameState.currentState = "BATTLE"
+            print("Starting new game from menu")
+            return true
+        end
+        return false
+    end
+    
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
     Input.Routes.gameOver["space"] = function()
-        gameState.resetGame()
-        return true
+        if gameState.currentState == "GAME_OVER" then
+            gameState.resetGame()
+            gameState.currentState = "MENU" -- Return to menu after game over
+            return true
+        end
+        return false
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
@@ -16742,12 +17949,21 @@ end
 Input.reservedKeys = {
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
-        "Escape", -- Quit
         "Ctrl+R", -- Asset reload
     },
     
+    menu = {
+        "Enter", -- Start game from menu
+        "Escape", -- Quit game from menu
+    },
+    
+    battle = {
+        "Escape", -- Return to menu from battle
+    },
+    
     gameOver = {
-        "Space", -- Reset game
+        "Space", -- Return to menu after game over
+        "Escape", -- Return to menu immediately
     },
     
     player1 = {
@@ -17635,7 +18851,7 @@ Keywords.damage = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolve to handle conditional parameter
         local applyDamage = resolve(params.condition, caster, target, results.currentSlot, true)
         
@@ -17645,14 +18861,30 @@ Keywords.damage = {
             local calculatedDamage = resolve(params.amount, caster, target, results.currentSlot, 0)
             local damageType = resolve(params.type, caster, target, results.currentSlot, Constants.DamageType.GENERIC)
 
-            -- Generate event
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+
+            -- Generate event with enriched visual metadata
             table.insert(events or {}, {
                 type = "DAMAGE", 
                 source = "caster", 
                 target = "enemy",
                 amount = calculatedDamage, 
                 damageType = damageType,
-                scaledDamage = (type(params.amount) == "function") -- Keep scaledDamage flag based on original param type
+                scaledDamage = (type(params.amount) == "function"), -- Keep scaledDamage flag based on original param type
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { DAMAGE = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil,
+                -- Add debug flag to track this event's flow
+                _debug_enriched = true
             })
         end
 
@@ -17678,7 +18910,13 @@ Keywords.burn = {
     },
     
     -- Implementation function - Generates APPLY_STATUS event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
+        
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
@@ -17686,7 +18924,15 @@ Keywords.burn = {
             statusType = "burn",
             duration = params.duration or 3.0,
             tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0
+            tickInterval = params.tickInterval or 1.0,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { BURN = true, DOT = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -17740,12 +18986,18 @@ Keywords.elevate = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Create elevation event
         local vfxValue = params.vfx or "emberlift"
         -- Check if we have a vfx parameter that's a table and should be a string
         if type(vfxValue) == "table" and vfxValue.effect then
             vfxValue = vfxValue.effect
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
         
         table.insert(events or {}, {
@@ -17754,7 +19006,15 @@ Keywords.elevate = {
             target = params.target or "self", -- Use specified target or default to self
             elevation = Constants.ElevationState.AERIAL,
             duration = params.duration or 5.0,
-            vfx = vfxValue
+            vfx = vfxValue,
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { MOVEMENT = true, ELEVATE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = Constants.ElevationState.AERIAL  -- The new elevation state
         })
         return results
     end
@@ -17772,7 +19032,7 @@ Keywords.ground = {
     },
     
     -- Implementation function - Generates SET_ELEVATION event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Use resolver for conditional parameter
         local applyGrounding = resolve(params.conditional, caster, target, results.currentSlot, true)
         
@@ -17788,12 +19048,26 @@ Keywords.ground = {
                 vfxString = vfxEffect.effect
             end
             
+            -- Get relevant token count from slot for manaCost approximation
+            local manaCost = 0
+            if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+                manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+            end
+            
             table.insert(events or {}, {
                 type = "SET_ELEVATION",
                 source = "caster",
                 target = targetEntity,
                 elevation = Constants.ElevationState.GROUNDED,
-                vfx = vfxString
+                vfx = vfxString,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                manaCost = manaCost,
+                tags = { MOVEMENT = true, GROUND = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = Constants.ElevationState.GROUNDED  -- The new elevation state
             })
         end
         return results
@@ -17864,7 +19138,7 @@ Keywords.conjure = {
     },
     
     -- Implementation function
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         local tokenTypeParam = params.token or Constants.TokenType.FIRE -- Default if nil
         local amount = params.amount or 1
         local targetPool = params.target or "POOL_SELF" -- Default target pool
@@ -17874,6 +19148,12 @@ Keywords.conjure = {
         -- Set the justConjuredMana flag on the wizard
         if caster and caster.justConjuredMana ~= nil then
             caster.justConjuredMana = true
+        end
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
 
         if type(tokenTypeParam) == "table" then
@@ -17885,7 +19165,15 @@ Keywords.conjure = {
                         source = "caster",
                         target = targetPool,
                         tokenType = specificTokenType,
-                        amount = 1 -- Conjure one of this specific type
+                        amount = 1, -- Conjure one of this specific type
+                        
+                        -- Visual metadata for VisualResolver
+                        affinity = spell and spell.affinity or nil,
+                        attackType = spell and spell.attackType or nil,
+                        manaCost = manaCost,
+                        tags = { CONJURE = true, RESOURCE = true },
+                        rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                        elevation = caster and caster.elevation or nil
                     })
                 end
             end
@@ -17897,7 +19185,15 @@ Keywords.conjure = {
                      source = "caster",
                      target = targetPool,
                      tokenType = tokenTypeParam,
-                     amount = 1 -- Conjure one of this specific type
+                     amount = 1, -- Conjure one of this specific type
+                     
+                     -- Visual metadata for VisualResolver
+                     affinity = spell and spell.affinity or nil,
+                     attackType = spell and spell.attackType or nil,
+                     manaCost = manaCost,
+                     tags = { CONJURE = true, RESOURCE = true },
+                     rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                     elevation = caster and caster.elevation or nil
                  })
              end
         else
@@ -18173,10 +19469,16 @@ Keywords.block = {
     },
     
     -- Implementation function - Generates CREATE_SHIELD event
-    execute = function(params, caster, target, results, events)
+    execute = function(params, caster, target, results, events, spell)
         -- Mark the spell as sustained
         results.isSustained = true
         print("[DEBUG] Block keyword setting results.isSustained = true")
+        
+        -- Get relevant token count from slot for manaCost approximation
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
         
         table.insert(events or {}, {
             type = "CREATE_SHIELD",
@@ -18186,7 +19488,15 @@ Keywords.block = {
             defenseType = params.type or "barrier",
             blocksAttackTypes = params.blocks or {"projectile"},
             reflect = params.reflect or false,
-            onBlock = params.onBlock -- Add support for the onBlock callback
+            onBlock = params.onBlock, -- Add support for the onBlock callback
+            
+            -- Visual metadata for VisualResolver
+            affinity = spell and spell.affinity or nil,
+            attackType = spell and spell.attackType or nil,
+            manaCost = manaCost,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+            elevation = caster and caster.elevation or nil
         })
         return results
     end
@@ -18339,100 +19649,45 @@ Keywords.consume = {
     end
 }
 
--- vfx: Generates a visual effect for the spell via the event system
+-- vfx: Handles explicit visual effect overrides for spells
 Keywords.vfx = {
     behavior = {
-        triggersVisualEffect = true,
+        overridesVisualEffect = true,
         category = "SPECIAL"
     },
-    execute = function(params, caster, target, results, events)
-        -- Default target to ENEMY if not specified, matching most spell effects
-        local eventTarget = params.target or Constants.TargetType.ENEMY 
-        
-        -- Get the effect type using Constants.VFXType, with fallback to IMPACT
-        local effectType
-        
+    execute = function(params, caster, target, results, events, spell)
+        -- Instead of creating an event, just set effectOverride in results
         if params.effect then
-            -- If the param is already a string (not a constant), use it directly
+            -- Get the effect type, whether it's a string or constant
+            local effectType
             if type(params.effect) == "string" then
                 effectType = params.effect
             else
-                -- Otherwise, use it as provided (assuming it's a constant)
                 effectType = params.effect
             end
-        else
-            -- Default to impact if no effect specified
-            effectType = Constants.VFXType.IMPACT
+            
+            -- Store the override in the results object
+            results.effectOverride = effectType
+            
+            -- Debug output
+            print(string.format("[VFX KEYWORD] Setting effectOverride: %s for %s", 
+                tostring(effectType),
+                caster and caster.name or "unknown"))
         end
         
-        -- Validate effect type with more extensive checks
-        local isValidEffect = false
-        
-        -- First check if it's a direct string match
-        isValidEffect = Constants.isValidVFXType(effectType)
-        
-        -- If not, check if it's a constant reference (not a string)
-        if not isValidEffect and type(effectType) ~= "string" then
-            -- Check if it's a direct value from Constants.VFXType
-            for _, value in pairs(Constants.VFXType) do
-                if effectType == value then
-                    isValidEffect = true
-                    break
-                end
-            end
+        -- Also store any other relevant parameters
+        if params.duration then
+            results.effectDuration = params.duration
         end
         
-        -- If still not valid, see if it's a string that closely matches a defined effect
-        if not isValidEffect and type(effectType) == "string" then
-            -- Try without case sensitivity
-            local lowerEffect = effectType:lower()
-            for _, value in pairs(Constants.VFXType) do
-                if lowerEffect == value:lower() then
-                    effectType = value -- Use the correctly cased version
-                    isValidEffect = true
-                    break
-                end
-            end
+        if params.target then
+            results.effectTarget = params.target
         end
         
-        -- Fall back to IMPACT if we couldn't validate the effect
-        if not isValidEffect then
-            print(string.format("[VFX KEYWORD] Warning: Unknown effect type '%s', falling back to 'impact'", 
-                tostring(effectType)))
-            effectType = Constants.VFXType.IMPACT
-        end
+        -- Store other vfx parameters that might be useful
+        results.vfxParams = params
         
-        -- Add debug output (abbreviated version for production)
-        print(string.format("[VFX KEYWORD] Creating effect: %s for %s -> %s", 
-            effectType,
-            caster and caster.name or "unknown", 
-            target and target.name or "unknown"))
-        
-        -- Create the EFFECT event with a string target type (not a Constants value)
-        local targetTypeString = "enemy" -- Default
-        
-        -- Convert Constants.TargetType values to strings
-        if eventTarget == Constants.TargetType.ENEMY then
-            targetTypeString = "enemy"
-        elseif eventTarget == Constants.TargetType.SELF then
-            targetTypeString = "self"
-        elseif eventTarget == Constants.TargetType.BOTH then
-            targetTypeString = "both"
-        elseif type(eventTarget) == "string" then
-            -- If it's already a string, use it directly
-            targetTypeString = eventTarget
-        end
-        
-        table.insert(events or {}, {
-            type       = "EFFECT", -- Use the existing EFFECT event type
-            source     = "caster", -- Use string "caster" not Constants value
-            target     = targetTypeString, -- Use string type for target
-            effectType = effectType, -- The specific VFX template name (e.g., "firebolt")
-            duration   = params.duration, -- Optional duration override
-            -- Pass through any other params for the VFX system
-            vfxParams  = params -- Store original params for flexibility
-        })
-        return results -- Return unmodified results (only adds an event)
+        return results
     end
 }
 
@@ -18477,6 +19732,8 @@ game = {
     winScreenDuration = 5,  -- How long to show the win screen before auto-reset
     keywords = Keywords,
     spellCompiler = SpellCompiler,
+    -- State management
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -18819,22 +20076,32 @@ function resetGame()
     game.rangeState = Constants.RangeState.FAR
     
     -- Clear sustained spells
-    game.sustainedSpellManager.activeSpells = {}
-    
-    -- Clear mana pool and add a single token to start
-    game.manaPool:clear()
-    local tokenType = game.addRandomToken()
-    
-    -- Reset health display animation state
-    for i = 1, 2 do
-        local display = UI.healthDisplay["player" .. i]
-        display.currentHealth = 100
-        display.targetHealth = 100
-        display.pendingDamage = 0
-        display.lastDamageTime = 0
+    if game.sustainedSpellManager then
+        game.sustainedSpellManager.activeSpells = {}
     end
     
-    print("Game reset! Starting with a single " .. tokenType .. " token")
+    -- Clear mana pool and add a single token to start
+    if game.manaPool then
+        game.manaPool:clear()
+        local tokenType = game.addRandomToken()
+        print("Game reset! Starting with a single " .. tokenType .. " token")
+    end
+    
+    -- Reset health display animation state
+    if UI and UI.healthDisplay then
+        for i = 1, 2 do
+            local display = UI.healthDisplay["player" .. i]
+            if display then
+                display.currentHealth = 100
+                display.targetHealth = 100
+                display.pendingDamage = 0
+                display.lastDamageTime = 0
+            end
+        end
+    end
+    
+    -- The current state is handled by the caller
+    print("Game reset complete")
 end
 
 -- Add resetGame function to game state so Input system can call it
@@ -18843,75 +20110,96 @@ function game.resetGame()
 end
 
 function love.update(dt)
-    -- Check for win condition before updates
-    if game.gameOver then
+    -- Different update logic based on current game state
+    if game.currentState == "MENU" then
+        -- Menu state updates (minimal, just for animations)
+        -- VFX system is still updated for menu animations
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        
+        -- No other updates needed in menu state
+        return
+    elseif game.currentState == "BATTLE" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to game over state
+            game.currentState = "GAME_OVER"
+            game.winScreenTimer = 0
+            return
+        end
+        
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+                
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+                    
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+                    
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+                
+                print(winner.name .. " wins!")
+                
+                -- Transition to game over state
+                game.currentState = "GAME_OVER"
+                return
+            end
+        end
+        
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+        
+        -- Update mana pool
+        game.manaPool:update(dt)
+        
+        -- Update VFX system
+        game.vfx.update(dt)
+        
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+        
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+    elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
         
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and go back to menu
             resetGame()
+            game.currentState = "MENU"
         end
         
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
-        return
     end
-    
-    -- Check if any wizard's health has reached zero
-    for i, wizard in ipairs(game.wizards) do
-        if wizard.health <= 0 then
-            game.gameOver = true
-            game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
-            game.winScreenTimer = 0
-            
-            -- Create victory VFX around the winner
-            local winner = game.wizards[game.winner]
-            for j = 1, 15 do
-                local angle = math.random() * math.pi * 2
-                local distance = math.random(40, 100)
-                local x = winner.x + math.cos(angle) * distance
-                local y = winner.y + math.sin(angle) * distance
-                
-                -- Determine winner's color for effects
-                local color
-                if game.winner == 1 then -- Ashgar
-                    color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
-                else -- Selene
-                    color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
-                end
-                
-                -- Create sparkle effect with delay
-                game.vfx.createEffect("impact", x, y, nil, nil, {
-                    duration = 0.8 + math.random() * 0.5,
-                    color = color,
-                    particleCount = 5,
-                    radius = 15,
-                    delay = j * 0.1
-                })
-            end
-            
-            print(winner.name .. " wins!")
-            break
-        end
-    end
-    
-    -- Update wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:update(dt)
-    end
-    
-    -- Update mana pool
-    game.manaPool:update(dt)
-    
-    -- Update VFX system
-    game.vfx.update(dt)
-    
-    -- Update SustainedSpellManager for trap and shield management
-    game.sustainedSpellManager.update(dt)
-    
-    -- Update animated health displays
-    UI.updateHealthDisplays(dt, game.wizards)
 end
 
 function love.draw()
@@ -18923,71 +20211,100 @@ function love.draw()
     love.graphics.translate(offsetX, offsetY)
     love.graphics.scale(scale, scale)
     
-    -- Clear game area with game background color
-    love.graphics.setColor(20/255, 20/255, 40/255, 1)
-    love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-    love.graphics.setColor(1, 1, 1, 1) -- Reset color
-    
-    -- Draw range state indicator (NEAR/FAR)
-    drawRangeIndicator()
-    
-    -- Draw mana pool
-    game.manaPool:draw()
-    
-    -- Draw wizards
-    for _, wizard in ipairs(game.wizards) do
-        wizard:draw()
-    end
-    
-    -- Draw visual effects layer (between wizards and UI)
-    game.vfx.draw()
-    
-    -- Draw UI elements in proper z-order
-    love.graphics.setColor(1, 1, 1)
-    
-    -- First draw health bars and basic UI components
-    UI.drawSpellInfo(game.wizards)
-    
-    -- Then draw spellbook buttons (the input feedback bar)
-    UI.drawSpellbookButtons()
-    
-    -- Finally draw spellbook modals on top of everything else
-    UI.drawSpellbookModals(game.wizards)
-    
-    -- Draw win screen if game is over
-    if game.gameOver and game.winner then
+    -- Draw based on current game state
+    if game.currentState == "MENU" then
+        -- Draw the main menu
+        drawMainMenu()
+    elseif game.currentState == "BATTLE" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw range state indicator (NEAR/FAR)
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer (between wizards and UI)
+        game.vfx.draw()
+        
+        -- Draw UI elements in proper z-order
+        love.graphics.setColor(1, 1, 1)
+        
+        -- First draw health bars and basic UI components
+        UI.drawSpellInfo(game.wizards)
+        
+        -- Then draw spellbook buttons (the input feedback bar)
+        UI.drawSpellbookButtons()
+        
+        -- Finally draw spellbook modals on top of everything else
+        UI.drawSpellbookModals(game.wizards)
+    elseif game.currentState == "GAME_OVER" then
+        -- Clear game area with game background color
+        love.graphics.setColor(20/255, 20/255, 40/255, 1)
+        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        
+        -- Draw game elements in the background (frozen in time)
+        -- Draw range state indicator
+        drawRangeIndicator()
+        
+        -- Draw mana pool
+        game.manaPool:draw()
+        
+        -- Draw wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:draw()
+        end
+        
+        -- Draw visual effects layer
+        game.vfx.draw()
+        
+        -- Draw win screen on top
         drawWinScreen()
     end
     
-    -- Debug info only when debug key is pressed
+    -- Debug info only when debug key is pressed (available in all states)
     if love.keyboard.isDown("`") then
         UI.drawHelpText(game.font)
         love.graphics.setColor(1, 1, 1, 0.9)
         love.graphics.print("FPS: " .. love.timer.getFPS(), 10, 10)
         
+        -- Show current game state in debug mode
+        love.graphics.print("State: " .. game.currentState, 10, 30)
+        
         -- Show scaling info in debug mode
-        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 30)
+        love.graphics.print("Scale: " .. scale .. "x (" .. love.graphics.getWidth() .. "x" .. love.graphics.getHeight() .. ")", 10, 50)
         
         -- Show asset cache stats in debug mode
         local stats = AssetCache.dumpStats()
         love.graphics.print(string.format("Assets: %d images, %d sounds loaded", 
-                            stats.images.loaded, stats.sounds.loaded), 10, 50)
+                            stats.images.loaded, stats.sounds.loaded), 10, 70)
 
         -- Show Pool stats in debug mode
         if love.keyboard.isDown("p") then
             -- Draw pool statistics overlay
             Pool.drawDebugOverlay()
             -- Also show VFX-specific stats
-            game.vfx.showPoolStats()
+            if game.vfx and game.vfx.showPoolStats then
+                game.vfx.showPoolStats()
+            end
         else
-            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 70)
+            love.graphics.print("Press P while in debug mode to see object pool stats", 10, 90)
         end
         
         -- Show hotkey summary when debug overlay is active
         if love.keyboard.isDown("tab") then
             drawHotkeyHelp()
         else
-            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 90)
+            love.graphics.print("Press TAB while in debug mode to see hotkeys", 10, 110)
         end
     else
         -- Always show a small hint about the debug key
@@ -19188,6 +20505,149 @@ function drawRangeIndicator()
     
     -- Reset line width
     love.graphics.setLineWidth(1)
+end
+
+-- Draw the main menu
+function drawMainMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    
+    -- Draw a magical background effect
+    love.graphics.setColor(20/255, 20/255, 40/255, 1) -- Dark blue background
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+    
+    -- Draw animated arcane runes in the background
+    for i = 1, 9 do
+        local time = love.timer.getTime()
+        local x = screenWidth * (0.1 + (i % 3) * 0.3)
+        local y = screenHeight * (0.1 + math.floor(i / 3) * 0.3)
+        local scale = 0.4 + 0.1 * math.sin(time + i)
+        local alpha = 0.1 + 0.05 * math.sin(time * 0.5 + i * 0.7)
+        local rotation = time * 0.1 * (i % 2 == 0 and 1 or -1)
+        local runeTexture = AssetCache.getImage("assets/sprites/runes/rune" .. i .. ".png")
+        
+        if runeTexture then
+            love.graphics.setColor(0.4, 0.4, 0.8, alpha)
+            love.graphics.draw(
+                runeTexture, 
+                x, y, 
+                rotation,
+                scale, scale,
+                runeTexture:getWidth()/2, runeTexture:getHeight()/2
+            )
+        end
+    end
+    
+    -- Draw title with a magical glow effect
+    local titleY = screenHeight * 0.25
+    local titleScale = 4
+    local titleText = "MANASTORM"
+    local titleWidth = game.font:getWidth(titleText) * titleScale
+    
+    -- Draw glow behind title
+    local glowColor = {0.3, 0.3, 0.9, 0.3}
+    local glowSize = 15 + 5 * math.sin(love.timer.getTime() * 2)
+    love.graphics.setColor(glowColor)
+    for i = 1, 3 do
+        love.graphics.print(
+            titleText,
+            screenWidth/2 - titleWidth/2 + math.random(-2, 2), 
+            titleY + math.random(-2, 2),
+            0,
+            titleScale, titleScale
+        )
+    end
+    
+    -- Draw main title
+    love.graphics.setColor(0.9, 0.9, 1, 1)
+    love.graphics.print(
+        titleText,
+        screenWidth/2 - titleWidth/2, 
+        titleY,
+        0,
+        titleScale, titleScale
+    )
+    
+    -- Draw subtitle
+    local subtitleText = "Wizard Duel"
+    local subtitleScale = 2
+    local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
+    
+    love.graphics.setColor(0.7, 0.7, 1, 0.9)
+    love.graphics.print(
+        subtitleText,
+        screenWidth/2 - subtitleWidth/2,
+        titleY + 60,
+        0,
+        subtitleScale, subtitleScale
+    )
+    
+    -- Draw menu options
+    local menuY = screenHeight * 0.6
+    local menuSpacing = 50
+    local menuScale = 1.5
+    
+    -- Start Duel option
+    local startText = "[Enter] Start Duel"
+    local startWidth = game.font:getWidth(startText) * menuScale
+    
+    -- Pulse effect for start option
+    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
+    love.graphics.print(
+        startText,
+        screenWidth/2 - startWidth/2,
+        menuY,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Quit option
+    local quitText = "[Esc] Quit"
+    local quitWidth = game.font:getWidth(quitText) * menuScale
+    
+    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
+    love.graphics.print(
+        quitText,
+        screenWidth/2 - quitWidth/2,
+        menuY + menuSpacing,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Draw version and credit
+    local versionText = "v0.1 - Demo"
+    love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
+    love.graphics.print(versionText, 10, screenHeight - 30)
+    
+    -- Draw floating mana tokens as decoration
+    for i = 1, 5 do
+        local time = love.timer.getTime()
+        local tokenType = game.tokenTypes[i]
+        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
+        
+        if tokenImage then
+            local x = screenWidth * (0.2 + 0.15 * i + 0.03 * math.sin(time * 0.5 + i))
+            local y = screenHeight * (0.4 + 0.05 * math.sin(time * 0.7 + i * 0.5))
+            local tokenScale = 0.5 + 0.1 * math.sin(time + i * 0.3)
+            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
+            
+            -- Draw glow behind token
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
+            love.graphics.circle("fill", x, y, 20 * tokenScale)
+            
+            -- Draw token
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.draw(
+                tokenImage, 
+                x, y, 
+                rotation,
+                tokenScale, tokenScale,
+                tokenImage:getWidth()/2, tokenImage:getHeight()/2
+            )
+        end
+    end
 end
 
 -- Unified key handler using the Input module
@@ -20509,13 +21969,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- for handling its params, including function evaluation.
                 if behavior.enabled then
                     -- If it's a boolean-enabled keyword with no params
-                    behaviorResults = behavior.execute({}, caster, target, results, events) -- Pass empty params
+                    behaviorResults = behavior.execute({}, caster, target, results, events, compiledSpell) -- Pass empty params and the spell
                 elseif behavior.value ~= nil then
                     -- If it's a simple value parameter
-                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events)
+                    behaviorResults = behavior.execute({value = behavior.value}, caster, target, results, events, compiledSpell)
                 else
                     -- Normal case with params table
-                    behaviorResults = behavior.execute(params, caster, target, results, events)
+                    behaviorResults = behavior.execute(params, caster, target, results, events, compiledSpell)
                 end
                 
                 -- Debug output for events immediately after execute
@@ -20529,9 +21989,19 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     results[k] = v
                 end
                 
-                -- Special handling for shield behaviors
+                -- Special handling for vfx keyword's effectOverride
+                -- This is part of the VFX-R5 refactoring to deprecate manual VFX specification
+                if keyword == "vfx" and results.effectOverride then
+                    -- Remember the override for when a damage event generates an EFFECT event
+                    compiledSpell.effectOverride = results.effectOverride
+                    compiledSpell.effectTarget = results.effectTarget
+                    compiledSpell.effectDuration = results.effectDuration
+                    compiledSpell.vfxParams = results.vfxParams
+                end
+                
+                -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
-                    -- Debug the block keyword behavior
+                    -- Debug the block keyword behavior 
                     print("[COMPILER DEBUG] Processing block keyword in executeAll")
                     
                     -- Check for onBlock in params
@@ -20541,39 +22011,15 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                         print("[COMPILER DEBUG] No onBlock handler in params")
                     end
                     
-                    -- Create a CREATE_SHIELD event
-                    local shieldEvent = {
-                        type = "CREATE_SHIELD",
-                        source = "caster",
-                        target = "self", -- Use "self" to be consistent with Keywords.block targetType
-                        slotIndex = spellSlot,
-                        defenseType = "barrier",
-                        blocksAttackTypes = {"projectile"},
-                        reflect = false,
-                        onBlock = params.onBlock -- Include onBlock directly from params
-                    }
+                    -- NOTE: We no longer create a CREATE_SHIELD event here
+                    -- The Keywords.block.execute function already creates this event
+                    -- Creating it here would cause a duplicate event
                     
-                    -- Debug the onBlock in the shield event
-                    if shieldEvent.onBlock then
-                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
-                    else
-                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
-                    end
-                    
-                    -- Safely add shield parameters if available
+                    -- Debug info about shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
-                        shieldEvent.defenseType = behaviorResults.shieldParams.defenseType or "barrier"
-                        shieldEvent.blocksAttackTypes = behaviorResults.shieldParams.blocksAttackTypes or {"projectile"}
-                        shieldEvent.reflect = behaviorResults.shieldParams.reflect or false
-                        
-                        -- Also add onBlock from shieldParams if available and not already set
-                        if behaviorResults.shieldParams.onBlock and not shieldEvent.onBlock then
-                            shieldEvent.onBlock = behaviorResults.shieldParams.onBlock
-                            print("[COMPILER DEBUG] Added onBlock from shieldParams to CREATE_SHIELD event")
-                        end
+                        local defenseType = behaviorResults.shieldParams.defenseType or "barrier"
+                        print("[COMPILER DEBUG] Shield type: " .. defenseType)
                     end
-                    
-                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -20692,50 +22138,31 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 if behavior.enabled then
                     -- Call the keyword execute function with an empty results table
                     -- The events parameter allows keywords to add events directly via table.insert
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 elseif behavior.value ~= nil then
-                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute({value = behavior.value}, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 else
-                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events)
+                    behavior.execute(params, caster, target, {currentSlot = spellSlot}, events, compiledSpell)
                 end
                 
-                -- Special handling for shield behaviors (block keyword)
+                -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
                     -- Debug the block keyword behavior
                     print("[COMPILER DEBUG] Processing block keyword in generateEvents")
                     
-                    -- Create a CREATE_SHIELD event explicitly
-                    local shieldParams = localResults.shieldParams or {}
+                    -- NOTE: We no longer create a CREATE_SHIELD event here
+                    -- The Keywords.block.execute function already creates this event
+                    -- Creating it here would cause a duplicate event
                     
-                    -- Check if onBlock is in the params
+                    -- Debug info about shield parameters
+                    local shieldParams = localResults.shieldParams or {}
+                    local defenseType = shieldParams.defenseType or "barrier"
+                    print("[COMPILER DEBUG] Shield type from generateEvents: " .. defenseType)
+                    
+                    -- Check if onBlock is in the params (just for debug info)
                     if params and params.onBlock then
                         print("[COMPILER DEBUG] Found onBlock handler in params")
-                        -- Add onBlock to shieldParams if not already there
-                        if not shieldParams.onBlock then
-                            shieldParams.onBlock = params.onBlock
-                        end
                     end
-                    
-                    -- Create event with onBlock included
-                    local shieldEvent = {
-                        type = "CREATE_SHIELD",
-                        source = "caster",
-                        target = "self",
-                        slotIndex = spellSlot,
-                        defenseType = shieldParams.defenseType or "barrier",
-                        blocksAttackTypes = shieldParams.blocksAttackTypes or {"projectile"},
-                        reflect = shieldParams.reflect or false,
-                        onBlock = shieldParams.onBlock -- Include onBlock in the event
-                    }
-                    
-                    -- Debug the onBlock in the shield event
-                    if shieldEvent.onBlock then
-                        print("[COMPILER DEBUG] Added onBlock to CREATE_SHIELD event")
-                    else
-                        print("[COMPILER DEBUG] No onBlock added to CREATE_SHIELD event")
-                    end
-                    
-                    table.insert(events, shieldEvent)
                 end
             end
         end
@@ -20951,7 +22378,7 @@ Spells.conjurenothing = {
             amount = 3
         }
     },
-    vfx = "void_conjure",
+    -- VFX provided by rules-driven system
     sfx = "void_conjure",
 }
 
@@ -20969,7 +22396,7 @@ Spells.conjurefire = {
             token = Constants.TokenType.FIRE,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.CONJUREFIRE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},  -- Unblockable
     
@@ -21001,7 +22428,7 @@ Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Quick ranged hit, more damage against AERIAL opponents",
+    description = "Quick ranged hit, more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
@@ -21015,7 +22442,30 @@ Spells.firebolt = {
             end,
             type = Constants.DamageType.FIRE
         },
-        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.watergun = {
+    id = "watergun",
+    name = "Water Gun",
+    affinity = "water",
+    description = "Quick ranged hit, more damage against NEAR opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    return 15
+                end
+                return 10
+            end,
+            type = Constants.DamageType.WATER
+        }
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -21038,7 +22488,7 @@ Spells.blastwave = {
             }),
             type = Constants.DamageType.FIRE
         },
-        vfx = { effect = Constants.VFXType.BLASTWAVE, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "blastwave",
 }
@@ -21067,7 +22517,7 @@ Spells.meteor = {
         ground = {
             target = Constants.TargetType.SELF 
         },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- Use Constants.VFXType
+        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep one example with manual VFX for regression testing
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -21085,7 +22535,7 @@ Spells.combustMana = {
         disruptAndShift = {
             targetType = "salt"
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
 }
 
@@ -21102,7 +22552,7 @@ Spells.conjuresalt = {
             token = Constants.TokenType.SALT,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.FORCE_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},
 
@@ -21136,7 +22586,7 @@ Spells.emberlift = {
         elevate = {
             duration = 5.0,
             target = "SELF",
-            vfx = { effect = Constants.VFXType.ELEVATION_UP, target = Constants.TargetType.SELF }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
         rangeShift = {
             position = expr.byRange({
@@ -21144,7 +22594,7 @@ Spells.emberlift = {
                 FAR = "NEAR",
                 default = "NEAR"
             }),
-            vfx = { effect = Constants.VFXType.RANGE_CHANGE, target = Constants.TargetType.SELF }
+            -- VFX provided by rules-driven system (see R5 refactor)
         }
     },
     sfx = "whoosh_up",
@@ -21165,7 +22615,7 @@ Spells.conjuremoonlight = {
             token = Constants.TokenType.MOON,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.CONJUREMOONLIGHT, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},  -- Unblockable
     
@@ -21204,7 +22654,7 @@ Spells.conjurestars = {
             token = Constants.TokenType.STAR,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.STAR_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     blockableBy = {},
 
@@ -21239,7 +22689,7 @@ Spells.novaconjuring = {
             },
             amount = 1 -- Conjures 1 of each listed type
         },
-        vfx = { effect = Constants.VFXType.NOVA_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_nova",
     blockableBy = {}  -- Unblockable
@@ -21263,7 +22713,7 @@ Spells.witchconjuring = {
             },
             amount = 1 -- Conjures 1 of each listed type
         },
-        vfx = { effect = Constants.VFXType.WITCH_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_witch",
     blockableBy = {}  -- Unblockable
@@ -21284,7 +22734,7 @@ Spells.infiniteprocession = {
             type = expr.more(Constants.TokenType.SUN, Constants.TokenType.MOON),
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.TOKEN_SHIFT, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "conjure_infinite",
 }
@@ -21292,14 +22742,14 @@ Spells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Ward that elevates the caster each time it blocks.",
+    description = "Magical ward that blocks projectile and remote attacks, elevating the caster each time it blocks.",
     attackType = "utility",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
     keywords = {
         block = {
-            type = Constants.ShieldType.WARD,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            type = Constants.ShieldType.WARD, -- Ward blocks projectile and remote
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
             
             -- Simplified onBlock implementation
             onBlock = function(defender, attacker, slot, info)
@@ -21315,14 +22765,14 @@ Spells.wrapinmoonlight = {
                     target = "self",
                     elevation = Constants.ElevationState.AERIAL,
                     duration = 4.0,
-                    vfx = { effect = Constants.VFXType.MISTVEIL, target = Constants.TargetType.SELF }
+                    -- VFX provided by rules-driven system (see R5 refactor)
                 })
                 
                 print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "mist_shimmer",
     blockableBy = {},  -- Utility spell, can't be blocked
@@ -21347,9 +22797,9 @@ Spells.tidalforce = {
                 return target and target.elevation == "AERIAL"
             end,
             target = "ENEMY", -- Explicitly specify the enemy as the target
-            vfx = { effect = Constants.VFXType.TIDAL_FORCE_GROUND, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "tidal_wave",
     blockableBy = {"ward", "field"}
@@ -21378,7 +22828,7 @@ Spells.lunardisjunction = {
             end,
             target = "SLOT_ENEMY"  -- Explicitly target enemy's spell slot
         },
-        vfx = { effect = Constants.VFXType.LUNARDISJUNCTION, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "lunardisjunction_sound",
     blockableBy = {"ward"} -- Disjunction is a projectile
@@ -21424,9 +22874,9 @@ Spells.gravityTrap = {
                 tickInterval = 0.5,
                 target = "ENEMY"
             },
-            vfx = { effect = Constants.VFXType.GRAVITY_PIN_GROUND, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.GRAVITY_TRAP_SET, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "gravity_trap_set",
     blockableBy = {}  -- Trap spells can't be blocked since they're utility spells
@@ -21489,7 +22939,7 @@ Spells.gravity = {
         stagger = {
             duration = 2.0  -- Stun for 2 seconds
         },
-        vfx = { effect = Constants.VFXType.GRAVITY_PIN_GROUND, target = Constants.TargetType.ENEMY }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "gravity_slam",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -21513,7 +22963,7 @@ Spells.eclipse = {
             token = Constants.TokenType.SUN,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.FORCE_CONJURE, target = Constants.TargetType.SELF }
+        -- VFX provided by rules-driven system (see R5 refactor)
     },
     sfx = "eclipse_shatter",
     blockableBy = {} -- Utility spells are not blockable
@@ -21563,7 +23013,7 @@ Spells.fullmoonbeam = {
             end,
             type = Constants.TokenType.MOON
         },
-        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY },
+        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY } -- SHOWCASE: Keep second example with manual VFX for beam effects
     },
     sfx = "beam_charge",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -21582,7 +23032,7 @@ Spells.forcebarrier = {
             type = Constants.ShieldType.BARRIER,
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE}
         },
-        vfx = { effect = Constants.VFXType.IMPACT, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "shield_up",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -21631,7 +23081,7 @@ Spells.enhancedmirrorshield = {
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "crystal_ring",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -21699,7 +23149,7 @@ Spells.battleshield = {
                 return events
             end
         },
-        vfx = { effect = Constants.VFXType.SHIELD, target = Constants.TargetType.SELF },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "fire_shield",
     blockableBy = {}  -- Utility spell, can't be blocked
@@ -21736,7 +23186,7 @@ Spells.shieldbreaker = {
             end,
             type = "force"
         },
-        vfx = { effect = Constants.VFXType.FIREBOLT, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     -- Add special property that indicates this is a shield-breaker spell
     -- This will be used in the shield-blocking logic
@@ -21788,7 +23238,7 @@ Spells.eruption = {
             duration = 4.0,
             tickDamage = 3
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "volcano_rumble",
     blockableBy = {Constants.ShieldType.BARRIER},
@@ -21837,7 +23287,7 @@ Spells.cosmicRift = {
             slot = nil -- Affects the next spell cast from any slot
         },
         zoneMulti = true,  -- Affects both NEAR and FAR
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "space_tear",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -21859,9 +23309,9 @@ Spells.forceBlast = {
         elevate = {
             duration = 3.0,         -- Lasts for 3 seconds
             target = "ENEMY",       -- Targets the opponent
-            vfx = { effect = Constants.VFXType.FORCE_BLAST_UP, target = Constants.TargetType.ENEMY }
+            -- VFX provided by rules-driven system (see R5 refactor)
         },
-        vfx = { effect = Constants.VFXType.FORCE_BLAST, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "force_wind",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -21890,7 +23340,7 @@ Spells.blazingAscent = {
             token = Constants.TokenType.WATER,
             amount = 1
         },
-        vfx = { effect = Constants.VFXType.ELEVATION_UP, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -21981,7 +23431,7 @@ Spells.arcaneReversal = {
             slot = 1,  -- First slot
             target = "SLOT_SELF"
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "time_shift",
     blockableBy = {Constants.ShieldType.WARD}
@@ -22028,7 +23478,7 @@ Spells.lunarTides = {
             end,
             target = "POOL_ENEMY"  -- Affects opponent's mana pool
         },
-        vfx = { effect = Constants.VFXType.TIDAL_FORCE, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "tide_rush",
     blockableBy = {Constants.ShieldType.BARRIER}
@@ -22071,7 +23521,7 @@ Spells.adaptive_surge = {
             },
             nil -- Don't apply slow otherwise
         ),
-        vfx = { effect = Constants.VFXType.IMPACT, target = Constants.TargetType.ENEMY },
+        -- VFX provided by rules-driven system (see R5 refactor),
     },
     sfx = "adaptive_sound",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -22122,8 +23572,26 @@ return SpellsModule```
 ```lua
 -- EventRunner.lua
 -- Processes spell events and applies them to game state
+--
+-- IMPORTANT: Visual Effects Pattern
+-- =================================
+-- This module now uses the VisualResolver for determining which VFX to trigger.
+-- The pattern for creating visuals is:
+--
+-- 1. For typical gameplay events (damage, status, etc.):
+--    - Keywords in keywords.lua should include visual metadata in their events
+--    - The EFFECT handler in this module will use VisualResolver.pick() to determine visuals
+--
+-- 2. For specialized effects in other handlers:
+--    - Generate an EFFECT event with proper metadata and dispatch it
+--    - This ensures consistent visual handling through the VisualResolver
+--
+-- 3. Legacy direct VFX calls:
+--    - Some handlers still use safeCreateVFX() directly (marked with TODO comments)
+--    - These will be gradually migrated to use the VisualResolver pattern
 
 local Constants = require("core.Constants")
+local VisualResolver = require("systems.VisualResolver")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -22442,9 +23910,60 @@ EventRunner.EVENT_HANDLERS = {
         -- Debug log damage application
         print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
             event.amount, targetWizard.name, targetWizard.health))
+            
+        -- Debug log visual metadata
+        print(string.format("[DAMAGE EVENT] Visual metadata: affinity=%s, attackType=%s, damageType=%s, manaCost=%s", 
+            tostring(event.affinity),
+            tostring(event.attackType),
+            tostring(event.damageType),
+            tostring(event.manaCost)))
+        print(string.format("[DAMAGE EVENT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            event.tags and "present" or "nil",
+            tostring(event.rangeBand),
+            tostring(event.elevation)))
         
         -- Track damage for results
         results.damageDealt = results.damageDealt + event.amount
+        
+        -- Generate an EFFECT event for the damage
+        -- Check if we have a spell with effectOverride first
+        local effectOverride = nil
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+        end
+        
+        -- Create EFFECT event
+        local effectEvent = {
+            type = "EFFECT",
+            source = "caster",
+            target = event.target,
+            effectOverride = effectOverride, -- Use override if we have one
+            
+            -- Copy visual metadata from the damage event
+            affinity = event.affinity,
+            attackType = event.attackType,
+            damageType = event.damageType,
+            manaCost = event.manaCost,
+            tags = event.tags or { DAMAGE = true },
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+        
+        -- Debug log the generated EFFECT event
+        print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s", 
+            tostring(effectOverride)))
+        print(string.format("[DAMAGE->EFFECT] Transferred metadata: affinity=%s, attackType=%s, damageType=%s", 
+            tostring(effectEvent.affinity),
+            tostring(effectEvent.attackType),
+            tostring(effectEvent.damageType)))
+        print(string.format("[DAMAGE->EFFECT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
+            effectEvent.tags and "present" or "nil",
+            tostring(effectEvent.rangeBand),
+            tostring(effectEvent.elevation)))
+        
+        -- Process the effect event to create visuals
+        EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         
         return true
     end,
@@ -22518,37 +24037,29 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create elevation change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            -- Use the specified VFX if provided in the event, otherwise use a default based on elevation
-            local effectType = nil
-            
-            -- First check if the event has a custom vfx specified
-            if event.vfx and type(event.vfx) == "string" then
-                effectType = event.vfx
-                print("[EventRunner] Using custom elevation VFX: " .. effectType)
-            else
-                -- Fall back to default VFXs based on elevation direction
-                if event.elevation == "AERIAL" then
-                    effectType = Constants.VFXType.ELEVATION_UP
-                else
-                    effectType = Constants.VFXType.ELEVATION_DOWN
-                end
-            end
-            
-            local params = {
-                duration = 1.0,
+            -- Interim Approach: Generate an EFFECT event to handle VFX consistently
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                -- If the event has a custom vfx specified, use it as an override
+                effectOverride = (event.vfx and type(event.vfx) == "string") and event.vfx or nil,
+                -- Provide elevation metadata for the resolver
+                affinity = event.affinity, -- Use affinity from original event
+                attackType = "utility",    -- Elevation is a utility spell type
+                manaCost = event.manaCost or 1,
+                tags = { MOVEMENT = true, [event.elevation == "AERIAL" and "ELEVATE" or "GROUND"] = true },
+                rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
-                source = caster.name
+                duration = 1.0
             }
             
-            -- Use our safe VFX creation helper, targeting the wizard's coords
-            safeCreateVFX(
-                caster.gameState.vfx, 
-                "createElevationEffect", 
-                effectType, 
-                targetWizard.x, 
-                targetWizard.y, 
-                params
-            )
+            -- Process the effect event, which will use the VisualResolver internally
+            -- This ensures consistent visual handling for all effects
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+            
+            -- Note: The above approach is cleaner than calling VisualResolver directly
+            -- as it ensures all event parameters are properly passed through
         end
         
         return true
@@ -22573,19 +24084,26 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create range change VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                position = event.position,
-                duration = 1.0
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "both", -- Range changes affect both wizards
+                effectOverride = Constants.VFXType.RANGE_CHANGE, -- Use explicit override for this special effect
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity,
+                attackType = "utility",
+                manaCost = 1,
+                tags = { MOVEMENT = true },
+                rangeBand = event.position, -- The new range state
+                elevation = caster.elevation,
+                duration = 1.0,
+                -- Extra params specific to range changes
+                position = event.position
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createRangeChangeEffect",
-                Constants.VFXType.RANGE_CHANGE,
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -22600,6 +24118,9 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Create position force VFX if available
             if caster.gameState.vfx then
+                -- TODO: VFX-R5 - Update this to use VisualResolver pattern
+                -- This handler should be refactored to generate an EFFECT event
+                -- for consistency, but we'll leave it for now as it's a specialized effect
                 local params = {
                     duration = 1.0,
                     source = caster.name,
@@ -23225,18 +24746,24 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Create reflect VFX if available
         if caster.gameState and caster.gameState.vfx then
-            local params = {
-                duration = event.duration
+            -- Generate an EFFECT event for consistent handling through VisualResolver
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.REFLECT, -- Use explicit override for now
+                -- Provide relevant metadata for the resolver
+                affinity = event.affinity, 
+                attackType = "utility",
+                manaCost = event.manaCost or 2,
+                tags = { DEFENSE = true, SHIELD = true },
+                rangeBand = caster.gameState.rangeState,
+                elevation = targetWizard.elevation,
+                duration = event.duration or 3.0
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createReflectEffect",
-                Constants.VFXType.REFLECT,
-                targetWizard.x,
-                targetWizard.y,
-                params
-            )
+            -- Process the effect event through the standard pipeline
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
         
         return true
@@ -23324,92 +24851,149 @@ EventRunner.EVENT_HANDLERS = {
     EFFECT = function(event, caster, target, spellSlot, results)
         print("[EFFECT EVENT] Processing EFFECT event")
         
-        -- Get x and y coordinates for the effect
-        local x, y = nil, nil
+        -- Detailed event inspection for debugging
+        print("[EFFECT EVENT] Full event details:")
+        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        print(string.format("  effectType=%s", tostring(event.effectType)))
+        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
+            tostring(event.affinity), 
+            tostring(event.attackType), 
+            tostring(event.damageType)))
+        print(string.format("  source=%s, target=%s", 
+            tostring(event.source), 
+            tostring(event.target)))
+            
+        -- Check if spell has override
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell then
+            local spell = caster.spellSlots[spellSlot].spell
+            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+                tostring(spell.name), tostring(spell.effectOverride)))
+        end
+        
+        -- Get source and target coordinates for the effect
+        local srcX, srcY, tgtX, tgtY = nil, nil, nil, nil
         
         -- CASE 1: If vfxParams contains direct coordinates, use those
         if event.vfxParams and event.vfxParams.x and event.vfxParams.y then
-            x = event.vfxParams.x
-            y = event.vfxParams.y
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d)", x, y))
+            srcX = event.vfxParams.x
+            srcY = event.vfxParams.y
+            tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
+            tgtY = event.vfxParams.targetY or srcY
+            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+                srcX, srcY, tgtX, tgtY))
         
-        -- CASE 2: Otherwise try to resolve wizard target coordinates
+        -- CASE 2: Otherwise resolve based on source/target entities
         else
+            -- Source coordinates (caster)
+            srcX = caster and caster.x or 0
+            srcY = caster and caster.y or 0
+            
+            -- Target coordinates 
             local targetInfo = EventRunner.resolveTarget(event, caster, target)
             if targetInfo and targetInfo.wizard then 
                 local targetWizard = targetInfo.wizard
-                x = targetWizard.x
-                y = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d)", x or 0, y or 0))
+                tgtX = targetWizard.x
+                tgtY = targetWizard.y
+                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                    srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, falling back to caster")
-                -- Fall back to caster position if target resolution fails
-                x = caster and caster.x or 0
-                y = caster and caster.y or 0
+                -- If target resolution fails, use same coordinates as source
+                tgtX = srcX
+                tgtY = srcY
+                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
+        end
+        
+        -- Check if this spell slot contains a spell with an effectOverride
+        local overrideName = nil
+        
+        -- Check in priority order for effect name
+        if event.effectOverride then
+            -- First check the event for an effectOverride (highest priority)
+            overrideName = event.effectOverride
+            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+        elseif event.effectType then
+            -- Then check if there's an effectType directly in the event (legacy VFX keyword)
+            overrideName = event.effectType
+            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+        elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+               caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            -- Finally check the spell slot for effectOverride (set by vfx keyword)
+            overrideName = caster.spellSlots[spellSlot].spell.effectOverride
+            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
         if caster.gameState and caster.gameState.vfx then
-            -- Get the effect type with validation/fallback using Constants
-            local effectType = event.effectType or Constants.VFXType.IMPACT
+            -- Use the override or let VisualResolver pick based on metadata
+            local baseEffectName, vfxOpts
             
-            -- Validate that effectType exists in Constants.VFXType values
-            if not Constants.isValidVFXType(effectType) then
-                print(string.format("[EFFECT EVENT] Warning: Unknown effectType '%s' requested by event. Defaulting to impact.", 
-                    tostring(effectType)))
-                effectType = Constants.VFXType.IMPACT
+            -- Debug before VisualResolver.pick
+            print("[EFFECT EVENT] About to call VisualResolver.pick()")
+            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            
+            if overrideName then
+                -- Manual override - use it directly but still get options from resolver
+                event.effectOverride = overrideName -- Ensure the event has the override
+                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
+            else
+                -- Standard resolver path using event metadata
+                baseEffectName, vfxOpts = VisualResolver.pick(event)
             end
             
-            -- Build parameters for the effect
-            local params = {
-                duration = event.duration or 0.5,
-                effectType = effectType
-            }
+            -- Debug after VisualResolver.pick
+            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
+                tostring(baseEffectName), 
+                vfxOpts and "present" or "nil"))
             
-            -- Add source/target names if available
+            -- Skip VFX if no valid base effect name
+            if not baseEffectName then
+                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                return false
+            end
+            
+            -- Merge additional parameters from event
+            if not vfxOpts then vfxOpts = {} end
+            
+            -- Add source/target names
             if caster and caster.name then
-                params.source = caster.name
+                vfxOpts.source = caster.name
             end
-            
-            -- Add target name if available
             if target and target.name then
-                params.target = target.name
+                vfxOpts.target = target.name
             end
             
-            -- Add any additional parameters from vfxParams
-            if event.vfxParams then
-                for k, v in pairs(event.vfxParams) do
-                    -- Don't copy x/y as they're passed directly to safeCreateVFX
-                    if k ~= "x" and k ~= "y" then
-                        params[k] = v
-                    end
-                end
+            -- Set default duration if not provided
+            if not vfxOpts.duration then
+                vfxOpts.duration = event.duration or 0.5
             end
             
-            -- Add any additional parameters from the event itself
-            for k, v in pairs(event) do
-                if k ~= "type" and k ~= "source" and k ~= "target" and 
-                   k ~= "duration" and k ~= "effectType" and k ~= "vfxParams" then
-                    params[k] = v
-                end
-            end
-            
-            -- Extra debug info (after validation)
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d)", 
-                tostring(effectType), x or 0, y or 0))
+            -- Extra debug info
+            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+                tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
-            -- Use our safe VFX creation helper with resolved coordinates
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createEffect",
-                effectType, -- Pass the validated effect type
-                x or 0,
-                y or 0,
-                params
-            )
+            -- Call VFX.createEffect directly instead of using safeCreateVFX
+            -- This pattern matches how we want VFX module to be called in the future
+            -- with directional information (source -> target)
+            local vfxModule = caster.gameState.vfx
+            if vfxModule and vfxModule.createEffect then
+                local success, err = pcall(function()
+                    vfxModule.createEffect(baseEffectName, srcX, srcY, tgtX, tgtY, vfxOpts)
+                end)
+                
+                if not success then
+                    print("ERROR: Failed to create effect: " .. tostring(err))
+                    return false
+                end
+            else
+                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                return false
+            end
         else
             print("[EFFECT EVENT] ERROR: VFX system not available")
+            return false
         end
         
         return true
@@ -23555,6 +25139,12 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     local slot = wizard.spellSlots[spellSlot]
     
+    -- DEFENSIVE CHECK: Don't create shield if slot already has one
+    if slot.isShield then
+        print("[SHIELD ERROR] Slot " .. spellSlot .. " already has a shield! Preventing duplicate creation.")
+        return { shieldCreated = false, reason = "duplicate" }
+    end
+    
     -- Set shield parameters - simplified to use token count as the only source of truth
     slot.isShield = true
     
@@ -23575,6 +25165,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
         print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
     end
     
+    -- Remove duplicate onBlock assignment from line 67
+    
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
     local blockTypes = blockParams.blocks or {"projectile"}
@@ -23590,8 +25182,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     -- Set reflection capability
     slot.reflect = blockParams.reflect or false
     
-    -- Set onBlock callback
-    slot.onBlock = blockParams.onBlock or nil
+    -- Note: onBlock is already set above (line 48)
     
     -- Get TokenManager module
     local TokenManager = require("systems.TokenManager")
@@ -23819,21 +25410,23 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
         end
     end
     
-    -- Trigger shield hit VFX using event system
+    -- Emit shield hit event for visual feedback through VisualResolver
     if wizard.gameState and wizard.gameState.eventRunner then
+        local Constants = require("core.Constants")
         local shieldHitEvent = {
             type = "EFFECT",
-            source = "shield_hit",
-            target = "SELF",
-            effectType = Constants.VFXType.IMPACT,
-            duration = 0.5,
+            source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+            target = Constants.TargetType.TARGET,
+            effectType = "shield_hit", -- logical tag for VisualResolver
+            affinity = defenseType, -- Use defense type as affinity for color mapping
+            tags = { SHIELD_HIT = true },
+            shieldType = defenseType,
             vfxParams = {
                 x = wizard.x,
                 y = wizard.y,
-                color = {0.8, 0.8, 0.2, 0.7},
-                particleCount = 8,
-                radius = 30
-            }
+            },
+            rangeBand = wizard.rangeBand,
+            elevation = wizard.elevation,
         }
         
         -- Process the event immediately
@@ -23894,43 +25487,42 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo)
         return
     end
     
-    -- Shield color based on type
-    local shieldColor = ShieldSystem.getShieldColor(blockInfo.blockType)
-    -- Add alpha for VFX
-    shieldColor[4] = 0.7
-    
+    local Constants = require("core.Constants")
     -- Create a batch of VFX events
     local events = {}
     
-    -- Add shield flare effect at target position
+    -- Emit shield hit event at target position using VisualResolver
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block",
-        target = "ENEMY", -- Target is enemy wizard
-        effectType = Constants.VFXType.SHIELD,
-        duration = 0.5,
+        source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+        target = Constants.TargetType.TARGET,  -- defender is target
+        effectType = "shield_hit", -- logical tag for VisualResolver
+        affinity = blockInfo.blockType, -- Use defense type for color mapping
+        tags = { SHIELD_HIT = true },
+        shieldType = blockInfo.blockType,
         vfxParams = {
             x = target.x,
             y = target.y,
-            color = shieldColor,
-            shieldType = blockInfo.blockType
-        }
+        },
+        rangeBand = target.rangeBand,
+        elevation = target.elevation,
     })
     
-    -- Add impact effect at caster position (for feedback)
+    -- Add impact feedback at caster position
     table.insert(events, {
         type = "EFFECT",
-        source = "shield_block_feedback",
-        target = "SELF", -- Target is caster
-        effectType = Constants.VFXType.IMPACT,
-        duration = 0.3,
+        source = Constants.TargetType.CASTER, -- caster is source
+        target = Constants.TargetType.CASTER, -- and target for feedback
+        effectType = Constants.VFXType.IMPACT_BASE,
+        affinity = "fire",  -- Red feedback for blocked spell
+        tags = { SHIELD_HIT = true },
+        scale = 0.7,        -- Smaller feedback effect
         vfxParams = {
             x = caster.x,
             y = caster.y,
-            color = {0.8, 0.2, 0.2, 0.5},
-            particleCount = 5,
-            radius = 15
-        }
+        },
+        rangeBand = caster.rangeBand,
+        elevation = caster.elevation,
     })
     
     -- Process all events at once
@@ -24392,8 +25984,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     -- Special case for "any" - try to find any token type
                     local foundAny = false
                     
-                    -- Try each token type
-                    for _, availableType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, availableType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(availableType)
                         if token then
                             table.insert(requiredTokens, {
@@ -24431,8 +26031,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                 for j = 1, count do
                     local foundRandom = false
                     
-                    -- Try each token type
-                    for _, tokenType in ipairs(Constants.getAllTokenTypes()) do
+                    -- Get all available token types
+                    local availableTypes = Constants.getAllTokenTypes()
+                    -- Shuffle the types to randomize selection
+                    for i = #availableTypes, 2, -1 do
+                        local j = math.random(i)
+                        availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                    end
+                    
+                    -- Try each token type in random order
+                    for _, tokenType in ipairs(availableTypes) do
                         local token, tokenIndex = manaPool:findFreeToken(tokenType)
                         if token then
                             table.insert(requiredTokens, {
@@ -24467,8 +26075,16 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     if tokenType == "random" or tokenType == "any" then
                         local foundRandom = false
                         
-                        -- Try each token type
-                        for _, type in ipairs(Constants.getAllTokenTypes()) do
+                        -- Get all available token types
+                        local availableTypes = Constants.getAllTokenTypes()
+                        -- Shuffle the types to randomize selection
+                        for i = #availableTypes, 2, -1 do
+                            local j = math.random(i)
+                            availableTypes[i], availableTypes[j] = availableTypes[j], availableTypes[i]
+                        end
+                        
+                        -- Try each token type in random order
+                        for _, type in ipairs(availableTypes) do
                             local token, tokenIndex = manaPool:findFreeToken(type)
                             if token then
                                 table.insert(requiredTokens, {
@@ -24827,6 +26443,304 @@ function TokenManager.validateTokenState(token, expectedState)
 end
 
 return TokenManager```
+
+## ./systems/VisualResolver.lua
+```lua
+-- systems/VisualResolver.lua
+-- Resolves events to appropriate visual effects based on event metadata
+
+local Constants = require("core.Constants")
+
+local VisualResolver = {}
+
+-- Map attack types to base VFX template names
+local BASE_BY_ATTACK = {
+    [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
+    [Constants.AttackType.REMOTE] = Constants.VFXType.BEAM_BASE,
+    [Constants.AttackType.ZONE] = Constants.VFXType.ZONE_BASE,
+    [Constants.AttackType.UTILITY] = Constants.VFXType.UTIL_BASE
+}
+
+-- Map affinities (token types) to colors
+local COLOR_BY_AFF = {
+    [Constants.TokenType.FIRE] = Constants.Color.CRIMSON,
+    [Constants.TokenType.WATER] = Constants.Color.OCEAN,
+    [Constants.TokenType.SALT] = Constants.Color.SAND,
+    [Constants.TokenType.SUN] = Constants.Color.ORANGE,
+    [Constants.TokenType.MOON] = Constants.Color.SKY,
+    [Constants.TokenType.STAR] = Constants.Color.YELLOW,
+    [Constants.TokenType.LIFE] = Constants.Color.LIME,
+    [Constants.TokenType.MIND] = Constants.Color.PINK,
+    [Constants.TokenType.VOID] = Constants.Color.BONE
+}
+
+-- Map specific tags to overlay visual effects
+local TAG_ADDONS = {
+    DAMAGE = Constants.VFXType.DAMAGE_OVERLAY,
+    BURN = Constants.VFXType.EMBER_OVERLAY,
+    DOT = Constants.VFXType.DOT_OVERLAY,
+    CONJURE = Constants.VFXType.SPARKLE_OVERLAY,
+    RESOURCE = Constants.VFXType.RESOURCE_OVERLAY,
+    MOVEMENT = Constants.VFXType.MOVEMENT_OVERLAY,
+    ELEVATE = Constants.VFXType.RISE_OVERLAY,
+    GROUND = Constants.VFXType.FALL_OVERLAY,
+    SHIELD = Constants.VFXType.SHIELD_OVERLAY,
+    DEFENSE = Constants.VFXType.BARRIER_OVERLAY
+}
+
+-- Map affinities to motion styles
+local AFFINITY_MOTION = {
+    [Constants.TokenType.FIRE] = Constants.MotionStyle.RISE,
+    [Constants.TokenType.WATER] = Constants.MotionStyle.SWIRL,
+    [Constants.TokenType.SALT] = Constants.MotionStyle.FALL,
+    [Constants.TokenType.SUN] = Constants.MotionStyle.PULSE,
+    [Constants.TokenType.MOON] = Constants.MotionStyle.RIPPLE,
+    [Constants.TokenType.STAR] = Constants.MotionStyle.DIRECTIONAL,
+    [Constants.TokenType.LIFE] = Constants.MotionStyle.RISE,
+    [Constants.TokenType.MIND] = Constants.MotionStyle.SWIRL,
+    [Constants.TokenType.VOID] = Constants.MotionStyle.STATIC
+}
+
+-- Default values
+local DEFAULT_BASE = Constants.VFXType.IMPACT_BASE
+local DEFAULT_COLOR = Constants.Color.SMOKE
+local DEFAULT_MOTION = Constants.MotionStyle.RADIAL
+
+-- Helper function for debug output without requiring vfx module dependency
+function VisualResolver.debug(message)
+    print("[VisualResolver] " .. message)
+end
+
+-- Main resolver function: Maps event data to visual parameters
+-- Returns (baseTemplateName, options) as two separate values
+function VisualResolver.pick(event)
+    VisualResolver.debug("==========================================")
+    VisualResolver.debug("VisualResolver.pick() called with event:")
+    VisualResolver.debug("Event type: " .. (event and event.type or "nil"))
+    VisualResolver.debug("Event source: " .. (event and event.source or "nil"))
+    VisualResolver.debug("Event target: " .. (event and event.target or "nil"))
+    VisualResolver.debug("==========================================")
+    
+    -- Validate event
+    if not event or type(event) ~= "table" then
+        VisualResolver.debug("Invalid event provided to pick()")
+        return DEFAULT_BASE, { color = DEFAULT_COLOR, scale = 1.0, motion = DEFAULT_MOTION, addons = {} }
+    end
+    
+    -- Handle manual override: If the event has an effectOverride, use it directly
+    -- This handles the manual vfx specifications from the vfx keyword
+    if event.effectOverride then
+        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
+        
+        -- Full event logging for debug
+        VisualResolver.debug("Effect override source event details:")
+        VisualResolver.debug("  - Event type: " .. (event.type or "nil"))
+        VisualResolver.debug("  - Affinity: " .. (event.affinity or "nil"))
+        VisualResolver.debug("  - Attack type: " .. (event.attackType or "nil"))
+        VisualResolver.debug("  - Tags: " .. (event.tags and "present" or "nil"))
+        
+        -- Use the specified effect but still use the new parameter system
+        return event.effectOverride, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0,
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Also handle the case where we get the effect directly within an event.effect property
+    -- This is needed for the showcase examples in spells.lua
+    if event.effect and type(event.effect) == "string" then
+        VisualResolver.debug("Using effect from direct event.effect property: " .. event.effect)
+        return event.effect, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0, 
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Handle shield hit event (from shield system)
+    if event.effectType == "shield_hit" then
+        VisualResolver.debug("Handling shield hit effect")
+        
+        -- Determine shield color based on shield type
+        local color = DEFAULT_COLOR
+        
+        if event.shieldType == "barrier" then
+            color = {1.0, 1.0, 0.3, 0.8}  -- Yellow for barriers
+        elseif event.shieldType == "ward" then 
+            color = {0.3, 0.3, 1.0, 0.8}  -- Blue for wards
+        elseif event.shieldType == "field" then
+            color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
+        end
+        
+        -- Return shield hit template with proper color
+        return "shield_hit_base", {
+            color = color,
+            scale = 1.2,  -- Slightly larger scale for impact emphasis
+            motion = Constants.MotionStyle.PULSE,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation,
+            -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
+        }
+    end
+    
+    -- Legacy manual VFX: If the event has manualVfx flag and effectType
+    if event.manualVfx and event.effectType then
+        VisualResolver.debug("Using legacy manual effect via effectType: " .. event.effectType)
+        -- Use the specified effect but still use the new parameter system
+        return event.effectType, {
+            color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
+            scale = 1.0,
+            motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation
+        }
+    end
+    
+    -- Step 1: Determine base template from attack type
+    local baseTemplate = DEFAULT_BASE
+    if event.attackType and BASE_BY_ATTACK[event.attackType] then
+        baseTemplate = BASE_BY_ATTACK[event.attackType]
+    end
+    
+    -- Step 2: Determine color from affinity
+    local color = DEFAULT_COLOR
+    if event.affinity and COLOR_BY_AFF[event.affinity] then
+        color = COLOR_BY_AFF[event.affinity]
+    end
+    
+    -- Step 3: Calculate scale based on mana cost
+    local manaValue = event.manaCost or 1
+    local scale = 0.8 + (0.15 * manaValue)
+    if scale > 2.0 then scale = 2.0 end  -- Cap at 2.0x scale
+    
+    -- Step 4: Determine motion style from affinity
+    local motion = DEFAULT_MOTION
+    if event.affinity and AFFINITY_MOTION[event.affinity] then
+        motion = AFFINITY_MOTION[event.affinity]
+    end
+    
+    -- Step 5: Build addons list from tags
+    local addons = {}
+    if event.tags and type(event.tags) == "table" then
+        for tag, _ in pairs(event.tags) do
+            if TAG_ADDONS[tag] then
+                table.insert(addons, TAG_ADDONS[tag])
+            end
+        end
+    end
+    
+    -- Build and return the options table
+    local opts = {
+        color = color,
+        scale = scale,
+        motion = motion,
+        addons = addons,
+        rangeBand = event.rangeBand,
+        elevation = event.elevation
+    }
+    
+    VisualResolver.debug(string.format(
+        "Resolved event to base=%s, color=%s, scale=%.2f, motion=%s, addons=%d",
+        baseTemplate,
+        table.concat(color, ","),
+        scale,
+        motion,
+        #addons
+    ))
+    
+    -- Additional debug for tag processing
+    if event.tags and type(event.tags) == "table" then
+        local tagList = ""
+        for tag, _ in pairs(event.tags) do
+            tagList = tagList .. tag .. ", "
+        end
+        VisualResolver.debug("Event tags: " .. tagList)
+        
+        local addonList = ""
+        for _, addon in ipairs(addons) do
+            addonList = addonList .. addon .. ", "
+        end
+        VisualResolver.debug("Resolved addons: " .. (addonList ~= "" and addonList or "none"))
+    else
+        VisualResolver.debug("Event has no tags")
+    end
+    
+    VisualResolver.debug("==========================================")
+    return baseTemplate, opts
+end
+
+-- Helper function to test the resolver with sample events
+function VisualResolver.test()
+    local testEvents = {
+        -- Test 1: Fire projectile spell
+        {
+            type = "DAMAGE",
+            affinity = "fire",
+            attackType = "projectile",
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        },
+        -- Test 2: Water remote spell with higher cost
+        {
+            type = "DAMAGE",
+            affinity = "water",
+            attackType = "remote",
+            manaCost = 4,
+            tags = { DAMAGE = true },
+            rangeBand = "FAR",
+            elevation = "AERIAL"
+        },
+        -- Test 3: Moon-based shield
+        {
+            type = "CREATE_SHIELD",
+            affinity = "moon",
+            attackType = "utility",
+            manaCost = 3,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        },
+        -- Test 4: Manually specified effect (vfx keyword)
+        {
+            type = "EFFECT",
+            effectType = "firebolt",
+            manualVfx = true,
+            affinity = "fire",
+            attackType = "projectile",
+            manaCost = 2,
+            tags = { VFX = true },
+            rangeBand = "NEAR",
+            elevation = "GROUNDED"
+        }
+    }
+    
+    print("===== VisualResolver Test =====")
+    for i, event in ipairs(testEvents) do
+        print("\nTest " .. i .. ": " .. event.type .. " event with " .. (event.affinity or "unknown") .. " affinity")
+        local base, opts = VisualResolver.pick(event)
+        print("Base template: " .. base)
+        print("Color: " .. table.concat(opts.color, ","))
+        print("Scale: " .. opts.scale)
+        print("Motion: " .. opts.motion)
+        print("Addons: " .. (#opts.addons > 0 and table.concat(opts.addons, ", ") or "none"))
+        print("Range: " .. (opts.rangeBand or "none"))
+        print("Elevation: " .. (opts.elevation or "none"))
+    end
+    print("\n================================")
+end
+
+return VisualResolver```
 
 ## ./systems/WizardVisuals.lua
 ```lua
@@ -27326,6 +29240,79 @@ function VFX.init()
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
+        -- Base templates for the rules-driven VFX system
+        proj_base = {
+            type = "projectile",
+            duration = 1.0,
+            particleCount = 20,
+            startScale = 0.5,
+            endScale = 0.8,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            trailLength = 12,
+            impactSize = 1.2,
+            sound = nil  -- No default sound
+        },
+        
+        beam_base = {
+            type = "beam",
+            duration = 1.2,
+            particleCount = 25,
+            beamWidth = 30,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        zone_base = {
+            type = "aura",
+            duration = 1.0,
+            particleCount = 30,
+            startScale = 0.4,
+            endScale = 1.0,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 80,
+            pulseRate = 3,
+            sound = nil
+        },
+        
+        util_base = {
+            type = "aura",
+            duration = 0.8,
+            particleCount = 15,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,
+            pulseRate = 4,
+            sound = nil
+        },
+        
+        impact_base = {
+            type = "impact",
+            duration = 0.5,
+            particleCount = 20,
+            startScale = 0.6,
+            endScale = 0.3,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 40,
+            sound = nil
+        },
+        
+        shield_hit_base = {
+            type = "impact",
+            duration = 0.8,  -- Slightly longer impact duration
+            particleCount = 30, -- More particles
+            startScale = 0.5,
+            endScale = 1.3,  -- Larger end scale
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 70,     -- Increased radius
+            sound = "shield", -- Use shield sound
+            criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
+        },
+        
+        -- Existing effects
         -- General impact effect (used for many spell interactions)
         impact = {
             type = "impact",
@@ -27796,6 +29783,136 @@ function VFX.resetParticle(particle)
     return particle
 end
 
+-- Update particle based on motion style
+function VFX.updateParticle(particle, effect, dt, particleProgress)
+    local Constants = require("core.Constants")
+    
+    -- If no motion style specified, use default behavior
+    local motionStyle = particle.motion or Constants.MotionStyle.RADIAL
+    
+    -- Time since particle became active
+    particle.startTime = (particle.startTime or 0) + dt
+    local time = particle.startTime
+    
+    -- Get base position
+    local baseX = particle.baseX or effect.sourceX
+    local baseY = particle.baseY or effect.sourceY
+    
+    -- Apply motion based on style
+    if motionStyle == Constants.MotionStyle.RADIAL then
+        -- Standard radial outward motion (default)
+        -- This behavior is already handled in most effect update functions
+        -- Just update existing motion with time factor
+        
+    elseif motionStyle == Constants.MotionStyle.SWIRL then
+        -- Tangential swirl using sine/cosine
+        -- Start with the existing direction, then add rotational motion
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        local swirlFactor = 2.0 -- Controls the swirl tightness
+        local rotationSpeed = 4.0 -- Controls how fast particles orbit
+        
+        -- Orbit around the path while moving outward
+        local swirlAngle = angle + math.sin(time * rotationSpeed) * swirlFactor
+        particle.x = baseX + math.cos(swirlAngle) * distance
+        particle.y = baseY + math.sin(swirlAngle) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.HEX then
+        -- Approximated hex grid movement using snapped angles
+        -- Move along hex angles (0, 60, 120, 180, 240, 300 degrees)
+        local baseAngle = particle.angle or 0
+        local hexAngle = math.floor(baseAngle / (math.pi/3)) * (math.pi/3)
+        local jitterAmount = 0.2 * math.sin(time * 5) -- Small jitter
+        local speed = particle.speed or 100 -- Default speed if not set
+        local distance = speed * particleProgress
+        
+        particle.x = baseX + math.cos(hexAngle + jitterAmount) * distance
+        particle.y = baseY + math.sin(hexAngle + jitterAmount) * distance
+        
+    elseif motionStyle == Constants.MotionStyle.STATIC then
+        -- Minimal movement with subtle breathing effect
+        local breatheFactor = 0.1 * math.sin(time * 3)
+        
+        -- Slight offset from original position
+        local offsetX = (particle.targetX - baseX) * 0.2 * particleProgress
+        local offsetY = (particle.targetY - baseY) * 0.2 * particleProgress
+        
+        -- Apply breathing effect
+        particle.x = baseX + offsetX + math.cos(particle.angle or 0) * breatheFactor
+        particle.y = baseY + offsetY + math.sin(particle.angle or 0) * breatheFactor
+        
+    elseif motionStyle == Constants.MotionStyle.RISE then
+        -- Particles float upward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY - verticalSpeed * particleProgress -- Subtract to move up
+        
+    elseif motionStyle == Constants.MotionStyle.FALL then
+        -- Particles fall downward
+        local speed = particle.speed or 100 -- Default speed if not set
+        local horizontalSpeed = speed * 0.3
+        local verticalSpeed = speed
+        local gravity = 100 -- Acceleration factor
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * horizontalSpeed * particleProgress
+        particle.y = baseY + (verticalSpeed * particleProgress + 0.5 * gravity * particleProgress * particleProgress)
+        
+    elseif motionStyle == Constants.MotionStyle.PULSE then
+        -- Particles pulse outward and inward
+        local pulseDistance = math.sin(time * 4) * 0.5 + 0.5 -- 0 to 1 pulsing
+        local targetDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = targetDistance * pulseDistance * particleProgress
+        
+        particle.x = baseX + math.cos(particle.angle or 0) * distance
+        particle.y = baseY + math.sin(particle.angle or 0) * distance
+        
+        -- Also pulse alpha
+        particle.alpha = 0.4 + pulseDistance * 0.6
+        
+    elseif motionStyle == Constants.MotionStyle.RIPPLE then
+        -- Wave-like ripple effect
+        local angle = particle.angle or math.atan2(particle.targetY - baseY, particle.targetX - baseX)
+        local baseDistance = math.sqrt((particle.targetX - baseX)^2 + (particle.targetY - baseY)^2)
+        local distance = baseDistance * particleProgress
+        
+        -- Add wave effect perpendicular to the radial direction
+        local waveAmplitude = 10 * math.sin(distance * 0.1 + time * 5)
+        local perpX = -math.sin(angle) * waveAmplitude
+        local perpY = math.cos(angle) * waveAmplitude
+        
+        particle.x = baseX + math.cos(angle) * distance + perpX
+        particle.y = baseY + math.sin(angle) * distance + perpY
+        
+    elseif motionStyle == Constants.MotionStyle.DIRECTIONAL then
+        -- Directional movement along a specific path
+        -- This simply follows the default trajectory but with less randomness
+        local dirX = (particle.targetX or baseX + 100) - baseX
+        local dirY = (particle.targetY or baseY) - baseY
+        local length = math.sqrt(dirX^2 + dirY^2)
+        
+        if length > 0 then
+            dirX = dirX / length
+            dirY = dirY / length
+            
+            -- Move with consistent speed
+            local speed = particle.speed or 100 -- Default speed if not set
+            particle.x = baseX + dirX * speed * particleProgress * time
+            particle.y = baseY + dirY * speed * particleProgress * time
+        end
+    end
+    
+    -- Handle special visual effects for certain motion styles
+    if motionStyle == Constants.MotionStyle.PULSE then
+        -- Special scaling for pulse motion
+        local pulseScale = 0.8 + 0.4 * math.sin(time * 4)
+        particle.scale = (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * pulseScale
+    end
+end
+
 -- Reset function for effect objects
 function VFX.resetEffect(effect)
     -- Release all particles back to their pool
@@ -27836,6 +29953,10 @@ function VFX.resetEffect(effect)
     effect.manaPoolY = nil
     effect.sourceGlow = nil
     effect.poolGlow = nil
+    effect.motion = nil
+    effect.rangeBand = nil
+    effect.elevation = nil
+    effect.addons = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -27846,6 +29967,26 @@ end
 -- Create a new effect instance
 function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
     local Constants = require("core.Constants")
+    
+    -- Enhanced debugging for VFX-R5 implementation
+    print("\n====== VFX CREATION CALL ======")
+    print("[VFX] CALL STACK: " .. debug.traceback())
+    print("[VFX] effectName: " .. tostring(effectName))
+    print("[VFX] sourceX: " .. tostring(sourceX) .. " sourceY: " .. tostring(sourceY))
+    if targetX and targetY then
+        print("[VFX] targetX: " .. tostring(targetX) .. " targetY: " .. tostring(targetY))
+    end
+    if options then
+        print("[VFX] Options:")
+        for k, v in pairs(options) do
+            if type(v) == "table" then
+                print("  " .. k .. ": [table]")
+            else
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+    end
+    print("================================\n")
     
     -- Handle both string and Constants.VFXType format
     local effectNameStr
@@ -27859,20 +30000,36 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         effectNameStr = effectName
     end
     
-    -- Debug output
+    -- Regular debug output
     print("[VFX] Creating effect: " .. effectNameStr)
     print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
-    print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+    if targetX and targetY then
+        print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+    end
+    
+    -- Process options
+    local opts = options or {}
+    
+    -- Process options.addons if provided (for future work)
+    if opts.addons and #opts.addons > 0 then
+        for _, addon in ipairs(opts.addons) do
+            print("[VFX] TODO addon: " .. tostring(addon))
+            -- In future work, we would create or modify effects based on addons
+            -- Example: Apply a fire overlay to a projectile, add a sparkle effect, etc.
+        end
+    end
+    
     -- Try to get the effect template first to check for critical assets
     local template = VFX.effects[effectNameStr:lower()]
     if template then
-        -- Check if the effect template defines critical assets
+        -- Template exists, check for critical assets
         if template.criticalAssets then
             for _, assetId in ipairs(template.criticalAssets) do
-                -- Ensure the critical asset is loaded
+                -- Try to get the asset, will trigger loading if not available
                 local asset = VFX.getAsset(assetId)
-                if not asset or (type(asset) == "table" and #asset == 0) then
-                    print("[VFX] Warning: Critical asset " .. assetId .. " not available for effect " .. effectNameStr)
+                if not asset or (assetId == "runes" and #asset == 0) then
+                    -- Asset failed to load, try emergency loading
+                    print("[VFX] Critical asset missing: " .. assetId .. ", attempting emergency load")
                     
                     -- Emergency loading of critical asset
                     if assetId == "runes" and VFX.assetPaths and VFX.assetPaths.runes then
@@ -27952,6 +30109,29 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.endScale = template.endScale
     effect.color = {template.color[1], template.color[2], template.color[3], template.color[4]}
     
+    -- Apply options modifiers
+    if opts.color then
+        -- Override color with the provided color
+        effect.color = {opts.color[1], opts.color[2], opts.color[3], opts.color[4] or 1.0}
+    end
+    
+    if opts.scale then
+        -- Apply scale factor to particle counts, sizes, radii, etc.
+        local scaleFactor = opts.scale
+        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        effect.startScale = effect.startScale * scaleFactor
+        effect.endScale = effect.endScale * scaleFactor
+        if effect.radius then effect.radius = effect.radius * scaleFactor end
+        if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
+        if effect.height then effect.height = effect.height * scaleFactor end
+    end
+    
+    -- Store motion style and positional info
+    effect.motion = opts.motion
+    effect.rangeBand = opts.rangeBand
+    effect.elevation = opts.elevation
+    effect.addons = opts.addons
+    
     -- Effect specific properties
     effect.particles = {}
     effect.trailPoints = {}
@@ -27999,6 +30179,16 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.3 -- Stagger particle start
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.targetX
+            particle.targetY = effect.targetY
+            particle.speed = 150 -- Default speed for projectile particles
+            particle.angle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
             
             table.insert(effect.particles, particle)
         end
@@ -28021,6 +30211,13 @@ function VFX.initializeParticles(effect)
             particle.rotation = angle
             particle.delay = math.random() * 0.2 -- Slight random delay
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.targetX
+            particle.baseY = effect.targetY
+            particle.angle = angle
             
             table.insert(effect.particles, particle)
         end
@@ -28041,6 +30238,15 @@ function VFX.initializeParticles(effect)
             particle.rotation = 0
             particle.delay = i / effect.particleCount * 0.5
             particle.active = false
+            particle.motion = effect.motion -- Store motion style on particle
+            
+            -- Additional properties for special motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            particle.targetX = effect.sourceX + math.cos(angle) * distance
+            particle.targetY = effect.sourceY + math.sin(angle) * distance
+            particle.speed = orbitalSpeed * 30
             
             table.insert(effect.particles, particle)
         end
@@ -28178,6 +30384,8 @@ end
 
 -- Update function for projectile effects
 function VFX.updateProjectile(effect, dt)
+    local Constants = require("core.Constants")
+    
     -- Update trail points
     if #effect.trailPoints == 0 then
         -- Initialize trail with source position
@@ -28188,12 +30396,40 @@ function VFX.updateProjectile(effect, dt)
     
     -- Calculate projectile position based on progress
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * effect.progress
+    
+    -- Adjust trajectory based on rangeBand and elevation
     local posY = effect.sourceY + (effect.targetY - effect.sourceY) * effect.progress
     
-    -- Add curved trajectory based on height
+    -- Base arc height before adjustments
+    local baseArcHeight = 60
+    
+    -- Adjust trajectory based on rangeBand
+    local rangeBandModifier = 1.0
+    if effect.rangeBand == Constants.RangeState.FAR then
+        rangeBandModifier = 1.8  -- Higher arc for far range (increased from 1.5)
+    elseif effect.rangeBand == Constants.RangeState.NEAR then
+        rangeBandModifier = 0.5  -- Lower, flatter arc for near range (decreased from 0.7)
+    end
+    
+    -- Adjust trajectory based on elevation
+    local elevationOffset = 0
+    if effect.elevation then
+        if effect.elevation == Constants.ElevationState.AERIAL then
+            -- When target is aerial, arc is less pronounced and higher end position
+            rangeBandModifier = rangeBandModifier * 0.6  -- Reduced from 0.7
+            elevationOffset = -60  -- Higher final position (increased from -40)
+        elseif effect.elevation == Constants.ElevationState.GROUNDED then
+            -- When target is grounded, arc is more pronounced and lower end position
+            elevationOffset = 30   -- Lower final position (increased from 20)
+        end
+    end
+    
+    -- Calculate arc with modifiers
     local midpointProgress = effect.progress - 0.5
-    local verticalOffset = -60 * (1 - (midpointProgress * 2)^2)
-    posY = posY + verticalOffset
+    local verticalOffset = -baseArcHeight * rangeBandModifier * (1 - (midpointProgress * 2)^2)
+    
+    -- Apply final position
+    posY = posY + verticalOffset + (elevationOffset * effect.progress)
     
     -- Update trail
     table.remove(effect.trailPoints)
@@ -28210,16 +30446,31 @@ function VFX.updateProjectile(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Distribute particles along the trail
-            local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
-            if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
-            
-            local trailPoint = effect.trailPoints[trailIndex]
-            
-            -- Add some randomness to particle positions
-            local spreadFactor = 8 * (1 - particleProgress)
-            particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
-            particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- First set baseX/baseY to the trail point for this particle
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                particle.baseX = trailPoint.x
+                particle.baseY = trailPoint.y
+                
+                -- Use the motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior
+                -- Distribute particles along the trail
+                local trailIndex = math.floor((i / #effect.particles) * #effect.trailPoints) + 1
+                if trailIndex > #effect.trailPoints then trailIndex = #effect.trailPoints end
+                
+                local trailPoint = effect.trailPoints[trailIndex]
+                
+                -- Add some randomness to particle positions
+                local spreadFactor = 8 * (1 - particleProgress)
+                particle.x = trailPoint.x + math.random(-spreadFactor, spreadFactor)
+                particle.y = trailPoint.y + math.random(-spreadFactor, spreadFactor)
+            end
             
             -- Update visual properties
             particle.scale = effect.startScale + (effect.endScale - effect.startScale) * particleProgress
@@ -28248,21 +30499,31 @@ function VFX.updateImpact(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Move particle outward from center
-            local dirX = particle.targetX - effect.targetX
-            local dirY = particle.targetY - effect.targetY
-            local length = math.sqrt(dirX^2 + dirY^2)
-            if length > 0 then
-                dirX = dirX / length
-                dirY = dirY / length
+            -- Check if we have a motion style to apply
+            if effect.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default behavior (radial expansion)
+                local dirX = particle.targetX - effect.targetX
+                local dirY = particle.targetY - effect.targetY
+                local length = math.sqrt(dirX^2 + dirY^2)
+                if length > 0 then
+                    dirX = dirX / length
+                    dirY = dirY / length
+                end
+                
+                particle.x = effect.targetX + dirX * length * particleProgress
+                particle.y = effect.targetY + dirY * length * particleProgress
             end
             
-            particle.x = effect.targetX + dirX * length * particleProgress
-            particle.y = effect.targetY + dirY * length * particleProgress
+            -- Update visual properties if not already handled by the motion style
+            if not (effect.motion == require("core.Constants").MotionStyle.PULSE) then
+                particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
+                particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            end
             
-            -- Update visual properties
-            particle.scale = effect.startScale * (1 - particleProgress) + effect.endScale * particleProgress
-            particle.alpha = 1.0 - particleProgress^2 -- Quadratic fade out
+            -- Update rotation regardless of motion style
             particle.rotation = particle.rotation + dt * 3
         end
     end
@@ -28281,12 +30542,19 @@ function VFX.updateAura(effect, dt)
             -- Calculate particle progress
             local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
             
-            -- Update angle for orbital motion
-            particle.angle = particle.angle + dt * particle.orbitalSpeed
-            
-            -- Calculate position based on orbit
-            particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
-            particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            -- Check if we have a motion style to apply
+            if effect.motion and particle.motion then
+                -- Use the new updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Use the default orbital motion behavior
+                -- Update angle for orbital motion
+                particle.angle = particle.angle + dt * particle.orbitalSpeed
+                
+                -- Calculate position based on orbit
+                particle.x = effect.sourceX + math.cos(particle.angle) * particle.distance
+                particle.y = effect.sourceY + math.sin(particle.angle) * particle.distance
+            end
             
             -- Pulse effect
             local pulseOffset = math.sin(effect.timer * effect.pulseRate) * 0.2
@@ -28980,7 +31248,7 @@ Wizard.__index = Wizard
 -- Load required modules
 local Constants = require("core.Constants")
 local SpellsModule = require("spells")
-local Spells = SpellsModule.spells  -- For backwards compatibility
+local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
@@ -29087,7 +31355,7 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.infiniteprocession,
+            ["2"] = Spells.watergun,
             ["3"] = Spells.moondance,
             
             -- Two key combos
@@ -33176,4 +35444,277 @@ The refactor will proceed in the following tickets:
 -   `core/Constants.lua`
 -   `manapool.lua`
 -   `systems/ShieldSystem.lua`
+
+## Tickets/S7_RulesDrivenVfx/VFX-R1-Enrich_Events_with_Visual_Metadata.md
+# Ticket #VFX-R1: Enrich Events with Visual Metadata
+
+## Goal
+Ensure gameplay events generated by keywords contain rich metadata (affinity, attackType, manaCost, tags, rangeBand, elevation) so the forthcoming `VisualResolver` can make accurate decisions.
+
+## Tasks
+1. **Modify `SpellCompiler.compileSpell` (`spellCompiler.lua`):**
+   * When iterating through spell keywords, store the base `spell.affinity` and `spell.attackType` within the `compiledSpell` object so they are accessible during event generation.
+
+2. **Update Keyword `execute` Functions (`keywords.lua`):**
+   * For keywords that generate core gameplay events (e.g., `damage`, `apply_status`, `conjure`, `block`, `elevate`, `ground`, etc.), update their `execute` function signature to accept `spell` (the compiled spell object) as an argument, likely passed down from `executeAll`.
+   * When creating an event within a keyword's `execute` function, add the relevant fields derived from the spell and current state:
+     * `affinity  = spell.affinity`
+     * `attackType = spell.attackType`
+     * `tags      = { DAMAGE = true }` (or `BURN = true`, `SHIELD = true`, etc., based on the keyword's purpose)
+     * `manaCost  = #slot.tokens` (approximate cost; requires access to `slot`)
+     * `rangeBand = caster.gameState.rangeState`
+     * `elevation = caster.elevation`
+
+3. **Modify `SpellCompiler.executeAll` (`spellCompiler.lua`):**
+   * Update calls to keyword `execute` functions to pass the necessary context (including the compiled spell object and potentially the slot table or index) so they can access `affinity`, `attackType`, `slot.tokens`, etc.
+
+## Acceptance Criteria
+* Key gameplay events (`DAMAGE`, `APPLY_STATUS`, `CONJURE_TOKEN`, `CREATE_SHIELD`, `SET_ELEVATION`, etc.) generated by keywords now include `affinity`, `attackType`, `manaCost`, `tags`, `rangeBand`, and `elevation` fields.
+* Event generation functions correctly and does not introduce runtime errors.
+
+## Design Notes / Pitfalls
+* Accurately calculating `manaCost` may be tricky if tokens aren't fully assigned when the event is created; using `#slot.tokens` is a pragmatic first step.
+* Passing the `compiledSpell` object down through `executeAll` to keyword `execute` functions is necessary for access to spell-level metadata.
+* Ensure tag names are consistent and documented (e.g., use the keyword's `behavior.category` or a curated tag list). 
+
+## Tickets/S7_RulesDrivenVfx/VFX-R2-Implement_VisualResolver_Module.md
+# Ticket #VFX-R2: Implement VisualResolver Module
+
+## Goal
+Provide a central module that maps enriched gameplay events to VFX template names and parameters, decoupling gameplay logic from visual implementation.
+
+## Tasks
+1. **Create File (`systems/VisualResolver.lua`):**
+   * Implement a new module file under `systems/` named `VisualResolver.lua`.
+
+2. **Define Mapping Tables:**
+   * `BASE_BY_ATTACK` – maps `Constants.AttackType` values to base VFX template names (e.g., `proj_base`, `beam_base`).
+   * `COLOR_BY_AFF` – maps `Constants.TokenType` (affinities) to `Constants.Color` tables.
+   * `TAG_ADDONS` – maps keyword tags (e.g., `burn`, `conjure`, `shield`) to overlay VFX template names (e.g., `ember_overlay`, `sparkle_overlay`).
+   * `AFFINITY_MOTION` – maps `Constants.TokenType` values to `Constants.MotionStyle` (to be defined in next ticket).
+
+3. **Implement `VisualResolver.pick(event)` Function:**
+   * First, check `event.effectOverride`; if present, return it directly (`base`, `opts = {}`).
+   * Determine base template using `BASE_BY_ATTACK[event.attackType]` (fallback to `impact_base`).
+   * Determine color tint using `COLOR_BY_AFF[event.affinity]` (fallback to white).
+   * Calculate scale based on `event.manaCost` (`0.8 + 0.15 * (event.manaCost or 1)`).
+   * Determine motion style using `AFFINITY_MOTION[event.affinity]` (fallback to `Constants.MotionStyle.RADIAL`).
+   * Build `addons` list from `event.tags` via `TAG_ADDONS`.
+   * Return two values: `baseTemplateName`, and `opts` table containing `{ color, scale, motion, addons, rangeBand = event.rangeBand, elevation = event.elevation }`.
+
+## Acceptance Criteria
+* `systems/VisualResolver.lua` exists with mapping tables and a working `pick` function.
+* Function returns appropriate defaults for unknown values.
+* Unit tests or debug prints confirm correct mapping when fed sample events.
+
+## Design Notes / Pitfalls
+* Keep mappings data-driven for easy tweaking by designers.
+* Ensure `Constants` tables are required safely to avoid circular deps.
+* The `opts` table should be forward-compatible with additional parameters. 
+
+## Tickets/S7_RulesDrivenVfx/VFX-R3-Integrate_VisualResolver_into_EventRunner.md
+# Ticket #VFX-R3: Integrate VisualResolver into EventRunner
+
+## Goal
+Use the new `VisualResolver` to determine which VFX to trigger for gameplay events, replacing hard-coded effect look-ups in `EventRunner`.
+
+## Tasks
+1. **Modify `EventRunner.lua`:**
+   * `require("systems.VisualResolver")` at the top.
+   * In the `EFFECT` handler within `EventRunner.EVENT_HANDLERS`:
+     * Remove old logic that directly looked at `event.effectType` / `vfxParams`.
+     * Call `local baseEffectName, vfxOpts = VisualResolver.pick(event)`.
+     * If `baseEffectName` is falsy, log and return (skip VFX).
+     * Determine coordinates (srcX, srcY, tgtX, tgtY) based on `event.source`, `event.target`, `caster`, `target` (reuse existing helper or logic).
+     * Call `VFX.createEffect(baseEffectName, srcX, srcY, tgtX, tgtY, vfxOpts)`.
+
+2. **Review Other Event Handlers:**
+   * Identify handlers that currently call `safeCreateVFX` or `VFX.createEffect` directly (e.g., `SET_ELEVATION`, shield-related logic).
+   * For each, choose either:
+     * (Preferred) Generate an `EFFECT` event and let the main handler process it.
+     * (Interim) Call `VisualResolver.pick` directly to obtain parameters, then create the effect.
+   * Document decisions in comments.
+
+## Acceptance Criteria
+* The `EFFECT` handler in `EventRunner` now exclusively relies on `VisualResolver.pick` to decide visuals.
+* Visual effects for core gameplay events (damage, status, conjure, etc.) still trigger correctly in-game.
+* Legacy direct VFX calls in other handlers are removed or routed through the resolver.
+
+## Design Notes / Pitfalls
+* Coordinate resolution is non-trivial; ensure consistency with previous visuals.
+* Consider staging changes—first update `EFFECT` handler, then gradually refactor other direct calls. 
+
+## Tickets/S7_RulesDrivenVfx/VFX-R4-Adapt_VFX_Module_for_Resolver_Output_and_Motion.md
+# Ticket #VFX-R4: Adapt VFX Module for Resolver Output & Motion Styles
+
+## Goal
+Update the `vfx.lua` system to consume the generic templates and option table produced by `VisualResolver`, while introducing motion styles and improved scaling/trajectory logic.
+
+## Tasks
+1. **Define Motion Styles (`core/Constants.lua`):**
+   * Add `Constants.MotionStyle` enum with `RADIAL`, `SWIRL`, `HEX`, `SPIRAL`, `TWINKLE`.
+
+2. **Create Base Templates (`vfx.lua`):**
+   * Ensure `VFX.effects` includes `proj_base`, `beam_base`, `impact_base`, `aura_base`, and `shield_hit_base` with minimal defaults.
+
+3. **Modify `VFX.createEffect` (`vfx.lua`):**
+   * Accept `opts` table as the last parameter.
+   * Apply `opts.color` as tint; `opts.scale` to particle counts, sizes, radii; store `opts.motion`, `opts.rangeBand`, `opts.elevation` on the effect instance.
+   * If `opts.addons` exists, iterate and (initially) `print("TODO addon", addon)` – full addon support comes later.
+
+4. **Implement Motion Styles:**
+   * In `VFX.initializeParticles`, store `effect.motion` onto each particle (`p.motion`).
+   * Extend `VFX.updateParticle` (or create if absent) with branching logic for each motion style:
+     * `RADIAL`: linear outward velocity.
+     * `SWIRL`: tangential swirl using sine/cosine.
+     * `HEX`: hex-grid jitter (approx via snapped angles).
+     * `SPIRAL`: particles accelerate outward in a spiral.
+     * `TWINKLE`: oscillating alpha/scale.
+
+5. **Refine Basic Trajectory:**
+   * In `VFX.updateProjectile`, adjust start/end Y positions based on `effect.rangeBand` (`NEAR`, `FAR`) and `effect.elevation` (`GROUNDED`, `AERIAL`). Simple offsets are fine.
+
+## Acceptance Criteria
+* `VFX.createEffect` consumes `opts` correctly.
+* Particles move following the selected motion styles.
+* Projectiles visually differentiate between range bands and elevations.
+* Addon list is logged for future work.
+
+## Design Notes / Pitfalls
+* Math heavy work—validate with debug visuals.
+* Keep default behaviors identical to previous visuals until options provided. 
+
+## Tickets/S7_RulesDrivenVfx/VFX-R5-Deprecate_Manual_VFX_Specification.md
+# Ticket #VFX-R5: Deprecate Manual VFX Specification
+
+## Goal
+Remove legacy spell-specific VFX declarations, relying primarily on the rule-driven `VisualResolver` with an override mechanic for special cases.
+
+## Tasks
+1. **Clean Up `spells.lua`:**
+   * Remove most `vfx = { ... }` keyword entries and top-level `vfx = "effect"` properties.
+   * Retain 1–2 showcase spells that intentionally set `effectOverride` (cinematic finishers).
+
+2. **Adjust `Keywords.vfx` (`keywords.lua`):**
+   * Change behavior: instead of creating an `EFFECT` event, simply set `results.effectOverride = params.effectOverride` (or `params.effect`) and return.
+
+3. **Pass Override Through Compiler/Runner:**
+   * Ensure `SpellCompiler.executeAll` or `EventRunner` copies `results.effectOverride` into the generated `EFFECT` event.
+   * Alternatively, have `VisualResolver.pick` inspect `event.effectOverride` (preferred) – already planned in R2.
+
+## Acceptance Criteria
+* Majority of spells no longer specify VFX directly; visuals are resolved automatically.
+* Override mechanism still works for designated spells.
+* No runtime errors from missing VFX definitions.
+
+## Design Notes / Pitfalls
+* Double-check that removed manual VFX definitions are truly redundant.
+* Keep at least one example spell using the override for regression testing. 
+
+## Tickets/S7_RulesDrivenVfx/VFX-R6-Shield_Impacts_and_Trajectory_Visuals.md
+# Ticket #VFX-R6: Handle Shield Impacts & Basic Trajectory Visuals
+
+## Goal
+Provide clear visual feedback when shields block attacks and fine-tune projectile trajectories based on range and elevation.
+
+## Tasks
+1. **Emit Shield Hit Event (`systems/ShieldSystem.lua`):**
+   * In `ShieldSystem.handleShieldBlock` (or equivalent), create an `EFFECT` event instead of direct VFX:
+     ```lua
+     local shieldHitEvent = {
+         type        = "EFFECT",
+         source      = Constants.TargetType.TARGET,  -- defender is both source & target visually
+         target      = Constants.TargetType.TARGET,
+         effectType  = "shield_hit", -- logical tag for VisualResolver
+         affinity    = target.affinity,
+         tags        = { SHIELD_HIT = true },
+         shieldType  = blockInfo.blockType,
+         posX        = target.x,
+         posY        = target.y,
+     }
+     EventRunner.processEvents({ shieldHitEvent }, target, caster, blockInfo.blockingSlot)
+     ```
+
+2. **Update `VisualResolver` (`systems/VisualResolver.lua`):**
+   * Add handling for `event.effectType == "shield_hit"`.
+   * Map to base template `shield_hit_base` and pick color via `event.shieldType` (use helper from ShieldSystem).
+
+3. **Add Shield Hit Template (`vfx.lua`):**
+   * Define `VFX.effects["shield_hit_base"]` – quick radial burst (reuse `impactRing` sprite).
+
+4. **Refine Trajectory Logic (`vfx.lua`):**
+   * Confirm `VFX.updateProjectile` offsets source/target based on `effect.rangeBand` and `effect.elevation`.
+   * Tweak numbers so visual difference is noticeable but not exaggerated.
+
+## Acceptance Criteria
+* Blocking a spell produces a colored shield hit visual at the defender.
+* Projectile trajectories respect range/elevation parameters set via `opts`.
+
+## Design Notes / Pitfalls
+* Ensure shield color derives from shield type, not affinity.
+* Event-based triggering keeps visuals consistent with other systems. 
+
+## Tickets/S7_RulesDrivenVfx/VFX-RulesBasedRefactor-GamePlan.md
+Manastorm VFX Refactoring: Game Plan
+Version: 1.0
+Date: 2025-04-28
+Context: This document provides a high-level overview for the VFX system refactoring outlined in tickets VFX-R1 through VFX-R6.
+1. Purpose & Problem Statement
+Goal: To refactor Manastorm's Visual Effects (VFX) system, making it more consistent, maintainable, and driven by the game's core rules rather than manual specification for every spell.
+Current Problem: Our current system triggers VFX in several different places and often requires developers to manually specify both the gameplay effect (e.g., deal fire damage) and the visual effect (e.g., play the "firebolt" animation). This leads to:
+Duplication: We often say the same thing twice (rule + visual).
+Inconsistency: It's easy for visuals to drift out of sync with gameplay rules or element types.
+Maintenance Overhead: Changing a spell's element might require hunting down and changing its VFX specification separately.
+Scattered Logic: VFX triggers are spread across wizard.lua, manapool.lua, and the EventRunner, making it hard to track how visuals are initiated.
+2. Target Architecture: Rule-Driven Visuals
+We are moving to a rule-driven VFX system. The core idea is:
+Gameplay Events should imply the necessary visuals.
+Instead of manually telling the VFX system exactly which effect to play for most spells, we will:
+Enrich Gameplay Events: Ensure events generated by keywords (like DAMAGE, APPLY_STATUS, CONJURE_TOKEN) contain key metadata about the action:
+affinity (Fire, Moon, Salt, etc.)
+attackType (Projectile, Remote, Zone, Utility)
+manaCost (as a proxy for power/intensity)
+tags (indicating specific mechanics like Burn, Shield, Conjure)
+Positional context (rangeBand, elevation)
+Introduce a VisualResolver: This new module will look at the metadata within an incoming event.
+Derive Visuals: Based on the event's metadata, the VisualResolver will intelligently select:
+A base VFX template (e.g., a generic projectile, beam, impact, or aura).
+A color tint based on the affinity.
+A scale/intensity modifier based on the manaCost.
+A particle motion style based on the affinity (e.g., radial bursts for Fire, swirls for Water).
+Potentially small additive overlay effects based on tags (e.g., embers for Burn, sparkles for Conjure).
+Centralized Triggering: The EventRunner will be the primary system responsible for calling the VisualResolver and then triggering the VFX module with the derived template name and parameters. Manual specification of VFX (vfx = { effectOverride = ... }) becomes the exception for unique, cinematic moments, not the rule.
+3. Key Benefits of This Approach
+Single Source of Truth: Gameplay rules (keywords, spell definitions) define the effect; visuals follow automatically.
+Consistency: All Fire projectiles will share visual characteristics, tinted correctly. All Water effects will have a distinct motion style.
+Reduced Boilerplate: No need to add vfx = ... to most spell definitions.
+Easier Design Iteration: Change a spell's affinity, and its visual color/motion updates automatically. Add a new element, and you primarily need to add its color/motion to the VisualResolver.
+Improved Readability: Players can learn to visually associate colors, motions, and shapes with specific elements and attack types.
+Maintainability: VFX logic is centralized in the VisualResolver and VFX module.
+4. How the Tickets Fit Together (VFX-R1 to VFX-R6)
+This refactor is broken down into manageable steps:
+VFX-R1 (Enrich Events): Focuses on making sure the data needed by the resolver (affinity, attackType, cost, tags etc.) gets added to the events when keywords execute.
+VFX-R2 (Implement Resolver): Creates the core VisualResolver module with the logic to map event data to visual parameters (template, color, scale, motion).
+VFX-R3 (Integrate Resolver): Modifies the EventRunner to use the VisualResolver when it processes EFFECT events (and potentially other relevant events like SET_ELEVATION).
+VFX-R4 (Adapt VFX Module): Updates the VFX module itself to understand the generic base templates, apply tints/scales/motion styles, and handle additive effects passed from the resolver.
+VFX-R5 (Deprecate Manual VFX): Cleans up spells.lua by removing most of the now-redundant manual vfx specifications, relying on the resolver instead. It also refactors the vfx keyword to only handle explicit overrides.
+VFX-R6 (Shield Impacts): Ensures shield blocking correctly triggers a distinct visual effect via the new event/resolver pipeline.
+5. Example Flow (Post-Refactor)
+Wizard casts "Tidal Force" (Water Affinity, Remote Attack, 2 Mana).
+The damage keyword executes, generating a DAMAGE event.
+The event includes: { type="DAMAGE", affinity="water", attackType="remote", manaCost=2, tags={DAMAGE=true}, rangeBand="NEAR", ... }.
+EventRunner processes this event.
+EventRunner calls VisualResolver.pick(event).
+VisualResolver sees attackType="remote" -> chooses "beam_base". Sees affinity="water" -> chooses OCEAN color and SWIRL motion. Sees manaCost=2 -> calculates scale=1.1. Sees tags={DAMAGE=true} -> maybe adds no specific addon.
+VisualResolver returns ("beam_base", {color=OCEAN, scale=1.1, motion=SWIRL, addons={}, ...}).
+EventRunner calls VFX.createEffect("beam_base", srcX, srcY, tgtX, tgtY, {color=OCEAN, scale=1.1, motion=SWIRL, ...}).
+The VFX module renders a generic beam, tinted blue, slightly larger than default, with particles that swirl.
+6. Guidance for Implementation
+Focus on Events: Think about what information an event needs to carry for the VisualResolver to work.
+Use Constants: Rely heavily on core/Constants.lua for affinities, attack types, colors, and the new motion styles.
+Understand the Resolver: The VisualResolver is the central mapping layer. Keep its logic clear and based on the event data.
+Test Incrementally: After each ticket, test relevant spells to ensure visuals are still triggering and gradually adopting the new rule-driven appearance.
+Keep it Simple Initially: The base templates and motion styles can start very basic. The goal is functional consistency first, polish later.
+7. Conclusion
+This refactor moves Manastorm towards a more elegant and maintainable VFX system where visuals are a direct reflection of the underlying gameplay rules. While it involves touching several core systems, the end result will be a cleaner codebase and a more consistent visual experience for players.
 

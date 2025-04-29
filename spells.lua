@@ -204,7 +204,7 @@ Spells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Quick ranged hit, more damage against AERIAL opponents",
+    description = "Quick ranged hit, more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
@@ -219,6 +219,29 @@ Spells.firebolt = {
             type = Constants.DamageType.FIRE
         },
         -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
+Spells.watergun = {
+    id = "watergun",
+    name = "Water Gun",
+    affinity = "water",
+    description = "Quick ranged hit, more damage against NEAR opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    return 15
+                end
+                return 10
+            end,
+            type = Constants.DamageType.WATER
+        }
     },
     sfx = "fire_whoosh",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
