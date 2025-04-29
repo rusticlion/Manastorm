@@ -259,6 +259,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
 
     -- Consume the tokens
     for i = 1, tokensToConsume do
+        -- misnomer since default bahvior changed
+        -- TODO: restore logic to actually "consume" tokens if shield has some keyword
         if #slot.tokens > 0 then
             -- Remove token data from the end (doesn't matter which one for shields)
             local removedTokenData = table.remove(slot.tokens)
@@ -266,24 +268,24 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
             
             -- Safety check for removed token object
             if removedTokenObject and removedTokenObject.type then
-                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) consumed by block -> DESTROYED", 
+                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) freed by block -> FREE", 
                     tostring(removedTokenObject.type)))
             else
-                print("[TOKEN LIFECYCLE] Shield Token (unknown type) consumed by block -> DESTROYED")
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) freed by block -> FREE")
             end
                 
-            -- Mark the consumed token for destruction using TokenManager
+            -- Mark the consumed token for freeing using TokenManager
             if removedTokenObject then
                 -- Get TokenManager
                 local TokenManager = require("systems.TokenManager")
                 
                 -- Create a token array for TokenManager to handle
-                local tokenToDestroy = {
+                local tokenToFree = {
                     {token = removedTokenObject, index = 1}
                 }
                 
-                -- Use TokenManager to destroy the token
-                TokenManager.destroyTokens(tokenToDestroy)
+                -- Use TokenManager to free the token
+                TokenManager.returnTokensToPool(tokenToFree)
                 
                 -- Call the wizard's centralized check *after* removing the token
                 wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)

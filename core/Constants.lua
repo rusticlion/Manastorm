@@ -110,11 +110,11 @@ Constants.AttackType = {
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 13,
-    SLOW = 10,
-    NORMAL = 7,
-    FAST = 4,
-    VERY_FAST = 1,
+    VERY_SLOW = 12,
+    SLOW = 8,
+    NORMAL = 5,
+    FAST = 3,
+    VERY_FAST = 1.5,
     ONE_TIER = 3
 }
 

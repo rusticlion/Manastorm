@@ -200,6 +200,11 @@ function SustainedSpellManager.update(dt)
                     conditionMet = true
                     print(string.format("[SustainedManager] Trap triggered by opponent elevation: %s", targetWizard.elevation))
                 end
+
+                if condition == "on_opponent_far" and targetWizard.rangeState == "FAR" then
+                    conditionMet = true
+                    print(string.format("[SustainedManager] Trap triggered by opponent being far"))
+                end
                 
                 -- Check cast trigger condition
                 if condition == "on_opponent_cast" and targetWizard.justCastSpellThisFrame then

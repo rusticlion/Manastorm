@@ -115,7 +115,7 @@ end
 
 function love.load()
     -- Set up window
-    love.window.setTitle("Manastorm - Wizard Duel")
+    love.window.setTitle("Manastorm - Realtime Strategic Wizard Duels")
     
     -- Configure pixel art rendering -- REMOVE THIS CALL
     -- configurePixelArtRendering()
@@ -158,7 +158,7 @@ function love.load()
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
     game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    game.wizards[2] = Wizard.new("Silex", 600, 370, {100, 100, 255})
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -841,88 +841,6 @@ function drawMainMenu()
         end
     end
     
-    -- Draw title with a magical glow effect
-    local titleY = screenHeight * 0.25
-    local titleScale = 4
-    local titleText = "MANASTORM"
-    local titleWidth = game.font:getWidth(titleText) * titleScale
-    
-    -- Draw glow behind title
-    local glowColor = {0.3, 0.3, 0.9, 0.3}
-    local glowSize = 15 + 5 * math.sin(love.timer.getTime() * 2)
-    love.graphics.setColor(glowColor)
-    for i = 1, 3 do
-        love.graphics.print(
-            titleText,
-            screenWidth/2 - titleWidth/2 + math.random(-2, 2), 
-            titleY + math.random(-2, 2),
-            0,
-            titleScale, titleScale
-        )
-    end
-    
-    -- Draw main title
-    love.graphics.setColor(0.9, 0.9, 1, 1)
-    love.graphics.print(
-        titleText,
-        screenWidth/2 - titleWidth/2, 
-        titleY,
-        0,
-        titleScale, titleScale
-    )
-    
-    -- Draw subtitle
-    local subtitleText = "Wizard Duel"
-    local subtitleScale = 2
-    local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
-    
-    love.graphics.setColor(0.7, 0.7, 1, 0.9)
-    love.graphics.print(
-        subtitleText,
-        screenWidth/2 - subtitleWidth/2,
-        titleY + 60,
-        0,
-        subtitleScale, subtitleScale
-    )
-    
-    -- Draw menu options
-    local menuY = screenHeight * 0.6
-    local menuSpacing = 50
-    local menuScale = 1.5
-    
-    -- Start Duel option
-    local startText = "[Enter] Start Duel"
-    local startWidth = game.font:getWidth(startText) * menuScale
-    
-    -- Pulse effect for start option
-    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
-    love.graphics.print(
-        startText,
-        screenWidth/2 - startWidth/2,
-        menuY,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Quit option
-    local quitText = "[Esc] Quit"
-    local quitWidth = game.font:getWidth(quitText) * menuScale
-    
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
-    love.graphics.print(
-        quitText,
-        screenWidth/2 - quitWidth/2,
-        menuY + menuSpacing,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Draw version and credit
-    local versionText = "v0.1 - Demo"
-    love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
-    love.graphics.print(versionText, 10, screenHeight - 30)
-    
     -- Initialize token position history on first run
     if not game.menuTokenTrails then
         game.menuTokenTrails = {}
@@ -938,6 +856,106 @@ function drawMainMenu()
     local numTokens = 9      -- Exactly 9 tokens to show all token types
     local trailLength = 75   -- Length of the trail (5x longer than original 15)
     
+    -- Track token positions for triangle drawing
+    local tokenPositions = {}
+    
+    -- First, draw the triangles BEFORE the tokens to ensure they appear behind
+    -- We'll collect positions first with a dry run through the token calculations
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Calculate position on a circle with some oscillation
+        local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+        local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+        
+        -- Calculate x,y position on the orbit
+        local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+        local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+        
+        -- Add some vertical bounce
+        y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+        
+        -- Store token position for triangle drawing
+        tokenPositions[i] = {x = x, y = y}
+    end
+    
+    -- Store triangle data for drawing later
+    local triangleData = {}
+    
+    if #tokenPositions == numTokens then
+        local time = love.timer.getTime()
+        
+        -- Set up triangle groups
+        local triangleGroups = {
+            {1, 4, 7}, -- First triangle group
+            {2, 5, 8}, -- Second triangle group
+            {3, 6, 9}  -- Third triangle group
+        }
+        
+        -- Prepare triangle data
+        for tIndex, group in ipairs(triangleGroups) do
+            -- Get color based on the first token in the group
+            local tokenType = game.tokenTypes[group[1]]
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Create a more pronounced pulsing effect for the lines
+            local pulseRate = 0.5 + tIndex * 0.2 -- Different pulse rate for each triangle
+            -- More dramatic pulsing effect
+            local pulseAmount = 0.12 + 0.1 * math.sin(time * pulseRate) 
+            
+            -- Store color and alpha information with slightly increased base values
+            local triangleInfo = {
+                color = colorTable,
+                alpha = 0.22 + pulseAmount, -- Higher base alpha for more visibility
+                points = {}
+            }
+            
+            -- Calculate triangle points with wobble
+            for _, tokenIdx in ipairs(group) do
+                if tokenPositions[tokenIdx] then
+                    -- Add a small wobble to the connection points
+                    local wobbleX = 2 * math.sin(time * 1.2 + tokenIdx * 0.7)
+                    local wobbleY = 2 * math.cos(time * 1.1 + tokenIdx * 0.9)
+                    
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].x + wobbleX)
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].y + wobbleY)
+                end
+            end
+            
+            -- Add to triangleData collection if we have enough points
+            if #triangleInfo.points >= 6 then
+                table.insert(triangleData, triangleInfo)
+            end
+        end
+    end
+    
+    -- First draw the triangles (BEHIND the tokens and trails)
+    -- Draw the triangles using the data we collected earlier
+    for _, triangle in ipairs(triangleData) do
+        -- Draw a glow effect behind the lines first (thicker, more transparent)
+        for i = 1, 3 do -- Three layers of glow
+            local glowAlpha = triangle.alpha * 0.7 * (1 - (i-1) * 0.25) -- Fade out in layers
+            local glowWidth = 3.5 + (i-1) * 2.5 -- Get wider with each layer
+            
+            love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], glowAlpha)
+            love.graphics.setLineWidth(glowWidth)
+            
+            -- Draw the triangle outline with glow
+            love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+            love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+            love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+        end
+        
+        -- Draw the main triangle lines (thicker than before)
+        love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], triangle.alpha * 1.2)
+        love.graphics.setLineWidth(2.5) -- Thicker main line
+        
+        -- Draw the triangle outline
+        love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+        love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+        love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+    end
+    
+    -- Now draw the tokens and their trails (on top of the triangles)
     for i = 1, numTokens do
         local time = love.timer.getTime()
         -- Ensure we display each token type exactly once
@@ -955,6 +973,9 @@ function drawMainMenu()
             
             -- Add some vertical bounce
             y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+            
+            -- Store token position for triangle drawing
+            tokenPositions[i] = {x = x, y = y}
             
             -- Keep token size large but vary slightly for animation
             local tokenScale = 1.8 + 0.3 * math.sin(time + i * 0.3)
@@ -1013,6 +1034,90 @@ function drawMainMenu()
             )
         end
     end
+    
+    -- Now draw all menu text ON TOP of everything else
+    
+    -- Draw title with a magical glow effect
+    local titleY = screenHeight * 0.25
+    local titleScale = 4
+    local titleText = "MANASTORM"
+    local titleWidth = game.font:getWidth(titleText) * titleScale
+    
+    -- Draw glow behind title
+    local glowColor = {0.3, 0.3, 0.9, 0.3}
+    local glowSize = 15 + 5 * math.sin(love.timer.getTime() * 2)
+    love.graphics.setColor(glowColor)
+    for i = 1, 3 do
+        love.graphics.print(
+            titleText,
+            screenWidth/2 - titleWidth/2 + math.random(-2, 2), 
+            titleY + math.random(-2, 2),
+            0,
+            titleScale, titleScale
+        )
+    end
+    
+    -- Draw main title
+    love.graphics.setColor(0.9, 0.9, 1, 1)
+    love.graphics.print(
+        titleText,
+        screenWidth/2 - titleWidth/2, 
+        titleY,
+        0,
+        titleScale, titleScale
+    )
+    
+    -- Draw subtitle
+    local subtitleText = "Chosen of the Ninefold Circle"
+    local subtitleScale = 2
+    local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
+    
+    love.graphics.setColor(0.7, 0.7, 1, 0.9)
+    love.graphics.print(
+        subtitleText,
+        screenWidth/2 - subtitleWidth/2,
+        titleY + 60,
+        0,
+        subtitleScale, subtitleScale
+    )
+    
+    -- Draw menu options
+    local menuY = screenHeight * 0.6
+    local menuSpacing = 50
+    local menuScale = 1.5
+    
+    -- Start Duel option
+    local startText = "[Enter] Start Duel"
+    local startWidth = game.font:getWidth(startText) * menuScale
+    
+    -- Pulse effect for start option
+    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
+    love.graphics.print(
+        startText,
+        screenWidth/2 - startWidth/2,
+        menuY,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Quit option
+    local quitText = "[Esc] Quit"
+    local quitWidth = game.font:getWidth(quitText) * menuScale
+    
+    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
+    love.graphics.print(
+        quitText,
+        screenWidth/2 - quitWidth/2,
+        menuY + menuSpacing,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Draw version and credit
+    local versionText = "v0.1 - Demo"
+    love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
+    love.graphics.print(versionText, 10, screenHeight - 30)
 end
 
 -- Unified key handler using the Input module

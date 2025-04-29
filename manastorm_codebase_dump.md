@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Tue Apr 29 10:24:08 CDT 2025
+Generated: Tue Apr 29 12:31:05 CDT 2025
 
 # Source Code
 
@@ -2892,7 +2892,7 @@ end
 
 function love.load()
     -- Set up window
-    love.window.setTitle("Manastorm - Wizard Duel")
+    love.window.setTitle("Manastorm - Realtime Strategic Wizard Duels")
     
     -- Configure pixel art rendering -- REMOVE THIS CALL
     -- configurePixelArtRendering()
@@ -3618,6 +3618,202 @@ function drawMainMenu()
         end
     end
     
+    -- Initialize token position history on first run
+    if not game.menuTokenTrails then
+        game.menuTokenTrails = {}
+        for i = 1, 9 do
+            game.menuTokenTrails[i] = {}
+        end
+    end
+    
+    -- Draw floating mana tokens in a circular arrangement around the content
+    local centerX = screenWidth / 2
+    local centerY = screenHeight / 2
+    local orbitRadius = 200  -- Larger orbit radius for the tokens to circle around content
+    local numTokens = 9      -- Exactly 9 tokens to show all token types
+    local trailLength = 75   -- Length of the trail (5x longer than original 15)
+    
+    -- Track token positions for triangle drawing
+    local tokenPositions = {}
+    
+    -- First, draw the triangles BEFORE the tokens to ensure they appear behind
+    -- We'll collect positions first with a dry run through the token calculations
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Calculate position on a circle with some oscillation
+        local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+        local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+        
+        -- Calculate x,y position on the orbit
+        local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+        local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+        
+        -- Add some vertical bounce
+        y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+        
+        -- Store token position for triangle drawing
+        tokenPositions[i] = {x = x, y = y}
+    end
+    
+    -- Store triangle data for drawing later
+    local triangleData = {}
+    
+    if #tokenPositions == numTokens then
+        local time = love.timer.getTime()
+        
+        -- Set up triangle groups
+        local triangleGroups = {
+            {1, 4, 7}, -- First triangle group
+            {2, 5, 8}, -- Second triangle group
+            {3, 6, 9}  -- Third triangle group
+        }
+        
+        -- Prepare triangle data
+        for tIndex, group in ipairs(triangleGroups) do
+            -- Get color based on the first token in the group
+            local tokenType = game.tokenTypes[group[1]]
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Create a more pronounced pulsing effect for the lines
+            local pulseRate = 0.5 + tIndex * 0.2 -- Different pulse rate for each triangle
+            -- More dramatic pulsing effect
+            local pulseAmount = 0.12 + 0.1 * math.sin(time * pulseRate) 
+            
+            -- Store color and alpha information with slightly increased base values
+            local triangleInfo = {
+                color = colorTable,
+                alpha = 0.22 + pulseAmount, -- Higher base alpha for more visibility
+                points = {}
+            }
+            
+            -- Calculate triangle points with wobble
+            for _, tokenIdx in ipairs(group) do
+                if tokenPositions[tokenIdx] then
+                    -- Add a small wobble to the connection points
+                    local wobbleX = 2 * math.sin(time * 1.2 + tokenIdx * 0.7)
+                    local wobbleY = 2 * math.cos(time * 1.1 + tokenIdx * 0.9)
+                    
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].x + wobbleX)
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].y + wobbleY)
+                end
+            end
+            
+            -- Add to triangleData collection if we have enough points
+            if #triangleInfo.points >= 6 then
+                table.insert(triangleData, triangleInfo)
+            end
+        end
+    end
+    
+    -- First draw the triangles (BEHIND the tokens and trails)
+    -- Draw the triangles using the data we collected earlier
+    for _, triangle in ipairs(triangleData) do
+        -- Draw a glow effect behind the lines first (thicker, more transparent)
+        for i = 1, 3 do -- Three layers of glow
+            local glowAlpha = triangle.alpha * 0.7 * (1 - (i-1) * 0.25) -- Fade out in layers
+            local glowWidth = 3.5 + (i-1) * 2.5 -- Get wider with each layer
+            
+            love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], glowAlpha)
+            love.graphics.setLineWidth(glowWidth)
+            
+            -- Draw the triangle outline with glow
+            love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+            love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+            love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+        end
+        
+        -- Draw the main triangle lines (thicker than before)
+        love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], triangle.alpha * 1.2)
+        love.graphics.setLineWidth(2.5) -- Thicker main line
+        
+        -- Draw the triangle outline
+        love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+        love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+        love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+    end
+    
+    -- Now draw the tokens and their trails (on top of the triangles)
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Ensure we display each token type exactly once
+        local tokenType = game.tokenTypes[i]
+        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
+        
+        if tokenImage then
+            -- Calculate position on a circle with some oscillation
+            local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+            local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+            
+            -- Calculate x,y position on the orbit
+            local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+            local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+            
+            -- Add some vertical bounce
+            y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+            
+            -- Store token position for triangle drawing
+            tokenPositions[i] = {x = x, y = y}
+            
+            -- Keep token size large but vary slightly for animation
+            local tokenScale = 1.8 + 0.3 * math.sin(time + i * 0.3)
+            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
+            
+            -- Get color for this token type
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Update position history for trail effect
+            if not game.menuTokenTrails[i] then
+                game.menuTokenTrails[i] = {}
+            end
+            
+            -- Store new position at the beginning of history array
+            table.insert(game.menuTokenTrails[i], 1, {x = x, y = y, time = time})
+            
+            -- Limit trail length
+            if #game.menuTokenTrails[i] > trailLength then
+                table.remove(game.menuTokenTrails[i])
+            end
+            
+            -- Draw the trailing effect first (behind the token)
+            -- For efficiency with longer trails, only draw every other point for trails > 30
+            local stepSize = (#game.menuTokenTrails[i] > 30) and 2 or 1
+            
+            for j = #game.menuTokenTrails[i], 2, -stepSize do
+                local pos = game.menuTokenTrails[i][j]
+                local timeDiff = time - pos.time
+                
+                -- Calculate fade based on position in trail (older = more transparent)
+                -- Use a slower fade rate for longer trails
+                local trailAlpha = 0.25 * (1 - (j / trailLength)^1.5)
+                
+                -- Gradually reduce size for trail particles
+                -- Adjusted scale formula for longer trails - slower decrease
+                local trailScale = 18 * (1 - (j / trailLength) * 0.6)
+                
+                -- Draw trail particle
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+                love.graphics.circle("fill", pos.x, pos.y, trailScale)
+            end
+            
+            -- Draw smaller glow behind token (reduced aura size)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
+            -- Reduce the aura size multiplier from 50 to 35
+            love.graphics.circle("fill", x, y, 35 * tokenScale)
+            
+            -- Draw token with same large scale as before
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.draw(
+                tokenImage, 
+                x, y, 
+                rotation,
+                tokenScale, tokenScale,
+                tokenImage:getWidth()/2, tokenImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Now draw all menu text ON TOP of everything else
+    
     -- Draw title with a magical glow effect
     local titleY = screenHeight * 0.25
     local titleScale = 4
@@ -3649,7 +3845,7 @@ function drawMainMenu()
     )
     
     -- Draw subtitle
-    local subtitleText = "Wizard Duel"
+    local subtitleText = "Chosen of the Ninefold Circle"
     local subtitleScale = 2
     local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
     
@@ -3699,35 +3895,6 @@ function drawMainMenu()
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
-    
-    -- Draw floating mana tokens as decoration
-    for i = 1, 5 do
-        local time = love.timer.getTime()
-        local tokenType = game.tokenTypes[i]
-        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
-        
-        if tokenImage then
-            local x = screenWidth * (0.2 + 0.15 * i + 0.03 * math.sin(time * 0.5 + i))
-            local y = screenHeight * (0.4 + 0.05 * math.sin(time * 0.7 + i * 0.5))
-            local tokenScale = 0.5 + 0.1 * math.sin(time + i * 0.3)
-            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
-            
-            -- Draw glow behind token
-            local colorTable = Constants.getColorForTokenType(tokenType)
-            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
-            love.graphics.circle("fill", x, y, 20 * tokenScale)
-            
-            -- Draw token
-            love.graphics.setColor(1, 1, 1, 0.9)
-            love.graphics.draw(
-                tokenImage, 
-                x, y, 
-                rotation,
-                tokenScale, tokenScale,
-                tokenImage:getWidth()/2, tokenImage:getHeight()/2
-            )
-        end
-    end
 end
 
 -- Unified key handler using the Input module
@@ -16919,7 +17086,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Tue Apr 29 10:24:08 CDT 2025
+Generated: Tue Apr 29 12:31:05 CDT 2025
 
 # Source Code
 
@@ -19812,7 +19979,7 @@ end
 
 function love.load()
     -- Set up window
-    love.window.setTitle("Manastorm - Wizard Duel")
+    love.window.setTitle("Manastorm - Realtime Strategic Wizard Duels")
     
     -- Configure pixel art rendering -- REMOVE THIS CALL
     -- configurePixelArtRendering()
@@ -20538,6 +20705,202 @@ function drawMainMenu()
         end
     end
     
+    -- Initialize token position history on first run
+    if not game.menuTokenTrails then
+        game.menuTokenTrails = {}
+        for i = 1, 9 do
+            game.menuTokenTrails[i] = {}
+        end
+    end
+    
+    -- Draw floating mana tokens in a circular arrangement around the content
+    local centerX = screenWidth / 2
+    local centerY = screenHeight / 2
+    local orbitRadius = 200  -- Larger orbit radius for the tokens to circle around content
+    local numTokens = 9      -- Exactly 9 tokens to show all token types
+    local trailLength = 75   -- Length of the trail (5x longer than original 15)
+    
+    -- Track token positions for triangle drawing
+    local tokenPositions = {}
+    
+    -- First, draw the triangles BEFORE the tokens to ensure they appear behind
+    -- We'll collect positions first with a dry run through the token calculations
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Calculate position on a circle with some oscillation
+        local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+        local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+        
+        -- Calculate x,y position on the orbit
+        local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+        local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+        
+        -- Add some vertical bounce
+        y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+        
+        -- Store token position for triangle drawing
+        tokenPositions[i] = {x = x, y = y}
+    end
+    
+    -- Store triangle data for drawing later
+    local triangleData = {}
+    
+    if #tokenPositions == numTokens then
+        local time = love.timer.getTime()
+        
+        -- Set up triangle groups
+        local triangleGroups = {
+            {1, 4, 7}, -- First triangle group
+            {2, 5, 8}, -- Second triangle group
+            {3, 6, 9}  -- Third triangle group
+        }
+        
+        -- Prepare triangle data
+        for tIndex, group in ipairs(triangleGroups) do
+            -- Get color based on the first token in the group
+            local tokenType = game.tokenTypes[group[1]]
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Create a more pronounced pulsing effect for the lines
+            local pulseRate = 0.5 + tIndex * 0.2 -- Different pulse rate for each triangle
+            -- More dramatic pulsing effect
+            local pulseAmount = 0.12 + 0.1 * math.sin(time * pulseRate) 
+            
+            -- Store color and alpha information with slightly increased base values
+            local triangleInfo = {
+                color = colorTable,
+                alpha = 0.22 + pulseAmount, -- Higher base alpha for more visibility
+                points = {}
+            }
+            
+            -- Calculate triangle points with wobble
+            for _, tokenIdx in ipairs(group) do
+                if tokenPositions[tokenIdx] then
+                    -- Add a small wobble to the connection points
+                    local wobbleX = 2 * math.sin(time * 1.2 + tokenIdx * 0.7)
+                    local wobbleY = 2 * math.cos(time * 1.1 + tokenIdx * 0.9)
+                    
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].x + wobbleX)
+                    table.insert(triangleInfo.points, tokenPositions[tokenIdx].y + wobbleY)
+                end
+            end
+            
+            -- Add to triangleData collection if we have enough points
+            if #triangleInfo.points >= 6 then
+                table.insert(triangleData, triangleInfo)
+            end
+        end
+    end
+    
+    -- First draw the triangles (BEHIND the tokens and trails)
+    -- Draw the triangles using the data we collected earlier
+    for _, triangle in ipairs(triangleData) do
+        -- Draw a glow effect behind the lines first (thicker, more transparent)
+        for i = 1, 3 do -- Three layers of glow
+            local glowAlpha = triangle.alpha * 0.7 * (1 - (i-1) * 0.25) -- Fade out in layers
+            local glowWidth = 3.5 + (i-1) * 2.5 -- Get wider with each layer
+            
+            love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], glowAlpha)
+            love.graphics.setLineWidth(glowWidth)
+            
+            -- Draw the triangle outline with glow
+            love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+            love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+            love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+        end
+        
+        -- Draw the main triangle lines (thicker than before)
+        love.graphics.setColor(triangle.color[1], triangle.color[2], triangle.color[3], triangle.alpha * 1.2)
+        love.graphics.setLineWidth(2.5) -- Thicker main line
+        
+        -- Draw the triangle outline
+        love.graphics.line(triangle.points[1], triangle.points[2], triangle.points[3], triangle.points[4])
+        love.graphics.line(triangle.points[3], triangle.points[4], triangle.points[5], triangle.points[6])
+        love.graphics.line(triangle.points[5], triangle.points[6], triangle.points[1], triangle.points[2])
+    end
+    
+    -- Now draw the tokens and their trails (on top of the triangles)
+    for i = 1, numTokens do
+        local time = love.timer.getTime()
+        -- Ensure we display each token type exactly once
+        local tokenType = game.tokenTypes[i]
+        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
+        
+        if tokenImage then
+            -- Calculate position on a circle with some oscillation
+            local angle = (i / numTokens) * math.pi * 2 + time * 0.2  -- Rotate around slowly over time
+            local radiusVariation = 20 * math.sin(time * 0.5 + i)     -- Make orbit radius pulse
+            
+            -- Calculate x,y position on the orbit
+            local x = centerX + math.cos(angle) * (orbitRadius + radiusVariation)
+            local y = centerY + math.sin(angle) * (orbitRadius + radiusVariation)
+            
+            -- Add some vertical bounce
+            y = y + 15 * math.sin(time * 0.7 + i * 0.5)
+            
+            -- Store token position for triangle drawing
+            tokenPositions[i] = {x = x, y = y}
+            
+            -- Keep token size large but vary slightly for animation
+            local tokenScale = 1.8 + 0.3 * math.sin(time + i * 0.3)
+            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
+            
+            -- Get color for this token type
+            local colorTable = Constants.getColorForTokenType(tokenType)
+            
+            -- Update position history for trail effect
+            if not game.menuTokenTrails[i] then
+                game.menuTokenTrails[i] = {}
+            end
+            
+            -- Store new position at the beginning of history array
+            table.insert(game.menuTokenTrails[i], 1, {x = x, y = y, time = time})
+            
+            -- Limit trail length
+            if #game.menuTokenTrails[i] > trailLength then
+                table.remove(game.menuTokenTrails[i])
+            end
+            
+            -- Draw the trailing effect first (behind the token)
+            -- For efficiency with longer trails, only draw every other point for trails > 30
+            local stepSize = (#game.menuTokenTrails[i] > 30) and 2 or 1
+            
+            for j = #game.menuTokenTrails[i], 2, -stepSize do
+                local pos = game.menuTokenTrails[i][j]
+                local timeDiff = time - pos.time
+                
+                -- Calculate fade based on position in trail (older = more transparent)
+                -- Use a slower fade rate for longer trails
+                local trailAlpha = 0.25 * (1 - (j / trailLength)^1.5)
+                
+                -- Gradually reduce size for trail particles
+                -- Adjusted scale formula for longer trails - slower decrease
+                local trailScale = 18 * (1 - (j / trailLength) * 0.6)
+                
+                -- Draw trail particle
+                love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+                love.graphics.circle("fill", pos.x, pos.y, trailScale)
+            end
+            
+            -- Draw smaller glow behind token (reduced aura size)
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
+            -- Reduce the aura size multiplier from 50 to 35
+            love.graphics.circle("fill", x, y, 35 * tokenScale)
+            
+            -- Draw token with same large scale as before
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.draw(
+                tokenImage, 
+                x, y, 
+                rotation,
+                tokenScale, tokenScale,
+                tokenImage:getWidth()/2, tokenImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Now draw all menu text ON TOP of everything else
+    
     -- Draw title with a magical glow effect
     local titleY = screenHeight * 0.25
     local titleScale = 4
@@ -20569,7 +20932,7 @@ function drawMainMenu()
     )
     
     -- Draw subtitle
-    local subtitleText = "Wizard Duel"
+    local subtitleText = "Chosen of the Ninefold Circle"
     local subtitleScale = 2
     local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
     
@@ -20619,35 +20982,6 @@ function drawMainMenu()
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
-    
-    -- Draw floating mana tokens as decoration
-    for i = 1, 5 do
-        local time = love.timer.getTime()
-        local tokenType = game.tokenTypes[i]
-        local tokenImage = AssetCache.getImage(game.tokenImages[tokenType])
-        
-        if tokenImage then
-            local x = screenWidth * (0.2 + 0.15 * i + 0.03 * math.sin(time * 0.5 + i))
-            local y = screenHeight * (0.4 + 0.05 * math.sin(time * 0.7 + i * 0.5))
-            local tokenScale = 0.5 + 0.1 * math.sin(time + i * 0.3)
-            local rotation = time * 0.2 * (i % 2 == 0 and 1 or -1)
-            
-            -- Draw glow behind token
-            local colorTable = Constants.getColorForTokenType(tokenType)
-            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], 0.3)
-            love.graphics.circle("fill", x, y, 20 * tokenScale)
-            
-            -- Draw token
-            love.graphics.setColor(1, 1, 1, 0.9)
-            love.graphics.draw(
-                tokenImage, 
-                x, y, 
-                rotation,
-                tokenScale, tokenScale,
-                tokenImage:getWidth()/2, tokenImage:getHeight()/2
-            )
-        end
-    end
 end
 
 -- Unified key handler using the Input module

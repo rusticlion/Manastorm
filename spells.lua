@@ -212,9 +212,9 @@ Spells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 15
+                    return 12
                 end
-                return 10
+                return 7
             end,
             type = Constants.DamageType.FIRE
         },
@@ -345,6 +345,155 @@ Spells.conjuresalt = {
         return baseCastTime + (saltCount * Constants.CastSpeed.ONE_TIER)
     end
 }
+
+Spells.glitterfang = {
+    id = "glitterfang",
+    name = "Glitter Fang",
+    affinity = "salt",
+    description = "Very fast, unblockable attack. Only hits NEAR/GROUNDED enemies",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = 7,
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.gameState.rangeState == Constants.RangeState.NEAR
+                    and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        sfx = "glitter_fang",
+        blockableBy = {}
+    }
+}
+
+Spells.imprison = {
+    id = "imprison",
+    name = "Imprison",
+    affinity = "salt",
+    description = "Trap: Deals damage and prevents enemy movement to FAR",
+    attackType = "utility",  -- Changed to utility since it's not a direct attack
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        -- Mark as a sustained spell
+        sustain = true,
+        
+        -- Define trap trigger condition
+        trap_trigger = { 
+            condition = "on_opponent_far" 
+        },
+        
+        -- Define trap window/expiry
+        -- TODO: make trap "expend mana" to go off instead of one-shot (similar to a shield)
+        trap_window = { 
+            duration = 600.0  -- Trap lasts indefinitely, treat this as default later
+        },
+        
+        -- Define trap effect when triggered
+        trap_effect = {
+            -- Re-use existing keywords for the effect
+            -- stagger or whatever once properly implemented
+            damage = { 
+                amount = 7, 
+                type = Constants.DamageType.SALT,  
+                target = "ENEMY" 
+            },
+            rangeShift = { 
+                position = Constants.RangeState.NEAR,
+            },
+            -- VFX provided by rules-driven system (see R5 refactor)
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "gravity_trap_set",
+    blockableBy = {} 
+}
+
+Spells.saltcircle = {
+    id = "saltcircle",
+    name = "Salt Circle",
+    affinity = "salt",
+    description = "Ward: Creates a circle of Salt around the caster",
+    castTime = Constants.CastSpeed.VERY_FAST,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.WARD,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "salt_circle",
+    blockableBy = {}
+}
+
+Spells.stoneshield = {
+    id = "stoneshield",
+    name = "Stone Shield",
+    affinity = "salt",
+    description = "Barrier: Creates a shield of stone around the caster",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
+            -- VFX provided by rules-driven system (see R5 refactor)
+        }
+    },
+    sfx = "stone_shield",
+    blockableBy = {}
+}
+
+Spells.jaggedearth = {
+    -- todo - beefier trap conditions - this needs an "onLanding" condition that watches for the frame when opponent hits the ground
+    id = "jaggedearth",
+    name = "Jagged Earth",
+    affinity = "salt",
+    description = "Trap: Creates a zone of jagged earth around the target that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 7, 
+            type = Constants.DamageType.SALT,
+            condition = function(caster, target, slot)
+                return target and target.elevation == Constants.ElevationState.GROUNDED
+            end
+        },
+        rangeShift = {  
+            position = Constants.RangeState.NEAR,
+        },
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "jagged_earth",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}
+
+Spells.saltstorm = {
+    id = "saltstorm",
+    name = "Salt Storm",
+    affinity = "salt",
+    description = "Zone: Creates a zone of salt around the caster that hurts them when they become Grounded.",
+    castTime = Constants.CastSpeed.VERY_SLOW,
+    attackType = Constants.AttackType.ZONE,
+    cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = 15,
+            type = Constants.DamageType.SALT
+        },
+        zoneMulti = true,
+        -- VFX provided by rules-driven system (see R5 refactor)
+    },
+    sfx = "salt_storm",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}   
 
 Spells.emberlift = {
     id = "emberlift",
@@ -934,10 +1083,10 @@ Spells.battleshield = {
 -- Shield-breaking spell
 Spells.shieldbreaker = {
     id = "shieldbreaker",
-    name = "Shield Breaker",
-    description = "A powerful force blast that shatters shields and barriers",
+    name = "Salt Spear",
+    description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE, -- Projectile type (can be blocked by barriers and wards)
-    castTime = 6.0,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
         -- Regular damage component

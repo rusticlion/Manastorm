@@ -97,9 +97,9 @@ function Wizard.new(name, x, y, color)
     if name == "Ashgar" then
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjurefire,
-            ["2"] = Spells.novaconjuring,
-            ["3"] = Spells.firebolt,
+            ["1"]  = Spells.conjurefire,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -109,12 +109,29 @@ function Wizard.new(name, x, y, color)
             -- Three key combo
             ["123"] = Spells.meteor
         }
+
+    elseif name == "Silex" then   -- New salt-themed wizard
+        self.spellbook = {
+            -- Single key spells
+            ["1"]  = Spells.conjuresalt,
+            ["2"]  = Spells.glitterfang,
+            ["3"]  = Spells.imprison,
+
+            -- Two key combos
+            ["12"] = Spells.saltcircle,
+            ["13"] = Spells.stoneshield,
+            ["23"] = Spells.shieldbreaker,
+
+            -- Three key combo
+            ["123"] = Spells.saltstorm
+        }
+
     else -- Default to Selene
         self.spellbook = {
             -- Single key spells
-            ["1"] = Spells.conjuremoonlight,
-            ["2"] = Spells.watergun,
-            ["3"] = Spells.moondance,
+            ["1"]  = Spells.conjuremoonlight,
+            ["2"]  = Spells.watergun,
+            ["3"]  = Spells.moondance,
             
             -- Two key combos
             ["12"] = Spells.wrapinmoonlight,
