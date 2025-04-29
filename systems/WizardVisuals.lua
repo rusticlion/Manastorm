@@ -65,6 +65,11 @@ function WizardVisuals.drawEllipticalArc(x, y, radiusX, radiusY, startAngle, end
     love.graphics.line(points)
 end
 
+-- Easing function for smoother animations
+function WizardVisuals.easeOutCubic(t)
+    return 1 - math.pow(1 - t, 3)
+end
+
 -- Draw status effects with durations using horizontal bars
 function WizardVisuals.drawStatusEffects(wizard)
     -- Get screen dimensions
@@ -572,13 +577,13 @@ end
 
 -- Main function to draw the wizard
 function WizardVisuals.drawWizard(wizard)
-    -- Calculate position adjustments based on elevation and range state
-    local yOffset = 0
-    local xOffset = 0
+    -- Calculate target position adjustments based on elevation and range state
+    local targetYOffset = 0
+    local targetXOffset = 0
     
     -- Vertical adjustment for AERIAL state - increased for more dramatic effect
     if wizard.elevation == "AERIAL" then
-        yOffset = -50  -- Lift the wizard up more significantly when AERIAL
+        targetYOffset = -50  -- Lift the wizard up more significantly when AERIAL
     end
     
     -- Horizontal adjustment for NEAR/FAR state
@@ -587,9 +592,37 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Push wizards closer to center in NEAR mode, further in FAR mode
     if wizard.name == "Ashgar" then -- Player 1 (left side)
-        xOffset = isNear and 60 or 0 -- Move right when NEAR
+        targetXOffset = isNear and 60 or 0 -- Move right when NEAR
     else -- Player 2 (right side)
-        xOffset = isNear and -60 or 0 -- Move left when NEAR
+        targetXOffset = isNear and -60 or 0 -- Move left when NEAR
+    end
+    
+    -- Check if position needs to change and start animation if needed
+    if not wizard.positionAnimation.active and
+       ((wizard.currentXOffset or 0) ~= targetXOffset or 
+        (wizard.currentYOffset or 0) ~= targetYOffset) then
+        -- Start animation
+        wizard.positionAnimation.active = true
+        wizard.positionAnimation.startX = wizard.currentXOffset or 0
+        wizard.positionAnimation.startY = wizard.currentYOffset or 0
+        wizard.positionAnimation.targetX = targetXOffset
+        wizard.positionAnimation.targetY = targetYOffset
+        wizard.positionAnimation.progress = 0
+    end
+    
+    -- Calculate and apply current offsets (animated or target)
+    local xOffset, yOffset
+    if wizard.positionAnimation.active then
+        -- Use interpolated position with easing
+        local progress = WizardVisuals.easeOutCubic(wizard.positionAnimation.progress)
+        xOffset = wizard.positionAnimation.startX + 
+                 (wizard.positionAnimation.targetX - wizard.positionAnimation.startX) * progress
+        yOffset = wizard.positionAnimation.startY + 
+                 (wizard.positionAnimation.targetY - wizard.positionAnimation.startY) * progress
+    else
+        -- Use target position directly
+        xOffset = targetXOffset
+        yOffset = targetYOffset
     end
     
     -- Set color and draw wizard

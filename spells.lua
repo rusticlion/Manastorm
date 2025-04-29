@@ -813,7 +813,7 @@ Spells.moondance = {
     affinity = Constants.TokenType.MOON,
     description = "Switch Range. Freeze <3> enemy Root slot.",
     attackType = "remote",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON},
     keywords = {
         damage = {
@@ -829,7 +829,7 @@ Spells.moondance = {
             target = "SELF" 
         },
         freeze = {
-            duration = Constants.CastSpeed.ONE_TIER,
+            duration = 3,
             target = "SLOT_ENEMY",
             slot = 1
         }

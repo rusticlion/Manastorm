@@ -62,6 +62,17 @@ function Wizard.new(name, x, y, color)
     self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     
+    -- Position animation state
+    self.positionAnimation = {
+        active = false,
+        startX = 0,
+        startY = 0, 
+        targetX = 0,
+        targetY = 0,
+        progress = 0,
+        duration = 0.3 -- 300ms animation by default
+    }
+    
     -- Status effects
     self.statusEffects = {
         burn = {
@@ -200,6 +211,19 @@ function Wizard:update(dt)
     -- Reset flags at the beginning of each frame
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
+    
+    -- Update position animation
+    if self.positionAnimation.active then
+        self.positionAnimation.progress = self.positionAnimation.progress + dt / self.positionAnimation.duration
+        
+        -- Check if animation is complete
+        if self.positionAnimation.progress >= 1.0 then
+            self.positionAnimation.active = false
+            self.positionAnimation.progress = 1.0
+            self.currentXOffset = self.positionAnimation.targetX
+            self.currentYOffset = self.positionAnimation.targetY
+        end
+    end
     
     -- Update stun timer
     if self.stunTimer > 0 then
