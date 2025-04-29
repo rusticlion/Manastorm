@@ -401,6 +401,11 @@ function TokenManager.destroyTokens(tokens)
             goto continue_token
         end
         
+        -- Clear token trails if available
+        if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+            token.manaPool.tokenTrails[token] = nil
+        end
+        
         -- Use token state machine if available
         if token.requestDestructionAnimation then
             token:requestDestructionAnimation()

@@ -30,6 +30,10 @@ function ManaPool.new(x, y)
     -- Chance for a token to switch valences
     self.valenceJumpChance = 0.002  -- Per frame chance of switching
     
+    -- Initialize token trails system
+    self.tokenTrails = {}
+    self.trailLength = 30  -- Max number of positions to store per token
+    
     -- Initialize the token pool if not already done
     if not Pool.pools["token"] then
         Pool.create("token", 50, function() 
@@ -61,8 +65,10 @@ function TokenMethods:setState(newStatus)
        newStatus == Constants.TokenStatus.CHANNELED or 
        newStatus == Constants.TokenStatus.SHIELDING then
         self.state = newStatus
-    elseif newStatus == Constants.TokenStatus.RETURNING then
-        self.state = self.originalStatus -- Keep original state during animation
+    elseif newStatus == Constants.TokenStatus.RETURNING or
+           newStatus == Constants.TokenStatus.APPEARING or
+           newStatus == Constants.TokenStatus.ORBITING then
+        self.state = self.originalStatus or Constants.TokenState.FREE -- Keep original state during animation
     elseif newStatus == Constants.TokenStatus.DISSOLVING then
         self.state = Constants.TokenState.DESTROYED
     elseif newStatus == Constants.TokenStatus.POOLED then
@@ -162,7 +168,7 @@ function TokenMethods:requestDestructionAnimation()
     return true
 end
 
--- Finalize return to pool after animation
+-- Finalize return to pool after animation (first phase)
 function TokenMethods:finalizeReturn()
     -- Validate current state
     if self.status ~= Constants.TokenStatus.RETURNING then
@@ -170,8 +176,7 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Reset animation flags
-    self.isAnimating = false
+    -- Reset some animation flags but keep isAnimating true for orbit animation
     self.returning = false  -- For backward compatibility
     
     -- Clear wizard/spell references
@@ -186,42 +191,47 @@ function TokenMethods:finalizeReturn()
         return false
     end
     
-    -- Set new state
-    self:setState(Constants.TokenStatus.FREE)
-    
-    -- Initialize orbit parameters (borrowed from ManaPool:finalizeTokenReturn)
-    -- Choose a random valence
+    -- Choose a random valence for the token's destination
     local valenceIndex = math.random(1, #manaPool.valences)
     local valence = manaPool.valences[valenceIndex]
     self.valenceIndex = valenceIndex
     
-    -- Calculate angle from pool center
-    local dx = self.x - manaPool.x
-    local dy = self.y - manaPool.y
-    local angle = math.atan2(dy, dx)
-    
-    -- Set orbit angle
+    -- Calculate a random angle for the token's destination
+    -- We'll use a random angle rather than the current angle to ensure
+    -- tokens don't all follow the same path
+    local angle = math.random() * math.pi * 2
     self.orbitAngle = angle
     
-    -- Calculate position based on valence
-    local newX = manaPool.x + math.cos(angle) * valence.radiusX
-    local newY = manaPool.y + math.sin(angle) * valence.radiusY
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
     
-    -- Add slight position variation
+    -- Add slight position variation to the target
     local variationX = math.random(-2, 2)
     local variationY = math.random(-1, 1)
-    self.x = newX + variationX
-    self.y = newY + variationY
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
     
     -- Randomize orbit direction and speed
     local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
     self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
     self.originalSpeed = self.orbitSpeed
-    
-    -- Set transition flags for smooth animation
-    self.transitionTime = 0
-    self.transitionDuration = 1.0
-    self.inTransition = true
     
     -- Initialize valence properties
     self.valenceJumpTimer = 2 + math.random() * 8
@@ -239,6 +249,157 @@ function TokenMethods:finalizeReturn()
     
     -- Visual variance
     self.scale = 0.85 + math.random() * 0.3
+    self.zOrder = math.random()
+    
+    return true
+end
+
+-- Finalize orbit transition (second phase)
+function TokenMethods:finalizeOrbit()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.ORBITING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize orbit from ORBITING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Reset animation flags
+    self.isAnimating = false
+    
+    -- Get the ManaPool instance from the token's game state or another reference
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token orbit!")
+        return false
+    end
+    
+    -- Update position to make sure it's at the target
+    self.x = self.targetOrbitX
+    self.y = self.targetOrbitY
+    
+    -- Clean up orbit animation properties
+    self.startOrbitX = nil
+    self.startOrbitY = nil
+    self.targetOrbitX = nil
+    self.targetOrbitY = nil
+    self.orbitAnimTime = nil
+    self.orbitAnimDuration = nil
+    
+    -- Set state to FREE
+    self:setState(Constants.TokenStatus.FREE)
+    
+    -- Set transition flags for smooth animation of orbital motion
+    self.transitionTime = 0
+    self.transitionDuration = 0.4  -- Shorter orbital transition (was 1.0)
+    self.inTransition = true
+    
+    return true
+end
+
+-- Initialize conjured token appearance animation
+function TokenMethods:requestAppearAnimation(fromWizard)
+    -- Set up animation parameters
+    self.isAnimating = true
+    
+    -- Store the source position (wizard position)
+    self.startX = fromWizard.x
+    self.startY = fromWizard.y - 40  -- Start a little above the wizard
+    
+    -- Initialize animation timing
+    self.appearAnimTime = 0
+    self.appearAnimDuration = 0.7  -- Slightly longer than return animation
+    
+    -- Set the target scale
+    self.targetScale = 0.85 + math.random() * 0.3
+    
+    -- Start very small
+    self.scale = 0.1
+    
+    -- Initial position is at the wizard
+    self.x = self.startX
+    self.y = self.startY
+    
+    -- Prepare callback for when animation completes
+    self.animationCallback = function() self:finalizeAppear() end
+    
+    -- Set status to APPEARING
+    self:setState(Constants.TokenStatus.APPEARING)
+    
+    return true
+end
+
+-- Finalize appear animation and transition to orbiting
+function TokenMethods:finalizeAppear()
+    -- Validate current state
+    if self.status ~= Constants.TokenStatus.APPEARING then
+        print("[TOKEN LIFECYCLE] WARNING: Can only finalize appear from APPEARING state, not " .. (self.status or "nil"))
+        return false
+    end
+    
+    -- Maintain animation flag
+    self.isAnimating = true
+    
+    -- Get the ManaPool instance from the token's game state
+    local manaPool = self.manaPool
+    if not manaPool then
+        print("[TOKEN LIFECYCLE] ERROR: Cannot find manaPool reference to finalize token appearance!")
+        return false
+    end
+    
+    -- Choose a random valence for the token's destination
+    local valenceIndex = math.random(1, #manaPool.valences)
+    local valence = manaPool.valences[valenceIndex]
+    self.valenceIndex = valenceIndex
+    
+    -- Calculate a random angle for the token's destination
+    local angle = math.random() * math.pi * 2
+    self.orbitAngle = angle
+    
+    -- Calculate target position based on valence
+    local targetX = manaPool.x + math.cos(angle) * valence.radiusX
+    local targetY = manaPool.y + math.sin(angle) * valence.radiusY
+    
+    -- Add slight position variation to the target
+    local variationX = math.random(-2, 2)
+    local variationY = math.random(-1, 1)
+    
+    -- Store current position (center of pool) as start for orbit animation
+    self.startOrbitX = self.x
+    self.startOrbitY = self.y
+    
+    -- Store target position for orbit animation
+    self.targetOrbitX = targetX + variationX
+    self.targetOrbitY = targetY + variationY
+    
+    -- Set up orbit animation parameters
+    self.orbitAnimTime = 0
+    self.orbitAnimDuration = 0.8  -- Slightly faster than return animation
+    
+    -- Set an animation callback for when the orbit animation completes
+    self.animationCallback = function() self:finalizeOrbit() end
+    
+    -- Set transitioning to orbit state
+    self:setState(Constants.TokenStatus.ORBITING)
+    
+    -- Randomize orbit direction and speed
+    local direction = math.random(0, 1) * 2 - 1  -- -1 or 1
+    self.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
+    self.originalSpeed = self.orbitSpeed
+    
+    -- Initialize valence properties
+    self.valenceJumpTimer = 2 + math.random() * 8
+    self.inValenceTransition = false
+    self.valenceTransitionTime = 0
+    self.valenceTransitionDuration = 0.8
+    self.sourceValenceIndex = valenceIndex
+    self.targetValenceIndex = valenceIndex
+    self.sourceRadiusX = valence.radiusX
+    self.sourceRadiusY = valence.radiusY
+    self.targetRadiusX = valence.radiusX
+    self.targetRadiusY = valence.radiusY
+    self.currentRadiusX = valence.radiusX
+    self.currentRadiusY = valence.radiusY
+    
+    -- Visual variance set during appearing animation
     self.zOrder = math.random()
     
     return true
@@ -297,6 +458,11 @@ function ManaPool.resetToken(token)
         token[name] = nil
     end
     
+    -- Clear token trails if they exist
+    if token.manaPool and token.manaPool.tokenTrails and token.manaPool.tokenTrails[token] then
+        token.manaPool.tokenTrails[token] = nil
+    end
+    
     -- Clear all references and fields
     token.type = nil
     token.image = nil
@@ -327,7 +493,20 @@ function ManaPool.resetToken(token)
     token.currentRadiusX = nil
     token.currentRadiusY = nil
     token.scale = nil
+    token.targetScale = nil
     token.zOrder = nil
+    
+    -- Clear animation-specific fields
+    token.startOrbitX = nil
+    token.startOrbitY = nil
+    token.targetOrbitX = nil
+    token.targetOrbitY = nil
+    token.orbitAnimTime = nil
+    token.orbitAnimDuration = nil
+    token.appearAnimTime = nil
+    token.appearAnimDuration = nil
+    token.startX = nil
+    token.startY = nil
     token.originalSpeed = nil
     token.wizardOwner = nil
     token.spellSlot = nil
@@ -368,8 +547,10 @@ function ManaPool:clear()
     
     self.tokens = {}
     self.reservedTokens = {}
+    self.tokenTrails = {} -- Clear token trails when clearing the pool
 end
 
+-- Standard token addition - creates token directly at its final position
 function ManaPool:addToken(tokenType, imagePath)
     -- Pick a random valence for the token
     local valenceIndex = math.random(1, #self.valences)
@@ -401,10 +582,10 @@ function ManaPool:addToken(tokenType, imagePath)
         love.graphics.setCanvas()
     end
     
-    -- Create a new token with valence-based properties
+    -- Create a new token from the pool
     local token = Pool.acquire("token")
     
-    -- Add methods from TokenMethods table (Lua's way of adding methods to an object)
+    -- Add methods from TokenMethods table
     for name, method in pairs(TokenMethods) do
         token[name] = method
     end
@@ -416,13 +597,12 @@ function ManaPool:addToken(tokenType, imagePath)
     token.y = y + variationY
     
     -- Initialize state machine properties
-    token.status = Constants.TokenStatus.FREE  -- New state machine status
-    token.state = Constants.TokenState.FREE    -- Legacy state for backwards compatibility
+    token.status = Constants.TokenStatus.FREE
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
     token.isAnimating = false
-    token.manaPool = self  -- Reference to this mana pool instance
-    token.id = #self.tokens + 1  -- Simple ID based on token position
+    token.manaPool = self -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
     
-    -- Valence-based orbit properties
     token.valenceIndex = valenceIndex
     token.orbitAngle = angle
     token.orbitSpeed = valence.baseSpeed * (0.8 + math.random() * 0.4) * direction
@@ -468,6 +648,71 @@ function ManaPool:addToken(tokenType, imagePath)
     return token
 end
 
+-- Add token with appearance animation from wizard
+function ManaPool:addTokenWithAnimation(tokenType, imagePath, sourceWizard)
+    if not sourceWizard then
+        -- Fall back to regular addition if no wizard provided
+        return self:addToken(tokenType, imagePath)
+    end
+    
+    -- Get image from cache, with fallback
+    local tokenImage = AssetCache.getImage(imagePath)
+    if not tokenImage then
+        print("WARNING: Failed to load token image: " .. imagePath .. " - using placeholder")
+        -- Create a placeholder image using LÖVE's built-in canvas
+        tokenImage = love.graphics.newCanvas(32, 32)
+        love.graphics.setCanvas(tokenImage)
+        love.graphics.clear(0.8, 0.2, 0.8, 1) -- Bright color to make missing textures obvious
+        love.graphics.rectangle("fill", 0, 0, 32, 32)
+        love.graphics.setCanvas()
+    end
+    
+    -- Create a new token with animation-ready properties
+    local token = Pool.acquire("token")
+    
+    -- Add methods from TokenMethods table
+    for name, method in pairs(TokenMethods) do
+        token[name] = method
+    end
+    
+    -- Initialize basic properties
+    token.type = tokenType
+    token.image = tokenImage
+    
+    -- Position will be set by animation
+    token.x = sourceWizard.x
+    token.y = sourceWizard.y - 40 -- Start slightly above wizard
+    
+    -- Initialize state machine properties
+    token.status = nil -- Will be set to APPEARING by requestAppearAnimation
+    token.state = Constants.TokenState.FREE -- For backwards compatibility
+    token.isAnimating = true
+    token.manaPool = self  -- Reference to this mana pool instance
+    token.id = #self.tokens + 1
+    
+    -- Visual effects
+    token.pulsePhase = math.random() * math.pi * 2
+    token.pulseSpeed = 2 + math.random() * 3
+    token.rotAngle = math.random() * math.pi * 2
+    token.rotSpeed = math.random(-2, 2) * 0.5
+    
+    -- Scale starts small and grows during animation
+    token.scale = 0.1
+    
+    -- If game state is available, store it for VFX access
+    if self.gameState then
+        token.gameState = self.gameState
+    end
+    
+    -- Add to the pool's token list
+    table.insert(self.tokens, token)
+    
+    -- Start appearance animation
+    token:requestAppearAnimation(sourceWizard)
+    
+    return token
+end
+
 -- Removed token repulsion system, reverting to pure orbital motion
 
 function ManaPool:update(dt)
@@ -478,6 +723,39 @@ function ManaPool:update(dt)
         -- Skip updating POOLED tokens, they've been reset and their properties are nil
         if token.status == Constants.TokenStatus.POOLED then
             goto continue_token
+        end
+        
+        -- Update token trail position history
+        if not self.tokenTrails[token] then
+            self.tokenTrails[token] = {}
+        end
+        
+        -- Only add a new trail point if the token has moved significantly
+        local lastPosition = self.tokenTrails[token][1]
+        local shouldAddTrail = true
+        
+        if lastPosition then
+            -- Calculate distance moved since last trail point
+            local dx = token.x - lastPosition.x
+            local dy = token.y - lastPosition.y
+            local distSquared = dx*dx + dy*dy
+            
+            -- Only add trail points if moved more than a minimum distance
+            shouldAddTrail = distSquared > 4
+        end
+        
+        if shouldAddTrail then
+            -- Store new position at the beginning of history array
+            table.insert(self.tokenTrails[token], 1, {
+                x = token.x, 
+                y = token.y, 
+                time = love.timer.getTime()
+            })
+            
+            -- Limit trail length
+            if #self.tokenTrails[token] > self.trailLength then
+                table.remove(self.tokenTrails[token])
+            end
         end
         
         -- Update token based on its status in the state machine
@@ -730,6 +1008,107 @@ function ManaPool:update(dt)
                 token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
             end
             
+        elseif token.status == Constants.TokenStatus.APPEARING then
+            -- Token is being animated into existence from a wizard to the mana pool
+            token.appearAnimTime = token.appearAnimTime + dt
+            local progress = math.min(1, token.appearAnimTime / token.appearAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startX
+            local y0 = token.startY
+            local x3 = self.x  -- Center of mana pool
+            local y3 = self.y
+            
+            -- Calculate higher arc height for appearing tokens
+            local height = 80 -- Higher arc for appearing tokens
+            
+            -- Control points for bezier (creating an arc)
+            local midX = (x0 + x3) / 2
+            local midY = (y0 + y3) / 2 - height  -- Negative for upward arc
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Gradual scaling up with progress
+            local startScale = 0.1  -- Start very small
+            local endScale = token.targetScale or 1.0
+            token.scale = startScale + (endScale - startScale) * progress
+            
+            -- Update token rotation during flight - spin faster while appearing
+            token.rotAngle = token.rotAngle + dt * 10
+            
+            -- Check if animation is complete
+            if token.appearAnimTime >= token.appearAnimDuration then
+                -- Token has reached the pool center - transition to orbiting
+                token.animationCallback()
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
+        elseif token.status == Constants.TokenStatus.ORBITING then
+            -- Token is in second phase of return, animating from pool center to orbit position
+            token.orbitAnimTime = token.orbitAnimTime + dt
+            local progress = math.min(1, token.orbitAnimTime / token.orbitAnimDuration)
+            
+            -- Ease in-out function for smoother animation
+            progress = progress < 0.5 and 4 * progress * progress * progress 
+                        or 1 - math.pow(-2 * progress + 2, 3) / 2
+            
+            -- Calculate current position based on bezier curve for arcing motion
+            local x0 = token.startOrbitX
+            local y0 = token.startOrbitY
+            local x3 = token.targetOrbitX
+            local y3 = token.targetOrbitY
+            
+            -- Control points for bezier (creating an arc)
+            -- Make the arc go outward in the direction of the target
+            local dx = x3 - x0
+            local dy = y3 - y0
+            local dist = math.sqrt(dx*dx + dy*dy)
+            local nx = dx / dist  -- Normalized direction vector
+            local ny = dy / dist
+            
+            -- Control point perpendicular to the path with a height proportional to distance
+            local arcHeight = math.min(dist * 0.4, 35)  -- Cap the arc height
+            local midX = (x0 + x3) / 2 + ny * arcHeight  -- Perpendicular offset
+            local midY = (y0 + y3) / 2 - nx * arcHeight
+            
+            -- Quadratic bezier calculation
+            local t = progress
+            local u = 1 - t
+            token.x = u*u*x0 + 2*u*t*midX + t*t*x3
+            token.y = u*u*y0 + 2*u*t*midY + t*t*y3
+            
+            -- Update token rotation during flight - spin faster but not as fast as returning
+            token.rotAngle = token.rotAngle + dt * 5
+            
+            -- Check if animation is complete
+            if token.orbitAnimTime >= token.orbitAnimDuration then
+                -- Token has reached its orbit position - call the animation callback
+                if token.animationCallback then
+                    token.animationCallback()
+                else
+                    print("[MANAPOOL] WARNING: No animation callback defined for orbiting token")
+                    -- Fallback
+                    token:setState(Constants.TokenStatus.FREE)
+                end
+            end
+            
+            -- Update common pulse
+            if token.pulsePhase and token.pulseSpeed then
+                token.pulsePhase = token.pulsePhase + token.pulseSpeed * dt
+            end
+            
         elseif token.status == Constants.TokenStatus.DISSOLVING then
             -- Update dissolution animation
             token.dissolveTime = token.dissolveTime + dt
@@ -762,6 +1141,47 @@ function ManaPool:drawToken(token)
         return
     end
     
+    -- Draw trailing effect behind the token first (similar to main menu tokens)
+    if self.tokenTrails[token] and #self.tokenTrails[token] > 2 then
+        local colorTable = Constants.getColorForTokenType(token.type)
+        local stepSize = (#self.tokenTrails[token] > 20) and 2 or 1
+        
+        for j = #self.tokenTrails[token], 2, -stepSize do
+            local pos = self.tokenTrails[token][j]
+            local time = love.timer.getTime()
+            local timeDiff = time - pos.time
+            
+            -- Calculate fade based on position in trail (older = more transparent)
+            local trailAlpha = 0.2 * (1 - (j / self.trailLength)^1.5)
+            
+            -- Trail size based on position (older = smaller)
+            local trailScale = 12 * (1 - (j / self.trailLength) * 0.6)
+            
+            -- Adjust trail appearance based on token state
+            if token.status == Constants.TokenStatus.APPEARING then
+                -- Enhanced trail for appearing tokens (brightest)
+                trailAlpha = trailAlpha * 1.8
+                trailScale = trailScale * 1.4
+            elseif token.status == Constants.TokenStatus.RETURNING then
+                -- Enhanced trail for returning tokens
+                trailAlpha = trailAlpha * 1.5
+                trailScale = trailScale * 1.2
+            elseif token.status == Constants.TokenStatus.ORBITING then
+                -- Enhanced trail for orbiting tokens
+                trailAlpha = trailAlpha * 1.3
+                trailScale = trailScale * 1.1
+            elseif token.status ~= Constants.TokenStatus.FREE then
+                -- Reduce trails for other token states
+                trailAlpha = trailAlpha * 0.7
+                trailScale = trailScale * 0.7
+            end
+            
+            -- Draw trail particle
+            love.graphics.setColor(colorTable[1], colorTable[2], colorTable[3], trailAlpha)
+            love.graphics.circle("fill", pos.x, pos.y, trailScale)
+        end
+    end
+    
     -- Draw a larger, more vibrant glow around the token based on its type
     local glowSize = 15 -- Larger glow radius
     local glowIntensity = 0.6  -- Stronger glow intensity
@@ -779,8 +1199,14 @@ function ManaPool:drawToken(token)
             layerIntensity = layerIntensity + transitionBoost * 0.5
         end
         
+        -- Special visual effects for APPEARING tokens
+        if token.status == Constants.TokenStatus.APPEARING then
+            -- Intense, bright glow for appearing tokens
+            local appearProgress = token.appearAnimTime / token.appearAnimDuration
+            layerSize = layerSize * (1.4 + appearProgress * 1.0) -- Extra large glow
+            layerIntensity = layerIntensity + appearProgress * 0.6 -- Very bright
         -- Special visual effects for RETURNING tokens
-        if token.status == Constants.TokenStatus.RETURNING then
+        elseif token.status == Constants.TokenStatus.RETURNING then
             -- Bright, trailing glow for returning tokens
             local returnProgress = token.animTime / token.animDuration
             layerSize = layerSize * (1.2 + returnProgress * 0.8) -- Growing glow
@@ -974,7 +1400,10 @@ function ManaPool:draw()
     end
     
     table.sort(sortedTokens, function(a, b)
-        return a.token.zOrder > b.token.zOrder
+        -- Safe sorting - handle nil zOrder values
+        local zOrderA = a.token.zOrder or 0
+        local zOrderB = b.token.zOrder or 0
+        return zOrderA > zOrderB
     end)
     
     -- Draw tokens in sorted order, skipping those attached to wizards

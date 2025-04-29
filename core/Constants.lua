@@ -34,7 +34,9 @@ Constants.TokenStatus = {
     CHANNELED = "CHANNELED",   -- Being used in a spell slot
     SHIELDING = "SHIELDING",   -- Being used for a shield spell
     LOCKED = "LOCKED",         -- Temporarily unavailable
-    RETURNING = "RETURNING",   -- Animating back to pool (transition state)
+    APPEARING = "APPEARING",   -- Animating into existence from wizard to pool (transition state)
+    RETURNING = "RETURNING",   -- Animating back to pool center (transition state)
+    ORBITING = "ORBITING",     -- Animating from pool center to orbit (transition state)
     DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
     POOLED = "POOLED"          -- Released to the object pool
 }
@@ -86,8 +88,6 @@ function Constants.getColorForTokenType(tokenType)
     elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
     elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
     elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
-    elseif tokenType == "nature" then return Constants.Color.FOREST -- Found in manapool.lua draw
-    elseif tokenType == "force" then return Constants.Color.YELLOW -- Found in manapool.lua draw
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
@@ -98,15 +98,16 @@ end
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
     WARD = "ward",          -- Magical ward (blocks remote spells)
-    FIELD = "field"         -- Field (blocks zone effects)
 }
 
 -- Attack types for spells
+-- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
+-- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
-    PROJECTILE = "projectile",  -- Dodgeable, affected by range
-    REMOTE = "remote",          -- Magic directly affects target
-    ZONE = "zone",              -- Area effect, position-dependent
-    UTILITY = "utility"         -- Non-damaging effect
+    PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
+    REMOTE = "remote",          -- Magic directly affects target, beats Barriers, expensive or slow
+    ZONE = "zone",              -- Magic affects a physical area, beats Wards, position-dependent
+    UTILITY = "utility"         -- Non-damaging effect, can't be blocked
 }
 
 Constants.CastSpeed = {

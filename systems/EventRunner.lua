@@ -575,10 +575,27 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Add tokens to the mana pool
+        -- Create VFX for token conjuration if available
+        if caster.gameState and caster.gameState.vfx then
+            local params = {
+                tokenType = event.tokenType,
+                amount = event.amount
+            }
+            
+            safeCreateVFX(
+                caster.gameState.vfx,
+                "createTokenConjureEffect",
+                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
+                caster.x,
+                caster.y,
+                params
+            )
+        end
+        
+        -- Add tokens to the mana pool with animation
         for i = 1, event.amount do
             local assetPath = "assets/sprites/v2Tokens/" .. event.tokenType .. "-token.png"
-            manaPool:addToken(event.tokenType, assetPath)
+            manaPool:addTokenWithAnimation(event.tokenType, assetPath, caster)
             results.tokensAffected = results.tokensAffected + 1
         end
         
