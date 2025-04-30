@@ -291,16 +291,22 @@ function SustainedSpellManager.update(dt)
                 
                 -- Process generated events with EventRunner
                 if #events > 0 then
-                    -- Get EventRunner
-                    local EventRunner = require("systems.EventRunner")
+                    -- Process events - Use pcall for safety
+                    local result = { eventsProcessed = 0 }
+                    local ok, err = pcall(function()
+                        -- Get EventRunner at last possible moment
+                        local EventRunner = require("systems.EventRunner")
+                        result = EventRunner.processEvents(
+                            events,         -- Events to process
+                            casterWizard,   -- Caster
+                            targetWizard,   -- Target
+                            nil             -- No specific spell slot for effect execution
+                        )
+                    end)
                     
-                    -- Process events
-                    local result = EventRunner.processEvents(
-                        events,         -- Events to process
-                        casterWizard,   -- Caster
-                        targetWizard,   -- Target
-                        nil             -- No specific spell slot for effect execution
-                    )
+                    if not ok then
+                        print("[SustainedManager] ERROR: Failed to process events: " .. tostring(err))
+                    end
                     
                     print(string.format("[SustainedManager] Processed %d trap events", 
                         result and result.eventsProcessed or 0))

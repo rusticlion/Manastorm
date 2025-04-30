@@ -293,7 +293,8 @@ function VisualResolver.test()
 end
 
 -- Execute test function if called directly
-if arg and arg[0]:find("VisualResolver.lua") then
+-- Only run if arg exists and this file is being run directly
+if arg and arg[0] and type(arg[0]) == "string" and arg[0]:find("VisualResolver.lua") then
     VisualResolver.test()
 end
 

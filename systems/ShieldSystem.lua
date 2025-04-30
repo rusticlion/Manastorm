@@ -246,7 +246,7 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     end
 
     -- Get defense type with safety check
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
@@ -327,12 +327,12 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     
     -- Add support for on-block effects
     -- Add safety check for slot.defenseType
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
     print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
     
     if slot.onBlock then
         print("[SHIELD DEBUG] onBlock handler found, executing")
-        local EventRunner = require("systems.EventRunner")
+        -- Avoid importing EventRunner directly to prevent circular dependency
         local ok, blockEvents = pcall(slot.onBlock,
                                       wizard,          -- defender (owner of the shield)
                                       incomingSpell and incomingSpell.caster, -- attacker (may be nil)
@@ -340,6 +340,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
                                       { blockType = defenseType })
         if ok and type(blockEvents) == "table" and #blockEvents > 0 then
             print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            -- Lazy load EventRunner only when needed
+            local EventRunner = require("systems.EventRunner")
             EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
         elseif not ok then
             print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))

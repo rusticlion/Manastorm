@@ -20,6 +20,9 @@ local SpellCompiler = {}
 -- Add the EventRunner module for event-based execution
 local EventRunner = nil -- Lazy-loaded to avoid circular dependencies
 
+-- Keep track of whether we're currently trying to load EventRunner to detect circular dependencies
+local isLoadingEventRunner = false
+
 -- Helper function to merge tables
 local function mergeTables(target, source)
     for k, v in pairs(source) do
@@ -130,7 +133,47 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Method to get the event runner module (lazy loading)
     local function getEventRunner()
         if not EventRunner then
-            EventRunner = require("systems.EventRunner")
+            -- Detect circular dependencies
+            if isLoadingEventRunner then
+                print("CIRCULAR DEPENDENCY DETECTED: Already trying to load EventRunner")
+                -- Return dummy EventRunner to break the circular dependency
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
+            
+            -- Set flag to indicate we're trying to load EventRunner
+            isLoadingEventRunner = true
+            
+            -- Use pcall to avoid crashes from circular dependencies
+            local success, result = pcall(function() 
+                return require("systems.EventRunner") 
+            end)
+            
+            -- Reset flag after load attempt
+            isLoadingEventRunner = false
+            
+            if success then
+                EventRunner = result
+            else
+                print("WARNING: Failed to load EventRunner: " .. tostring(result))
+                -- Return a dummy EventRunner with processEvents to avoid crashes
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("FALLBACK: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("FALLBACK: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
         end
         return EventRunner
     end
@@ -289,7 +332,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         local success, result = pcall(function()
             -- Debug output for events
             if _G.DEBUG_EVENTS then
-                getEventRunner().debugPrintEvents(events)
+                local debugRunner = getEventRunner()
+                if debugRunner and debugRunner.debugPrintEvents then
+                    debugRunner.debugPrintEvents(events)
+                end
             end
             
             -- Process the events to apply them to the game state
@@ -303,7 +349,25 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
                 end
                 
-                eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+                -- Get the EventRunner and process events with additional error handling
+                local runner = getEventRunner()
+                if runner and runner.processEvents then
+                    -- Try to process events, but handle any errors gracefully
+                    local ok, result = pcall(function()
+                        return runner.processEvents(events, caster, target, spellSlot)
+                    end)
+                    
+                    if ok then
+                        eventResults = result
+                    else
+                        print("ERROR processing events: " .. tostring(result))
+                        -- Return a default result structure
+                        eventResults = { eventsProcessed = 0 }
+                    end
+                else
+                    print("WARNING: EventRunner not available for processing")
+                    eventResults = { eventsProcessed = 0 }
+                end
             else
                 print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
             end
