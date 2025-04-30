@@ -188,14 +188,46 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Start game from menu
-    Input.Routes.ui["return"] = function()
+    -- Start Two-Player game from menu
+    Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
+            -- Set the game mode to PvP (no AI)
+            gameState.useAI = false
             -- Reset game state for a fresh start
             gameState.resetGame()
             -- Change to battle state
             gameState.currentState = "BATTLE"
-            print("Starting new game from menu")
+            print("Starting new two-player game")
+            return true
+        end
+        return false
+    end
+    
+    -- Start vs AI game from menu
+    Input.Routes.ui["2"] = function()
+        if gameState.currentState == "MENU" then
+            -- Set the game mode to use AI
+            gameState.useAI = true
+            -- Reset game state for a fresh start
+            gameState.resetGame() -- This will initialize the AI
+            -- Change to battle state
+            gameState.currentState = "BATTLE"
+            print("Starting new game against AI")
+            return true
+        end
+        return false
+    end
+    
+    -- Legacy enter key support (defaults to two-player)
+    Input.Routes.ui["return"] = function()
+        if gameState.currentState == "MENU" then
+            -- Set the game mode to PvP (no AI)
+            gameState.useAI = false
+            -- Reset game state for a fresh start
+            gameState.resetGame()
+            -- Change to battle state
+            gameState.currentState = "BATTLE"
+            print("Starting new two-player game (via Enter key)")
             return true
         end
         return false
@@ -482,7 +514,9 @@ Input.reservedKeys = {
     },
     
     menu = {
-        "Enter", -- Start game from menu
+        "1", -- Start two-player game from menu
+        "2", -- Start vs AI game from menu
+        "Enter", -- Start two-player game from menu (legacy)
         "Escape", -- Quit game from menu
     },
     

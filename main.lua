@@ -13,7 +13,7 @@ local UI = require("ui")
 local VFX = require("vfx")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
-local SpellsModule = require("spells")
+local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
 
@@ -38,6 +38,8 @@ game = {
     spellCompiler = SpellCompiler,
     -- State management
     currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
+    -- Game mode
+    useAI = false,         -- Whether to use AI for the second player
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -259,9 +261,8 @@ function love.load()
     game.sustainedSpellManager = SustainedSpellManager
     print("SustainedSpellManager initialized")
     
-    -- Initialize AI opponent to control the second wizard
-    game.opponentAI = OpponentAI.new(game.wizards[2], game)
-    print("AI opponent initialized")
+    -- We'll initialize the AI opponent when starting a game with AI
+    -- instead of here, so it's not always active
 end
 
 -- Display hotkey help overlay
@@ -395,10 +396,13 @@ function resetGame()
         print("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
-    -- Reinitialize AI opponent if needed
-    if game.opponentAI then
+    -- Reinitialize AI opponent if AI mode is enabled
+    if game.useAI then
         game.opponentAI = OpponentAI.new(game.wizards[2], game)
         print("AI opponent reinitialized")
+    else
+        -- Disable AI if we're switching to PvP mode
+        game.opponentAI = nil
     end
     
     -- Reset health display animation state
@@ -501,8 +505,8 @@ function love.update(dt)
         -- Update animated health displays
         UI.updateHealthDisplays(dt, game.wizards)
         
-        -- Update AI opponent if it exists
-        if game.opponentAI then
+        -- Update AI opponent if it exists and AI mode is enabled
+        if game.useAI and game.opponentAI then
             game.opponentAI:update(dt)
         end
     elseif game.currentState == "GAME_OVER" then
@@ -1102,17 +1106,32 @@ function drawMainMenu()
     local menuSpacing = 50
     local menuScale = 1.5
     
-    -- Start Duel option
-    local startText = "[Enter] Start Duel"
-    local startWidth = game.font:getWidth(startText) * menuScale
+    -- Two-player duel option
+    local twoPlayerText = "[1] Two-Player Duel"
+    local twoPlayerWidth = game.font:getWidth(twoPlayerText) * menuScale
     
-    -- Pulse effect for start option
-    local startPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(0.9, 0.7, 0.1, startPulse)
+    -- Pulse effect for two-player option
+    local twoPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(0.9, 0.7, 0.1, twoPlayerPulse)
     love.graphics.print(
-        startText,
-        screenWidth/2 - startWidth/2,
+        twoPlayerText,
+        screenWidth/2 - twoPlayerWidth/2,
         menuY,
+        0,
+        menuScale, menuScale
+    )
+    
+    -- Single-player vs AI option
+    local aiPlayerText = "[2] Duel Against AI"
+    local aiPlayerWidth = game.font:getWidth(aiPlayerText) * menuScale
+    
+    -- Pulse effect for AI option (slightly out of phase)
+    local aiPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3 + 1)
+    love.graphics.setColor(0.7, 0.9, 0.2, aiPlayerPulse)
+    love.graphics.print(
+        aiPlayerText,
+        screenWidth/2 - aiPlayerWidth/2,
+        menuY + menuSpacing,
         0,
         menuScale, menuScale
     )
@@ -1125,7 +1144,7 @@ function drawMainMenu()
     love.graphics.print(
         quitText,
         screenWidth/2 - quitWidth/2,
-        menuY + menuSpacing,
+        menuY + menuSpacing * 2, -- Move down one more row
         0,
         menuScale, menuScale
     )
