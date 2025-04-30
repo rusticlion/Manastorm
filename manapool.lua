@@ -145,7 +145,7 @@ function TokenMethods:requestDestructionAnimation()
             local event = {
                 type = "EFFECT",
                 source = "token",
-                target = "SELF", -- Not targeting a wizard
+                target = Constants.TargetType.SELF, -- Not targeting a wizard
                 effectType = Constants.VFXType.IMPACT,
                 duration = 0.7,
                 vfxParams = {
@@ -923,7 +923,7 @@ function ManaPool:update(dt)
                     -- Calculate position using elliptical projection
                     -- Apply the NEAR/FAR offset to the target position
                     local xOffset = 0
-                    local isNear = wizard.gameState and wizard.gameState.rangeState == "NEAR"
+                    local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
                     
                     -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
                     if wizard.name == "Ashgar" then -- Player 1 (left side)
@@ -1511,8 +1511,8 @@ function ManaPool:returnToken(tokenIndex)
             
             -- Ensure token is in a valid state - convert any state to valid transition state
             local originalState = token.state
-            if token.state == "SHIELDING" or token.state == "CHANNELED" then
-            elseif token.state ~= "FREE" then
+            if token.state == Constants.TokenState.SHIELDING or token.state == Constants.TokenState.CHANNELED then
+            elseif token.state ~= Constants.TokenState.FREE then
                 print("[MANAPOOL] WARNING: Returning token " .. tokenIndex .. " from unexpected state: " .. 
                      (token.state or "nil"))
             end

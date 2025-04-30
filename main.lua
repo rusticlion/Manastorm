@@ -204,13 +204,13 @@ function love.load()
         id = "customMoonWard",
         name = "Moon Ward",
         description = "A mystical ward that blocks projectiles and remotes",
-        attackType = "utility",
+        attackType = Constants.AttackType.UTILITY,
         castTime = 4.5,
-        cost = {"moon", "moon"},
+        cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
         keywords = {
             block = {
-                type = "ward",
-                blocks = {"projectile", "remote"},
+                type = Constants.ShieldType.WARD,
+                blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
                 manaLinked = true
             }
         },
@@ -224,13 +224,13 @@ function love.load()
         id = "customMirrorShield",
         name = "Mirror Shield",
         description = "A reflective barrier that returns damage to attackers",
-        attackType = "utility",
+        attackType = Constants.AttackType.UTILITY,
         castTime = 5.0,
-        cost = {"moon", "moon", "star"},
+        cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.STAR},
         keywords = {
             block = {
-                type = "barrier",
-                blocks = {"projectile", "zone"},
+                type = Constants.ShieldType.BARRIER,
+                blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
                 manaLinked = false,
                 reflect = true,
                 hitPoints = 3
@@ -341,7 +341,7 @@ function resetGame()
     -- Reset wizards
     for _, wizard in ipairs(game.wizards) do
         wizard.health = 100
-        wizard.elevation = "GROUNDED"
+        wizard.elevation = Constants.ElevationState.GROUNDED
         wizard.elevationTimer = 0
         wizard.stunTimer = 0
         
@@ -779,7 +779,7 @@ function drawRangeIndicator()
     -- The wizard positions themselves will communicate NEAR/FAR state
     
     -- Different visual style based on range state
-    if game.rangeState == "NEAR" then
+    if game.rangeState == Constants.RangeState.NEAR then
         -- For NEAR state, draw a more vibrant, energetic line
         love.graphics.setColor(0.5, 0.5, 0.9, 0.4)
         

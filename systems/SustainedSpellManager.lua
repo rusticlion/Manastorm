@@ -1,6 +1,7 @@
 -- SustainedSpellManager.lua
 -- Centralized management system for sustained spells (shields, traps, etc.)
 
+local Constants = require("core.Constants")
 local SustainedSpellManager = {}
 
 -- Track all active sustained spells
@@ -39,7 +40,7 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     local uniqueId = generateUniqueId(wizard, slotIndex)
     
     -- Determine the type of sustained spell
-    local spellType = "generic"
+    local spellType = Constants.DamageType.GENERIC
     if spellData.isShield then
         spellType = "shield"
     elseif spellData.trapTrigger then
@@ -156,7 +157,7 @@ function SustainedSpellManager.update(dt)
                 end
                 
                 -- Check while_elevated condition
-                if condition == "while_elevated" and entry.wizard.elevation ~= "AERIAL" then
+                if condition == "while_elevated" and entry.wizard.elevation ~= Constants.ElevationState.AERIAL then
                     conditionMet = true
                     print(string.format("[SustainedManager] Spell expired (elevation condition) for %s slot %d", 
                         entry.wizard.name, entry.slotIndex))
@@ -194,14 +195,14 @@ function SustainedSpellManager.update(dt)
                 local conditionMet = false
                 
                 -- Check elevation trigger condition
-                if condition == "on_opponent_elevate" and targetWizard.elevation == "AERIAL" then
+                if condition == "on_opponent_elevate" and targetWizard.elevation == Constants.ElevationState.AERIAL then
                     -- Enhancement idea: Track state changes rather than continuous state
                     -- For now, trigger continuously while the opponent is elevated
                     conditionMet = true
                     print(string.format("[SustainedManager] Trap triggered by opponent elevation: %s", targetWizard.elevation))
                 end
 
-                if condition == "on_opponent_far" and targetWizard.rangeState == "FAR" then
+                if condition == "on_opponent_far" and targetWizard.rangeState == Constants.RangeState.FAR then
                     conditionMet = true
                     print(string.format("[SustainedManager] Trap triggered by opponent being far"))
                 end

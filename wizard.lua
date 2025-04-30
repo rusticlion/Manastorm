@@ -58,7 +58,7 @@ function Wizard.new(name, x, y, color)
     
     -- Wizard state
     self.health = 100
-    self.elevation = "GROUNDED"  -- GROUNDED or AERIAL
+    self.elevation = Constants.ElevationState.GROUNDED  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
     self.stunTimer = 0           -- Stun timer in seconds
     
@@ -579,7 +579,7 @@ function Wizard:queueSpell(spell)
                             if token.setState then
                                 token:setState(Constants.TokenStatus.CHANNELED)
                             else
-                                token.state = "CHANNELED"
+                                token.state = Constants.TokenState.CHANNELED
                             end
                             
                             -- Store original position for animation
@@ -782,7 +782,7 @@ function Wizard:canPayManaCost(cost)
         elseif type(component) == "number" then
             -- Old schema numeric: 1, 2, 3 means ANY token of that count
             -- Use "any" for consistency with string "any"
-            standardizedCost["any"] = (standardizedCost["any"] or 0) + component
+            standardizedCost[Constants.TokenType.ANY] = (standardizedCost[Constants.TokenType.ANY] or 0) + component
         else
             -- Unknown cost component format
             print("Unknown cost component format: " .. type(component))
@@ -797,11 +797,11 @@ function Wizard:canPayManaCost(cost)
         local count = 0
         
         -- Special case for "any" token type
-        if tokenType == "any" or tokenType == "ANY" then
+        if tokenType == Constants.TokenType.ANY or tokenType == "ANY" then
             -- Go through all tokens in the mana pool
             for i, token in ipairs(self.manaPool.tokens) do
                 -- Skip already reserved tokens
-                if not reservedIndices[i] and token.state == "FREE" then
+                if not reservedIndices[i] and token.state == Constants.TokenState.FREE then
                     -- Any free token will work
                     count = count + 1
                     
@@ -822,7 +822,7 @@ function Wizard:canPayManaCost(cost)
                 -- Skip already reserved tokens
                 if not reservedIndices[i] then
                     -- Match either by specific type or any type if no type specified
-                    if (tokenType == nil and token.state == "FREE") or (token.type == tokenType and token.state == "FREE") then
+                    if (tokenType == nil and token.state == Constants.TokenState.FREE) or (token.type == tokenType and token.state == Constants.TokenState.FREE) then
                         -- This token matches our requirements
                         count = count + 1
                         
@@ -845,7 +845,7 @@ function Wizard:canPayManaCost(cost)
     
     -- Check each token type in the standardized cost
     for tokenType, amount in pairs(standardizedCost) do
-        if tokenType == "random" or tokenType == "any" or tokenType == "ANY" then
+        if tokenType == Constants.TokenType.RANDOM or tokenType == Constants.TokenType.ANY or tokenType == "ANY" then
             -- Random/any token type (any token will do)
             local success = reserveToken(tokenType, amount)
             if not success then
@@ -913,7 +913,7 @@ function Wizard:castSpell(spellSlot)
     end
     
     -- Get attack type for shield checking
-    local attackType = spellToUse.attackType or "projectile"
+    local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE
     
     -- Check if the spell can be blocked by any of the target's shields
     -- This now happens BEFORE spell execution per ticket PROG-20
@@ -1020,7 +1020,7 @@ function Wizard:castSpell(spellSlot)
             -- Apply any elevation change specified by the shield
             if shieldResult.shieldCreated and effect.shieldParams.setElevation then
                 self.elevation = effect.shieldParams.setElevation
-                if effect.shieldParams.elevationDuration and effect.shieldParams.setElevation == "AERIAL" then
+                if effect.shieldParams.elevationDuration and effect.shieldParams.setElevation == Constants.ElevationState.AERIAL then
                     self.elevationTimer = effect.shieldParams.elevationDuration
                 end
                 print(self.name .. " moved to " .. self.elevation .. " elevation by shield spell")

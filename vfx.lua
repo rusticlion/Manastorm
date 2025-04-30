@@ -128,7 +128,7 @@ function VFX.init()
     VFX.effects = {
         -- Base templates for the rules-driven VFX system
         proj_base = {
-            type = "projectile",
+            type = Constants.AttackType.PROJECTILE,
             duration = 1.0,
             particleCount = 30,           -- Increased from 20 for richer visuals
             startScale = 0.5,
@@ -279,7 +279,7 @@ function VFX.init()
 
         -- Firebolt effect - showcasing the improved projectile system
         firebolt = {
-            type = "projectile",
+            type = Constants.AttackType.PROJECTILE,
             duration = 0.75,               -- Reduced from 1.0 for faster projectile
             particleCount = 40,            -- Good particle count for rich visuals
             startScale = 0.5,
@@ -362,7 +362,7 @@ function VFX.init()
         
         -- Tidal Force effect
         tidal_force = {
-            type = "projectile",
+            type = Constants.AttackType.PROJECTILE,
             duration = 1.2,
             particleCount = 30,
             startScale = 0.4,
@@ -375,7 +375,7 @@ function VFX.init()
         
         -- Lunar Disjunction effect
         lunardisjunction = {
-            type = "projectile",
+            type = Constants.AttackType.PROJECTILE,
             duration = 1.0,
             particleCount = 25,
             startScale = 0.3,
@@ -952,7 +952,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     else
         -- Backward compatibility for effects without templates that may need runes
         -- (e.g., mistveil, effects with "ward" in the name)
-        if effectNameStr:lower():find("ward") or effectNameStr:lower() == "mistveil" then
+        if effectNameStr:lower():find(Constants.ShieldType.WARD) or effectNameStr:lower() == "mistveil" then
             -- Ensure runes are loaded for ward-related effects
             local runeAssets = VFX.getAsset("runes")
             if not runeAssets or #runeAssets == 0 then
@@ -1067,7 +1067,7 @@ end
 -- Initialize particles based on effect type
 function VFX.initializeParticles(effect)
     -- Different initialization based on effect type
-    if effect.type == "projectile" then
+    if effect.type == Constants.AttackType.PROJECTILE then
         -- For projectiles, create core and trailing particles
         -- Calculate base trajectory properties
         local dirX = effect.targetX - effect.sourceX
@@ -1343,7 +1343,7 @@ function VFX.update(dt)
         effect.progress = math.min(effect.timer / effect.duration, 1.0)
         
         -- Update effect based on type
-        if effect.type == "projectile" then
+        if effect.type == Constants.AttackType.PROJECTILE then
             VFX.updateProjectile(effect, dt)
         elseif effect.type == "impact" then
             VFX.updateImpact(effect, dt)
@@ -1475,9 +1475,9 @@ function VFX.updateProjectile(effect, dt)
             
             -- Get shield color based on type
             local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow for barriers
-            if effect.options.shieldType == "ward" then
+            if effect.options.shieldType == Constants.ShieldType.WARD then
                 shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
-            elseif effect.options.shieldType == "field" then
+            elseif effect.options.shieldType == Constants.ShieldType.FIELD then
                 shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
             elseif effect.options.shieldColor then
                 shieldColor = effect.options.shieldColor
@@ -2003,7 +2003,7 @@ end
 -- Draw all active effects
 function VFX.draw()
     for _, effect in ipairs(VFX.activeEffects) do
-        if effect.type == "projectile" then
+        if effect.type == Constants.AttackType.PROJECTILE then
             VFX.drawProjectile(effect)
         elseif effect.type == "impact" then
             VFX.drawImpact(effect)
@@ -2655,7 +2655,7 @@ function VFX.createSpellEffect(spell, caster, target)
         return VFX.createEffect(Constants.VFXType.FORCE_BLAST, sourceX, sourceY - 15, targetX, targetY - 15)
     else
         -- Create a generic effect based on spell type or mana cost
-        if spell.spellType == "projectile" then
+        if spell.spellType == Constants.AttackType.PROJECTILE then
             return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
         else
             -- Look at spell cost to determine effect type
@@ -2663,8 +2663,8 @@ function VFX.createSpellEffect(spell, caster, target)
             local hasMoonMana = false
             
             for _, cost in ipairs(spell.cost or {}) do
-                if cost.type == "fire" then hasFireMana = true end
-                if cost.type == "moon" then hasMoonMana = true end
+                if cost.type == Constants.TokenType.FIRE then hasFireMana = true end
+                if cost.type == Constants.TokenType.MOON then hasMoonMana = true end
             end
             
             if hasFireMana then

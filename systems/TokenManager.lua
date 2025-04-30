@@ -58,7 +58,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                 -- Handle "fire" format (single token) or "any" special case
                 local tokenType = component
                 
-                if tokenType == "any" or tokenType == "ANY" then
+                if tokenType == Constants.TokenType.ANY then
                     -- Special case for "any" - try to find any token type
                     local foundAny = false
                     
@@ -85,7 +85,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                     end
                     
                     if not foundAny then
-                        print("[TOKEN MANAGER] Error: Could not find any free token for 'any' cost")
+                        print("[TOKEN MANAGER] Error: Could not find any free token for '" .. Constants.TokenType.ANY .. "' cost")
                         return false, {}
                     end
                 else
@@ -146,11 +146,11 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
         
         -- Check if a specific mana cost can be paid from available tokens
         for tokenType, count in pairs(manaCost) do
-            -- Skip special types like "description" or "zone"
-            if tokenType ~= "description" and tokenType ~= "zone" and type(count) == "number" then
+            -- Skip special metadata fields like description or zone
+            if tokenType ~= Constants.SpellMetadata.DESCRIPTION and tokenType ~= Constants.SpellMetadata.ZONE and type(count) == "number" then
                 for i = 1, count do
                     -- For "random" token type, pick any available token
-                    if tokenType == "random" or tokenType == "any" then
+                    if tokenType == Constants.TokenType.RANDOM or tokenType == Constants.TokenType.ANY then
                         local foundRandom = false
                         
                         -- Get all available token types
@@ -176,7 +176,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
                         end
                         
                         if not foundRandom then
-                            print("[TOKEN MANAGER] Error: Could not find any free token for 'random' cost")
+                            print("[TOKEN MANAGER] Error: Could not find any free token for '" .. Constants.TokenType.RANDOM .. "' cost")
                             return false, {}
                         end
                     else
@@ -453,17 +453,17 @@ function TokenManager.checkFizzleCondition(wizard, slotIndex, removedToken)
         
         -- Check against the required mana cost
         for tokenType, count in pairs(slot.spell.manaCost) do
-            -- Skip special fields like "description"
-            if tokenType ~= "description" and tokenType ~= "zone" then
+            -- Skip special metadata fields
+            if tokenType ~= Constants.SpellMetadata.DESCRIPTION and tokenType ~= Constants.SpellMetadata.ZONE then
                 -- Handle random token type
-                if tokenType == "random" then
+                if tokenType == Constants.TokenType.RANDOM then
                     local totalRemaining = 0
                     for _, typeCount in pairs(remainingTokensByType) do
                         totalRemaining = totalRemaining + typeCount
                     end
                     
                     if totalRemaining < count then
-                        print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough tokens for 'random' cost")
+                        print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough tokens for '" .. Constants.TokenType.RANDOM .. "' cost")
                         wizard:resetSpellSlot(slotIndex)
                         return true
                     end

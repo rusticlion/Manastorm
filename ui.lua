@@ -334,9 +334,9 @@ function UI.drawSpellInfo(wizards)
         local isNewFormat = type(cost[1]) == "string"
         
         if isNewFormat then
-            -- Collect each token individually, separating "any" tokens
+            -- Collect each token individually, separating ANY tokens
             for _, tokenType in ipairs(cost) do
-                if tokenType:lower() == "any" then
+                if tokenType:lower() == Constants.TokenType.ANY then
                     table.insert(anyTokens, tokenType)
                 else
                     table.insert(regularTokens, tokenType)
@@ -352,7 +352,7 @@ function UI.drawSpellInfo(wizards)
                     typeText = table.concat(typeText, "/")
                 end
                 
-                if typeText:lower() == "any" then
+                if typeText:lower() == Constants.TokenType.ANY then
                     isAnyToken = true
                 end
                 
@@ -407,9 +407,9 @@ function UI.drawSpellbookModals(wizards)
         local isNewFormat = type(cost[1]) == "string"
         
         if isNewFormat then
-            -- Collect each token individually, separating "any" tokens
+            -- Collect each token individually, separating ANY tokens
             for _, tokenType in ipairs(cost) do
-                if tokenType:lower() == "any" then
+                if tokenType:lower() == Constants.TokenType.ANY then
                     table.insert(anyTokens, tokenType)
                 else
                     table.insert(regularTokens, tokenType)
@@ -425,7 +425,7 @@ function UI.drawSpellbookModals(wizards)
                     typeText = table.concat(typeText, "/")
                 end
                 
-                if typeText:lower() == "any" then
+                if typeText:lower() == Constants.TokenType.ANY then
                     isAnyToken = true
                 end
                 

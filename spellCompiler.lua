@@ -221,7 +221,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     
                     -- Debug info about shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
-                        local defenseType = behaviorResults.shieldParams.defenseType or "barrier"
+                        local defenseType = behaviorResults.shieldParams.defenseType or Constants.ShieldType.BARRIER
                         print("[COMPILER DEBUG] Shield type: " .. defenseType)
                     end
                 end
@@ -360,7 +360,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     
                     -- Debug info about shield parameters
                     local shieldParams = localResults.shieldParams or {}
-                    local defenseType = shieldParams.defenseType or "barrier"
+                    local defenseType = shieldParams.defenseType or Constants.ShieldType.BARRIER
                     print("[COMPILER DEBUG] Shield type from generateEvents: " .. defenseType)
                     
                     -- Check if onBlock is in the params (just for debug info)

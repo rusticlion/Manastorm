@@ -93,8 +93,10 @@ function WizardVisuals.drawStatusEffects(wizard)
     -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
     local x = (wizard.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
     
+    local Constants = require("core.Constants")
+    
     -- Draw AERIAL duration if active
-    if wizard.elevation == "AERIAL" and wizard.elevationTimer > 0 then
+    if wizard.elevation == Constants.ElevationState.AERIAL and wizard.elevationTimer > 0 then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
         
@@ -116,7 +118,7 @@ function WizardVisuals.drawStatusEffects(wizard)
         
         -- Draw label
         love.graphics.setColor(1, 1, 1, 0.9)
-        love.graphics.print("AERIAL", x - 25, y - 2)
+        love.graphics.print(Constants.ElevationState.AERIAL, x - 25, y - 2)
         
         -- Add some particle effects for AERIAL state
         if wizard.gameState and wizard.gameState.vfx and math.random() < 0.02 then
@@ -381,9 +383,8 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                         local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
                         local alpha = 0.7 + pulseAmount * 0.3 -- Pulsing alpha
 
-                        -- Fix the comparison to check string values directly
-                        -- This works regardless of whether Constants were used or string literals
-                        if shieldType == "barrier" then
+                        -- Compare against Constants instead of string literals
+                        if shieldType == Constants.ShieldType.BARRIER then
                             -- Draw the base ellipse for the barrier
                             shouldDrawOrbit = true 
                             orbitColor = {
@@ -394,7 +395,7 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             }
                             -- The vertical lines will be drawn AFTER the main orbit below
                         
-                        elseif shieldType == "ward" then
+                        elseif shieldType == Constants.ShieldType.WARD then
                             shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
                             local numRunes = 5
                             local runeYOffset = 0 -- Position runes above the orbit
@@ -523,7 +524,7 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             -- NEW: Draw Barrier vertical cylinder lines if applicable
             if slot.active and slot.isShield then
                  -- Use the slot's defenseType value directly rather than trying to check the spell
-                 if slot.defenseType == "barrier" then
+                 if slot.defenseType == Constants.ShieldType.BARRIER then
                     -- Recalculate color/alpha or retrieve if stored (recalculating is safer here)
                     local shieldColor = ShieldSystem.getShieldColor(slot.defenseType) 
                     local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
@@ -582,12 +583,12 @@ function WizardVisuals.drawWizard(wizard)
     local targetXOffset = 0
     
     -- Vertical adjustment for AERIAL state - increased for more dramatic effect
-    if wizard.elevation == "AERIAL" then
+    if wizard.elevation == Constants.ElevationState.AERIAL then
         targetYOffset = -50  -- Lift the wizard up more significantly when AERIAL
     end
     
     -- Horizontal adjustment for NEAR/FAR state
-    local isNear = wizard.gameState and wizard.gameState.rangeState == "NEAR"
+    local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
     local centerX = love.graphics.getWidth() / 2
     
     -- Push wizards closer to center in NEAR mode, further in FAR mode
@@ -635,7 +636,7 @@ function WizardVisuals.drawWizard(wizard)
     end
     
     -- Draw elevation effect (GROUNDED only - AERIAL clouds moved after wizard)
-    if wizard.elevation == "GROUNDED" then
+    if wizard.elevation == Constants.ElevationState.GROUNDED then
         -- Draw ground indicator below wizard, applying the x offset
         love.graphics.setColor(0.6, 0.6, 0.6, 0.5)
         love.graphics.ellipse("fill", wizard.x + xOffset, wizard.y + 40, 40, 10)  -- Simple shadow/ground indicator
@@ -654,7 +655,7 @@ function WizardVisuals.drawWizard(wizard)
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
         
         -- Draw shadow first (when not AERIAL)
-        if wizard.elevation == "GROUNDED" then
+        if wizard.elevation == Constants.ElevationState.GROUNDED then
             love.graphics.setColor(0, 0, 0, 0.2)
             love.graphics.draw(
                 wizard.sprite, 
@@ -682,7 +683,7 @@ function WizardVisuals.drawWizard(wizard)
         )
 
         -- Draw AERIAL cloud effect after wizard for proper layering
-        if wizard.elevation == "AERIAL" then
+        if wizard.elevation == Constants.ElevationState.AERIAL then
             love.graphics.setColor(0.8, 0.8, 1.0, 0.3)
             
             -- Draw more numerous, smaller animated cloud particles

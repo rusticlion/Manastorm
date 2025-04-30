@@ -22,6 +22,12 @@ Each player drafts a small set of spells from a shared pool.
 
 These spells define their available actions for the match.
 
+OR
+
+Character Select Phase (Pre-battle)
+
+Each player selects a character with a unique spellbook from a fighting-game style roster.
+
 Combat Phase (Real-Time)
 
 Players queue spells from their loadout (max 3 at a time).

@@ -1,17 +1,18 @@
 -- ShieldSystem.lua
 -- Centralized shield management system for Manastorm
 
+local Constants = require("core.Constants")
 local ShieldSystem = {}
 
 -- Get appropriate shield color based on defense type
 function ShieldSystem.getShieldColor(defenseType)
     local shieldColor = {0.8, 0.8, 0.8}  -- Default gray
     
-    if defenseType == "barrier" then
+    if defenseType == Constants.ShieldType.BARRIER then
         shieldColor = {1.0, 1.0, 0.3}    -- Yellow for barriers
-    elseif defenseType == "ward" then
+    elseif defenseType == Constants.ShieldType.WARD then
         shieldColor = {0.3, 0.3, 1.0}    -- Blue for wards
-    elseif defenseType == "field" then
+    elseif defenseType == Constants.ShieldType.FIELD then
         shieldColor = {0.3, 1.0, 0.3}    -- Green for fields
     end
     
@@ -38,7 +39,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     slot.isShield = true
     
     -- Look for shield type in both parameters for compatibility
-    slot.defenseType = blockParams.defenseType or blockParams.type or "barrier"
+    slot.defenseType = blockParams.defenseType or blockParams.type or Constants.ShieldType.BARRIER
     
     -- Store the original spell completion
     slot.active = true
@@ -58,7 +59,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
-    local blockTypes = blockParams.blocks or {"projectile"}
+    local blockTypes = blockParams.blocks or {Constants.AttackType.PROJECTILE}
     for _, attackType in ipairs(blockTypes) do
         slot.blocksAttackTypes[attackType] = true
     end
@@ -100,7 +101,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
         local shieldEvent = {
             type = "EFFECT",
             source = "shield",
-            target = "SELF",
+            target = Constants.TargetType.SELF,
             effectType = Constants.VFXType.SHIELD,
             duration = 1.0,
             vfxParams = {
@@ -149,7 +150,7 @@ function ShieldSystem.checkShieldBlock(spell, attackType, defender, attacker)
     end
     
     -- Utility spells can't be blocked
-    if attackType == "utility" then
+    if attackType == Constants.AttackType.UTILITY then
         print("[SHIELD DEBUG] checkShieldBlock early exit - utility spell can't be blocked")
         return result
     end
@@ -390,11 +391,11 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo, spellInfo)
     
     -- Get shield color based on type
     local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
-    if blockInfo.blockType == "barrier" then
+    if blockInfo.blockType == Constants.ShieldType.BARRIER then
         shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
-    elseif blockInfo.blockType == "ward" then
+    elseif blockInfo.blockType == Constants.ShieldType.WARD then
         shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
-    elseif blockInfo.blockType == "field" then
+    elseif blockInfo.blockType == Constants.ShieldType.FIELD then
         shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
     end
     
@@ -403,10 +404,10 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo, spellInfo)
     
     -- Create projectile effect with block point info
     -- This allows the projectile to travel partway before being blocked
-    local spellAttackType = spellInfo and spellInfo.attackType or "projectile"
-    local spellAffinity = spellInfo and spellInfo.affinity or "fire"
+    local spellAttackType = spellInfo and spellInfo.attackType or Constants.AttackType.PROJECTILE
+    local spellAffinity = spellInfo and spellInfo.affinity or Constants.TokenType.FIRE
     
-    if spellAttackType == "projectile" then
+    if spellAttackType == Constants.AttackType.PROJECTILE then
         table.insert(events, {
             type = "EFFECT",
             source = Constants.TargetType.CASTER,  -- caster is source of projectile
@@ -449,7 +450,7 @@ function ShieldSystem.createBlockVFX(caster, target, blockInfo, spellInfo)
         source = Constants.TargetType.CASTER, -- caster is source
         target = Constants.TargetType.CASTER, -- and target for feedback
         effectType = Constants.VFXType.IMPACT_BASE,
-        affinity = "fire",  -- Red feedback for blocked spell
+        affinity = Constants.TokenType.FIRE,  -- Red feedback for blocked spell
         tags = { SHIELD_HIT = true },
         scale = 0.7,        -- Smaller feedback effect
         vfxParams = {

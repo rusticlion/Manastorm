@@ -123,11 +123,11 @@ function VisualResolver.pick(event)
         -- Determine shield color based on shield type
         local color = DEFAULT_COLOR
         
-        if event.shieldType == "barrier" then
+        if event.shieldType == Constants.ShieldType.BARRIER then
             color = {1.0, 1.0, 0.3, 0.8}  -- Yellow for barriers
-        elseif event.shieldType == "ward" then 
+        elseif event.shieldType == Constants.ShieldType.WARD then 
             color = {0.3, 0.3, 1.0, 0.8}  -- Blue for wards
-        elseif event.shieldType == "field" then
+        elseif event.shieldType == Constants.ShieldType.FIELD then
             color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
         end
         
@@ -236,44 +236,44 @@ function VisualResolver.test()
         -- Test 1: Fire projectile spell
         {
             type = "DAMAGE",
-            affinity = "fire",
-            attackType = "projectile",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
             tags = { DAMAGE = true },
-            rangeBand = "NEAR",
-            elevation = "GROUNDED"
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         },
         -- Test 2: Water remote spell with higher cost
         {
             type = "DAMAGE",
-            affinity = "water",
-            attackType = "remote",
+            affinity = Constants.TokenType.WATER,
+            attackType = Constants.AttackType.REMOTE,
             manaCost = 4,
             tags = { DAMAGE = true },
-            rangeBand = "FAR",
-            elevation = "AERIAL"
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
         },
         -- Test 3: Moon-based shield
         {
             type = "CREATE_SHIELD",
-            affinity = "moon",
-            attackType = "utility",
+            affinity = Constants.TokenType.MOON,
+            attackType = Constants.AttackType.UTILITY,
             manaCost = 3,
             tags = { SHIELD = true, DEFENSE = true },
-            rangeBand = "NEAR",
-            elevation = "GROUNDED"
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         },
         -- Test 4: Manually specified effect (vfx keyword)
         {
             type = "EFFECT",
-            effectType = "firebolt",
+            effectType = Constants.VFXType.FIREBOLT,
             manualVfx = true,
-            affinity = "fire",
-            attackType = "projectile",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
             tags = { VFX = true },
-            rangeBand = "NEAR",
-            elevation = "GROUNDED"
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
@@ -290,6 +290,11 @@ function VisualResolver.test()
         print("Elevation: " .. (opts.elevation or "none"))
     end
     print("\n================================")
+end
+
+-- Execute test function if called directly
+if arg and arg[0]:find("VisualResolver.lua") then
+    VisualResolver.test()
 end
 
 return VisualResolver

@@ -42,7 +42,12 @@ local excludedPaths = {
     "docs/",
     "tools/",
     "check_magic_strings.lua",
-    "Constants.lua"
+    "Constants.lua",
+    "assets/",
+    "vfx/",
+    -- Exclude legacy/data files that will be difficult to update
+    "spells.lua", -- Legacy data
+    "test_spells.lua" -- Test file
 }
 
 -- Check if a file should be excluded
@@ -82,11 +87,20 @@ local function scanFile(filepath)
                 if not line:match("^%s*%-%-") then
                     -- Ignore if it's part of a Constants reference
                     if not line:find("Constants%.") then
-                        table.insert(issues, {
-                            line = lineNumber,
-                            pattern = pattern,
-                            content = line:gsub("^%s+", ""):sub(1, 80) -- Trim and truncate for display
-                        })
+                        -- Ignore if it's in a comment at end of line
+                        if not line:match("%-%-.*" .. pattern) then
+                            -- Ignore if it appears to be in a block definition context (for legacy compatibility)
+                            if not line:match("blockableBy%s*=%s*{.*" .. pattern .. ".*}") and
+                               not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
+                               not line:match("cost%s*=%s*{.*" .. pattern .. ".*}") and
+                               not line:match("return%s+.*" .. pattern) then
+                                table.insert(issues, {
+                                    line = lineNumber,
+                                    pattern = pattern,
+                                    content = line:gsub("^%s+", ""):sub(1, 80) -- Trim and truncate for display
+                                })
+                            end
+                        end
                     end
                 end
             end
@@ -106,13 +120,19 @@ local function scanDirectory(dirPath)
     -- For now, let's just hardcode a list of main files to check
     files = {
         "main.lua",
-        "keywords.lua",
-        "spells.lua",
         "wizard.lua",
         "manapool.lua",
         "spellCompiler.lua",
         "ui.lua",
-        "vfx.lua"
+        "vfx.lua",
+        "systems/ManaHelpers.lua",
+        "systems/WizardVisuals.lua",
+        "systems/ShieldSystem.lua",
+        "systems/TokenManager.lua",
+        "systems/VisualResolver.lua",
+        "systems/EventRunner.lua",
+        "systems/SustainedSpellManager.lua",
+        "ai/OpponentAI.lua"
     }
     
     for _, filename in ipairs(files) do

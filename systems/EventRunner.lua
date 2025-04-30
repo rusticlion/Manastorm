@@ -472,7 +472,7 @@ EventRunner.EVENT_HANDLERS = {
                 duration = event.duration,
                 expireAction = function()
                     -- When effect expires, return to default elevation (usually GROUNDED)
-                    targetWizard.elevation = "GROUNDED"
+                    targetWizard.elevation = Constants.ElevationState.GROUNDED
                 end
             }
         end
@@ -492,9 +492,9 @@ EventRunner.EVENT_HANDLERS = {
                 effectOverride = (event.vfx and type(event.vfx) == "string") and event.vfx or nil,
                 -- Provide elevation metadata for the resolver
                 affinity = event.affinity, -- Use affinity from original event
-                attackType = "utility",    -- Elevation is a utility spell type
+                attackType = Constants.AttackType.UTILITY,    -- Elevation is a utility spell type
                 manaCost = event.manaCost or 1,
-                tags = { MOVEMENT = true, [event.elevation == "AERIAL" and "ELEVATE" or "GROUND"] = true },
+                tags = { MOVEMENT = true, [event.elevation == Constants.ElevationState.AERIAL and "ELEVATE" or "GROUND"] = true },
                 rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
                 duration = 1.0
@@ -543,7 +543,7 @@ EventRunner.EVENT_HANDLERS = {
                 effectOverride = Constants.VFXType.RANGE_CHANGE, -- Use explicit override for this special effect
                 -- Provide relevant metadata for the resolver
                 affinity = event.affinity,
-                attackType = "utility",
+                attackType = Constants.AttackType.UTILITY,
                 manaCost = 1,
                 tags = { MOVEMENT = true },
                 rangeBand = event.position, -- The new range state
@@ -635,7 +635,7 @@ EventRunner.EVENT_HANDLERS = {
         -- Logic to find and mark tokens for removal
         for i, token in ipairs(manaPool.tokens) do
             local isFree = (token.status == Constants.TokenStatus.FREE)
-            local matchesType = (event.tokenType == "any" or token.type == event.tokenType)
+            local matchesType = (event.tokenType == Constants.TokenType.ANY or token.type == event.tokenType)
             
             if isFree and matchesType then
                 -- Request destruction animation using state machine
@@ -662,8 +662,8 @@ EventRunner.EVENT_HANDLERS = {
         local tokensShifted = 0
         
         -- Handle random token shifting
-        if event.tokenType == "random" then
-            local tokenTypes = {"fire", "water", "salt", "sun", "moon", "star", "life", "mind", "void"}
+        if event.tokenType == Constants.TokenType.RANDOM then
+            local tokenTypes = Constants.getAllTokenTypes()
             
             -- Find FREE tokens and shift them to random types
             for i, token in ipairs(manaPool.tokens) do
@@ -1014,7 +1014,7 @@ EventRunner.EVENT_HANDLERS = {
 
         -- Shift the REMOVED token object's type and request return animation
         if removedTokenObject then
-            local newType = event.newType or "fire"
+            local newType = event.newType or Constants.TokenType.FIRE
             local oldType = removedTokenObject.type
             removedTokenObject.type = newType
             removedTokenObject.image = love.graphics.newImage("assets/sprites/v2Tokens/" .. newType .. "-token.png")
@@ -1119,7 +1119,7 @@ EventRunner.EVENT_HANDLERS = {
         if event.target == "self_slot" then
             wizard = caster
             slotIndex = event.slotIndex or spellSlot
-        elseif event.target == "SELF" or event.target == "self" then
+        elseif event.target == Constants.TargetType.SELF or event.target == "self" then
             -- Handle case when target is just "SELF" (shield spells often use this)
             wizard = caster
             slotIndex = spellSlot
@@ -1148,9 +1148,9 @@ EventRunner.EVENT_HANDLERS = {
         -- Create shield parameters from the event
         local shieldParams = {
             createShield = true,
-            defenseType = event.defenseType or "barrier",
-            type = event.defenseType or "barrier", -- Add type as well for compatibility
-            blocksAttackTypes = event.blocksAttackTypes or {"projectile"},
+            defenseType = event.defenseType or Constants.ShieldType.BARRIER,
+            type = event.defenseType or Constants.ShieldType.BARRIER, -- Add type as well for compatibility
+            blocksAttackTypes = event.blocksAttackTypes or {Constants.AttackType.PROJECTILE},
             reflect = event.reflect or false,
             onBlock = event.onBlock or nil
         }
@@ -1222,7 +1222,7 @@ EventRunner.EVENT_HANDLERS = {
                 effectOverride = Constants.VFXType.REFLECT, -- Use explicit override for now
                 -- Provide relevant metadata for the resolver
                 affinity = event.affinity, 
-                attackType = "utility",
+                attackType = Constants.AttackType.UTILITY,
                 manaCost = event.manaCost or 2,
                 tags = { DEFENSE = true, SHIELD = true },
                 rangeBand = caster.gameState.rangeState,

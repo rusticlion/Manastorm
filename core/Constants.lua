@@ -98,6 +98,7 @@ end
 Constants.ShieldType = {
     BARRIER = "barrier",    -- Physical barrier (blocks projectiles)
     WARD = "ward",          -- Magical ward (blocks remote spells)
+    FIELD = "field"         -- Magical field (flexible defense)
 }
 
 -- Attack types for spells
@@ -215,6 +216,103 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.ZONE,
         Constants.AttackType.UTILITY
     }
+end
+
+-- Spell metadata field constants
+Constants.SpellMetadata = {
+    DESCRIPTION = "description",  -- Textual description of the spell
+    ZONE = "zone",                -- Zone information for positioning
+    ID = "id",                    -- Unique identifier
+    NAME = "name",                -- Display name
+    KEYWORDS = "keywords",        -- Array of keyword behaviors
+    MANA_COST = "manaCost",       -- Token cost structure
+    ATTACK_TYPE = "attackType",   -- How the spell is delivered
+    CAST_TIME = "castTime",       -- Base casting duration
+    VFX = "vfx",                  -- Visual effects configuration
+    DAMAGE = "damage",            -- Damage information
+    AFFINITY = "affinity"         -- Elemental affinity
+}
+
+-- Utility function to get all spell metadata fields
+function Constants.getAllSpellMetadataFields()
+    local fields = {}
+    for _, value in pairs(Constants.SpellMetadata) do
+        table.insert(fields, value)
+    end
+    return fields
+end
+
+-- Spell metadata field names for consistent reference
+Constants.SpellMetadata = {
+    ID = "id",
+    NAME = "name",
+    AFFINITY = "affinity",
+    DESCRIPTION = "description",
+    ATTACK_TYPE = "attackType",
+    CAST_TIME = "castTime",
+    COST = "cost",
+    KEYWORDS = "keywords",
+    VFX = "vfx",
+    SFX = "sfx",
+    BLOCKABLE_BY = "blockableBy",
+    ZONE = "zone"
+}
+
+-- Utility function to get all spell metadata field names
+function Constants.getAllSpellMetadataFields()
+    local fields = {}
+    for _, value in pairs(Constants.SpellMetadata) do
+        table.insert(fields, value)
+    end
+    return fields
+end
+
+-- Keyword metadata field names for consistent reference
+Constants.KeywordMetadata = {
+    BEHAVIOR = "behavior",
+    EXECUTE = "execute",
+    TARGET_TYPE = "targetType",
+    CATEGORY = "category",
+    PARAMS = "params",
+    ENABLED = "enabled",
+    VALUE = "value"
+}
+
+-- Utility function to get all keyword metadata field names
+function Constants.getAllKeywordMetadataFields()
+    local fields = {}
+    for _, value in pairs(Constants.KeywordMetadata) do
+        table.insert(fields, value)
+    end
+    return fields
+end
+
+-- Event metadata field names for consistent reference
+Constants.EventMetadata = {
+    TYPE = "type",
+    SOURCE = "source",
+    TARGET = "target",
+    AMOUNT = "amount",
+    DAMAGE_TYPE = "damageType",
+    TOKEN_TYPE = "tokenType",
+    DURATION = "duration",
+    POSITION = "position",
+    ELEVATION = "elevation",
+    SLOT_INDEX = "slotIndex",
+    VFX = "vfx",
+    SFX = "sfx",
+    AFFINITY = "affinity",
+    ATTACK_TYPE = "attackType",
+    TAGS = "tags"
+}
+
+-- Utility function to get all event metadata field names
+function Constants.getAllEventMetadataFields()
+    local fields = {}
+    for _, value in pairs(Constants.EventMetadata) do
+        table.insert(fields, value)
+    end
+    return fields
 end
 
 -- Visual effect types for consistent usage across the codebase

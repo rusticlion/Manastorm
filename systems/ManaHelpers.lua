@@ -10,8 +10,10 @@ function ManaHelpers.count(tokenType, manaPool)
     -- If the manaPool isn't provided directly, try to find it from the game state
     if not manaPool then return 0 end
     
+    local Constants = require("core.Constants")
+    
     for _, token in ipairs(manaPool.tokens or {}) do
-        if token.type == tokenType and token.state == "FREE" then
+        if token.type == tokenType and token.state == Constants.TokenState.FREE then
             count = count + 1
         end
     end
@@ -67,8 +69,10 @@ function ManaHelpers.random(manaPool)
     local availableTypes = {}
     local typesPresent = {}
     
+    local Constants = require("core.Constants")
+    
     for _, token in ipairs(manaPool.tokens) do
-        if token.state == "FREE" and not typesPresent[token.type] then
+        if token.state == Constants.TokenState.FREE and not typesPresent[token.type] then
             table.insert(availableTypes, token.type)
             typesPresent[token.type] = true
         end
