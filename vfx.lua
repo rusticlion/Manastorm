@@ -1359,6 +1359,18 @@ function VFX.update(dt)
         
         -- Remove effect if complete
         if effect.progress >= 1.0 then
+            -- Execute onComplete callback if it exists
+            if effect.options and effect.options.onComplete then
+                print("[VFX] Executing onComplete callback for effect: " .. (effect.name or "unnamed"))
+                local success, err = pcall(function()
+                    effect.options.onComplete(effect)
+                end)
+                
+                if not success then
+                    print("[VFX] Error in onComplete callback: " .. tostring(err))
+                end
+            end
+            
             -- Release the effect and its particles back to their pools
             local removedEffect = table.remove(VFX.activeEffects, i)
             Pool.release("vfx_effect", removedEffect)
@@ -1445,16 +1457,66 @@ function VFX.updateProjectile(effect, dt)
     -- Apply final position
     posY = posY + verticalOffset + elevationOffset * baseProgress
     
-    -- Special effect for projectile impact transition
-    local impactTransition = math.max(0, (baseProgress - 0.9) / 0.1) -- 0-1 in last 10% of flight
-    if impactTransition > 0 then
-        -- Add slight slowdown and expansion as projectile approaches target
-        local impactX = effect.targetX + math.cos(effect.timer * 5) * 2 * impactTransition
-        local impactY = effect.targetY + math.sin(effect.timer * 5) * 2 * impactTransition
+    -- Check for special shield block point
+    local blockPoint = effect.options and effect.options.blockPoint
+    local isBlocked = blockPoint and baseProgress >= blockPoint
+    
+    if isBlocked then
+        -- We've reached the shield block point - calculate block position
+        local blockX = effect.sourceX + (effect.targetX - effect.sourceX) * blockPoint
+        local blockY = effect.sourceY + (effect.targetY - effect.sourceY) * blockPoint
         
-        -- Blend between normal trajectory and impact position
-        posX = posX * (1 - impactTransition) + impactX * impactTransition
-        posY = posY * (1 - impactTransition) + impactY * impactTransition
+        -- Apply adjustment for shield hit visuals
+        local blockProgress = (baseProgress - blockPoint) / (1.0 - blockPoint) -- 0 to 1 after block
+        
+        -- Create shield block effect at blockPoint if not already created
+        if not effect.blockEffectCreated and blockProgress > 0 then
+            effect.blockEffectCreated = true
+            
+            -- Get shield color based on type
+            local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow for barriers
+            if effect.options.shieldType == "ward" then
+                shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+            elseif effect.options.shieldType == "field" then
+                shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+            elseif effect.options.shieldColor then
+                shieldColor = effect.options.shieldColor
+            end
+            
+            -- Create shield hit effect
+            local shieldHitOpts = {
+                duration = 0.5,
+                color = shieldColor,
+                particleCount = math.floor(effect.particleCount * 0.8),
+                shieldType = effect.options.shieldType
+            }
+            
+            VFX.createEffect("shield_hit_base", blockX, blockY, nil, nil, shieldHitOpts)
+        end
+        
+        -- Reset position to show scattering from block point
+        if blockProgress < 0.2 then
+            -- Initial impact phase - particles bunch up at block point
+            -- Use normal position calculation up to block point
+            -- Need to adjust posX, posY for impact visuals
+            posX = blockX + math.cos(effect.timer * 10) * 3 * blockProgress
+            posY = blockY + math.sin(effect.timer * 10) * 3 * blockProgress
+        else
+            -- No need to modify posX, posY here - individual particles 
+            -- will handle scattering in their update logic
+        end
+    else
+        -- Normal projectile flight with standard impact transition
+        local impactTransition = math.max(0, (baseProgress - 0.9) / 0.1) -- 0-1 in last 10% of flight
+        if impactTransition > 0 then
+            -- Add slight slowdown and expansion as projectile approaches target
+            local impactX = effect.targetX + math.cos(effect.timer * 5) * 2 * impactTransition
+            local impactY = effect.targetY + math.sin(effect.timer * 5) * 2 * impactTransition
+            
+            -- Blend between normal trajectory and impact position
+            posX = posX * (1 - impactTransition) + impactX * impactTransition
+            posY = posY * (1 - impactTransition) + impactY * impactTransition
+        end
     end
     
     -- Update trail points - add current position to front of trail
@@ -1552,13 +1614,60 @@ function VFX.updateProjectile(effect, dt)
                         leadY = leadY + perpY
                     end
                     
-                    -- Smoothly move particle toward calculated position
-                    local moveSpeed = 15 -- Adjust for smoother or more responsive motion
-                    particle.x = particle.x + (leadX - particle.x) * moveSpeed * dt
-                    particle.y = particle.y + (leadY - particle.y) * moveSpeed * dt
+                    -- Check for shield block behavior
+                    local blockPoint = effect.options and effect.options.blockPoint
+                    local isBlocked = blockPoint and effect.progress >= blockPoint
+                    
+                    if isBlocked then
+                        -- Handle particles after shield block
+                        local blockProgress = (effect.progress - blockPoint) / (1.0 - blockPoint) -- 0-1 after block
+                        
+                        -- Calculate block position
+                        local blockX = effect.sourceX + (effect.targetX - effect.sourceX) * blockPoint
+                        local blockY = effect.sourceY + (effect.targetY - effect.sourceY) * blockPoint
+                        
+                        if blockProgress < 0.2 then
+                            -- Initial impact phase - particles bunch up at block point
+                            local angle = math.random() * math.pi * 2
+                            local scatter = 20 * (1.0 - blockProgress/0.2) -- Reduce scatter as we progress
+                            
+                            -- Move particles toward block point with some randomness
+                            local targetX = blockX + math.cos(angle) * scatter * math.random()
+                            local targetY = blockY + math.sin(angle) * scatter * math.random()
+                            
+                            -- Fast movement toward block point
+                            local moveSpeed = 30 -- Faster movement during block
+                            particle.x = particle.x + (targetX - particle.x) * moveSpeed * dt
+                            particle.y = particle.y + (targetY - particle.y) * moveSpeed * dt
+                        else
+                            -- Deflection phase - particles scatter outward from block point
+                            -- Calculate deflection angle (away from target, with randomness)
+                            local baseAngle = math.atan2(effect.sourceY - effect.targetY, effect.sourceX - effect.targetX)
+                            local deflectAngle = baseAngle + (math.random() - 0.5) * math.pi * 0.8
+                            
+                            -- Calculate outward deflection distance
+                            local deflectDistance = 150 * (blockProgress - 0.2) * math.random(0.7, 1.3)
+                            local targetX = blockX + math.cos(deflectAngle) * deflectDistance
+                            local targetY = blockY + math.sin(deflectAngle) * deflectDistance
+                            
+                            -- More gradual movement for scatter
+                            local moveSpeed = 10
+                            particle.x = particle.x + (targetX - particle.x) * moveSpeed * dt
+                            particle.y = particle.y + (targetY - particle.y) * moveSpeed * dt
+                            
+                            -- Fade out as particles scatter
+                            particle.alpha = math.max(0, 1.0 - (blockProgress - 0.2)/0.8)
+                        end
+                    else
+                        -- Normal projectile behavior - smoothly move particle toward calculated position
+                        local moveSpeed = 15 -- Adjust for smoother or more responsive motion
+                        particle.x = particle.x + (leadX - particle.x) * moveSpeed * dt
+                        particle.y = particle.y + (leadY - particle.y) * moveSpeed * dt
+                    end
                     
                     -- Handle impact transition effects for core particles
-                    if impactTransition > 0 then
+                    local impactTransition = math.max(0, (effect.progress - 0.9) / 0.1) -- 0-1 in last 10% of flight
+                    if impactTransition > 0 and not isBlocked then
                         -- Create spreading/expanding effect as projectile hits
                         local impactSpread = 30 * impactTransition
                         local spreadDirX = math.cos(particle.angle + particle.rotation)

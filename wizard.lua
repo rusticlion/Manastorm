@@ -930,7 +930,8 @@ function Wizard:castSpell(spellSlot)
         }
         
         -- Create shield block VFX using ShieldSystem
-        ShieldSystem.createBlockVFX(self, target, blockInfo)
+        -- Pass the full spell info so we can create accurate blocked projectile visuals
+        ShieldSystem.createBlockVFX(self, target, blockInfo, spellToUse)
         
         -- Use the ShieldSystem to handle token consumption
         ShieldSystem.handleShieldBlock(target, blockInfo.blockingSlot, spellToUse)

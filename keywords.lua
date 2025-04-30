@@ -209,6 +209,14 @@ Keywords.damage = {
                 manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
             end
 
+            -- Determine if we should delay damage display for visual sync
+            local delayDamage = false
+            
+            -- For projectile spells, we want to delay damage until visual completes
+            if spell and spell.attackType == "projectile" then
+                delayDamage = true
+            end
+            
             -- Generate event with enriched visual metadata
             table.insert(events or {}, {
                 type = "DAMAGE", 
@@ -217,6 +225,8 @@ Keywords.damage = {
                 amount = calculatedDamage, 
                 damageType = damageType,
                 scaledDamage = (type(params.amount) == "function"), -- Keep scaledDamage flag based on original param type
+                -- Add delay flag for visual synchronization
+                delayDamage = delayDamage,
                 
                 -- Visual metadata for VisualResolver
                 affinity = spell and spell.affinity or nil,

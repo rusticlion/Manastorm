@@ -373,31 +373,75 @@ function ShieldSystem.updateShieldVisuals(wizard, dt)
 end
 
 -- Create block VFX for spell being blocked by a shield
-function ShieldSystem.createBlockVFX(caster, target, blockInfo)
+function ShieldSystem.createBlockVFX(caster, target, blockInfo, spellInfo)
     if not caster.gameState or not caster.gameState.eventRunner then
         return
     end
     
     local Constants = require("core.Constants")
+    
+    -- Calculate block point (where to show the shield hit)
+    -- Block at about 75% of the way from caster to target
+    local blockPoint = 0.75
+    
+    -- Calculate the screen position of the block
+    local blockX = caster.x + (target.x - caster.x) * blockPoint
+    local blockY = caster.y + (target.y - caster.y) * blockPoint
+    
+    -- Get shield color based on type
+    local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
+    if blockInfo.blockType == "barrier" then
+        shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Yellow for barriers
+    elseif blockInfo.blockType == "ward" then
+        shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+    elseif blockInfo.blockType == "field" then
+        shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+    end
+    
     -- Create a batch of VFX events
     local events = {}
     
-    -- Emit shield hit event at target position using VisualResolver
-    table.insert(events, {
-        type = "EFFECT",
-        source = Constants.TargetType.TARGET,  -- defender is both source & target visually
-        target = Constants.TargetType.TARGET,  -- defender is target
-        effectType = "shield_hit", -- logical tag for VisualResolver
-        affinity = blockInfo.blockType, -- Use defense type for color mapping
-        tags = { SHIELD_HIT = true },
-        shieldType = blockInfo.blockType,
-        vfxParams = {
-            x = target.x,
-            y = target.y,
-        },
-        rangeBand = target.rangeBand,
-        elevation = target.elevation,
-    })
+    -- Create projectile effect with block point info
+    -- This allows the projectile to travel partway before being blocked
+    local spellAttackType = spellInfo and spellInfo.attackType or "projectile"
+    local spellAffinity = spellInfo and spellInfo.affinity or "fire"
+    
+    if spellAttackType == "projectile" then
+        table.insert(events, {
+            type = "EFFECT",
+            source = Constants.TargetType.CASTER,  -- caster is source of projectile
+            target = Constants.TargetType.TARGET,  -- target is destination of projectile
+            effectType = Constants.VFXType.PROJ_BASE, -- projectile base
+            affinity = spellAffinity, -- Use spell's affinity
+            attackType = spellAttackType,
+            tags = { SHIELD_BLOCKED = true },
+            -- Special parameters for block visualization
+            blockPoint = blockPoint,      -- Where along trajectory to show block (0-1)
+            shieldType = blockInfo.blockType,
+            shieldColor = shieldColor,
+            rangeBand = caster.rangeBand,
+            elevation = caster.elevation,
+            duration = 0.8, -- Slightly longer to show block effect
+        })
+    else
+        -- For non-projectile spells, just show shield hit directly
+        -- Emit shield hit event at block position
+        table.insert(events, {
+            type = "EFFECT",
+            source = Constants.TargetType.TARGET,  -- defender is both source & target visually
+            target = Constants.TargetType.TARGET,  -- defender is target
+            effectType = "shield_hit", -- logical tag for VisualResolver
+            affinity = blockInfo.blockType, -- Use defense type for color mapping
+            tags = { SHIELD_HIT = true },
+            shieldType = blockInfo.blockType,
+            vfxParams = {
+                x = blockX,
+                y = blockY,
+            },
+            rangeBand = target.rangeBand,
+            elevation = target.elevation,
+        })
+    end
     
     -- Add impact feedback at caster position
     table.insert(events, {

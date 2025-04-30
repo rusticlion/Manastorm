@@ -329,15 +329,25 @@ EventRunner.EVENT_HANDLERS = {
         -- Get the actual wizard object
         local targetWizard = targetInfo.wizard
         
-        -- Apply damage to the target wizard's health
-        targetWizard.health = targetWizard.health - event.amount
+        -- Check if we should delay damage application for visual synchronization
+        local delayDamage = event.delayDamage or false
         
-        -- Ensure health doesn't go below zero
-        if targetWizard.health < 0 then targetWizard.health = 0 end
-        
-        -- Debug log damage application
-        print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
-            event.amount, targetWizard.name, targetWizard.health))
+        -- If the damage isn't delayed, apply it immediately
+        if not delayDamage then
+            -- Apply damage to the target wizard's health
+            targetWizard.health = targetWizard.health - event.amount
+            
+            -- Ensure health doesn't go below zero
+            if targetWizard.health < 0 then targetWizard.health = 0 end
+            
+            -- Debug log damage application
+            print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
+                event.amount, targetWizard.name, targetWizard.health))
+        else
+            -- Store damage in the event for deferred application
+            print(string.format("[DAMAGE EVENT] Delaying %d damage to %s for visual sync", 
+                event.amount, targetWizard.name))
+        end
             
         -- Debug log visual metadata
         print(string.format("[DAMAGE EVENT] Visual metadata: affinity=%s, attackType=%s, damageType=%s, manaCost=%s", 
@@ -350,7 +360,7 @@ EventRunner.EVENT_HANDLERS = {
             tostring(event.rangeBand),
             tostring(event.elevation)))
         
-        -- Track damage for results
+        -- Track damage for results, even if delayed
         results.damageDealt = results.damageDealt + event.amount
         
         -- Generate an EFFECT event for the damage
@@ -375,7 +385,11 @@ EventRunner.EVENT_HANDLERS = {
             manaCost = event.manaCost,
             tags = event.tags or { DAMAGE = true },
             rangeBand = event.rangeBand,
-            elevation = event.elevation
+            elevation = event.elevation,
+            
+            -- Add delayed damage information
+            delayedDamage = delayDamage and event.amount or nil,
+            delayedDamageTarget = delayDamage and targetWizard or nil
         }
         
         -- Debug log the generated EFFECT event
@@ -1422,6 +1436,28 @@ EventRunner.EVENT_HANDLERS = {
             -- Set default duration if not provided
             if not vfxOpts.duration then
                 vfxOpts.duration = event.duration or 0.5
+            end
+            
+            -- Check if we need to add delayed damage to the options
+            if event.delayedDamage and event.delayedDamageTarget then
+                print(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
+                vfxOpts.delayedDamage = event.delayedDamage
+                vfxOpts.delayedDamageTarget = event.delayedDamageTarget
+                
+                -- Provide a callback function to apply the damage when the animation completes
+                vfxOpts.onComplete = function(effect)
+                    -- Apply the delayed damage
+                    local target = vfxOpts.delayedDamageTarget
+                    local amount = vfxOpts.delayedDamage
+                    
+                    if target and amount then
+                        target.health = target.health - amount
+                        if target.health < 0 then target.health = 0 end
+                        
+                        print(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d", 
+                            amount, target.name, target.health))
+                    end
+                end
             end
             
             -- Extra debug info

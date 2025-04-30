@@ -15,6 +15,7 @@ local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells")
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local OpponentAI = require("ai.OpponentAI")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -257,6 +258,10 @@ function love.load()
     -- Initialize SustainedSpellManager
     game.sustainedSpellManager = SustainedSpellManager
     print("SustainedSpellManager initialized")
+    
+    -- Initialize AI opponent to control the second wizard
+    game.opponentAI = OpponentAI.new(game.wizards[2], game)
+    print("AI opponent initialized")
 end
 
 -- Display hotkey help overlay
@@ -390,6 +395,12 @@ function resetGame()
         print("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
+    -- Reinitialize AI opponent if needed
+    if game.opponentAI then
+        game.opponentAI = OpponentAI.new(game.wizards[2], game)
+        print("AI opponent reinitialized")
+    end
+    
     -- Reset health display animation state
     if UI and UI.healthDisplay then
         for i = 1, 2 do
@@ -489,6 +500,11 @@ function love.update(dt)
         
         -- Update animated health displays
         UI.updateHealthDisplays(dt, game.wizards)
+        
+        -- Update AI opponent if it exists
+        if game.opponentAI then
+            game.opponentAI:update(dt)
+        end
     elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
