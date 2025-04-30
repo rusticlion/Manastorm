@@ -192,6 +192,21 @@ function VFX.init()
             sound = nil
         },
         
+        remote_base = {
+            type = "impact",
+            duration = 0.7,
+            particleCount = 35,
+            startScale = 0.2,
+            endScale = 1.0,              -- Larger ending scale for a flash effect
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,                 -- Larger radius than impact
+            pulseRate = 2,               -- Add pulse for dynamic flash effect
+            intensityMultiplier = 1.8,   -- Brighter than normal effects
+            useTargetPosition = true,    -- Always use target position, not source
+            trackTargetOffsets = true,   -- Track target's current position including offsets
+            sound = nil
+        },
+        
         shield_hit_base = {
             type = "impact",
             duration = 0.8,  -- Slightly longer impact duration
@@ -996,6 +1011,17 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.targetX = targetX or sourceX
     effect.targetY = targetY or sourceY
     
+    -- Store target entity for position tracking if provided in options
+    if options and options.targetEntity then
+        effect.targetEntity = options.targetEntity
+    end
+    
+    -- Flag for effects that should use target's actual position including offsets
+    effect.trackTargetOffsets = (options and options.trackTargetOffsets) or (template and template.trackTargetOffsets) or false
+    
+    -- Flag for effects that should use target position instead of source
+    effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
+    
     -- Timing
     effect.duration = template.duration
     effect.timer = 0
@@ -1341,6 +1367,20 @@ function VFX.update(dt)
         -- Update effect timer
         effect.timer = effect.timer + dt
         effect.progress = math.min(effect.timer / effect.duration, 1.0)
+        
+        -- Update target position if tracking offsets and we have a target entity
+        if effect.trackTargetOffsets and effect.targetEntity then
+            -- Include wizard offsets in target position
+            local targetWizard = effect.targetEntity
+            if targetWizard and targetWizard.x and targetWizard.y then
+                local xOffset = targetWizard.currentXOffset or 0
+                local yOffset = targetWizard.currentYOffset or 0
+                
+                -- Update the effect's target position to follow the wizard
+                effect.targetX = targetWizard.x + xOffset
+                effect.targetY = targetWizard.y + yOffset
+            end
+        end
         
         -- Update effect based on type
         if effect.type == Constants.AttackType.PROJECTILE then
@@ -1748,10 +1788,19 @@ end
 -- Update function for impact effects
 function VFX.updateImpact(effect, dt)
     -- Create impact wave that expands outward
+    -- For effects with useTargetPosition=true, ensure particles use target position
+    local useTargetPosition = effect.useTargetPosition
+    
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
         if effect.timer > particle.delay then
             particle.active = true
+            
+            -- Update particle base position to current target position for effects that track target
+            if useTargetPosition then
+                particle.baseX = effect.targetX
+                particle.baseY = effect.targetY
+            end
         end
         
         if particle.active then

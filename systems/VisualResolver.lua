@@ -8,7 +8,7 @@ local VisualResolver = {}
 -- Map attack types to base VFX template names
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
-    [Constants.AttackType.REMOTE] = Constants.VFXType.BEAM_BASE,
+    [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
     [Constants.AttackType.ZONE] = Constants.VFXType.ZONE_BASE,
     [Constants.AttackType.UTILITY] = Constants.VFXType.UTIL_BASE
 }

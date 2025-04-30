@@ -1425,12 +1425,14 @@ EventRunner.EVENT_HANDLERS = {
             -- Merge additional parameters from event
             if not vfxOpts then vfxOpts = {} end
             
-            -- Add source/target names
+            -- Add source/target names and entities for positional tracking
             if caster and caster.name then
                 vfxOpts.source = caster.name
+                vfxOpts.sourceEntity = caster
             end
             if target and target.name then
                 vfxOpts.target = target.name
+                vfxOpts.targetEntity = target
             end
             
             -- Set default duration if not provided
