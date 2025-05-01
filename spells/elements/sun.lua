@@ -49,10 +49,10 @@ SunSpells.emberlift = {
     visualShape = "surge",
     cost = {"sun"},
     keywords = {
-        conjure = {
-            token = Constants.TokenType.FIRE,
-            amount = 1
-        },
+        -- conjure = {
+        --     token = Constants.TokenType.FIRE,
+        --     amount = 1
+        -- },
         elevate = {
             duration = 5.0,
             target = "SELF",

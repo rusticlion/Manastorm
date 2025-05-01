@@ -181,6 +181,33 @@ function VFX.init()
             sound = nil
         },
         
+        surge_base = {
+            type = "surge",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.25,
+            endScale = 0.05,
+            color = Constants.Color.SKY,
+            height = 150,
+            spread = 60,
+            pulseRate = 4,
+            sound = "surge"
+        },
+        
+        conjure_base = {
+            type = "conjure",
+            duration = 0.8,
+            particleCount = 35,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden by VisualResolver
+            radius = 70,
+            height = 120,
+            pulseRate = 3,
+            sound = nil,
+            defaultParticleAsset = "sparkle"
+        },
+        
         impact_base = {
             type = "impact",
             duration = 0.5,
@@ -871,6 +898,7 @@ function VFX.resetEffect(effect)
     effect.rangeBand = nil
     effect.elevation = nil
     effect.addons = nil
+    effect.spread = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -1049,6 +1077,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
+        if effect.spread then effect.spread = effect.spread * scaleFactor end
     end
     
     -- Store motion style and positional info
@@ -1072,6 +1101,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.trailLength = template.trailLength
     effect.impactSize = template.impactSize
     effect.spreadRadius = template.spreadRadius
+    effect.spread = template.spread
     
     -- Optional overrides
     effect.options = options or {}
@@ -1355,6 +1385,29 @@ function VFX.initializeParticles(effect)
             
             table.insert(effect.particles, particle)
         end
+    elseif effect.type == "surge" then
+        -- Initialize particles for fountain surge effect
+        local spread = effect.spread or 60
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+
+            -- Start at source position
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+
+            -- Upward velocity with random horizontal
+            particle.speedX = (math.random() - 0.5) * spread
+            particle.speedY = -math.random(180, 260)
+            particle.gravity = 300
+
+            particle.scale = effect.startScale * math.random(0.8, 1.2)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.delay = math.random() * 0.3
+            particle.active = false
+
+            table.insert(effect.particles, particle)
+        end
     end
 end
 
@@ -1395,6 +1448,8 @@ function VFX.update(dt)
             VFX.updateBeam(effect, dt)
         elseif effect.type == "conjure" then
             VFX.updateConjure(effect, dt)
+        elseif effect.type == "surge" then
+            VFX.updateSurge(effect, dt)
         end
         
         -- Remove effect if complete
@@ -2049,6 +2104,34 @@ function VFX.updateConjure(effect, dt)
     end
 end
 
+-- Update function for surge effects
+function VFX.updateSurge(effect, dt)
+    -- Fountain style upward burst with gravity pull
+    for _, particle in ipairs(effect.particles) do
+        if effect.timer > particle.delay then
+            particle.active = true
+        end
+        if particle.active then
+            -- Motion update
+            particle.x = particle.x + particle.speedX * dt
+            particle.y = particle.y + particle.speedY * dt
+            particle.speedY = particle.speedY + particle.gravity * dt
+
+            -- Visual progression
+            local lifeProgress = effect.progress
+            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * lifeProgress
+
+            -- Fade out towards end of effect
+            if lifeProgress > 0.6 then
+                local fade = (lifeProgress - 0.6) / 0.4
+                particle.alpha = 1 - fade
+            end
+
+            particle.rotation = particle.rotation + dt * 2
+        end
+    end
+end
+
 -- Draw all active effects
 function VFX.draw()
     for _, effect in ipairs(VFX.activeEffects) do
@@ -2064,6 +2147,8 @@ function VFX.draw()
             VFX.drawBeam(effect)
         elseif effect.type == "conjure" then
             VFX.drawConjure(effect)
+        elseif effect.type == "surge" then
+            VFX.drawSurge(effect)
         end
     end
 end
@@ -2605,6 +2690,29 @@ function VFX.drawConjure(effect)
                     end
                 end
             end
+        end
+    end
+end
+
+-- Draw function for surge effects
+function VFX.drawSurge(effect)
+    local particleImage = getAssetInternal("sparkle")
+
+    -- Base glow at origin
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
+    love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+
+    -- Draw particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                particle.scale, particle.scale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
         end
     end
 end

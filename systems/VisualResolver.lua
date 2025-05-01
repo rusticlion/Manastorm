@@ -5,7 +5,38 @@ local Constants = require("core.Constants")
 
 local VisualResolver = {}
 
+-- Map visualShape strings to base VFX template names
+-- This is the primary mapping table for determining visual template from spell shape
+local TEMPLATE_BY_SHAPE = {
+    -- Beam-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    
+    -- Projectile-like effects
+    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
+    
+    -- Area/zone effects
+    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["groundBurst"] = Constants.VFXType.ZONE_BASE,
+    
+    -- Remote/direct effects
+    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    
+    -- Utility effects
+    ["surge"] = Constants.VFXType.SURGE_BASE,
+    ["affectManaPool"] = Constants.VFXType.UTIL_BASE,
+    
+    -- Shield-like effects
+    ["wings"] = Constants.VFXType.SHIELD_OVERLAY,
+    ["mirror"] = Constants.VFXType.SHIELD_OVERLAY,
+    
+    -- Special effects with unique templates
+    ["eclipse"] = "eclipse_base"
+}
+
 -- Map attack types to base VFX template names
+-- This is used as a fallback when visualShape is not specified
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
     [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
@@ -84,12 +115,17 @@ function VisualResolver.pick(event)
         VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
     end
     
-    -- Handle manual override: If the event has an effectOverride, use it directly
+    -- Step 1: Determine base template with priority: effectOverride > legacy > shield_hit > visualShape > attackType > default
+    local baseTemplate = DEFAULT_BASE
+    local selectionPath = "DEFAULT" -- Track which path determined the template
+    
+    -- PRIORITY 1: Handle manual override: If the event has an effectOverride, use it directly
     -- This handles the manual vfx specifications from the vfx keyword
     if event.effectOverride then
-        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
+        baseTemplate = event.effectOverride
+        selectionPath = "EFFECT_OVERRIDE"
         
-        -- Full event logging for debug
+        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
         VisualResolver.debug("Effect override source event details:")
         VisualResolver.debug("  - Event type: " .. (event.type or "nil"))
         VisualResolver.debug("  - Affinity: " .. (event.affinity or "nil"))
@@ -97,7 +133,7 @@ function VisualResolver.pick(event)
         VisualResolver.debug("  - Tags: " .. (event.tags and "present" or "nil"))
         
         -- Use the specified effect but still use the new parameter system
-        return event.effectOverride, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -107,11 +143,14 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Also handle the case where we get the effect directly within an event.effect property
+    -- PRIORITY 2: Also handle the case where we get the effect directly within an event.effect property
     -- This is needed for the showcase examples in spells.lua
     if event.effect and type(event.effect) == "string" then
+        baseTemplate = event.effect
+        selectionPath = "EVENT_EFFECT"
+        
         VisualResolver.debug("Using effect from direct event.effect property: " .. event.effect)
-        return event.effect, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0, 
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -121,8 +160,11 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Handle shield hit event (from shield system)
+    -- PRIORITY 3: Handle shield hit event (from shield system)
     if event.effectType == "shield_hit" then
+        baseTemplate = "shield_hit_base"
+        selectionPath = "SHIELD_HIT"
+        
         VisualResolver.debug("Handling shield hit effect")
         
         -- Determine shield color based on shield type
@@ -136,8 +178,8 @@ function VisualResolver.pick(event)
             color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
         end
         
-        -- Return shield hit template with proper color
-        return "shield_hit_base", {
+        -- Build options with shield-specific values
+        local opts = {
             color = color,
             scale = 1.2,  -- Slightly larger scale for impact emphasis
             motion = Constants.MotionStyle.PULSE,
@@ -146,13 +188,27 @@ function VisualResolver.pick(event)
             elevation = event.elevation,
             -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
         }
+        
+        VisualResolver.debug(string.format(
+            "Resolved shield hit event to base=%s via %s, color=%s, scale=%.2f, motion=%s",
+            baseTemplate,
+            selectionPath,
+            table.concat(color, ","),
+            opts.scale,
+            opts.motion
+        ))
+        
+        return baseTemplate, opts
     end
     
-    -- Legacy manual VFX: If the event has manualVfx flag and effectType
+    -- PRIORITY 4: Legacy manual VFX: If the event has manualVfx flag and effectType
     if event.manualVfx and event.effectType then
+        baseTemplate = event.effectType
+        selectionPath = "LEGACY_MANUAL"
+        
         VisualResolver.debug("Using legacy manual effect via effectType: " .. event.effectType)
         -- Use the specified effect but still use the new parameter system
-        return event.effectType, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -162,37 +218,31 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from visualShape or attack type
-    local baseTemplate = DEFAULT_BASE
-    
-    -- If the event or options has a visualShape property, use a named template instead
+    -- PRIORITY 5: Use visualShape to look up template in TEMPLATE_BY_SHAPE
     if event.visualShape then
         local visualShape = event.visualShape
-        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        local template = TEMPLATE_BY_SHAPE[visualShape]
         
-        -- Map visualShape to appropriate template
-        if visualShape == "beam" then
-            baseTemplate = Constants.VFXType.BEAM_BASE
-        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
-            baseTemplate = Constants.VFXType.PROJ_BASE
-        elseif visualShape == "blast" or visualShape == "groundBurst" then
-            baseTemplate = Constants.VFXType.ZONE_BASE
-        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
-            baseTemplate = Constants.VFXType.UTIL_BASE
-        elseif visualShape == "wings" or visualShape == "mirror" then
-            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
-        elseif visualShape == "eclipse" then
-            baseTemplate = "eclipse_base" -- Specialized template
+        if template then
+            baseTemplate = template
+            selectionPath = "VISUAL_SHAPE"
+            VisualResolver.debug("Using visualShape mapping: " .. visualShape .. " -> " .. baseTemplate)
         else
-            -- For unknown visualShapes, fall back to attack type
+            -- For unknown visualShapes, log warning and fall back to attackType
             VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
-            if event.attackType and BASE_BY_ATTACK[event.attackType] then
-                baseTemplate = BASE_BY_ATTACK[event.attackType]
-            end
         end
-    -- Otherwise use attack type mapping
-    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
+    end
+    
+    -- PRIORITY 6: If no visualShape match, use attack type mapping
+    if selectionPath == "DEFAULT" and event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
+        selectionPath = "ATTACK_TYPE"
+        VisualResolver.debug("Using attackType mapping: " .. event.attackType .. " -> " .. baseTemplate)
+    end
+    
+    -- If we still have no valid template, use the default
+    if selectionPath == "DEFAULT" then
+        VisualResolver.debug("No mapping found, using DEFAULT_BASE: " .. DEFAULT_BASE)
     end
     
     -- Step 2: Determine color from affinity
@@ -233,8 +283,9 @@ function VisualResolver.pick(event)
     }
     
     VisualResolver.debug(string.format(
-        "Resolved event to base=%s, color=%s, scale=%.2f, motion=%s, addons=%d",
+        "Resolved event to base=%s via %s, color=%s, scale=%.2f, motion=%s, addons=%d",
         baseTemplate,
+        selectionPath,
         table.concat(color, ","),
         scale,
         motion,
@@ -265,7 +316,7 @@ end
 -- Helper function to test the resolver with sample events
 function VisualResolver.test()
     local testEvents = {
-        -- Test 1: Fire projectile spell
+        -- Test 1: Fire projectile spell (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -275,7 +326,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 2: Water remote spell with higher cost
+        -- Test 2: Water remote spell with higher cost (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.WATER,
@@ -285,7 +336,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.AERIAL
         },
-        -- Test 3: Moon-based shield
+        -- Test 3: Moon-based shield (using attackType)
         {
             type = "CREATE_SHIELD",
             affinity = Constants.TokenType.MOON,
@@ -298,8 +349,7 @@ function VisualResolver.test()
         -- Test 4: Manually specified effect (vfx keyword)
         {
             type = "EFFECT",
-            effectType = Constants.VFXType.FIREBOLT,
-            manualVfx = true,
+            effectOverride = Constants.VFXType.FIREBOLT,
             affinity = Constants.TokenType.FIRE,
             attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
@@ -307,7 +357,19 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 5: REMOTE attack with "beam" visualShape override
+        -- Test 5: Legacy manual VFX
+        {
+            type = "EFFECT",
+            effectType = Constants.VFXType.METEOR,
+            manualVfx = true,
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            manaCost = 3,
+            tags = { VFX = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 6: REMOTE attack with "beam" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.MOON,
@@ -318,7 +380,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 6: Projectile attack with "blast" visualShape override
+        -- Test 7: Projectile attack with "blast" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -328,12 +390,82 @@ function VisualResolver.test()
             tags = { DAMAGE = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 8: Testing "orb" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.STAR,
+            attackType = Constants.AttackType.ZONE, -- This would normally use ZONE_BASE
+            visualShape = "orb",                    -- But visualShape overrides to PROJ_BASE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 9: Testing "warp" visualShape
+        {
+            type = "EFFECT",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.PROJECTILE, -- This would normally use PROJ_BASE
+            visualShape = "warp",                         -- But visualShape overrides to UTIL_BASE
+            manaCost = 1,
+            tags = { MOVEMENT = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 10: Testing "mirror" visualShape
+        {
+            type = "CREATE_SHIELD",
+            affinity = Constants.TokenType.WATER,
+            attackType = Constants.AttackType.UTILITY,
+            visualShape = "mirror",
+            manaCost = 2,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 11: Testing "eclipse" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.ZONE,
+            visualShape = "eclipse",
+            manaCost = 5,
+            tags = { DAMAGE = true, DOT = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 12: Testing unknown visualShape (should fall back to attackType)
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "unknown_shape",  -- Not in TEMPLATE_BY_SHAPE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 13: Shield hit effect
+        {
+            type = "SHIELD_HIT",
+            effectType = "shield_hit",
+            shieldType = Constants.ShieldType.BARRIER,
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
     print("===== VisualResolver Test =====")
     for i, event in ipairs(testEvents) do
         print("\nTest " .. i .. ": " .. event.type .. " event with " .. (event.affinity or "unknown") .. " affinity")
+        if event.visualShape then
+            print("visualShape: " .. event.visualShape)
+        end
+        if event.attackType then
+            print("attackType: " .. event.attackType)
+        end
+        
         local base, opts = VisualResolver.pick(event)
         print("Base template: " .. base)
         print("Color: " .. table.concat(opts.color, ","))

@@ -327,6 +327,8 @@ Constants.VFXType = {
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
     UTIL_BASE = "util_base",       -- Base utility effect
+    SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
     -- Overlay addon effects (used by VisualResolver)

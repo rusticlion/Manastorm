@@ -601,21 +601,38 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Create VFX for token conjuration if available
+        -- Create VFX for token conjuration using the rule-driven approach
         if caster.gameState and caster.gameState.vfx then
-            local params = {
+            -- Create an EFFECT event to use the VisualResolver pattern
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "caster", -- Token conjuration affects the caster
+                
+                -- Check if there's a specific effect for this token type
+                effectOverride = nil, -- Will be set conditionally below
+                
+                -- Token type determines appearance through VisualResolver
+                affinity = event.tokenType,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = event.amount, -- Scale with the amount of tokens
+                
+                -- Metadata to determine visuals and behavior
+                tags = { CONJURE = true, RESOURCE = true },
+                
+                -- Token-specific parameters
                 tokenType = event.tokenType,
                 amount = event.amount
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createTokenConjureEffect",
-                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Check if there's a specific effect for this token type
+            local specificEffect = "conjure" .. event.tokenType
+            if Constants.VFXType[specificEffect:upper()] then
+                effectEvent.effectOverride = Constants.VFXType[specificEffect:upper()]
+            end
+            
+            -- Let the EFFECT handler process this with VisualResolver
+            EventRunner.handleEvent(effectEvent, caster, caster, spellSlot, results)
         end
         
         -- Add tokens to the mana pool with animation
