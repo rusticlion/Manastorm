@@ -231,6 +231,7 @@ Keywords.damage = {
                 -- Visual metadata for VisualResolver
                 affinity = spell and spell.affinity or nil,
                 attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
                 manaCost = manaCost,
                 tags = { DAMAGE = true },
                 rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
@@ -281,6 +282,7 @@ Keywords.burn = {
             -- Visual metadata for VisualResolver
             affinity = spell and spell.affinity or nil,
             attackType = spell and spell.attackType or nil,
+            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
             manaCost = manaCost,
             tags = { BURN = true, DOT = true },
             rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,

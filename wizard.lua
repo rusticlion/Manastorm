@@ -110,7 +110,7 @@ function Wizard.new(name, x, y, color)
             -- Single key spells
             ["1"]  = Spells.conjurefire,
             ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.fireball,
+            ["3"]  = Spells.novaconjuring,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,

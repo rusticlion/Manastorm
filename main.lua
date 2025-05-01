@@ -129,6 +129,9 @@ function love.load()
     -- Calculate initial scaling
     calculateScaling()
     
+    -- Load background image
+    game.backgroundImage = AssetCache.getImage("assets/sprites/background.png")
+    
     -- Preload all assets to prevent in-game loading hitches
     print("Preloading game assets...")
     local preloadStats = AssetPreloader.preloadAllAssets()
@@ -539,13 +542,21 @@ function love.draw()
         -- Draw the main menu
         drawMainMenu()
     elseif game.currentState == "BATTLE" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw range state indicator (NEAR/FAR)
-        drawRangeIndicator()
+        if love.keyboard.isDown("`") then
+            drawRangeIndicator()
+        end
         
         -- Draw mana pool
         game.manaPool:draw()
@@ -570,10 +581,16 @@ function love.draw()
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
     elseif game.currentState == "GAME_OVER" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator

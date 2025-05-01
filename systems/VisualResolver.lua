@@ -79,6 +79,11 @@ function VisualResolver.pick(event)
         return DEFAULT_BASE, { color = DEFAULT_COLOR, scale = 1.0, motion = DEFAULT_MOTION, addons = {} }
     end
     
+    -- Debug output for visualShape if present
+    if event.visualShape then
+        VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
+    end
+    
     -- Handle manual override: If the event has an effectOverride, use it directly
     -- This handles the manual vfx specifications from the vfx keyword
     if event.effectOverride then
@@ -157,9 +162,36 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from attack type
+    -- Step 1: Determine base template from visualShape or attack type
     local baseTemplate = DEFAULT_BASE
-    if event.attackType and BASE_BY_ATTACK[event.attackType] then
+    
+    -- If the event or options has a visualShape property, use a named template instead
+    if event.visualShape then
+        local visualShape = event.visualShape
+        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        
+        -- Map visualShape to appropriate template
+        if visualShape == "beam" then
+            baseTemplate = Constants.VFXType.BEAM_BASE
+        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
+            baseTemplate = Constants.VFXType.PROJ_BASE
+        elseif visualShape == "blast" or visualShape == "groundBurst" then
+            baseTemplate = Constants.VFXType.ZONE_BASE
+        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
+            baseTemplate = Constants.VFXType.UTIL_BASE
+        elseif visualShape == "wings" or visualShape == "mirror" then
+            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
+        elseif visualShape == "eclipse" then
+            baseTemplate = "eclipse_base" -- Specialized template
+        else
+            -- For unknown visualShapes, fall back to attack type
+            VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
+            if event.attackType and BASE_BY_ATTACK[event.attackType] then
+                baseTemplate = BASE_BY_ATTACK[event.attackType]
+            end
+        end
+    -- Otherwise use attack type mapping
+    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
     end
     
@@ -272,6 +304,28 @@ function VisualResolver.test()
             attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
             tags = { VFX = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 5: REMOTE attack with "beam" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.MOON,
+            attackType = Constants.AttackType.REMOTE,
+            visualShape = "beam",
+            manaCost = 3,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 6: Projectile attack with "blast" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "blast",
+            manaCost = 3,
+            tags = { DAMAGE = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         }

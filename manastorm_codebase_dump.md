@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Wed Apr 30 14:24:24 CDT 2025
+Generated: Thu May  1 13:36:18 CDT 2025
 
 # Source Code
 
@@ -1286,6 +1286,7 @@ Constants.SpellMetadata = {
     CAST_TIME = "castTime",
     COST = "cost",
     KEYWORDS = "keywords",
+    VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
     BLOCKABLE_BY = "blockableBy",
@@ -1356,7 +1357,8 @@ Constants.VFXType = {
     
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
-    BEAM_BASE = "beam_base",       -- Base beam/remote effect
+    BEAM_BASE = "beam_base",       -- Base beam effect
+    REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
     UTIL_BASE = "util_base",       -- Base utility effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
@@ -2920,6 +2922,7 @@ Keywords.damage = {
                 -- Visual metadata for VisualResolver
                 affinity = spell and spell.affinity or nil,
                 attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
                 manaCost = manaCost,
                 tags = { DAMAGE = true },
                 rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
@@ -2970,6 +2973,7 @@ Keywords.burn = {
             -- Visual metadata for VisualResolver
             affinity = spell and spell.affinity or nil,
             attackType = spell and spell.attackType or nil,
+            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
             manaCost = manaCost,
             tags = { BURN = true, DOT = true },
             rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
@@ -3867,6 +3871,9 @@ function love.load()
     -- Calculate initial scaling
     calculateScaling()
     
+    -- Load background image
+    game.backgroundImage = AssetCache.getImage("assets/sprites/background.png")
+    
     -- Preload all assets to prevent in-game loading hitches
     print("Preloading game assets...")
     local preloadStats = AssetPreloader.preloadAllAssets()
@@ -4277,13 +4284,21 @@ function love.draw()
         -- Draw the main menu
         drawMainMenu()
     elseif game.currentState == "BATTLE" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw range state indicator (NEAR/FAR)
-        drawRangeIndicator()
+        if love.keyboard.isDown("`") then
+            drawRangeIndicator()
+        end
         
         -- Draw mana pool
         game.manaPool:draw()
@@ -4308,10 +4323,16 @@ function love.draw()
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
     elseif game.currentState == "GAME_OVER" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator
@@ -6488,6 +6509,9 @@ local SpellCompiler = {}
 -- Add the EventRunner module for event-based execution
 local EventRunner = nil -- Lazy-loaded to avoid circular dependencies
 
+-- Keep track of whether we're currently trying to load EventRunner to detect circular dependencies
+local isLoadingEventRunner = false
+
 -- Helper function to merge tables
 local function mergeTables(target, source)
     for k, v in pairs(source) do
@@ -6522,6 +6546,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         castTime = spellDef.castTime,
         cost = spellDef.cost,
         keywords = spellDef.keywords,
+        visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
         blockableBy = spellDef.blockableBy,
@@ -6598,7 +6623,47 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Method to get the event runner module (lazy loading)
     local function getEventRunner()
         if not EventRunner then
-            EventRunner = require("systems.EventRunner")
+            -- Detect circular dependencies
+            if isLoadingEventRunner then
+                print("CIRCULAR DEPENDENCY DETECTED: Already trying to load EventRunner")
+                -- Return dummy EventRunner to break the circular dependency
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
+            
+            -- Set flag to indicate we're trying to load EventRunner
+            isLoadingEventRunner = true
+            
+            -- Use pcall to avoid crashes from circular dependencies
+            local success, result = pcall(function() 
+                return require("systems.EventRunner") 
+            end)
+            
+            -- Reset flag after load attempt
+            isLoadingEventRunner = false
+            
+            if success then
+                EventRunner = result
+            else
+                print("WARNING: Failed to load EventRunner: " .. tostring(result))
+                -- Return a dummy EventRunner with processEvents to avoid crashes
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("FALLBACK: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("FALLBACK: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
         end
         return EventRunner
     end
@@ -6757,7 +6822,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         local success, result = pcall(function()
             -- Debug output for events
             if _G.DEBUG_EVENTS then
-                getEventRunner().debugPrintEvents(events)
+                local debugRunner = getEventRunner()
+                if debugRunner and debugRunner.debugPrintEvents then
+                    debugRunner.debugPrintEvents(events)
+                end
             end
             
             -- Process the events to apply them to the game state
@@ -6771,7 +6839,25 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
                 end
                 
-                eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+                -- Get the EventRunner and process events with additional error handling
+                local runner = getEventRunner()
+                if runner and runner.processEvents then
+                    -- Try to process events, but handle any errors gracefully
+                    local ok, result = pcall(function()
+                        return runner.processEvents(events, caster, target, spellSlot)
+                    end)
+                    
+                    if ok then
+                        eventResults = result
+                    else
+                        print("ERROR processing events: " .. tostring(result))
+                        -- Return a default result structure
+                        eventResults = { eventsProcessed = 0 }
+                    end
+                else
+                    print("WARNING: EventRunner not available for processing")
+                    eventResults = { eventsProcessed = 0 }
+                end
             else
                 print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
             end
@@ -6907,8 +6993,9 @@ FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     affinity = "fire",
-    description = "Creates a new Fire mana token",
+    description = "Conjures a Fire mana token",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
     castTime = Constants.CastSpeed.FAST,
     cost = {},  -- No mana cost
     keywords = {
@@ -6944,9 +7031,10 @@ FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Quick ranged hit, more damage against FAR opponents",
+    description = "Superheated bolt that deals more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -6968,9 +7056,10 @@ FireSpells.fireball = {
     id = "fireball",
     name = "Fireball",
     affinity = "fire",
-    description = "Fireball",
+    description = "Fireball that deals damage and burns.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "orb",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -6992,6 +7081,7 @@ FireSpells.blastwave = {
     description = "Blast that deals significant damage up close.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
+    visualShape = "blast",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
@@ -7014,6 +7104,7 @@ FireSpells.combustMana = {
     description = "Disrupts opponent channeling, burning one token to Salt",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "affectManaPool",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
@@ -7029,7 +7120,8 @@ FireSpells.blazingAscent = {
     affinity = "fire",
     description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
     attackType = Constants.AttackType.ZONE,
-    castTime = 3.0,
+    visualShape = "blast",
+    castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "star"},
     keywords = {
         damage = {
@@ -7058,6 +7150,7 @@ FireSpells.eruption = {
     affinity = "fire",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = Constants.AttackType.ZONE,
+    visualShape = "groundBurst",
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
     keywords = {
@@ -7103,9 +7196,10 @@ FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
     affinity = "fire", 
-    description = "An aggressive barrier that counterattacks and empowers the caster when blocking",
+    description = "A Barrier of flames that stops Projectile and Zone attacks, damaging attackers.",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 7.0,
+    visualShape = "barrier",
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         block = {
@@ -7171,6 +7265,21 @@ local MindSpells = {}
 
 -- Placeholder for future Mind element spells
 
+-- TODO: add "spell state" tracking to support this (and probably other Mind and Star spells in particular)
+MindSpells.thoughtscalp = {
+    id = "thoughtscalp",
+    name = "Thought Scalp",
+    affinity = "mind",
+    description = "Picks at opponent's worst fear, dealing slightly more damage every time.",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "slash", -- Constants.VisualShape.SLASH,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.MIND},
+    keywords = {
+      damage = 10
+    }
+}
+
 return MindSpells```
 
 ## ./spells/elements/moon.lua
@@ -7188,8 +7297,9 @@ MoonSpells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Creates a new Moon mana token",
+    description = "Conjures a Moon mana token.",
     attackType = "utility",
+    visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.FAST,
     cost = {},
     keywords = {
@@ -7221,6 +7331,7 @@ MoonSpells.tidalforce = {
     affinity = Constants.TokenType.MOON,
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.WATER, Constants.TokenType.MOON},
     keywords = {
@@ -7244,8 +7355,9 @@ MoonSpells.lunardisjunction = {
     id = "lunardisjunction",
     name = "Lunar Disjunction",
     affinity = Constants.TokenType.MOON,
-    description = "Counterspell, cancels an opponent's spell and destroys its mana",
+    description = "Cleansing moonlight cancels an opponent's spell and dissolves its mana",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "zap",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
@@ -7262,7 +7374,7 @@ MoonSpells.lunardisjunction = {
         },
     },
     sfx = "lunardisjunction_sound",
-    blockableBy = {Constants.ShieldType.WARD, Constants.ShieldType.BARRIER}
+    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Moon Dance spell
@@ -7270,8 +7382,9 @@ MoonSpells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Switch Range. Freeze <3> enemy Root slot.",
+    description = "Warp space to switch range, deal chip damage, and freeze <3> enemy Root slot.",
     attackType = "remote",
+    visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON},
     keywords = {
@@ -7302,6 +7415,7 @@ MoonSpells.gravity = {
     affinity = Constants.TokenType.MOON,
     description = "Grounds AERIAL enemies",
     attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.ANY},
     keywords = {
@@ -7335,11 +7449,12 @@ MoonSpells.eclipse = {
     affinity = Constants.TokenType.MOON,
     description = "Freeze <3> your Crown slot. Conjure Sun",
     attackType = "utility", 
+    visualShape = "eclipse",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
-            duration = 1.5,
+            duration = 3,
             slot = 3,
             target = "both"
         },
@@ -7357,8 +7472,9 @@ MoonSpells.fullmoonbeam = {
     id = "fullmoonbeam",
     name = "Full Moon Beam",
     affinity = Constants.TokenType.MOON,
-    description = "Channels moonlight into a beam that deals damage equal to its cast time",
+    description = "Channels moonlight into a beam that deals more damage the longer it's delayed.",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
@@ -7401,7 +7517,8 @@ MoonSpells.lunarTides = {
     name = "Lunar Tides",
     affinity = Constants.TokenType.MOON,
     description = "Manipulates the battle flow based on range and elevation",
-    attackType = Constants.AttackType.ZONE,
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = 7.0,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.ANY, Constants.TokenType.ANY},
     keywords = {
@@ -7424,7 +7541,7 @@ MoonSpells.lunarTides = {
         },
     },
     sfx = "tide_rush",
-    blockableBy = {Constants.ShieldType.BARRIER}
+    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Wings of Moonlight (shield spell)
@@ -7432,8 +7549,9 @@ MoonSpells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Magical ward that blocks projectile and remote attacks, elevating the caster each time it blocks.",
+    description = "A runic Ward that stops Projectile and Remote attacks, elevating the caster.",
     attackType = "utility",
+    visualShape = "wings",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
     keywords = {
@@ -7468,10 +7586,11 @@ MoonSpells.gravityTrap = {
     id = "gravityTrap",
     name = "Gravity Point",
     affinity = Constants.TokenType.MOON,
-    description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
+    description = "Gravitational trap that triggers when an enemy becomes AERIAL, grounding and damaging them.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         sustain = true,
         
@@ -7512,6 +7631,7 @@ MoonSpells.infiniteprocession = {
     affinity = Constants.TokenType.MOON,
     description = "Transmutes MOON tokens into SUN or SUN into MOON.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.SLOW,
     cost = {},
     keywords = {
@@ -7530,6 +7650,7 @@ MoonSpells.enhancedmirrorshield = {
     affinity = Constants.TokenType.MOON,
     description = "A powerful reflective barrier that returns damage to attackers with interest",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "mirror",
     castTime = Constants.CastSpeed.VERY_SLOW,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.STAR},
     keywords = {
@@ -7923,9 +8044,10 @@ SunSpells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     affinity = "sun",
-    description = "Aerial finisher, hits GROUNDED enemies",
+    description = "Aerial finisher, only hits GROUNDED enemies",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
+    visualShape = "meteor",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
     keywords = {
         damage = {
@@ -7954,9 +8076,10 @@ SunSpells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     affinity = "sun",
-    description = "Launches caster into the air, shifts range, and conjures FIRE",
+    description = "Launches caster into the air, shifts range, and conjures a Fire token.",
     castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
+    visualShape = "surge",
     cost = {"sun"},
     keywords = {
         conjure = {
@@ -7984,8 +8107,9 @@ SunSpells.novaconjuring = {
     id = "novaconjuring",
     name = "Nova Conjuring",
     affinity = "sun",
-    description = "Conjures SUN token from FIRE.",
+    description = "Expends Fire tokens to conjure a Sun token.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {"fire", "fire", "fire"},
     keywords = {
@@ -8009,6 +8133,7 @@ SunSpells.forcebarrier = {
     description = "A protective barrier that blocks projectile and area attacks",
     castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
+    visualShape = "surge",
     cost = {"sun", "sun"},
     keywords = {
         block = {
@@ -8252,6 +8377,7 @@ local Schema = {}
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
 --     block, reflect, echo, zoneAnchor, zoneMulti
+-- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
 -- blockableBy: Array of shield types that can block this spell (array, optional)
@@ -8753,6 +8879,7 @@ EventRunner.EVENT_HANDLERS = {
             tags = event.tags or { DAMAGE = true },
             rangeBand = event.rangeBand,
             elevation = event.elevation,
+            visualShape = event.visualShape, -- Copy visualShape if present
             
             -- Add delayed damage information
             delayedDamage = delayDamage and event.amount or nil,
@@ -8864,6 +8991,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true, [event.elevation == Constants.ElevationState.AERIAL and "ELEVATE" or "GROUND"] = true },
                 rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0
             }
             
@@ -8915,6 +9043,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true },
                 rangeBand = event.position, -- The new range state
                 elevation = caster.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0,
                 -- Extra params specific to range changes
                 position = event.position
@@ -9792,12 +9921,20 @@ EventRunner.EVENT_HANDLERS = {
             -- Merge additional parameters from event
             if not vfxOpts then vfxOpts = {} end
             
-            -- Add source/target names
+            -- Add source/target names and entities for positional tracking
             if caster and caster.name then
                 vfxOpts.source = caster.name
+                vfxOpts.sourceEntity = caster
+                
+                -- If this is from a spell with a visualShape, add it to the options
+                if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+                   caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.visualShape then
+                    vfxOpts.visualShape = caster.spellSlots[spellSlot].spell.visualShape
+                end
             end
             if target and target.name then
                 vfxOpts.target = target.name
+                vfxOpts.targetEntity = target
             end
             
             -- Set default duration if not provided
@@ -10218,7 +10355,7 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     end
 
     -- Get defense type with safety check
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
@@ -10299,12 +10436,12 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     
     -- Add support for on-block effects
     -- Add safety check for slot.defenseType
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
     print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
     
     if slot.onBlock then
         print("[SHIELD DEBUG] onBlock handler found, executing")
-        local EventRunner = require("systems.EventRunner")
+        -- Avoid importing EventRunner directly to prevent circular dependency
         local ok, blockEvents = pcall(slot.onBlock,
                                       wizard,          -- defender (owner of the shield)
                                       incomingSpell and incomingSpell.caster, -- attacker (may be nil)
@@ -10312,6 +10449,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
                                       { blockType = defenseType })
         if ok and type(blockEvents) == "table" and #blockEvents > 0 then
             print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            -- Lazy load EventRunner only when needed
+            local EventRunner = require("systems.EventRunner")
             EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
         elseif not ok then
             print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
@@ -10734,16 +10873,22 @@ function SustainedSpellManager.update(dt)
                 
                 -- Process generated events with EventRunner
                 if #events > 0 then
-                    -- Get EventRunner
-                    local EventRunner = require("systems.EventRunner")
+                    -- Process events - Use pcall for safety
+                    local result = { eventsProcessed = 0 }
+                    local ok, err = pcall(function()
+                        -- Get EventRunner at last possible moment
+                        local EventRunner = require("systems.EventRunner")
+                        result = EventRunner.processEvents(
+                            events,         -- Events to process
+                            casterWizard,   -- Caster
+                            targetWizard,   -- Target
+                            nil             -- No specific spell slot for effect execution
+                        )
+                    end)
                     
-                    -- Process events
-                    local result = EventRunner.processEvents(
-                        events,         -- Events to process
-                        casterWizard,   -- Caster
-                        targetWizard,   -- Target
-                        nil             -- No specific spell slot for effect execution
-                    )
+                    if not ok then
+                        print("[SustainedManager] ERROR: Failed to process events: " .. tostring(err))
+                    end
                     
                     print(string.format("[SustainedManager] Processed %d trap events", 
                         result and result.eventsProcessed or 0))
@@ -11375,7 +11520,7 @@ local VisualResolver = {}
 -- Map attack types to base VFX template names
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
-    [Constants.AttackType.REMOTE] = Constants.VFXType.BEAM_BASE,
+    [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
     [Constants.AttackType.ZONE] = Constants.VFXType.ZONE_BASE,
     [Constants.AttackType.UTILITY] = Constants.VFXType.UTIL_BASE
 }
@@ -11444,6 +11589,11 @@ function VisualResolver.pick(event)
     if not event or type(event) ~= "table" then
         VisualResolver.debug("Invalid event provided to pick()")
         return DEFAULT_BASE, { color = DEFAULT_COLOR, scale = 1.0, motion = DEFAULT_MOTION, addons = {} }
+    end
+    
+    -- Debug output for visualShape if present
+    if event.visualShape then
+        VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
     end
     
     -- Handle manual override: If the event has an effectOverride, use it directly
@@ -11524,9 +11674,36 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from attack type
+    -- Step 1: Determine base template from visualShape or attack type
     local baseTemplate = DEFAULT_BASE
-    if event.attackType and BASE_BY_ATTACK[event.attackType] then
+    
+    -- If the event or options has a visualShape property, use a named template instead
+    if event.visualShape then
+        local visualShape = event.visualShape
+        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        
+        -- Map visualShape to appropriate template
+        if visualShape == "beam" then
+            baseTemplate = Constants.VFXType.BEAM_BASE
+        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
+            baseTemplate = Constants.VFXType.PROJ_BASE
+        elseif visualShape == "blast" or visualShape == "groundBurst" then
+            baseTemplate = Constants.VFXType.ZONE_BASE
+        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
+            baseTemplate = Constants.VFXType.UTIL_BASE
+        elseif visualShape == "wings" or visualShape == "mirror" then
+            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
+        elseif visualShape == "eclipse" then
+            baseTemplate = "eclipse_base" -- Specialized template
+        else
+            -- For unknown visualShapes, fall back to attack type
+            VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
+            if event.attackType and BASE_BY_ATTACK[event.attackType] then
+                baseTemplate = BASE_BY_ATTACK[event.attackType]
+            end
+        end
+    -- Otherwise use attack type mapping
+    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
     end
     
@@ -11641,6 +11818,28 @@ function VisualResolver.test()
             tags = { VFX = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 5: REMOTE attack with "beam" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.MOON,
+            attackType = Constants.AttackType.REMOTE,
+            visualShape = "beam",
+            manaCost = 3,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 6: Projectile attack with "blast" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "blast",
+            manaCost = 3,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
@@ -11660,7 +11859,8 @@ function VisualResolver.test()
 end
 
 -- Execute test function if called directly
-if arg and arg[0]:find("VisualResolver.lua") then
+-- Only run if arg exists and this file is being run directly
+if arg and arg[0] and type(arg[0]) == "string" and arg[0]:find("VisualResolver.lua") then
     VisualResolver.test()
 end
 
@@ -12187,8 +12387,16 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             
             -- Draw the orbit ellipse if needed
             if shouldDrawOrbit then
+                -- Store information so the corresponding bottom half can be drawn in the "front" pass
+                slot._orbitShouldDraw = true
+                slot._orbitColor = {orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4]}
+
                 love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
-                WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
+                -- Draw ONLY the TOP half of the ellipse (π to 2π) during the "back" pass so it appears behind the wizard
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 32)
+            else
+                -- Make sure we do not accidentally reuse stale data on the next frame
+                slot._orbitShouldDraw = false
             end
 
             -- NEW: Draw Barrier vertical cylinder lines if applicable
@@ -12243,6 +12451,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             end
         end -- End of drawing orbits only on 'back' pass
 
+        -- NEW: Draw the BOTTOM half of the orbit ellipse during the "front" layer pass
+        if layer == "front" then
+            if slot._orbitShouldDraw and slot._orbitColor then
+                local oc = slot._orbitColor
+                love.graphics.setColor(oc[1], oc[2], oc[3], oc[4])
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 32)
+            end
+        end
     end -- End of loop through spell slots
 end
 
@@ -14282,6 +14498,21 @@ function VFX.init()
             sound = nil
         },
         
+        remote_base = {
+            type = "impact",
+            duration = 0.7,
+            particleCount = 35,
+            startScale = 0.2,
+            endScale = 1.0,              -- Larger ending scale for a flash effect
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,                 -- Larger radius than impact
+            pulseRate = 2,               -- Add pulse for dynamic flash effect
+            intensityMultiplier = 1.8,   -- Brighter than normal effects
+            useTargetPosition = true,    -- Always use target position, not source
+            trackTargetOffsets = true,   -- Track target's current position including offsets
+            sound = nil
+        },
+        
         shield_hit_base = {
             type = "impact",
             duration = 0.8,  -- Slightly longer impact duration
@@ -15086,6 +15317,17 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.targetX = targetX or sourceX
     effect.targetY = targetY or sourceY
     
+    -- Store target entity for position tracking if provided in options
+    if options and options.targetEntity then
+        effect.targetEntity = options.targetEntity
+    end
+    
+    -- Flag for effects that should use target's actual position including offsets
+    effect.trackTargetOffsets = (options and options.trackTargetOffsets) or (template and template.trackTargetOffsets) or false
+    
+    -- Flag for effects that should use target position instead of source
+    effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
+    
     -- Timing
     effect.duration = template.duration
     effect.timer = 0
@@ -15431,6 +15673,20 @@ function VFX.update(dt)
         -- Update effect timer
         effect.timer = effect.timer + dt
         effect.progress = math.min(effect.timer / effect.duration, 1.0)
+        
+        -- Update target position if tracking offsets and we have a target entity
+        if effect.trackTargetOffsets and effect.targetEntity then
+            -- Include wizard offsets in target position
+            local targetWizard = effect.targetEntity
+            if targetWizard and targetWizard.x and targetWizard.y then
+                local xOffset = targetWizard.currentXOffset or 0
+                local yOffset = targetWizard.currentYOffset or 0
+                
+                -- Update the effect's target position to follow the wizard
+                effect.targetX = targetWizard.x + xOffset
+                effect.targetY = targetWizard.y + yOffset
+            end
+        end
         
         -- Update effect based on type
         if effect.type == Constants.AttackType.PROJECTILE then
@@ -15838,10 +16094,19 @@ end
 -- Update function for impact effects
 function VFX.updateImpact(effect, dt)
     -- Create impact wave that expands outward
+    -- For effects with useTargetPosition=true, ensure particles use target position
+    local useTargetPosition = effect.useTargetPosition
+    
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
         if effect.timer > particle.delay then
             particle.active = true
+            
+            -- Update particle base position to current target position for effects that track target
+            if useTargetPosition then
+                particle.baseX = effect.targetX
+                particle.baseY = effect.targetY
+            end
         end
         
         if particle.active then
@@ -16916,7 +17181,7 @@ function Wizard.new(name, x, y, color)
             -- Single key spells
             ["1"]  = Spells.conjurefire,
             ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.fireball,
+            ["3"]  = Spells.novaconjuring,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -19133,6 +19398,101 @@ This separation of concerns ensures that:
 1. Animations are consistent and predictable
 2. Token state transitions only happen at well-defined points
 3. The ManaPool update method is more maintainable, focusing on animation driving rather than state management
+
+## docs/vfxTodo.md
+# Spell "Visual Shapes" for Demo
+1. Affect Mana Pool (Utility)
+2. Barrier (Utility)
+3. Wings (Utility)
+4. Surge (Utility)
+5. Eclipse (Utility)
+6. Bolt (Projectile)
+7. Beam (Projectile)
+8. Zap (Projectile)
+9. Orb (Projectile)
+10. Blast (Zone)
+11. Ground Burst (Zone)
+12. Meteor (Zone)
+13. Warp (Remote)
+
+## docs/visualShape.md
+# visualShape Property in Spell Definitions
+
+## Overview
+
+The `visualShape` property is an optional field in spell definitions that allows overriding the default visual template selection based on attackType. This property gives greater control over the visual representation of spells without requiring custom VFX definitions for every spell variant.
+
+## Purpose
+
+In Manastorm's visual system:
+
+1. By default, the `VisualResolver` selects a base visual template based on a spell's `attackType`:
+   - `PROJECTILE` → `proj_base`
+   - `REMOTE` → `remote_base`
+   - `ZONE` → `zone_base`
+   - `UTILITY` → `util_base`
+
+2. The `visualShape` property allows overriding this default mapping to select a more appropriate template.
+
+## Example Use Case
+
+Consider a spell like `Full Moon Beam` which has `attackType = REMOTE` but should visually appear as a beam:
+
+```lua
+MoonSpells.fullmoonbeam = {
+    id = "fullmoonbeam",
+    name = "Full Moon Beam",
+    affinity = Constants.TokenType.MOON,
+    description = "Channels moonlight into a beam",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "beam",  -- Override to use beam template instead of remote template
+    -- other properties...
+}
+```
+
+Without the `visualShape` property, this spell would use the `remote_base` template (which might be an explosion effect). By setting `visualShape = "beam"`, it will use the `beam_base` template instead.
+
+## Supported Values
+
+The `visualShape` property supports the following values:
+
+- `"beam"` - A sustained beam effect (uses `beam_base` template)
+- `"bolt"` or `"orb"` or `"zap"` - Projectile effects (use `proj_base` template)
+- `"blast"` or `"groundBurst"` - Area effects (use `zone_base` template)
+- `"warp"`, `"surge"`, or `"affectManaPool"` - Utility effects (use `util_base` template)
+- `"wings"` or `"mirror"` - Shield/barrier effects (use `shield_overlay` template)
+- `"eclipse"` - Special effect (uses a specialized template)
+
+## Implementation Details
+
+1. The spell definition includes a `visualShape` property.
+2. This property is carried through to the compiled spell.
+3. When the spell is cast, the VisualResolver checks for this property in the event.
+4. If found, it overrides the template selection logic to use the specified template instead of the default based on attackType.
+
+## Benefits
+
+- Maintains the benefit of the rules-driven VFX system while allowing visual customization
+- Allows spells with the same attackType to have different visual styles
+- Reduces the need for custom VFX definitions for every spell
+- Separates the gameplay behavior (attackType) from visual representation (visualShape)
+
+## Relationship with Other VFX Properties
+
+The `visualShape` property works alongside other VFX-related properties:
+
+- `vfx`: Directly specifies a VFX template (highest priority, bypasses VisualResolver)
+- `visualShape`: Overrides the base template selection in VisualResolver
+- `attackType`: Default method for determining base template (lowest priority)
+
+## Example Implementation Flow
+
+1. Spell definition includes `visualShape = "beam"`
+2. Spell is cast, generates a DAMAGE event
+3. DAMAGE handler creates an EFFECT event with the same visualShape
+4. VisualResolver receives the event with visualShape property
+5. VisualResolver maps "beam" to beam_base template
+6. VFX is rendered using the beam_base template with appropriate colors and modifiers based on spell affinity
 
 ## docs/wizard.md
 # Wizard Module (`wizard.lua`)
@@ -19451,7 +19811,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Wed Apr 30 14:24:24 CDT 2025
+Generated: Thu May  1 13:36:18 CDT 2025
 
 # Source Code
 
@@ -20738,6 +21098,7 @@ Constants.SpellMetadata = {
     CAST_TIME = "castTime",
     COST = "cost",
     KEYWORDS = "keywords",
+    VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
     BLOCKABLE_BY = "blockableBy",
@@ -20808,7 +21169,8 @@ Constants.VFXType = {
     
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
-    BEAM_BASE = "beam_base",       -- Base beam/remote effect
+    BEAM_BASE = "beam_base",       -- Base beam effect
+    REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
     UTIL_BASE = "util_base",       -- Base utility effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
@@ -22372,6 +22734,7 @@ Keywords.damage = {
                 -- Visual metadata for VisualResolver
                 affinity = spell and spell.affinity or nil,
                 attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
                 manaCost = manaCost,
                 tags = { DAMAGE = true },
                 rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
@@ -22422,6 +22785,7 @@ Keywords.burn = {
             -- Visual metadata for VisualResolver
             affinity = spell and spell.affinity or nil,
             attackType = spell and spell.attackType or nil,
+            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
             manaCost = manaCost,
             tags = { BURN = true, DOT = true },
             rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
@@ -23319,6 +23683,9 @@ function love.load()
     -- Calculate initial scaling
     calculateScaling()
     
+    -- Load background image
+    game.backgroundImage = AssetCache.getImage("assets/sprites/background.png")
+    
     -- Preload all assets to prevent in-game loading hitches
     print("Preloading game assets...")
     local preloadStats = AssetPreloader.preloadAllAssets()
@@ -23729,13 +24096,21 @@ function love.draw()
         -- Draw the main menu
         drawMainMenu()
     elseif game.currentState == "BATTLE" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw range state indicator (NEAR/FAR)
-        drawRangeIndicator()
+        if love.keyboard.isDown("`") then
+            drawRangeIndicator()
+        end
         
         -- Draw mana pool
         game.manaPool:draw()
@@ -23760,10 +24135,16 @@ function love.draw()
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
     elseif game.currentState == "GAME_OVER" then
-        -- Clear game area with game background color
-        love.graphics.setColor(20/255, 20/255, 40/255, 1)
-        love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
-        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        -- Draw background image
+        love.graphics.setColor(1, 1, 1, 1)
+        if game.backgroundImage then
+            love.graphics.draw(game.backgroundImage, 0, 0)
+        else
+            -- Fallback to solid color if background image isn't loaded
+            love.graphics.setColor(20/255, 20/255, 40/255, 1)
+            love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+        end
         
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator
@@ -25940,6 +26321,9 @@ local SpellCompiler = {}
 -- Add the EventRunner module for event-based execution
 local EventRunner = nil -- Lazy-loaded to avoid circular dependencies
 
+-- Keep track of whether we're currently trying to load EventRunner to detect circular dependencies
+local isLoadingEventRunner = false
+
 -- Helper function to merge tables
 local function mergeTables(target, source)
     for k, v in pairs(source) do
@@ -25974,6 +26358,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         castTime = spellDef.castTime,
         cost = spellDef.cost,
         keywords = spellDef.keywords,
+        visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
         blockableBy = spellDef.blockableBy,
@@ -26050,7 +26435,47 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         -- Method to get the event runner module (lazy loading)
     local function getEventRunner()
         if not EventRunner then
-            EventRunner = require("systems.EventRunner")
+            -- Detect circular dependencies
+            if isLoadingEventRunner then
+                print("CIRCULAR DEPENDENCY DETECTED: Already trying to load EventRunner")
+                -- Return dummy EventRunner to break the circular dependency
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
+            
+            -- Set flag to indicate we're trying to load EventRunner
+            isLoadingEventRunner = true
+            
+            -- Use pcall to avoid crashes from circular dependencies
+            local success, result = pcall(function() 
+                return require("systems.EventRunner") 
+            end)
+            
+            -- Reset flag after load attempt
+            isLoadingEventRunner = false
+            
+            if success then
+                EventRunner = result
+            else
+                print("WARNING: Failed to load EventRunner: " .. tostring(result))
+                -- Return a dummy EventRunner with processEvents to avoid crashes
+                return {
+                    processEvents = function(events, caster, target, spellSlot)
+                        print("FALLBACK: Using dummy EventRunner.processEvents")
+                        return {eventsProcessed = 0}
+                    end,
+                    debugPrintEvents = function(events)
+                        print("FALLBACK: Using dummy EventRunner.debugPrintEvents")
+                    end
+                }
+            end
         end
         return EventRunner
     end
@@ -26209,7 +26634,10 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         local success, result = pcall(function()
             -- Debug output for events
             if _G.DEBUG_EVENTS then
-                getEventRunner().debugPrintEvents(events)
+                local debugRunner = getEventRunner()
+                if debugRunner and debugRunner.debugPrintEvents then
+                    debugRunner.debugPrintEvents(events)
+                end
             end
             
             -- Process the events to apply them to the game state
@@ -26223,7 +26651,25 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
                 end
                 
-                eventResults = getEventRunner().processEvents(events, caster, target, spellSlot)
+                -- Get the EventRunner and process events with additional error handling
+                local runner = getEventRunner()
+                if runner and runner.processEvents then
+                    -- Try to process events, but handle any errors gracefully
+                    local ok, result = pcall(function()
+                        return runner.processEvents(events, caster, target, spellSlot)
+                    end)
+                    
+                    if ok then
+                        eventResults = result
+                    else
+                        print("ERROR processing events: " .. tostring(result))
+                        -- Return a default result structure
+                        eventResults = { eventsProcessed = 0 }
+                    end
+                else
+                    print("WARNING: EventRunner not available for processing")
+                    eventResults = { eventsProcessed = 0 }
+                end
             else
                 print("WARNING: No events generated for spell " .. (compiledSpell.id or "unknown"))
             end
@@ -26359,8 +26805,9 @@ FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     affinity = "fire",
-    description = "Creates a new Fire mana token",
+    description = "Conjures a Fire mana token",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
     castTime = Constants.CastSpeed.FAST,
     cost = {},  -- No mana cost
     keywords = {
@@ -26396,9 +26843,10 @@ FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Quick ranged hit, more damage against FAR opponents",
+    description = "Superheated bolt that deals more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -26420,9 +26868,10 @@ FireSpells.fireball = {
     id = "fireball",
     name = "Fireball",
     affinity = "fire",
-    description = "Fireball",
+    description = "Fireball that deals damage and burns.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "orb",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -26444,6 +26893,7 @@ FireSpells.blastwave = {
     description = "Blast that deals significant damage up close.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
+    visualShape = "blast",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
@@ -26466,6 +26916,7 @@ FireSpells.combustMana = {
     description = "Disrupts opponent channeling, burning one token to Salt",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "affectManaPool",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
@@ -26481,7 +26932,8 @@ FireSpells.blazingAscent = {
     affinity = "fire",
     description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
     attackType = Constants.AttackType.ZONE,
-    castTime = 3.0,
+    visualShape = "blast",
+    castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "star"},
     keywords = {
         damage = {
@@ -26510,6 +26962,7 @@ FireSpells.eruption = {
     affinity = "fire",
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = Constants.AttackType.ZONE,
+    visualShape = "groundBurst",
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
     keywords = {
@@ -26555,9 +27008,10 @@ FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
     affinity = "fire", 
-    description = "An aggressive barrier that counterattacks and empowers the caster when blocking",
+    description = "A Barrier of flames that stops Projectile and Zone attacks, damaging attackers.",
     attackType = Constants.AttackType.UTILITY,
-    castTime = 7.0,
+    visualShape = "barrier",
+    castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         block = {
@@ -26623,6 +27077,21 @@ local MindSpells = {}
 
 -- Placeholder for future Mind element spells
 
+-- TODO: add "spell state" tracking to support this (and probably other Mind and Star spells in particular)
+MindSpells.thoughtscalp = {
+    id = "thoughtscalp",
+    name = "Thought Scalp",
+    affinity = "mind",
+    description = "Picks at opponent's worst fear, dealing slightly more damage every time.",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "slash", -- Constants.VisualShape.SLASH,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.MIND},
+    keywords = {
+      damage = 10
+    }
+}
+
 return MindSpells```
 
 ## ./spells/elements/moon.lua
@@ -26640,8 +27109,9 @@ MoonSpells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Creates a new Moon mana token",
+    description = "Conjures a Moon mana token.",
     attackType = "utility",
+    visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.FAST,
     cost = {},
     keywords = {
@@ -26673,6 +27143,7 @@ MoonSpells.tidalforce = {
     affinity = Constants.TokenType.MOON,
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.WATER, Constants.TokenType.MOON},
     keywords = {
@@ -26696,8 +27167,9 @@ MoonSpells.lunardisjunction = {
     id = "lunardisjunction",
     name = "Lunar Disjunction",
     affinity = Constants.TokenType.MOON,
-    description = "Counterspell, cancels an opponent's spell and destroys its mana",
+    description = "Cleansing moonlight cancels an opponent's spell and dissolves its mana",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "zap",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
@@ -26714,7 +27186,7 @@ MoonSpells.lunardisjunction = {
         },
     },
     sfx = "lunardisjunction_sound",
-    blockableBy = {Constants.ShieldType.WARD, Constants.ShieldType.BARRIER}
+    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Moon Dance spell
@@ -26722,8 +27194,9 @@ MoonSpells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Switch Range. Freeze <3> enemy Root slot.",
+    description = "Warp space to switch range, deal chip damage, and freeze <3> enemy Root slot.",
     attackType = "remote",
+    visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON},
     keywords = {
@@ -26754,6 +27227,7 @@ MoonSpells.gravity = {
     affinity = Constants.TokenType.MOON,
     description = "Grounds AERIAL enemies",
     attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.ANY},
     keywords = {
@@ -26787,11 +27261,12 @@ MoonSpells.eclipse = {
     affinity = Constants.TokenType.MOON,
     description = "Freeze <3> your Crown slot. Conjure Sun",
     attackType = "utility", 
+    visualShape = "eclipse",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
-            duration = 1.5,
+            duration = 3,
             slot = 3,
             target = "both"
         },
@@ -26809,8 +27284,9 @@ MoonSpells.fullmoonbeam = {
     id = "fullmoonbeam",
     name = "Full Moon Beam",
     affinity = Constants.TokenType.MOON,
-    description = "Channels moonlight into a beam that deals damage equal to its cast time",
+    description = "Channels moonlight into a beam that deals more damage the longer it's delayed.",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
@@ -26853,7 +27329,8 @@ MoonSpells.lunarTides = {
     name = "Lunar Tides",
     affinity = Constants.TokenType.MOON,
     description = "Manipulates the battle flow based on range and elevation",
-    attackType = Constants.AttackType.ZONE,
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
     castTime = 7.0,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.ANY, Constants.TokenType.ANY},
     keywords = {
@@ -26876,7 +27353,7 @@ MoonSpells.lunarTides = {
         },
     },
     sfx = "tide_rush",
-    blockableBy = {Constants.ShieldType.BARRIER}
+    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Wings of Moonlight (shield spell)
@@ -26884,8 +27361,9 @@ MoonSpells.wrapinmoonlight = {
     id = "wrapinmoonlight",
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Magical ward that blocks projectile and remote attacks, elevating the caster each time it blocks.",
+    description = "A runic Ward that stops Projectile and Remote attacks, elevating the caster.",
     attackType = "utility",
+    visualShape = "wings",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
     keywords = {
@@ -26920,10 +27398,11 @@ MoonSpells.gravityTrap = {
     id = "gravityTrap",
     name = "Gravity Point",
     affinity = Constants.TokenType.MOON,
-    description = "Sets a trap that triggers when an enemy becomes AERIAL, pulling them down and dealing damage",
+    description = "Gravitational trap that triggers when an enemy becomes AERIAL, grounding and damaging them.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
-    cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         sustain = true,
         
@@ -26964,6 +27443,7 @@ MoonSpells.infiniteprocession = {
     affinity = Constants.TokenType.MOON,
     description = "Transmutes MOON tokens into SUN or SUN into MOON.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.SLOW,
     cost = {},
     keywords = {
@@ -26982,6 +27462,7 @@ MoonSpells.enhancedmirrorshield = {
     affinity = Constants.TokenType.MOON,
     description = "A powerful reflective barrier that returns damage to attackers with interest",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "mirror",
     castTime = Constants.CastSpeed.VERY_SLOW,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.STAR},
     keywords = {
@@ -27375,9 +27856,10 @@ SunSpells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     affinity = "sun",
-    description = "Aerial finisher, hits GROUNDED enemies",
+    description = "Aerial finisher, only hits GROUNDED enemies",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
+    visualShape = "meteor",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
     keywords = {
         damage = {
@@ -27406,9 +27888,10 @@ SunSpells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     affinity = "sun",
-    description = "Launches caster into the air, shifts range, and conjures FIRE",
+    description = "Launches caster into the air, shifts range, and conjures a Fire token.",
     castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
+    visualShape = "surge",
     cost = {"sun"},
     keywords = {
         conjure = {
@@ -27436,8 +27919,9 @@ SunSpells.novaconjuring = {
     id = "novaconjuring",
     name = "Nova Conjuring",
     affinity = "sun",
-    description = "Conjures SUN token from FIRE.",
+    description = "Expends Fire tokens to conjure a Sun token.",
     attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {"fire", "fire", "fire"},
     keywords = {
@@ -27461,6 +27945,7 @@ SunSpells.forcebarrier = {
     description = "A protective barrier that blocks projectile and area attacks",
     castTime = Constants.CastSpeed.SLOW,
     attackType = "utility",
+    visualShape = "surge",
     cost = {"sun", "sun"},
     keywords = {
         block = {
@@ -27704,6 +28189,7 @@ local Schema = {}
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
 --     block, reflect, echo, zoneAnchor, zoneMulti
+-- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
 -- blockableBy: Array of shield types that can block this spell (array, optional)
@@ -28205,6 +28691,7 @@ EventRunner.EVENT_HANDLERS = {
             tags = event.tags or { DAMAGE = true },
             rangeBand = event.rangeBand,
             elevation = event.elevation,
+            visualShape = event.visualShape, -- Copy visualShape if present
             
             -- Add delayed damage information
             delayedDamage = delayDamage and event.amount or nil,
@@ -28316,6 +28803,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true, [event.elevation == Constants.ElevationState.AERIAL and "ELEVATE" or "GROUND"] = true },
                 rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0
             }
             
@@ -28367,6 +28855,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true },
                 rangeBand = event.position, -- The new range state
                 elevation = caster.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0,
                 -- Extra params specific to range changes
                 position = event.position
@@ -29244,12 +29733,20 @@ EventRunner.EVENT_HANDLERS = {
             -- Merge additional parameters from event
             if not vfxOpts then vfxOpts = {} end
             
-            -- Add source/target names
+            -- Add source/target names and entities for positional tracking
             if caster and caster.name then
                 vfxOpts.source = caster.name
+                vfxOpts.sourceEntity = caster
+                
+                -- If this is from a spell with a visualShape, add it to the options
+                if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+                   caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.visualShape then
+                    vfxOpts.visualShape = caster.spellSlots[spellSlot].spell.visualShape
+                end
             end
             if target and target.name then
                 vfxOpts.target = target.name
+                vfxOpts.targetEntity = target
             end
             
             -- Set default duration if not provided
@@ -29670,7 +30167,7 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     end
 
     -- Get defense type with safety check
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
 
     -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
     local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
@@ -29751,12 +30248,12 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
     
     -- Add support for on-block effects
     -- Add safety check for slot.defenseType
-    local defenseType = slot.defenseType or "unknown"
+    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
     print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
     
     if slot.onBlock then
         print("[SHIELD DEBUG] onBlock handler found, executing")
-        local EventRunner = require("systems.EventRunner")
+        -- Avoid importing EventRunner directly to prevent circular dependency
         local ok, blockEvents = pcall(slot.onBlock,
                                       wizard,          -- defender (owner of the shield)
                                       incomingSpell and incomingSpell.caster, -- attacker (may be nil)
@@ -29764,6 +30261,8 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
                                       { blockType = defenseType })
         if ok and type(blockEvents) == "table" and #blockEvents > 0 then
             print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
+            -- Lazy load EventRunner only when needed
+            local EventRunner = require("systems.EventRunner")
             EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
         elseif not ok then
             print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
@@ -30186,16 +30685,22 @@ function SustainedSpellManager.update(dt)
                 
                 -- Process generated events with EventRunner
                 if #events > 0 then
-                    -- Get EventRunner
-                    local EventRunner = require("systems.EventRunner")
+                    -- Process events - Use pcall for safety
+                    local result = { eventsProcessed = 0 }
+                    local ok, err = pcall(function()
+                        -- Get EventRunner at last possible moment
+                        local EventRunner = require("systems.EventRunner")
+                        result = EventRunner.processEvents(
+                            events,         -- Events to process
+                            casterWizard,   -- Caster
+                            targetWizard,   -- Target
+                            nil             -- No specific spell slot for effect execution
+                        )
+                    end)
                     
-                    -- Process events
-                    local result = EventRunner.processEvents(
-                        events,         -- Events to process
-                        casterWizard,   -- Caster
-                        targetWizard,   -- Target
-                        nil             -- No specific spell slot for effect execution
-                    )
+                    if not ok then
+                        print("[SustainedManager] ERROR: Failed to process events: " .. tostring(err))
+                    end
                     
                     print(string.format("[SustainedManager] Processed %d trap events", 
                         result and result.eventsProcessed or 0))
@@ -30827,7 +31332,7 @@ local VisualResolver = {}
 -- Map attack types to base VFX template names
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
-    [Constants.AttackType.REMOTE] = Constants.VFXType.BEAM_BASE,
+    [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
     [Constants.AttackType.ZONE] = Constants.VFXType.ZONE_BASE,
     [Constants.AttackType.UTILITY] = Constants.VFXType.UTIL_BASE
 }
@@ -30896,6 +31401,11 @@ function VisualResolver.pick(event)
     if not event or type(event) ~= "table" then
         VisualResolver.debug("Invalid event provided to pick()")
         return DEFAULT_BASE, { color = DEFAULT_COLOR, scale = 1.0, motion = DEFAULT_MOTION, addons = {} }
+    end
+    
+    -- Debug output for visualShape if present
+    if event.visualShape then
+        VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
     end
     
     -- Handle manual override: If the event has an effectOverride, use it directly
@@ -30976,9 +31486,36 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from attack type
+    -- Step 1: Determine base template from visualShape or attack type
     local baseTemplate = DEFAULT_BASE
-    if event.attackType and BASE_BY_ATTACK[event.attackType] then
+    
+    -- If the event or options has a visualShape property, use a named template instead
+    if event.visualShape then
+        local visualShape = event.visualShape
+        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        
+        -- Map visualShape to appropriate template
+        if visualShape == "beam" then
+            baseTemplate = Constants.VFXType.BEAM_BASE
+        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
+            baseTemplate = Constants.VFXType.PROJ_BASE
+        elseif visualShape == "blast" or visualShape == "groundBurst" then
+            baseTemplate = Constants.VFXType.ZONE_BASE
+        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
+            baseTemplate = Constants.VFXType.UTIL_BASE
+        elseif visualShape == "wings" or visualShape == "mirror" then
+            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
+        elseif visualShape == "eclipse" then
+            baseTemplate = "eclipse_base" -- Specialized template
+        else
+            -- For unknown visualShapes, fall back to attack type
+            VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
+            if event.attackType and BASE_BY_ATTACK[event.attackType] then
+                baseTemplate = BASE_BY_ATTACK[event.attackType]
+            end
+        end
+    -- Otherwise use attack type mapping
+    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
     end
     
@@ -31093,6 +31630,28 @@ function VisualResolver.test()
             tags = { VFX = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 5: REMOTE attack with "beam" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.MOON,
+            attackType = Constants.AttackType.REMOTE,
+            visualShape = "beam",
+            manaCost = 3,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 6: Projectile attack with "blast" visualShape override
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "blast",
+            manaCost = 3,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
@@ -31112,7 +31671,8 @@ function VisualResolver.test()
 end
 
 -- Execute test function if called directly
-if arg and arg[0]:find("VisualResolver.lua") then
+-- Only run if arg exists and this file is being run directly
+if arg and arg[0] and type(arg[0]) == "string" and arg[0]:find("VisualResolver.lua") then
     VisualResolver.test()
 end
 
@@ -31639,8 +32199,16 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             
             -- Draw the orbit ellipse if needed
             if shouldDrawOrbit then
+                -- Store information so the corresponding bottom half can be drawn in the "front" pass
+                slot._orbitShouldDraw = true
+                slot._orbitColor = {orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4]}
+
                 love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
-                WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
+                -- Draw ONLY the TOP half of the ellipse (π to 2π) during the "back" pass so it appears behind the wizard
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 32)
+            else
+                -- Make sure we do not accidentally reuse stale data on the next frame
+                slot._orbitShouldDraw = false
             end
 
             -- NEW: Draw Barrier vertical cylinder lines if applicable
@@ -31695,6 +32263,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             end
         end -- End of drawing orbits only on 'back' pass
 
+        -- NEW: Draw the BOTTOM half of the orbit ellipse during the "front" layer pass
+        if layer == "front" then
+            if slot._orbitShouldDraw and slot._orbitColor then
+                local oc = slot._orbitColor
+                love.graphics.setColor(oc[1], oc[2], oc[3], oc[4])
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 32)
+            end
+        end
     end -- End of loop through spell slots
 end
 
@@ -33734,6 +34310,21 @@ function VFX.init()
             sound = nil
         },
         
+        remote_base = {
+            type = "impact",
+            duration = 0.7,
+            particleCount = 35,
+            startScale = 0.2,
+            endScale = 1.0,              -- Larger ending scale for a flash effect
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            radius = 60,                 -- Larger radius than impact
+            pulseRate = 2,               -- Add pulse for dynamic flash effect
+            intensityMultiplier = 1.8,   -- Brighter than normal effects
+            useTargetPosition = true,    -- Always use target position, not source
+            trackTargetOffsets = true,   -- Track target's current position including offsets
+            sound = nil
+        },
+        
         shield_hit_base = {
             type = "impact",
             duration = 0.8,  -- Slightly longer impact duration
@@ -34538,6 +35129,17 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.targetX = targetX or sourceX
     effect.targetY = targetY or sourceY
     
+    -- Store target entity for position tracking if provided in options
+    if options and options.targetEntity then
+        effect.targetEntity = options.targetEntity
+    end
+    
+    -- Flag for effects that should use target's actual position including offsets
+    effect.trackTargetOffsets = (options and options.trackTargetOffsets) or (template and template.trackTargetOffsets) or false
+    
+    -- Flag for effects that should use target position instead of source
+    effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
+    
     -- Timing
     effect.duration = template.duration
     effect.timer = 0
@@ -34883,6 +35485,20 @@ function VFX.update(dt)
         -- Update effect timer
         effect.timer = effect.timer + dt
         effect.progress = math.min(effect.timer / effect.duration, 1.0)
+        
+        -- Update target position if tracking offsets and we have a target entity
+        if effect.trackTargetOffsets and effect.targetEntity then
+            -- Include wizard offsets in target position
+            local targetWizard = effect.targetEntity
+            if targetWizard and targetWizard.x and targetWizard.y then
+                local xOffset = targetWizard.currentXOffset or 0
+                local yOffset = targetWizard.currentYOffset or 0
+                
+                -- Update the effect's target position to follow the wizard
+                effect.targetX = targetWizard.x + xOffset
+                effect.targetY = targetWizard.y + yOffset
+            end
+        end
         
         -- Update effect based on type
         if effect.type == Constants.AttackType.PROJECTILE then
@@ -35290,10 +35906,19 @@ end
 -- Update function for impact effects
 function VFX.updateImpact(effect, dt)
     -- Create impact wave that expands outward
+    -- For effects with useTargetPosition=true, ensure particles use target position
+    local useTargetPosition = effect.useTargetPosition
+    
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
         if effect.timer > particle.delay then
             particle.active = true
+            
+            -- Update particle base position to current target position for effects that track target
+            if useTargetPosition then
+                particle.baseX = effect.targetX
+                particle.baseY = effect.targetY
+            end
         end
         
         if particle.active then
@@ -36368,7 +36993,7 @@ function Wizard.new(name, x, y, color)
             -- Single key spells
             ["1"]  = Spells.conjurefire,
             ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.fireball,
+            ["3"]  = Spells.novaconjuring,
 
             -- Two key combos
             ["12"] = Spells.forcebarrier,
@@ -38585,6 +39210,101 @@ This separation of concerns ensures that:
 1. Animations are consistent and predictable
 2. Token state transitions only happen at well-defined points
 3. The ManaPool update method is more maintainable, focusing on animation driving rather than state management
+
+## docs/vfxTodo.md
+# Spell "Visual Shapes" for Demo
+1. Affect Mana Pool (Utility)
+2. Barrier (Utility)
+3. Wings (Utility)
+4. Surge (Utility)
+5. Eclipse (Utility)
+6. Bolt (Projectile)
+7. Beam (Projectile)
+8. Zap (Projectile)
+9. Orb (Projectile)
+10. Blast (Zone)
+11. Ground Burst (Zone)
+12. Meteor (Zone)
+13. Warp (Remote)
+
+## docs/visualShape.md
+# visualShape Property in Spell Definitions
+
+## Overview
+
+The `visualShape` property is an optional field in spell definitions that allows overriding the default visual template selection based on attackType. This property gives greater control over the visual representation of spells without requiring custom VFX definitions for every spell variant.
+
+## Purpose
+
+In Manastorm's visual system:
+
+1. By default, the `VisualResolver` selects a base visual template based on a spell's `attackType`:
+   - `PROJECTILE` → `proj_base`
+   - `REMOTE` → `remote_base`
+   - `ZONE` → `zone_base`
+   - `UTILITY` → `util_base`
+
+2. The `visualShape` property allows overriding this default mapping to select a more appropriate template.
+
+## Example Use Case
+
+Consider a spell like `Full Moon Beam` which has `attackType = REMOTE` but should visually appear as a beam:
+
+```lua
+MoonSpells.fullmoonbeam = {
+    id = "fullmoonbeam",
+    name = "Full Moon Beam",
+    affinity = Constants.TokenType.MOON,
+    description = "Channels moonlight into a beam",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "beam",  -- Override to use beam template instead of remote template
+    -- other properties...
+}
+```
+
+Without the `visualShape` property, this spell would use the `remote_base` template (which might be an explosion effect). By setting `visualShape = "beam"`, it will use the `beam_base` template instead.
+
+## Supported Values
+
+The `visualShape` property supports the following values:
+
+- `"beam"` - A sustained beam effect (uses `beam_base` template)
+- `"bolt"` or `"orb"` or `"zap"` - Projectile effects (use `proj_base` template)
+- `"blast"` or `"groundBurst"` - Area effects (use `zone_base` template)
+- `"warp"`, `"surge"`, or `"affectManaPool"` - Utility effects (use `util_base` template)
+- `"wings"` or `"mirror"` - Shield/barrier effects (use `shield_overlay` template)
+- `"eclipse"` - Special effect (uses a specialized template)
+
+## Implementation Details
+
+1. The spell definition includes a `visualShape` property.
+2. This property is carried through to the compiled spell.
+3. When the spell is cast, the VisualResolver checks for this property in the event.
+4. If found, it overrides the template selection logic to use the specified template instead of the default based on attackType.
+
+## Benefits
+
+- Maintains the benefit of the rules-driven VFX system while allowing visual customization
+- Allows spells with the same attackType to have different visual styles
+- Reduces the need for custom VFX definitions for every spell
+- Separates the gameplay behavior (attackType) from visual representation (visualShape)
+
+## Relationship with Other VFX Properties
+
+The `visualShape` property works alongside other VFX-related properties:
+
+- `vfx`: Directly specifies a VFX template (highest priority, bypasses VisualResolver)
+- `visualShape`: Overrides the base template selection in VisualResolver
+- `attackType`: Default method for determining base template (lowest priority)
+
+## Example Implementation Flow
+
+1. Spell definition includes `visualShape = "beam"`
+2. Spell is cast, generates a DAMAGE event
+3. DAMAGE handler creates an EFFECT event with the same visualShape
+4. VisualResolver receives the event with visualShape property
+5. VisualResolver maps "beam" to beam_base template
+6. VFX is rendered using the beam_base template with appropriate colors and modifiers based on spell affinity
 
 ## docs/wizard.md
 # Wizard Module (`wizard.lua`)

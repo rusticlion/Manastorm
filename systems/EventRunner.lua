@@ -386,6 +386,7 @@ EventRunner.EVENT_HANDLERS = {
             tags = event.tags or { DAMAGE = true },
             rangeBand = event.rangeBand,
             elevation = event.elevation,
+            visualShape = event.visualShape, -- Copy visualShape if present
             
             -- Add delayed damage information
             delayedDamage = delayDamage and event.amount or nil,
@@ -497,6 +498,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true, [event.elevation == Constants.ElevationState.AERIAL and "ELEVATE" or "GROUND"] = true },
                 rangeBand = caster.gameState.rangeState,
                 elevation = event.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0
             }
             
@@ -548,6 +550,7 @@ EventRunner.EVENT_HANDLERS = {
                 tags = { MOVEMENT = true },
                 rangeBand = event.position, -- The new range state
                 elevation = caster.elevation,
+                visualShape = event.visualShape, -- Preserve visualShape if specified
                 duration = 1.0,
                 -- Extra params specific to range changes
                 position = event.position
@@ -1429,6 +1432,12 @@ EventRunner.EVENT_HANDLERS = {
             if caster and caster.name then
                 vfxOpts.source = caster.name
                 vfxOpts.sourceEntity = caster
+                
+                -- If this is from a spell with a visualShape, add it to the options
+                if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+                   caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.visualShape then
+                    vfxOpts.visualShape = caster.spellSlots[spellSlot].spell.visualShape
+                end
             end
             if target and target.name then
                 vfxOpts.target = target.name

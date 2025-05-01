@@ -252,6 +252,7 @@ Constants.SpellMetadata = {
     CAST_TIME = "castTime",
     COST = "cost",
     KEYWORDS = "keywords",
+    VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
     BLOCKABLE_BY = "blockableBy",

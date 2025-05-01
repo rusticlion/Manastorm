@@ -21,6 +21,7 @@ local Schema = {}
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
 --     block, reflect, echo, zoneAnchor, zoneMulti
+-- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
 -- blockableBy: Array of shield types that can block this spell (array, optional)

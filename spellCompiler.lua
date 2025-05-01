@@ -57,6 +57,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         castTime = spellDef.castTime,
         cost = spellDef.cost,
         keywords = spellDef.keywords,
+        visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
         blockableBy = spellDef.blockableBy,

@@ -323,6 +323,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
         
         -- Draw the elliptical orbit paths (only need to do this once, e.g., during the 'back' pass)
         if layer == "back" then 
+            -- Clear stale casting arc data if this slot is not currently in an active casting phase
+            if not slot.active or (slot.castTime or 0) == 0 or slot.progress >= (slot.castTime or 0) then
+                slot._castArcActive = false
+            end
+
             local shouldDrawOrbit = false
             local orbitColor = {0.5, 0.5, 0.5, 0.4} -- Default inactive/dim color
             local drawProgressArc = false
@@ -370,9 +375,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                         0.9
                     }
 
+                    -- Store arc information so the complementary half can be rendered in the "front" pass
+                    slot._castArcActive = true
+                    slot._castArcColor = {progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4]}
+                    slot._castArcProgress = (slot.castTime or 1) > 0 and (slot.progress / slot.castTime) or 0
+
                 else
                     -- POST-CASTING PHASE (or instant spell): Show full orbit based on state
                     drawProgressArc = false
+                    slot._castArcActive = false -- Clear cached arc
                     shouldDrawOrbit = true 
 
                     if slot.isShield then
@@ -385,15 +396,9 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         -- Compare against Constants instead of string literals
                         if shieldType == Constants.ShieldType.BARRIER then
-                            -- Draw the base ellipse for the barrier
-                            shouldDrawOrbit = true 
-                            orbitColor = {
-                                shieldColor[1] * (1 + pulseAmount * 0.5), -- Pulse color slightly
-                                shieldColor[2] * (1 + pulseAmount * 0.5),
-                                shieldColor[3] * (1 + pulseAmount * 0.5),
-                                alpha -- Use calculated alpha for the base orbit
-                            }
-                            -- The vertical lines will be drawn AFTER the main orbit below
+                            -- Do NOT draw the horizontal orbit for Barrier; only vertical hedge lines
+                            shouldDrawOrbit = false
+                            -- Vertical cylinder lines are handled later in their dedicated block
                         
                         elseif shieldType == Constants.ShieldType.WARD then
                             shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
@@ -421,33 +426,52 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             
                             if runeAssets and #runeAssets > 0 then
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7), -- Stronger color pulse for runes
+                                    shieldColor[1] * (1 + pulseAmount * 0.7),
                                     shieldColor[2] * (1 + pulseAmount * 0.7),
                                     shieldColor[3] * (1 + pulseAmount * 0.7),
                                     alpha
                                 }
-                                love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
 
                                 for r = 1, numRunes do
-                                    -- Ensure rune index is consistent per slot per frame, but rotates over time
-                                    -- Use slot index and rune index for seeding randomness consistently within a frame
+                                    -- Deterministic seed so both passes pick the same rune image
                                     local seed = i * 10 + r + math.floor(love.timer.getTime())
                                     math.randomseed(seed)
                                     local runeIndex = math.random(1, #runeAssets)
-                                    math.randomseed(os.time() + os.clock()*1000000) -- Reseed properly
+                                    math.randomseed(os.time() + os.clock()*1000000)
 
                                     local runeImg = runeAssets[runeIndex]
-                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7 -- Slow rotation
+                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
                                     local runeX = slotX + math.cos(angle) * radiusX
                                     local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
-                                    
-                                    love.graphics.draw(
-                                        runeImg, 
-                                        runeX, runeY, 
-                                        0, -- No rotation needed for runes 
-                                        runeScale, runeScale, 
-                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
-                                    )
+
+                                    -- Determine if rune is front or back half
+                                    local normalizedAngle = (angle % (math.pi * 2))
+                                    local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                                    if runeLayer == layer then
+                                        -- Glow pass
+                                        local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                                        love.graphics.setBlendMode("add")
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                        love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                                        -- Main rune sprite
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
                                 end
                             else
                                 -- Fallback: Draw the orbit if runes aren't loaded
@@ -517,8 +541,16 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             
             -- Draw the orbit ellipse if needed
             if shouldDrawOrbit then
+                -- Store information so the corresponding bottom half can be drawn in the "front" pass
+                slot._orbitShouldDraw = true
+                slot._orbitColor = {orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4]}
+
                 love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
-                WizardVisuals.drawEllipse(slotX, slotY, radiusX, radiusY, "line")
+                -- Draw ONLY the TOP half of the ellipse (π to 2π) during the "back" pass so it appears behind the wizard
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 32)
+            else
+                -- Make sure we do not accidentally reuse stale data on the next frame
+                slot._orbitShouldDraw = false
             end
 
             -- NEW: Draw Barrier vertical cylinder lines if applicable
@@ -535,32 +567,47 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     local lineAlpha = alpha * 0.6 -- Make vertical lines slightly more transparent
 
                     love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
-                    love.graphics.setLineWidth(1.5) -- Make lines slightly thicker
+                    local prevWidth = love.graphics.getLineWidth()
+                    love.graphics.setLineWidth(1.5) -- thicker
 
                     for k = 1, numLines do
                         local angle = (k / numLines) * math.pi * 2
-                        local px = slotX + math.cos(angle) * radiusX
-                        local py = slotY + math.sin(angle) * radiusY
-                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        local normalizedAngle = angle % (math.pi * 2)
+                        -- Draw only BACK half lines in the back pass (π → 2π)
+                        if normalizedAngle > math.pi then
+                            local px = slotX + math.cos(angle) * radiusX
+                            local py = slotY + math.sin(angle) * radiusY
+
+                            -- Glow pass (thicker, additive blend)
+                            local prevSrc, prevDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setLineWidth(4)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                            love.graphics.setBlendMode(prevSrc, prevDst)
+
+                            -- Main line
+                            love.graphics.setLineWidth(1.5)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        end
                     end
-                    love.graphics.setLineWidth(1) -- Reset line width
+                    love.graphics.setLineWidth(prevWidth) -- restore
                  end
             end
             
             -- Draw progress arc if needed (only during casting phase)
             if drawProgressArc then
-                local startAngle = 0
-                -- Ensure castTime is not zero to avoid division errors
+                -- Compute end angle once
                 local endAngle = ((slot.castTime or 1) > 0) and (slot.progress / slot.castTime) * (math.pi * 2) or 0
-                
-                love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
-                
-                WizardVisuals.drawEllipticalArc(
-                    slotX, slotY, 
-                    radiusX, radiusY, 
-                    startAngle, endAngle, 
-                    32 -- More segments for smoother arc
-                )
+
+                -- Draw only the TOP half (π → 2π) of the arc for the back layer
+                if endAngle > math.pi then
+                    local segStart = math.max(math.pi, 0) -- will always be π
+                    local segEnd = endAngle
+                    love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
+                end
             end
 
             -- Draw state text (TRAP, FROZEN, SUSTAIN) above the orbit if applicable
@@ -571,8 +618,153 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     slotX - textWidth / 2, -- Center text
                     slotY - verticalRadii[i] - 15) -- Position above the orbit
             end
+
+            -- Re-draw tokens so they sit on top of the just-drawn orbit / arc graphics (maintains depth vs wizard)
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        -- token.orbitAngle was set earlier in the first pass through tokens
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
+            end
         end -- End of drawing orbits only on 'back' pass
 
+        -- NEW: Draw the BOTTOM half of the orbit ellipse during the "front" layer pass
+        if layer == "front" then
+            if slot._orbitShouldDraw and slot._orbitColor then
+                local oc = slot._orbitColor
+                love.graphics.setColor(oc[1], oc[2], oc[3], oc[4])
+                WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 32)
+            end
+
+            -- Draw bottom half of casting progress arc if there is one
+            if slot._castArcActive and slot._castArcColor then
+                local endAngle = (slot._castArcProgress or 0) * (math.pi * 2)
+                local segEnd = math.min(endAngle, math.pi)
+                if segEnd > 0.01 then -- Avoid drawing if not progressed into bottom half yet
+                    local cac = slot._castArcColor
+                    love.graphics.setColor(cac[1], cac[2], cac[3], cac[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
+                end
+            end
+
+            -- Draw WARD runes that belong to the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+
+                local numRunes = 5
+                local runeYOffset = 0
+                local runeScale = 1.0
+
+                local runeAssets
+                if VFX.getAsset then
+                    runeAssets = VFX.getAsset("runes")
+                end
+                if not runeAssets and VFX.assets then
+                    runeAssets = VFX.assets.runes
+                end
+
+                if runeAssets and #runeAssets > 0 then
+                    local runeColor = {
+                        shieldColor[1] * (1 + pulseAmount * 0.7),
+                        shieldColor[2] * (1 + pulseAmount * 0.7),
+                        shieldColor[3] * (1 + pulseAmount * 0.7),
+                        alpha
+                    }
+
+                    for r = 1, numRunes do
+                        local seed = i * 10 + r + math.floor(love.timer.getTime())
+                        math.randomseed(seed)
+                        local runeIndex = math.random(1, #runeAssets)
+                        math.randomseed(os.time() + os.clock()*1000000)
+
+                        local runeImg = runeAssets[runeIndex]
+                        local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
+                        local runeX = slotX + math.cos(angle) * radiusX
+                        local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
+
+                        local normalizedAngle = angle % (math.pi * 2)
+                        if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
+                            -- Glow pass
+                            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                            -- Main rune
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                        end
+                    end
+                end
+            end
+
+            -- Draw Barrier vertical hedge lines for the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.BARRIER then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+                local cylinderHeight = 20
+                local numLines = 72
+                local lineAlpha = alpha * 0.6
+
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                local prevWidthF = love.graphics.getLineWidth()
+                love.graphics.setLineWidth(1.5)
+
+                for k = 1, numLines do
+                    local angle = (k / numLines) * math.pi * 2
+                    local normalizedAngle = angle % (math.pi * 2)
+                    -- FRONT half is 0 → π
+                    if normalizedAngle <= math.pi then
+                        local px = slotX + math.cos(angle) * radiusX
+                        local py = slotY + math.sin(angle) * radiusY
+
+                        -- Glow pass
+                        local prevSrc, prevDst = love.graphics.getBlendMode()
+                        love.graphics.setBlendMode("add")
+                        love.graphics.setLineWidth(4)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        love.graphics.setBlendMode(prevSrc, prevDst)
+
+                        -- Main line
+                        love.graphics.setLineWidth(1.5)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                    end
+                end
+                love.graphics.setLineWidth(prevWidthF)
+            end
+
+            -- Re-draw tokens again in front layer to ensure they sit atop orbit/arc
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end -- End of loop through spell slots
 end
 
