@@ -348,6 +348,9 @@ Constants.VFXType = {
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
     GRAVITY_TRAP_SET = "gravity_trap_set",
     FORCE_BLAST = "force_blast",
+    
+    -- Special fire effects
+    METEOR = "meteor_dive",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",

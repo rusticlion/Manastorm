@@ -145,7 +145,7 @@ function love.load()
     
     -- Load game font
     -- For now, fall back to system font if custom font isn't available
-    local fontPath = "assets/fonts/Lionscript-Regular.ttf"
+    local fontPath = "assets/fonts/LionscriptNew-Regular.ttf"
     local fontExists = love.filesystem.getInfo(fontPath)
     
     if fontExists then

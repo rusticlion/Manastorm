@@ -1,5 +1,8 @@
 -- UI helper module
 
+-- Load core modules
+local Constants = require("core.Constants")
+
 local UI = {}
 
 -- Spellbook visibility state
@@ -804,12 +807,36 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     love.graphics.print("Spellbook", modalX + 170, y + 5)
     y = y + 30
     
+    -- Track which spell entry is currently being hovered over (via keys)
+    local activeSpellIndex = nil
+    local keyCombo = ""
+    
+    -- Check which exact keys are being held down
+    if playerNum == 1 then
+        if love.keyboard.isDown("q") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("w") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("e") then keyCombo = keyCombo .. "3" end
+    else
+        if love.keyboard.isDown("i") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("o") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("p") then keyCombo = keyCombo .. "3" end
+    end
+    
+    -- Store information about each spell entry for later use
+    local spellEntries = {}
+    
     -- Display all spells in a single unified list
-    for _, mapping in ipairs(keyMappings) do
+    for i, mapping in ipairs(keyMappings) do
         local spell = wizard.spellbook[mapping.keyName]
         if spell then
             -- Check if this is the currently keyed spell
             local isCurrentSpell = wizard.currentKeyedSpell and wizard.currentKeyedSpell.name == spell.name
+            
+            -- Check if this exact key combo is being held
+            local isExactMatch = (mapping.keyName == keyCombo)
+            if isExactMatch then
+                activeSpellIndex = i
+            end
             
             -- Use a different background color to highlight the currently keyed spell
             if isCurrentSpell then
@@ -861,7 +888,49 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
             love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+            
+            -- Store the spell entry information for later use (for description popup)
+            table.insert(spellEntries, {
+                spell = spell,
+                y = y,
+                isExactMatch = isExactMatch,
+                isCurrentSpell = isCurrentSpell
+            })
+            
             y = y + 45  -- Restore original spacing between spell entries
+        end
+    end
+    
+    -- Draw description popup for the active spell (if any)
+    if activeSpellIndex and spellEntries[activeSpellIndex] then
+        local activeEntry = spellEntries[activeSpellIndex]
+        local activeSpell = activeEntry.spell
+        
+        if activeSpell.description then
+            -- Draw a popup box above the spell entry
+            local popupWidth = 360
+            local popupHeight = 50  -- Height for description text
+            local popupX = modalX + 20  -- Align within the spellbook modal
+            local popupY = activeEntry.y - popupHeight - 10  -- Position above the spell entry
+            
+            -- Draw popup background
+            love.graphics.setColor(0.15, 0.15, 0.25, 0.95)  -- Darker background for contrast
+            love.graphics.rectangle("fill", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a subtle border with the wizard's color
+            love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.7)
+            love.graphics.rectangle("line", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a connecting triangle in the same color
+            love.graphics.polygon("fill", 
+                popupX + popupWidth/2 - 8, popupY + popupHeight,  -- Left point
+                popupX + popupWidth/2 + 8, popupY + popupHeight,  -- Right point
+                popupX + popupWidth/2, popupY + popupHeight + 8   -- Bottom point
+            )
+            
+            -- Draw the description text
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.printf(activeSpell.description, popupX + 10, popupY + 15, popupWidth - 20, "center")
         end
     end
 end

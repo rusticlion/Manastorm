@@ -6,33 +6,57 @@ local expr = require("expr")
 
 local SunSpells = {}
 
+-- Sunbolt spell
+SunSpells.radiantbolt = {
+    id = "radiantbolt",
+    name = "Radiant Bolt",
+    affinity = "sun",
+    description = "Bolt of radiation that deals more damage against AERIAL opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation == Constants.Elevation.AERIAL then
+                    return 25
+                end
+                return 10
+            end,
+            type = Constants.DamageType.SUN
+        },
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
 -- Meteor spell
 SunSpells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     affinity = "sun",
-    description = "Aerial finisher, only hits GROUNDED enemies",
+    description = "Aerial finisher - GROUND self and create a fiery explosion. Only hits GROUNDED enemies.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "meteor",
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = 20,
-            type = Constants.DamageType.FIRE,
-            condition = function(caster, target, slot)
-                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
-                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
-                return casterIsAerial and targetIsGrounded
-            end
+            amount = function(caster, target)
+                if target and target.elevation == Constants.ElevationState.GROUNDED and caster.elevation == Constants.ElevationState.AERIAL then
+                    return 30
+                end
+                return 0
+            end,
+            type = Constants.DamageType.SUN,
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
         },
         ground = {
             target = Constants.TargetType.SELF 
-        },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -43,16 +67,16 @@ SunSpells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     affinity = "sun",
-    description = "Launches caster into the air, shifts range, and conjures a Fire token.",
+    description = "Launches caster into the air, shifts RANGE, and conjures a Fire token.",
     castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     visualShape = "surge",
     cost = {"sun"},
     keywords = {
-        -- conjure = {
-        --     token = Constants.TokenType.FIRE,
-        --     amount = 1
-        -- },
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
         elevate = {
             duration = 5.0,
             target = "SELF",

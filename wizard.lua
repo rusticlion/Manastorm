@@ -109,11 +109,11 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.novaconjuring,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.forcebarrier,
+            ["12"] = Spells.battleshield,
             ["13"] = Spells.blastwave,
             ["23"] = Spells.emberlift,
 

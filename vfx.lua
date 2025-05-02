@@ -295,6 +295,22 @@ function VFX.init()
             sound = "gravity_trap_deploy"  -- Sound will need to be loaded
         },
         
+        meteor_dive = {
+            type = "meteor",
+            duration = 1.4,
+            particleCount = 45,
+            startScale = 0.6,
+            endScale = 1.2,
+            color = Constants.Color.CRIMSON,  -- Crimson red for meteor
+            radius = 90,         -- Impact explosion radius
+            height = 300,        -- Height from which meteor falls
+            spread = 20,         -- Spread of the meteor cluster
+            fireTrail = true,    -- Enable fire trail for particles
+            impactExplosion = true, -- Create explosion effect on impact
+            sound = "meteor_impact",
+            defaultParticleAsset = "fireParticle"
+        },
+        
         force_blast = {
             type = "impact",
             duration = 1.0,
@@ -1408,6 +1424,82 @@ function VFX.initializeParticles(effect)
 
             table.insert(effect.particles, particle)
         end
+    elseif effect.type == "meteor" then
+        -- Initialize particles for meteor dive effect
+        local height = effect.height or 300
+        local spread = effect.spread or 20
+        local particleAsset = effect.defaultParticleAsset or "fireParticle"
+        
+        -- Ensure we have the required asset
+        local asset = VFX.getAsset(particleAsset)
+        
+        -- Create a cluster of meteors falling from above
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Start above the target at random positions
+            local offsetX = (math.random() - 0.5) * spread * 2
+            local offsetY = -height + math.random() * height * 0.3
+            
+            -- Set starting position above target
+            particle.x = effect.targetX + offsetX
+            particle.y = effect.targetY + offsetY
+            
+            -- Downward velocity with slight inward pull toward target
+            local angleToTarget = math.atan2(effect.targetY - particle.y, effect.targetX - particle.x)
+            local fallSpeed = math.random(300, 450)
+            local fallAngleVariance = (math.random() - 0.5) * 0.3
+            particle.speedX = math.cos(angleToTarget + fallAngleVariance) * fallSpeed * 0.3
+            particle.speedY = math.sin(angleToTarget + fallAngleVariance) * fallSpeed
+            
+            -- Set particle properties
+            particle.scale = effect.startScale * math.random(0.8, 1.3)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.rotSpeed = math.random(-5, 5)
+            particle.delay = math.random() * 0.3
+            particle.active = false
+            
+            -- Track if this particle has impacted
+            particle.hasImpacted = false
+            particle.impactTime = 0
+            particle.fireTrail = effect.fireTrail
+            
+            -- Store additional properties
+            particle.assetId = particleAsset
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Create impact area particles (hidden until impact)
+        if effect.impactExplosion then
+            for i = 1, math.floor(effect.particleCount * 0.5) do
+                local particle = Pool.acquire("vfx_particle")
+                
+                -- Start at target position
+                particle.x = effect.targetX
+                particle.y = effect.targetY
+                
+                -- Explosion trajectory
+                local angle = math.random() * math.pi * 2
+                local speed = math.random(100, 300)
+                particle.speedX = math.cos(angle) * speed
+                particle.speedY = math.sin(angle) * speed * 0.7 -- Flatten explosion
+                
+                -- Set particle properties
+                particle.scale = effect.startScale * 0.6 * math.random(0.9, 1.4)
+                particle.alpha = 0 -- Hidden until impact
+                particle.rotation = math.random() * math.pi * 2
+                particle.delay = 0.4 + math.random() * 0.2 -- Delay until impact
+                particle.active = false
+                particle.explosion = true
+                
+                -- Store additional properties
+                particle.assetId = particleAsset
+                
+                table.insert(effect.particles, particle)
+            end
+        end
     end
 end
 
@@ -1450,6 +1542,8 @@ function VFX.update(dt)
             VFX.updateConjure(effect, dt)
         elseif effect.type == "surge" then
             VFX.updateSurge(effect, dt)
+        elseif effect.type == "meteor" then
+            VFX.updateMeteor(effect, dt)
         end
         
         -- Remove effect if complete
@@ -2149,6 +2243,8 @@ function VFX.draw()
             VFX.drawConjure(effect)
         elseif effect.type == "surge" then
             VFX.drawSurge(effect)
+        elseif effect.type == "meteor" then
+            VFX.drawMeteor(effect)
         end
     end
 end
@@ -2865,6 +2961,171 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
             return effect
         end
     }
+end
+
+-- Update function for meteor effect
+function VFX.updateMeteor(effect, dt)
+    -- Process all particles
+    for i, particle in ipairs(effect.particles) do
+        -- Activate particles based on delay
+        if not particle.active and effect.timer >= particle.delay then
+            particle.active = true
+            particle.startTime = effect.timer
+        end
+        
+        if particle.active then
+            -- Track particle lifetime
+            local particleTime = effect.timer - particle.startTime
+            
+            -- Handle meteor particles vs. explosion particles differently
+            if particle.explosion then
+                -- Handle explosion particles (activate after impact)
+                if particleTime >= particle.delay then
+                    -- Fade in quickly
+                    particle.alpha = math.min(1.0, (particleTime - particle.delay) * 10)
+                    
+                    -- Position based on speed
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Add gravity to flatten the explosion
+                    particle.speedY = particle.speedY + 400 * dt
+                    
+                    -- Slow down over time (air resistance)
+                    particle.speedX = particle.speedX * 0.95
+                    particle.speedY = particle.speedY * 0.95
+                    
+                    -- Rotate the particle
+                    particle.rotation = particle.rotation + dt * 2
+                    
+                    -- Fade out near end of effect
+                    if effect.progress > 0.7 then
+                        particle.alpha = math.max(0, 1 - ((effect.progress - 0.7) / 0.3))
+                    end
+                    
+                    -- Scale down slightly
+                    particle.scale = particle.scale * 0.98
+                end
+            else
+                -- Handle meteor particles
+                if not particle.hasImpacted then
+                    -- Still falling - update position
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Rotate the meteor
+                    particle.rotation = particle.rotation + (particle.rotSpeed or 1) * dt
+                    
+                    -- Increase speed (acceleration due to gravity)
+                    local gravityAccel = 200 * dt
+                    particle.speedY = particle.speedY + gravityAccel
+                    
+                    -- Check for impact with ground
+                    if particle.y >= effect.targetY - 10 then
+                        particle.hasImpacted = true
+                        particle.impactTime = particleTime
+                        
+                        -- Stop moving
+                        particle.speedX = 0
+                        particle.speedY = 0
+                        
+                        -- Set Y to exact ground position
+                        particle.y = effect.targetY
+                    end
+                    
+                    -- Create fire trail effect 
+                    if particle.fireTrail and effect.timer % 0.05 < dt then
+                        -- TODO: In a full implementation, this would create small
+                        -- fire particles behind the meteor for a trailing effect
+                    end
+                else
+                    -- After impact, fade out quickly
+                    local impactProgress = (particleTime - particle.impactTime) / 0.3
+                    particle.alpha = math.max(0, 1 - impactProgress)
+                    
+                    -- Expand slightly on impact
+                    local impactScale = 1 + math.min(0.5, impactProgress * 2)
+                    particle.scale = effect.startScale * impactScale
+                    
+                    -- Fade out
+                    if effect.progress > 0.6 then
+                        particle.alpha = particle.alpha * 0.9
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Draw function for meteor effect
+function VFX.drawMeteor(effect)
+    love.graphics.setBlendMode("add")
+    
+    -- Draw all active particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0.01 then
+            -- Get the appropriate asset
+            local asset = VFX.getAsset(particle.assetId or "fireParticle")
+            
+            if asset then
+                -- Save current color
+                local r, g, b, a = love.graphics.getColor()
+                
+                -- Set particle color based on effect color and alpha
+                love.graphics.setColor(
+                    effect.color[1], 
+                    effect.color[2], 
+                    effect.color[3], 
+                    effect.color[4] * particle.alpha
+                )
+                
+                -- Draw the particle
+                love.graphics.draw(
+                    asset,
+                    particle.x,
+                    particle.y,
+                    particle.rotation,
+                    particle.scale,
+                    particle.scale,
+                    asset:getWidth() / 2,
+                    asset:getHeight() / 2
+                )
+                
+                -- Draw fiery glow for meteors
+                if not particle.explosion and not particle.hasImpacted then
+                    local glowAsset = VFX.getAsset("fireGlow")
+                    if glowAsset then
+                        -- Set a more transparent glow color
+                        love.graphics.setColor(
+                            effect.color[1], 
+                            effect.color[2], 
+                            effect.color[3], 
+                            effect.color[4] * particle.alpha * 0.7
+                        )
+                        
+                        -- Draw glow slightly larger than the particle
+                        local glowScale = particle.scale * 1.8
+                        love.graphics.draw(
+                            glowAsset,
+                            particle.x,
+                            particle.y,
+                            particle.rotation,
+                            glowScale,
+                            glowScale,
+                            glowAsset:getWidth() / 2,
+                            glowAsset:getHeight() / 2
+                        )
+                    end
+                end
+                
+                -- Restore original color
+                love.graphics.setColor(r, g, b, a)
+            end
+        end
+    end
+    
+    -- Reset blend mode
+    love.graphics.setBlendMode("alpha")
 end
 
 return VFX

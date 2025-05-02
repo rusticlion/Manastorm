@@ -11,7 +11,7 @@ FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     affinity = "fire",
-    description = "Conjures a Fire mana token",
+    description = "Conjures a Fire mana token. Takes longer to cast the more Fire tokens already present.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "surge",
     castTime = Constants.CastSpeed.FAST,
@@ -49,7 +49,7 @@ FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Superheated bolt that deals more damage against FAR opponents",
+    description = "Superheated bolt. Maximum damage at FAR RANGE.",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     visualShape = "bolt",
@@ -96,19 +96,24 @@ FireSpells.blastwave = {
     id = "blastwave",
     name = "Blast Wave",
     affinity = "fire",
-    description = "Blast that deals significant damage up close.",
+    description = "Blast of flame. Maximum damage at NEAR RANGE and matched ELEVATION.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = expr.byRange({
-                NEAR = 18,
-                FAR = 5,
-                default = 5
-            }),
-            type = Constants.DamageType.FIRE
+            amount = function(caster, target)
+                local baseDmg = 2
+                if target and target.elevation == caster.elevation then
+                    baseDmg = baseDmg + 9
+                end
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    baseDmg = baseDmg + 9
+                end
+                return baseDmg
+            end,
+            type = Constants.DamageType.FIRE,
         },
     },
     sfx = "blastwave",
@@ -119,7 +124,7 @@ FireSpells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
     affinity = "fire",
-    description = "Disrupts opponent channeling, burning one token to Salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
     visualShape = "affectManaPool",
@@ -136,7 +141,7 @@ FireSpells.blazingAscent = {
     id = "blazingascent",
     name = "Blazing Ascent",
     affinity = "fire",
-    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL.",
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     castTime = Constants.CastSpeed.SLOW,
@@ -214,7 +219,7 @@ FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
     affinity = "fire", 
-    description = "A Barrier of flames that stops Projectile and Zone attacks, damaging attackers.",
+    description = "A Barrier of flames that stops Projectile and Zone attacks, burning NEAR attackers.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "barrier",
     castTime = Constants.CastSpeed.SLOW,
@@ -228,14 +233,15 @@ FireSpells.battleshield = {
                 print("[SPELL DEBUG] Flamewreath onBlock handler executing!")
                 local events = {}
                 
-                if attacker then
+                if attacker.elevation == Constants.ElevationState.NEAR then
                     table.insert(events, {
-                        type = "DAMAGE",
+                        type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        amount = 5,
-                        damageType = "fire",
-                        counterDamage = true
+                        statusType = "burn",
+                        duration = 1.5,
+                        tickDamage = 4,
+                        targetSlot = "NEAR"
                     })
                 end
                 

@@ -19,6 +19,7 @@ local TEMPLATE_BY_SHAPE = {
     -- Area/zone effects
     ["blast"] = Constants.VFXType.ZONE_BASE,
     ["groundBurst"] = Constants.VFXType.ZONE_BASE,
+    ["meteor"] = Constants.VFXType.METEOR,
     
     -- Remote/direct effects
     ["warp"] = Constants.VFXType.REMOTE_BASE,
