@@ -1635,23 +1635,31 @@ function VFX.update(dt)
             if not effect.options then effect.options = {} end
             if not effect.options.blockPoint then effect.options.blockPoint = 0.75 end
             
-            -- Determine if effect should be blocked - check if progress reached blockPoint
-            local shouldStartBlock = not effect.blockTimerStarted and effect.progress >= effect.options.blockPoint
-            
-            -- For projectiles that are already in motion, start the block immediately
-            -- so we don't miss the visual effect
-            if not effect.blockTimerStarted and effect.timer >= 0.1 and effect.type == "projectile" then
-                shouldStartBlock = true
+            -- NEW: Instead of immediately setting progress to blockPoint, use a visual progress tracker
+            -- This allows the projectile to follow a natural trajectory
+            if not effect.visualProgress then
+                -- Initialize visualProgress at the beginning (first frame)
+                effect.visualProgress = 0
+                print("[VFX] Initializing blocked projectile trajectory")
             end
             
-            -- Start the block effect
+            -- Update visualProgress for smooth animation - speed up slightly for gameplay feel
+            effect.visualProgress = effect.visualProgress + dt * (1/effect.duration) * 1.2
+            
+            -- Clamp visualProgress at the block point
+            effect.visualProgress = math.min(effect.visualProgress, effect.options.blockPoint)
+            
+            -- Determine if effect should be blocked - check if visualProgress reached blockPoint
+            local shouldStartBlock = not effect.blockTimerStarted and effect.visualProgress >= effect.options.blockPoint - 0.01
+            
+            -- Start the block effect when we reach the block point
             if shouldStartBlock then
                 -- Mark the start of block timing
                 effect.blockTimerStarted = true
                 effect.blockTimer = 0
                 
                 -- Lock progress at block point to show projectile stopping
-                effect.progress = effect.options.blockPoint
+                effect.visualProgress = effect.options.blockPoint
                 
                 -- Enhanced debugging
                 print(string.format("[VFX] Effect '%s' blocked at %.2f, starting shield impact sequence", 
@@ -1712,8 +1720,8 @@ function VFX.update(dt)
                     effect.progress = 1.0 -- Mark effect as complete
                     print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
                 else
-                    -- Keep progress fixed at block point - this is crucial for seeing the projectile stop
-                    effect.progress = effect.options.blockPoint
+                    -- Keep visual progress fixed at block point - this is crucial for seeing the projectile stop
+                    effect.visualProgress = effect.options.blockPoint
                 end
             end
         end
@@ -1795,7 +1803,16 @@ function VFX.updateProjectile(effect, dt)
     
     -- Get effect parameters with defaults
     local arcHeight = effect.arcHeight or 60
-    local baseProgress = effect.progress
+    
+    -- Use visualProgress for blocked effects, otherwise use normal progress
+    local baseProgress 
+    if effect.options and effect.options.blockPoint and effect.visualProgress then
+        -- Use visualProgress for blocked effects to ensure smooth trajectory
+        baseProgress = effect.visualProgress
+    else
+        -- Use normal progress for standard projectiles
+        baseProgress = effect.progress
+    end
     
     -- Calculate base projectile position
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * baseProgress
