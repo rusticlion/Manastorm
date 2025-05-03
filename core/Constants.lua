@@ -350,7 +350,7 @@ Constants.VFXType = {
     FORCE_BLAST = "force_blast",
     
     -- Special fire effects
-    METEOR = "meteor_dive",
+    METEOR = "meteor",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",

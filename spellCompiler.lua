@@ -350,6 +350,58 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
                 end
                 
+                -- If spell is blocked, convert DAMAGE events to BLOCKED_DAMAGE
+                -- This preserves visuals while preventing actual damage application
+                if results.blockInfo and results.blockInfo.blockable then
+                    print("[COMPILER] Spell blocked - converting DAMAGE to BLOCKED_DAMAGE events")
+                    
+                    -- Ensure blockInfo has a blockPoint for visuals
+                    if not results.blockInfo.blockPoint then
+                        print("[COMPILER] WARNING: blockInfo missing blockPoint, setting default 0.75")
+                        results.blockInfo.blockPoint = 0.75
+                    end
+                    
+                    -- Enhanced debugging for blockInfo
+                    print("[COMPILER] BlockInfo details:")
+                    for k, v in pairs(results.blockInfo) do
+                        print("  " .. k .. ": " .. tostring(v))
+                    end
+                    
+                    -- Process each event
+                    local blockEventsFound = false
+                    for i, event in ipairs(events) do
+                        if event.type == "DAMAGE" then
+                            blockEventsFound = true
+                            
+                            -- Convert to BLOCKED_DAMAGE event type
+                            event.type = "BLOCKED_DAMAGE"
+                            
+                            -- Add blockInfo for visuals, deep copy to avoid modification issues
+                            event.blockInfo = {
+                                blockable = results.blockInfo.blockable,
+                                blockType = results.blockInfo.blockType,
+                                blockPoint = results.blockInfo.blockPoint,
+                                blockingSlot = results.blockInfo.blockingSlot
+                            }
+                            
+                            -- Explicitly set blockPoint at both levels for redundancy
+                            event.blockPoint = results.blockInfo.blockPoint
+                            
+                            -- Add shield block tag
+                            event.tags = event.tags or {}
+                            event.tags.SHIELD_BLOCKED = true
+                            
+                            print(string.format("[COMPILER] Converted DAMAGE to BLOCKED_DAMAGE event with blockPoint=%.2f", 
+                                event.blockPoint))
+                        end
+                    end
+                    
+                    -- Warning if no DAMAGE events were found to convert
+                    if not blockEventsFound then
+                        print("[COMPILER] WARNING: Spell was blocked but no DAMAGE events found to convert")
+                    end
+                end
+                
                 -- Get the EventRunner and process events with additional error handling
                 local runner = getEventRunner()
                 if runner and runner.processEvents then
@@ -376,6 +428,14 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             -- Add event processing results to the main results
             results.events = events
             results.eventsProcessed = eventResults.eventsProcessed
+            
+            -- Set blocked flag in results if blockInfo present
+            if results.blockInfo and results.blockInfo.blockable then
+                results.blocked = true
+                results.blockType = results.blockInfo.blockType
+                
+                print("[COMPILER] Spell was blocked by shield - setting blocked flag")
+            end
             
             return results
         end)

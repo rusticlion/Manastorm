@@ -295,7 +295,7 @@ function VFX.init()
             sound = "gravity_trap_deploy"  -- Sound will need to be loaded
         },
         
-        meteor_dive = {
+        meteor = {
             type = "meteor",
             duration = 1.4,
             particleCount = 45,
@@ -329,7 +329,7 @@ function VFX.init()
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = Constants.Color.SKY,  -- Bright blue for freeing mana -> SKY
+            color = Constants.Color.BONE,  -- Bright blue for freeing mana -> SKY
             radius = 100,
             pulseRate = 4,
             sound = "release"
@@ -353,18 +353,6 @@ function VFX.init()
             particleLifespan = 0.5,         -- Shorter individual particle life
             leadingIntensity = 1.8,         -- Brighter leading edge for fire
             motion = Constants.MotionStyle.RISE  -- Use rising motion for fire
-        },
-        
-        -- Meteor effect
-        meteor = {
-            type = "impact",
-            duration = 1.5,
-            particleCount = 40,
-            startScale = 2.0,
-            endScale = 0.5,
-            color = Constants.Color.OCHRE, -- {1, 0.4, 0.1, 1}
-            radius = 120,
-            sound = "meteor"
         },
         
         -- Mist Veil effect
@@ -547,7 +535,7 @@ function VFX.init()
             sound = "conjure_witch" -- Assumed sound effect
         },
         
-        -- Shield effect (used for barrier, ward, and field shield activation)
+        -- Shield effect (used for barrier or ward shield activation)
         shield = {
             type = "aura",
             duration = 1.0,
@@ -562,8 +550,6 @@ function VFX.init()
             shieldType = nil -- Will be set at runtime based on the spell
         },
         
-        -- Gravity Trap Set effect is already defined above,
-
         -- Additional effects for VFXType constants
         
         -- Movement and positioning effects
@@ -922,8 +908,47 @@ function VFX.resetEffect(effect)
     return effect
 end
 
+-- Helper function to ensure all effect parameters are valid
+function VFX.sanitizeEffectParameters(effectName, sourceX, sourceY, targetX, targetY, options)
+    -- Sanitize effect name
+    if not effectName or effectName == "" then
+        effectName = "impact_base" -- Safe default
+        print("[VFX] Warning: Missing effect name, using impact_base as fallback")
+    end
+    
+    -- Sanitize coordinates
+    sourceX = sourceX or 0
+    sourceY = sourceY or 0
+    targetX = targetX or sourceX
+    targetY = targetY or sourceY
+    
+    -- Sanitize options
+    options = options or {}
+    
+    -- Ensure critical fields are present
+    options.duration = options.duration or 0.5
+    options.scale = options.scale or 1.0
+    options.particleCount = options.particleCount or 10
+    
+    -- For blocked projectiles
+    if options.blockInfo then
+        options.blockPoint = options.blockPoint or 0.75
+    end
+    
+    -- Always set default color if missing
+    if not options.color then
+        options.color = {1.0, 1.0, 1.0, 1.0} -- White fallback
+    end
+    
+    -- Return sanitized values
+    return effectName, sourceX, sourceY, targetX, targetY, options
+end
+
 -- Create a new effect instance
 function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, options)
+    -- Sanitize all parameters to prevent nil errors
+    effectName, sourceX, sourceY, targetX, targetY, options = 
+        VFX.sanitizeEffectParameters(effectName, sourceX, sourceY, targetX, targetY, options)
     local Constants = require("core.Constants")
     
     -- Enhanced debugging for VFX-R5 implementation
@@ -1078,6 +1103,49 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.endScale = template.endScale
     effect.color = {template.color[1], template.color[2], template.color[3], template.color[4]}
     
+    -- Store shield block information if provided (for projectile block visuals)
+    if options and options.blockInfo then
+        print("[VFX] Effect has blockInfo - will show shield block visuals")
+        effect.blockInfo = options.blockInfo
+        effect.options = effect.options or {}
+        effect.options.blockPoint = options.blockPoint or 0.75 -- Default to 75% of the way
+        effect.options.shieldType = options.blockInfo.blockType or (options.shieldType or "ward")
+        
+        -- Enhanced debugging for shield block effects
+        print(string.format("[VFX] Created blocked effect '%s' with blockPoint=%.2f and shieldType=%s", 
+            effectName, effect.options.blockPoint, effect.options.shieldType or "unknown"))
+    elseif options and options.blockPoint then
+        -- Fallback for cases where blockPoint is provided without blockInfo
+        print("[VFX] Effect has blockPoint but no blockInfo - creating minimal blockInfo")
+        effect.options = effect.options or {}
+        effect.options.blockPoint = options.blockPoint
+        effect.options.shieldType = options.shieldType or "ward"
+        effect.blockInfo = {
+            blockable = true,
+            blockType = options.shieldType or "ward",
+            blockPoint = options.blockPoint
+        }
+        
+        -- Enhanced debugging for fallback shield block effects
+        print(string.format("[VFX] Created fallback blocked effect '%s' with blockPoint=%.2f", 
+            effectName, effect.options.blockPoint))
+    elseif options and options.tags and options.tags.SHIELD_BLOCKED then
+        -- Ultra fallback for SHIELD_BLOCKED tag without proper blockInfo
+        print("[VFX] Effect has SHIELD_BLOCKED tag but no blockInfo or blockPoint - creating default blockInfo")
+        effect.options = effect.options or {}
+        effect.options.blockPoint = 0.75
+        effect.options.shieldType = options.shieldType or "ward"
+        effect.blockInfo = {
+            blockable = true,
+            blockType = options.shieldType or "ward",
+            blockPoint = 0.75
+        }
+        
+        -- Enhanced debugging for ultra fallback shield block effects
+        print(string.format("[VFX] Created ultra fallback blocked effect '%s' with default blockPoint=0.75", 
+            effectName))
+    end
+    
     -- Apply options modifiers
     if opts.color then
         -- Override color with the provided color
@@ -1137,7 +1205,21 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
 end
 
 -- Initialize particles based on effect type
+-- Helper function to ensure particle has all required properties
+function VFX.ensureParticleDefaults(particle)
+    -- Safety defaults for mandatory properties
+    particle.delay = particle.delay or 0
+    particle.active = particle.active or false
+    particle.startTime = particle.startTime or 0
+    particle.scale = particle.scale or 1.0
+    particle.alpha = particle.alpha or 1.0
+    particle.rotation = particle.rotation or 0
+    particle.isCore = particle.isCore or false
+    return particle
+end
+
 function VFX.initializeParticles(effect)
+    
     -- Different initialization based on effect type
     if effect.type == Constants.AttackType.PROJECTILE then
         -- For projectiles, create core and trailing particles
@@ -1158,7 +1240,7 @@ function VFX.initializeParticles(effect)
         
         -- Create core/leading particles
         for i = 1, coreCount do
-            local particle = Pool.acquire("vfx_particle")
+            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
             -- Random position near the projectile core (tighter cluster)
             local spreadFactor = 4 * turbulence
             local offsetX = math.random(-spreadFactor, spreadFactor)
@@ -1208,7 +1290,7 @@ function VFX.initializeParticles(effect)
         
         -- Create trail particles
         for i = 1, trailCount do
-            local particle = Pool.acquire("vfx_particle")
+            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
             
             -- Trail particles start closer to the core
             local spreadRadius = 6 * trailDensity * turbulence -- Tighter spread
@@ -1435,7 +1517,7 @@ function VFX.initializeParticles(effect)
         
         -- Create a cluster of meteors falling from above
         for i = 1, effect.particleCount do
-            local particle = Pool.acquire("vfx_particle")
+            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
             
             -- Start above the target at random positions
             local offsetX = (math.random() - 0.5) * spread * 2
@@ -1474,7 +1556,7 @@ function VFX.initializeParticles(effect)
         -- Create impact area particles (hidden until impact)
         if effect.impactExplosion then
             for i = 1, math.floor(effect.particleCount * 0.5) do
-                local particle = Pool.acquire("vfx_particle")
+                local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
                 
                 -- Start at target position
                 particle.x = effect.targetX
@@ -1506,12 +1588,135 @@ end
 -- Update all active effects
 function VFX.update(dt)
     local i = 1
+    
+    -- Safety check
+    if not VFX.activeEffects then 
+        VFX.activeEffects = {}
+        return
+    end
+    
     while i <= #VFX.activeEffects do
         local effect = VFX.activeEffects[i]
         
+        -- Skip invalid effects
+        if not effect then
+            table.remove(VFX.activeEffects, i)
+            goto next_effect
+        end
+        
         -- Update effect timer
+        -- Make sure we have valid values
+        effect.timer = effect.timer or 0
+        effect.duration = effect.duration or 0.5
+        
+        -- Update timer
         effect.timer = effect.timer + dt
-        effect.progress = math.min(effect.timer / effect.duration, 1.0)
+        
+        -- Only calculate progress if duration is valid
+        if effect.duration > 0 then
+            effect.progress = math.min(effect.timer / effect.duration, 1.0)
+        else
+            effect.progress = effect.timer -- Fallback when duration is 0
+            print("[VFX] Warning: Effect has invalid duration: " .. tostring(effect.duration))
+        end
+        
+        -- Handle shield block effects with improved safeguards
+        local isBlocked = effect.options and effect.options.blockPoint
+        
+        -- Debug to verify blocked effect tracking
+        if isBlocked and effect.timer == dt then  -- First update frame
+            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f", 
+                effect.name or "unknown", effect.options.blockPoint))
+        end
+        
+        if isBlocked then
+            -- Ensure these fields exist to prevent runtime errors
+            if not effect.type then effect.type = effect.name or "projectile" end
+            if not effect.options then effect.options = {} end
+            if not effect.options.blockPoint then effect.options.blockPoint = 0.75 end
+            
+            -- Determine if effect should be blocked - check if progress reached blockPoint
+            local shouldStartBlock = not effect.blockTimerStarted and effect.progress >= effect.options.blockPoint
+            
+            -- For projectiles that are already in motion, start the block immediately
+            -- so we don't miss the visual effect
+            if not effect.blockTimerStarted and effect.timer >= 0.1 and effect.type == "projectile" then
+                shouldStartBlock = true
+            end
+            
+            -- Start the block effect
+            if shouldStartBlock then
+                -- Mark the start of block timing
+                effect.blockTimerStarted = true
+                effect.blockTimer = 0
+                
+                -- Lock progress at block point to show projectile stopping
+                effect.progress = effect.options.blockPoint
+                
+                -- Enhanced debugging
+                print(string.format("[VFX] Effect '%s' blocked at %.2f, starting shield impact sequence", 
+                    effect.name or "unknown", effect.options.blockPoint))
+                
+                -- Create shield impact effect
+                if not effect.impactParticlesCreated and effect.type == "projectile" then
+                    effect.impactParticlesCreated = true
+                    
+                    -- Calculate impact position 
+                    local progress = effect.options.blockPoint
+                    local impactX = effect.sourceX + (effect.targetX - effect.sourceX) * progress
+                    local impactY = effect.sourceY + (effect.targetY - effect.sourceY) * progress
+                    
+                    -- Create a separate shield hit effect
+                    print(string.format("[VFX] Creating shield hit effect at (%.1f, %.1f)", impactX, impactY))
+                    
+                    -- Determine shield color based on shield type
+                    local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
+                    if effect.options.shieldType == "ward" then
+                        shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards 
+                    elseif effect.options.shieldType == "field" then
+                        shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+                    end
+                    
+                    -- Make the impact more dramatically visible to the player
+                    -- Use impact_base or a fallback effect
+                    local impactEffect = "impact_base"
+                    
+                    -- Impact flash effect
+                    local flashParams = {
+                        duration = 0.3,
+                        scale = (effect.startScale or 1.0) * 1.5,
+                        color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.9},
+                        particleCount = 1
+                    }
+                    VFX.createEffect(impactEffect, impactX, impactY, impactX, impactY, flashParams)
+                    
+                    -- Particle burst effect 
+                    local burstParams = {
+                        duration = 0.8,
+                        scale = (effect.startScale or 1.0) * 1.2,
+                        color = shieldColor,
+                        particleCount = 30
+                    }
+                    VFX.createEffect(impactEffect, impactX, impactY, impactX, impactY, burstParams)
+                    
+                    -- No need to add particles to current effect
+                    print("[VFX] Created shield impact effects")
+                end
+            end
+            
+            -- Once block is triggered, increment a block timer
+            if effect.blockTimerStarted then
+                effect.blockTimer = effect.blockTimer + dt
+                -- Force effect completion after a longer time (1.2 seconds) to ensure player sees it
+                if effect.blockTimer > 1.2 then
+                    effect.progress = 1.0 -- Mark effect as complete
+                    print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
+                else
+                    -- Keep progress fixed at block point - this is crucial for seeing the projectile stop
+                    effect.progress = effect.options.blockPoint
+                end
+            end
+        end
         
         -- Update target position if tracking offsets and we have a target entity
         if effect.trackTargetOffsets and effect.targetEntity then
@@ -1566,6 +1771,9 @@ function VFX.update(dt)
         else
             i = i + 1
         end
+        
+        ::next_effect::
+        -- Continue label for the loop
     end
 end
 
@@ -1650,6 +1858,17 @@ function VFX.updateProjectile(effect, dt)
     local blockPoint = effect.options and effect.options.blockPoint
     local isBlocked = blockPoint and baseProgress >= blockPoint
     
+    if isBlocked and not effect.blockLogged then
+        -- Log block point for debugging (only once)
+        print(string.format("[VFX] Projectile blocked at blockPoint=%.2f", blockPoint))
+        if effect.blockInfo then
+            print(string.format("[VFX] BlockInfo: blockType=%s, blockingSlot=%s", 
+                tostring(effect.blockInfo.blockType),
+                tostring(effect.blockInfo.blockingSlot)))
+        end
+        effect.blockLogged = true
+    end
+    
     if isBlocked then
         -- We've reached the shield block point - calculate block position
         local blockX = effect.sourceX + (effect.targetX - effect.sourceX) * blockPoint
@@ -1680,7 +1899,20 @@ function VFX.updateProjectile(effect, dt)
                 shieldType = effect.options.shieldType
             }
             
-            VFX.createEffect("shield_hit_base", blockX, blockY, nil, nil, shieldHitOpts)
+            -- Ensure we have valid coordinates
+            local safeBlockX = blockX or effect.targetX
+            local safeBlockY = blockY or effect.targetY
+            
+            -- Safety check for the shield effect options
+            shieldHitOpts = shieldHitOpts or {}
+            shieldHitOpts.duration = shieldHitOpts.duration or 0.5
+            shieldHitOpts.particleCount = shieldHitOpts.particleCount or 10
+            
+            VFX.createEffect("shield_hit_base", safeBlockX, safeBlockY, nil, nil, shieldHitOpts)
+            
+            -- Gradually increase the timer to complete the effect lifecycle after block
+            -- This ensures the effect is properly removed from the active effects list
+            effect.timer = effect.timer + (effect.duration * 0.05)
         end
         
         -- Reset position to show scattering from block point
@@ -1693,6 +1925,10 @@ function VFX.updateProjectile(effect, dt)
         else
             -- No need to modify posX, posY here - individual particles 
             -- will handle scattering in their update logic
+            
+            -- Increment timer faster to complete the effect after showing impact
+            -- This ensures the effect is removed from the active effects list
+            effect.timer = math.min(effect.timer + (effect.duration * 0.1), effect.duration)
         end
     else
         -- Normal projectile flight with standard impact transition
@@ -1724,17 +1960,34 @@ function VFX.updateProjectile(effect, dt)
     -- Store leading point for particle updates
     effect.leadingPoint = {x = posX, y = posY}
     
-    -- Update particles
+    -- Initialize particles array if missing
+    effect.particles = effect.particles or {}
+    
+    -- Update particles safely
     for i, particle in ipairs(effect.particles) do
+        -- Skip invalid particles
+        if not particle then
+            print("[VFX] Warning: Invalid particle detected")
+            -- Skip this particle without using goto
+            goto next_particle
+        end
+        
+        -- Initialize basic particle properties if missing
+        particle.delay = particle.delay or 0
+        particle.active = particle.active or false
+        particle.startTime = particle.startTime or 0
+        
         -- Check if particle should be active based on delay
         if effect.timer > particle.delay then
             particle.active = true
         end
         
+        -- Only process active particles
         if particle.active then
             -- Calculate particle lifecycle
             particle.startTime = particle.startTime + dt
             local totalLifespan = particle.lifespan or (effect.duration * 0.6)
+            
             local particleLife = particle.startTime / totalLifespan
             
             -- If particle has exceeded its lifespan, reset it near the current position
@@ -1824,28 +2077,43 @@ function VFX.updateProjectile(effect, dt)
                             local targetX = blockX + math.cos(angle) * scatter * math.random()
                             local targetY = blockY + math.sin(angle) * scatter * math.random()
                             
+                            -- Fade particles slightly during impact
+                            particle.alpha = particle.alpha * 0.98
+                            
                             -- Fast movement toward block point
                             local moveSpeed = 30 -- Faster movement during block
                             particle.x = particle.x + (targetX - particle.x) * moveSpeed * dt
                             particle.y = particle.y + (targetY - particle.y) * moveSpeed * dt
                         else
                             -- Deflection phase - particles scatter outward from block point
-                            -- Calculate deflection angle (away from target, with randomness)
-                            local baseAngle = math.atan2(effect.sourceY - effect.targetY, effect.sourceX - effect.targetX)
-                            local deflectAngle = baseAngle + (math.random() - 0.5) * math.pi * 0.8
                             
-                            -- Calculate outward deflection distance
-                            local deflectDistance = 150 * (blockProgress - 0.2) * math.random(0.7, 1.3)
-                            local targetX = blockX + math.cos(deflectAngle) * deflectDistance
-                            local targetY = blockY + math.sin(deflectAngle) * deflectDistance
+                            -- Initialize deflection properties if not set
+                            if not particle.deflectAngle then
+                                -- Calculate deflection angle (mostly back toward source, with randomness)
+                                local baseAngle = math.atan2(effect.sourceY - blockY, effect.sourceX - blockX)
+                                particle.deflectAngle = baseAngle + (math.random() - 0.5) * math.pi * 0.6
+                                
+                                -- Random deflection speed to create spread
+                                particle.deflectSpeed = 80 + math.random() * 120
+                                particle.deflectDecay = 0.95  -- Speed decay factor
+                                particle.scaleDecay = 0.98    -- Size decay factor
+                                particle.deflectAge = 0       -- How long particle has been deflecting
+                            end
                             
-                            -- More gradual movement for scatter
-                            local moveSpeed = 10
-                            particle.x = particle.x + (targetX - particle.x) * moveSpeed * dt
-                            particle.y = particle.y + (targetY - particle.y) * moveSpeed * dt
+                            -- Update deflection age
+                            particle.deflectAge = particle.deflectAge + dt
                             
-                            -- Fade out as particles scatter
-                            particle.alpha = math.max(0, 1.0 - (blockProgress - 0.2)/0.8)
+                            -- Apply deflection movement with physics-based motion
+                            local deflectDistance = particle.deflectSpeed * dt
+                            particle.x = particle.x + math.cos(particle.deflectAngle) * deflectDistance
+                            particle.y = particle.y + math.sin(particle.deflectAngle) * deflectDistance
+                            
+                            -- Apply decay factors
+                            particle.deflectSpeed = particle.deflectSpeed * particle.deflectDecay
+                            particle.scale = particle.scale * particle.scaleDecay
+                            
+                            -- Fade out as particles scatter - faster fade for a cleaner effect
+                            particle.alpha = math.max(0, 1.0 - particle.deflectAge * 2.0) -- Fade out over ~0.5 seconds
                         end
                     else
                         -- Normal projectile behavior - smoothly move particle toward calculated position
@@ -1919,6 +2187,8 @@ function VFX.updateProjectile(effect, dt)
                 end
             end
         end
+        
+        ::next_particle::
     end
     
     -- Create impact effect when reaching the target

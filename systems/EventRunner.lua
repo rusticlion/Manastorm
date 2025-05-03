@@ -51,6 +51,7 @@ local PROCESSING_PRIORITY = {
     
     -- Damage events (sixth)
     DAMAGE = 500,
+    BLOCKED_DAMAGE = 501, -- Same priority as DAMAGE but won't apply health changes
     
     -- Visual effects (before special effects)
     EFFECT = 550,
@@ -332,6 +333,10 @@ EventRunner.EVENT_HANDLERS = {
         -- Check if we should delay damage application for visual synchronization
         local delayDamage = event.delayDamage or false
         
+        -- We don't need to check for blocked spells here anymore
+        -- The Wizard:castSpell method now returns early for blocked spells
+        -- and they never reach the damage events
+        
         -- If the damage isn't delayed, apply it immediately
         if not delayDamage then
             -- Apply damage to the target wizard's health
@@ -390,8 +395,22 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Add delayed damage information
             delayedDamage = delayDamage and event.amount or nil,
-            delayedDamageTarget = delayDamage and targetWizard or nil
+            delayedDamageTarget = delayDamage and targetWizard or nil,
+            
+            -- Copy blockInfo if present for shield block visualization
+            blockInfo = event.blockInfo
         }
+        
+        -- If this is a blocked spell, add SHIELD_BLOCKED tag
+        if event.blockInfo and event.blockInfo.blockable then
+            effectEvent.tags = effectEvent.tags or {}
+            effectEvent.tags.SHIELD_BLOCKED = true
+            
+            -- Add standard blockPoint
+            effectEvent.blockPoint = event.blockInfo.blockPoint or 0.75
+            
+            print("[DAMAGE->EFFECT] Passing blockInfo to EFFECT event for shield block visuals")
+        end
         
         -- Debug log the generated EFFECT event
         print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s", 
@@ -407,6 +426,102 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Process the effect event to create visuals
         EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+        
+        return true
+    end,
+    
+    -- Handler for blocked damage events - similar to DAMAGE but doesn't apply health changes
+    BLOCKED_DAMAGE = function(event, caster, target, spellSlot, results)
+        -- Resolve target, expecting { wizard, slotIndex } table or nil
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        
+        -- Check if target resolution failed OR if the wizard object is missing
+        if not targetInfo or not targetInfo.wizard then 
+            print("ERROR: BLOCKED_DAMAGE handler could not resolve target wizard")
+            return false 
+        end
+        
+        -- Get the actual wizard object
+        local targetWizard = targetInfo.wizard
+        
+        -- Log the blocked damage (no damage is applied)
+        print(string.format("[BLOCKED_DAMAGE] %s's spell blocked by shield! No damage applied to %s (would have been %d)", 
+            caster.name, targetWizard.name, event.amount or 0))
+            
+        -- Track in results that a block occurred
+        results.damageBlocked = (results.damageBlocked or 0) + (event.amount or 0)
+        
+        -- Enhanced debugging for BLOCKED_DAMAGE event
+        print("[BLOCKED_DAMAGE] Full event details:")
+        for k, v in pairs(event) do
+            if type(v) == "table" then
+                print("  " .. k .. ": [table]")
+            else
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+        
+        -- Verify we have blockInfo
+        if not event.blockInfo then
+            print("[BLOCKED_DAMAGE] WARNING: Missing blockInfo in BLOCKED_DAMAGE event!")
+            -- Create a default blockInfo to ensure visuals still work
+            event.blockInfo = {
+                blockable = true,
+                blockType = event.shieldType or "ward",
+                blockPoint = event.blockPoint or 0.75
+            }
+        end
+        
+        -- Generate an EFFECT event for the blocked damage visuals
+        -- Check if we have a spell with effectOverride first
+        local effectOverride = nil
+        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
+           caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+            effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+        end
+        
+        -- Create EFFECT event with block info
+        local effectEvent = {
+            type = "EFFECT",
+            source = "caster",
+            target = event.target,
+            effectOverride = effectOverride,
+            
+            -- Copy visual metadata from the damage event
+            affinity = event.affinity,
+            attackType = event.attackType or "projectile", -- Default to projectile if missing
+            damageType = event.damageType,
+            manaCost = event.manaCost,
+            tags = event.tags or { DAMAGE = true, SHIELD_BLOCKED = true },
+            rangeBand = event.rangeBand,
+            elevation = event.elevation,
+            visualShape = event.visualShape or "bolt", -- Default to bolt if missing
+            
+            -- Copy block info for visual effects - ensure it's always present
+            blockInfo = event.blockInfo,
+            blockPoint = event.blockPoint or 0.75
+        }
+        
+        -- Debug log the generated EFFECT event
+        print(string.format("[BLOCKED_DAMAGE->EFFECT] Generated EFFECT event with blockPoint=%.2f", 
+            effectEvent.blockPoint))
+        print("[BLOCKED_DAMAGE->EFFECT] Full effectEvent details:")
+        for k, v in pairs(effectEvent) do
+            if type(v) == "table" then
+                print("  " .. k .. ": [table]")
+            else
+                print("  " .. k .. ": " .. tostring(v))
+            end
+        end
+        
+        -- Process the effect event to create visuals
+        local success, err = pcall(function()
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+        end)
+        
+        if not success then
+            print("[BLOCKED_DAMAGE->EFFECT] ERROR: Failed to process effect event: " .. tostring(err))
+        end
         
         return true
     end,
@@ -1459,6 +1574,58 @@ EventRunner.EVENT_HANDLERS = {
             if target and target.name then
                 vfxOpts.target = target.name
                 vfxOpts.targetEntity = target
+            end
+            
+            -- Handle shield blocked effects
+            if event.tags and event.tags.SHIELD_BLOCKED then
+                print("[EFFECT EVENT] Processing shield blocked effect")
+                
+                -- Pass blockInfo to VFX system
+                if event.blockInfo then
+                    vfxOpts.blockInfo = event.blockInfo
+                    
+                    -- Set blockPoint for visual impact
+                    vfxOpts.blockPoint = event.blockPoint or 0.75
+                    
+                    -- Set shield type
+                    if event.blockInfo.blockType then
+                        vfxOpts.shieldType = event.blockInfo.blockType
+                    end
+                    
+                    print("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
+                else
+                    -- Create fallback blockInfo if missing but event has SHIELD_BLOCKED tag
+                    print("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
+                    vfxOpts.blockInfo = {
+                        blockable = true,
+                        blockType = event.shieldType or "ward",
+                        blockPoint = event.blockPoint or 0.75
+                    }
+                    vfxOpts.blockPoint = event.blockPoint or 0.75
+                    vfxOpts.shieldType = event.shieldType or "ward"
+                    
+                    -- Ensure SHIELD_BLOCKED flag is present
+                    vfxOpts.tags = vfxOpts.tags or {}
+                    vfxOpts.tags.SHIELD_BLOCKED = true
+                    
+                    print("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
+                end
+            elseif event.blockInfo then
+                -- Legacy handling for other events with blockInfo
+                print("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
+                vfxOpts.blockInfo = event.blockInfo
+                
+                -- Add standard blockPoint ratio for visual impact
+                vfxOpts.blockPoint = event.blockInfo.blockPoint or 0.75
+                
+                -- Ensure shield type is set
+                if event.blockInfo.blockType then
+                    vfxOpts.shieldType = event.blockInfo.blockType
+                end
+                
+                -- Ensure SHIELD_BLOCKED tag is set in vfxOpts
+                vfxOpts.tags = vfxOpts.tags or {}
+                vfxOpts.tags.SHIELD_BLOCKED = true
             end
             
             -- Set default duration if not provided

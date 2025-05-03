@@ -919,22 +919,28 @@ function Wizard:castSpell(spellSlot)
     -- This now happens BEFORE spell execution per ticket PROG-20
     local blockInfo = ShieldSystem.checkShieldBlock(spellToUse, attackType, target, self)
     
-    -- If blockable, handle block effects and exit early
+    -- Handle shield block effects
     if blockInfo.blockable then
-        print(string.format("[SHIELD] %s's %s was blocked by %s's %s shield!", 
+        print(string.format("[SHIELD BLOCK] %s's %s was blocked by %s's %s shield!", 
             self.name, spellToUse.name, target.name, blockInfo.blockType or "unknown"))
         
-        local effect = {
-            blocked = true,
-            blockType = blockInfo.blockType
-        }
+        -- Set a standard blockPoint for visual effect (75% of the way from caster to target)
+        blockInfo.blockPoint = 0.75
         
-        -- Create shield block VFX using ShieldSystem
-        -- Pass the full spell info so we can create accurate blocked projectile visuals
-        ShieldSystem.createBlockVFX(self, target, blockInfo, spellToUse)
-        
-        -- Use the ShieldSystem to handle token consumption
+        -- Use the ShieldSystem to handle token consumption for the shield
         ShieldSystem.handleShieldBlock(target, blockInfo.blockingSlot, spellToUse)
+        
+        -- Create a partial results table with initialResults
+        local blockedResults = { blockInfo = blockInfo }
+        
+        -- Execute the spell, but convert the DAMAGE events to BLOCKED_DAMAGE
+        -- This will show visuals but prevent actual damage application
+        effect = spellToUse.executeAll(self, target, blockedResults, spellSlot)
+        
+        -- Set blocked flag in the effect results
+        effect.blocked = true
+        effect.blockType = blockInfo.blockType
+        effect.blockingSlot = blockInfo.blockingSlot
         
         -- Return tokens from our spell slot
         if #slot.tokens > 0 then
@@ -947,7 +953,7 @@ function Wizard:castSpell(spellSlot)
         -- Reset our slot using unified method
         self:resetSpellSlot(spellSlot)
         
-        -- Skip further execution and return the effect
+        -- Return the effect
         return effect
     end
     
@@ -966,8 +972,15 @@ function Wizard:castSpell(spellSlot)
     -- Execute the spell using compiled spell format
     print("Executing spell: " .. spellToUse.id)
     
-    -- Execute the spell
-    effect = spellToUse.executeAll(self, target, {}, spellSlot)
+    -- Execute the spell with blockInfo if the spell is blocked
+    local initialResults = blockInfo.blockable and { blockInfo = blockInfo } or {}
+    effect = spellToUse.executeAll(self, target, initialResults, spellSlot)
+    
+    -- After execution, check if the spell was blocked (results should have blocked=true)
+    if effect.blocked then
+        print(string.format("[SHIELD] %s's %s was fully blocked by shield!", 
+            self.name, spellToUse.name))
+    end
     
     -- Check if this is a sustained spell (from sustain keyword)
     shouldSustain = effect.isSustained or false
@@ -1053,8 +1066,13 @@ function Wizard:castSpell(spellSlot)
                     end
                 end
                 
-                if not hasShieldingTokens then
-                    -- Safe to return tokens using TokenManager
+                -- Handle blocked spells - should always return tokens
+                if effect and effect.blocked then
+                    print("Returning tokens for blocked spell")
+                    TokenManager.returnTokensToPool(slot.tokens)
+                    slot.tokens = {}
+                elseif not hasShieldingTokens then
+                    -- Normal case: Safe to return tokens if not shielding
                     TokenManager.returnTokensToPool(slot.tokens)
                     
                     -- Clear token list (tokens still exist in the mana pool)

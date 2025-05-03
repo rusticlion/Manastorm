@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Thu May  1 13:36:18 CDT 2025
+Generated: Sat May  3 15:08:59 CDT 2025
 
 # Source Code
 
@@ -1361,6 +1361,8 @@ Constants.VFXType = {
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
     UTIL_BASE = "util_base",       -- Base utility effect
+    SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
     -- Overlay addon effects (used by VisualResolver)
@@ -1380,6 +1382,9 @@ Constants.VFXType = {
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
     GRAVITY_TRAP_SET = "gravity_trap_set",
     FORCE_BLAST = "force_blast",
+    
+    -- Special fire effects
+    METEOR = "meteor_dive",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",
@@ -3887,7 +3892,7 @@ function love.load()
     
     -- Load game font
     -- For now, fall back to system font if custom font isn't available
-    local fontPath = "assets/fonts/Lionscript-Regular.ttf"
+    local fontPath = "assets/fonts/LionscriptNew-Regular.ttf"
     local fontExists = love.filesystem.getInfo(fontPath)
     
     if fontExists then
@@ -6993,7 +6998,7 @@ FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     affinity = "fire",
-    description = "Conjures a Fire mana token",
+    description = "Conjures a Fire mana token. Takes longer to cast the more Fire tokens already present.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "surge",
     castTime = Constants.CastSpeed.FAST,
@@ -7031,7 +7036,7 @@ FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Superheated bolt that deals more damage against FAR opponents",
+    description = "Superheated bolt. Maximum damage at FAR RANGE.",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     visualShape = "bolt",
@@ -7078,19 +7083,24 @@ FireSpells.blastwave = {
     id = "blastwave",
     name = "Blast Wave",
     affinity = "fire",
-    description = "Blast that deals significant damage up close.",
+    description = "Blast of flame. Maximum damage at NEAR RANGE and matched ELEVATION.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = expr.byRange({
-                NEAR = 18,
-                FAR = 5,
-                default = 5
-            }),
-            type = Constants.DamageType.FIRE
+            amount = function(caster, target)
+                local baseDmg = 2
+                if target and target.elevation == caster.elevation then
+                    baseDmg = baseDmg + 9
+                end
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    baseDmg = baseDmg + 9
+                end
+                return baseDmg
+            end,
+            type = Constants.DamageType.FIRE,
         },
     },
     sfx = "blastwave",
@@ -7101,7 +7111,7 @@ FireSpells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
     affinity = "fire",
-    description = "Disrupts opponent channeling, burning one token to Salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
     visualShape = "affectManaPool",
@@ -7118,7 +7128,7 @@ FireSpells.blazingAscent = {
     id = "blazingascent",
     name = "Blazing Ascent",
     affinity = "fire",
-    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL.",
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     castTime = Constants.CastSpeed.SLOW,
@@ -7196,7 +7206,7 @@ FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
     affinity = "fire", 
-    description = "A Barrier of flames that stops Projectile and Zone attacks, damaging attackers.",
+    description = "A Barrier of flames that stops Projectile and Zone attacks, burning NEAR attackers.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "barrier",
     castTime = Constants.CastSpeed.SLOW,
@@ -7210,14 +7220,15 @@ FireSpells.battleshield = {
                 print("[SPELL DEBUG] Flamewreath onBlock handler executing!")
                 local events = {}
                 
-                if attacker then
+                if attacker.elevation == Constants.ElevationState.NEAR then
                     table.insert(events, {
-                        type = "DAMAGE",
+                        type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        amount = 5,
-                        damageType = "fire",
-                        counterDamage = true
+                        statusType = "burn",
+                        duration = 1.5,
+                        tickDamage = 4,
+                        targetSlot = "NEAR"
                     })
                 end
                 
@@ -7297,7 +7308,7 @@ MoonSpells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Conjures a Moon mana token.",
+    description = "Conjures a Moon mana token. Takes longer to cast the more Moon tokens already present.",
     attackType = "utility",
     visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.FAST,
@@ -7382,7 +7393,7 @@ MoonSpells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Warp space to switch range, deal chip damage, and freeze <3> enemy Root slot.",
+    description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
     attackType = "remote",
     visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
@@ -7447,16 +7458,16 @@ MoonSpells.eclipse = {
     id = "eclipse",
     name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
-    description = "Freeze <3> your Crown slot. Conjure Sun",
+    description = "Freeze xxx your Heart slot. Conjure Sun.",
     attackType = "utility", 
     visualShape = "eclipse",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.VERY_FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = 3,
-            slot = 3,
-            target = "both"
+            slot = 2,
+            target = "self"
         },
         conjure = {
             token = Constants.TokenType.SUN,
@@ -7475,7 +7486,7 @@ MoonSpells.fullmoonbeam = {
     description = "Channels moonlight into a beam that deals more damage the longer it's delayed.",
     attackType = Constants.AttackType.PROJECTILE,
     visualShape = "beam",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         damage = {
@@ -7584,7 +7595,7 @@ MoonSpells.wrapinmoonlight = {
 -- Gravity Trap spell
 MoonSpells.gravityTrap = {
     id = "gravityTrap",
-    name = "Gravity Point",
+    name = "Icarus Trap",
     affinity = Constants.TokenType.MOON,
     description = "Gravitational trap that triggers when an enemy becomes AERIAL, grounding and damaging them.",
     attackType = Constants.AttackType.UTILITY,
@@ -7612,8 +7623,8 @@ MoonSpells.gravityTrap = {
                 target = "ENEMY", 
             },
             burn = { 
-                duration = 1.0,
-                tickDamage = 4,
+                duration = 1.5,
+                tickDamage = 3,
                 tickInterval = 0.5,
                 target = "ENEMY"
             },
@@ -7632,7 +7643,7 @@ MoonSpells.infiniteprocession = {
     description = "Transmutes MOON tokens into SUN or SUN into MOON.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "affectManaPool",
-    castTime = Constants.CastSpeed.SLOW,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {},
     keywords = {
         tokenShift = {
@@ -8039,33 +8050,57 @@ local expr = require("expr")
 
 local SunSpells = {}
 
+-- Sunbolt spell
+SunSpells.radiantbolt = {
+    id = "radiantbolt",
+    name = "Radiant Bolt",
+    affinity = "sun",
+    description = "Bolt of radiation that deals more damage against AERIAL opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation == Constants.Elevation.AERIAL then
+                    return 25
+                end
+                return 10
+            end,
+            type = Constants.DamageType.SUN
+        },
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
 -- Meteor spell
 SunSpells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     affinity = "sun",
-    description = "Aerial finisher, only hits GROUNDED enemies",
+    description = "Aerial finisher - GROUND self and create a fiery explosion. Only hits GROUNDED enemies.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "meteor",
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = 20,
-            type = Constants.DamageType.FIRE,
-            condition = function(caster, target, slot)
-                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
-                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
-                return casterIsAerial and targetIsGrounded
-            end
+            amount = function(caster, target)
+                if target and target.elevation == Constants.ElevationState.GROUNDED and caster.elevation == Constants.ElevationState.AERIAL then
+                    return 30
+                end
+                return 0
+            end,
+            type = Constants.DamageType.SUN,
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
         },
         ground = {
             target = Constants.TargetType.SELF 
-        },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -8076,7 +8111,7 @@ SunSpells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     affinity = "sun",
-    description = "Launches caster into the air, shifts range, and conjures a Fire token.",
+    description = "Launches caster into the air, shifts RANGE, and conjures a Fire token.",
     castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     visualShape = "surge",
@@ -9094,21 +9129,38 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Create VFX for token conjuration if available
+        -- Create VFX for token conjuration using the rule-driven approach
         if caster.gameState and caster.gameState.vfx then
-            local params = {
+            -- Create an EFFECT event to use the VisualResolver pattern
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "caster", -- Token conjuration affects the caster
+                
+                -- Check if there's a specific effect for this token type
+                effectOverride = nil, -- Will be set conditionally below
+                
+                -- Token type determines appearance through VisualResolver
+                affinity = event.tokenType,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = event.amount, -- Scale with the amount of tokens
+                
+                -- Metadata to determine visuals and behavior
+                tags = { CONJURE = true, RESOURCE = true },
+                
+                -- Token-specific parameters
                 tokenType = event.tokenType,
                 amount = event.amount
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createTokenConjureEffect",
-                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Check if there's a specific effect for this token type
+            local specificEffect = "conjure" .. event.tokenType
+            if Constants.VFXType[specificEffect:upper()] then
+                effectEvent.effectOverride = Constants.VFXType[specificEffect:upper()]
+            end
+            
+            -- Let the EFFECT handler process this with VisualResolver
+            EventRunner.handleEvent(effectEvent, caster, caster, spellSlot, results)
         end
         
         -- Add tokens to the mana pool with animation
@@ -11517,7 +11569,39 @@ local Constants = require("core.Constants")
 
 local VisualResolver = {}
 
+-- Map visualShape strings to base VFX template names
+-- This is the primary mapping table for determining visual template from spell shape
+local TEMPLATE_BY_SHAPE = {
+    -- Beam-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    
+    -- Projectile-like effects
+    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
+    
+    -- Area/zone effects
+    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["groundBurst"] = Constants.VFXType.ZONE_BASE,
+    ["meteor"] = Constants.VFXType.METEOR,
+    
+    -- Remote/direct effects
+    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    
+    -- Utility effects
+    ["surge"] = Constants.VFXType.SURGE_BASE,
+    ["affectManaPool"] = Constants.VFXType.UTIL_BASE,
+    
+    -- Shield-like effects
+    ["wings"] = Constants.VFXType.SHIELD_OVERLAY,
+    ["mirror"] = Constants.VFXType.SHIELD_OVERLAY,
+    
+    -- Special effects with unique templates
+    ["eclipse"] = "eclipse_base"
+}
+
 -- Map attack types to base VFX template names
+-- This is used as a fallback when visualShape is not specified
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
     [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
@@ -11596,12 +11680,17 @@ function VisualResolver.pick(event)
         VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
     end
     
-    -- Handle manual override: If the event has an effectOverride, use it directly
+    -- Step 1: Determine base template with priority: effectOverride > legacy > shield_hit > visualShape > attackType > default
+    local baseTemplate = DEFAULT_BASE
+    local selectionPath = "DEFAULT" -- Track which path determined the template
+    
+    -- PRIORITY 1: Handle manual override: If the event has an effectOverride, use it directly
     -- This handles the manual vfx specifications from the vfx keyword
     if event.effectOverride then
-        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
+        baseTemplate = event.effectOverride
+        selectionPath = "EFFECT_OVERRIDE"
         
-        -- Full event logging for debug
+        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
         VisualResolver.debug("Effect override source event details:")
         VisualResolver.debug("  - Event type: " .. (event.type or "nil"))
         VisualResolver.debug("  - Affinity: " .. (event.affinity or "nil"))
@@ -11609,7 +11698,7 @@ function VisualResolver.pick(event)
         VisualResolver.debug("  - Tags: " .. (event.tags and "present" or "nil"))
         
         -- Use the specified effect but still use the new parameter system
-        return event.effectOverride, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -11619,11 +11708,14 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Also handle the case where we get the effect directly within an event.effect property
+    -- PRIORITY 2: Also handle the case where we get the effect directly within an event.effect property
     -- This is needed for the showcase examples in spells.lua
     if event.effect and type(event.effect) == "string" then
+        baseTemplate = event.effect
+        selectionPath = "EVENT_EFFECT"
+        
         VisualResolver.debug("Using effect from direct event.effect property: " .. event.effect)
-        return event.effect, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0, 
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -11633,8 +11725,11 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Handle shield hit event (from shield system)
+    -- PRIORITY 3: Handle shield hit event (from shield system)
     if event.effectType == "shield_hit" then
+        baseTemplate = "shield_hit_base"
+        selectionPath = "SHIELD_HIT"
+        
         VisualResolver.debug("Handling shield hit effect")
         
         -- Determine shield color based on shield type
@@ -11648,8 +11743,8 @@ function VisualResolver.pick(event)
             color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
         end
         
-        -- Return shield hit template with proper color
-        return "shield_hit_base", {
+        -- Build options with shield-specific values
+        local opts = {
             color = color,
             scale = 1.2,  -- Slightly larger scale for impact emphasis
             motion = Constants.MotionStyle.PULSE,
@@ -11658,13 +11753,27 @@ function VisualResolver.pick(event)
             elevation = event.elevation,
             -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
         }
+        
+        VisualResolver.debug(string.format(
+            "Resolved shield hit event to base=%s via %s, color=%s, scale=%.2f, motion=%s",
+            baseTemplate,
+            selectionPath,
+            table.concat(color, ","),
+            opts.scale,
+            opts.motion
+        ))
+        
+        return baseTemplate, opts
     end
     
-    -- Legacy manual VFX: If the event has manualVfx flag and effectType
+    -- PRIORITY 4: Legacy manual VFX: If the event has manualVfx flag and effectType
     if event.manualVfx and event.effectType then
+        baseTemplate = event.effectType
+        selectionPath = "LEGACY_MANUAL"
+        
         VisualResolver.debug("Using legacy manual effect via effectType: " .. event.effectType)
         -- Use the specified effect but still use the new parameter system
-        return event.effectType, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -11674,37 +11783,31 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from visualShape or attack type
-    local baseTemplate = DEFAULT_BASE
-    
-    -- If the event or options has a visualShape property, use a named template instead
+    -- PRIORITY 5: Use visualShape to look up template in TEMPLATE_BY_SHAPE
     if event.visualShape then
         local visualShape = event.visualShape
-        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        local template = TEMPLATE_BY_SHAPE[visualShape]
         
-        -- Map visualShape to appropriate template
-        if visualShape == "beam" then
-            baseTemplate = Constants.VFXType.BEAM_BASE
-        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
-            baseTemplate = Constants.VFXType.PROJ_BASE
-        elseif visualShape == "blast" or visualShape == "groundBurst" then
-            baseTemplate = Constants.VFXType.ZONE_BASE
-        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
-            baseTemplate = Constants.VFXType.UTIL_BASE
-        elseif visualShape == "wings" or visualShape == "mirror" then
-            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
-        elseif visualShape == "eclipse" then
-            baseTemplate = "eclipse_base" -- Specialized template
+        if template then
+            baseTemplate = template
+            selectionPath = "VISUAL_SHAPE"
+            VisualResolver.debug("Using visualShape mapping: " .. visualShape .. " -> " .. baseTemplate)
         else
-            -- For unknown visualShapes, fall back to attack type
+            -- For unknown visualShapes, log warning and fall back to attackType
             VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
-            if event.attackType and BASE_BY_ATTACK[event.attackType] then
-                baseTemplate = BASE_BY_ATTACK[event.attackType]
-            end
         end
-    -- Otherwise use attack type mapping
-    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
+    end
+    
+    -- PRIORITY 6: If no visualShape match, use attack type mapping
+    if selectionPath == "DEFAULT" and event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
+        selectionPath = "ATTACK_TYPE"
+        VisualResolver.debug("Using attackType mapping: " .. event.attackType .. " -> " .. baseTemplate)
+    end
+    
+    -- If we still have no valid template, use the default
+    if selectionPath == "DEFAULT" then
+        VisualResolver.debug("No mapping found, using DEFAULT_BASE: " .. DEFAULT_BASE)
     end
     
     -- Step 2: Determine color from affinity
@@ -11745,8 +11848,9 @@ function VisualResolver.pick(event)
     }
     
     VisualResolver.debug(string.format(
-        "Resolved event to base=%s, color=%s, scale=%.2f, motion=%s, addons=%d",
+        "Resolved event to base=%s via %s, color=%s, scale=%.2f, motion=%s, addons=%d",
         baseTemplate,
+        selectionPath,
         table.concat(color, ","),
         scale,
         motion,
@@ -11777,7 +11881,7 @@ end
 -- Helper function to test the resolver with sample events
 function VisualResolver.test()
     local testEvents = {
-        -- Test 1: Fire projectile spell
+        -- Test 1: Fire projectile spell (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -11787,7 +11891,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 2: Water remote spell with higher cost
+        -- Test 2: Water remote spell with higher cost (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.WATER,
@@ -11797,7 +11901,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.AERIAL
         },
-        -- Test 3: Moon-based shield
+        -- Test 3: Moon-based shield (using attackType)
         {
             type = "CREATE_SHIELD",
             affinity = Constants.TokenType.MOON,
@@ -11810,8 +11914,7 @@ function VisualResolver.test()
         -- Test 4: Manually specified effect (vfx keyword)
         {
             type = "EFFECT",
-            effectType = Constants.VFXType.FIREBOLT,
-            manualVfx = true,
+            effectOverride = Constants.VFXType.FIREBOLT,
             affinity = Constants.TokenType.FIRE,
             attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
@@ -11819,7 +11922,19 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 5: REMOTE attack with "beam" visualShape override
+        -- Test 5: Legacy manual VFX
+        {
+            type = "EFFECT",
+            effectType = Constants.VFXType.METEOR,
+            manualVfx = true,
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            manaCost = 3,
+            tags = { VFX = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 6: REMOTE attack with "beam" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.MOON,
@@ -11830,7 +11945,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 6: Projectile attack with "blast" visualShape override
+        -- Test 7: Projectile attack with "blast" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -11840,12 +11955,82 @@ function VisualResolver.test()
             tags = { DAMAGE = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 8: Testing "orb" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.STAR,
+            attackType = Constants.AttackType.ZONE, -- This would normally use ZONE_BASE
+            visualShape = "orb",                    -- But visualShape overrides to PROJ_BASE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 9: Testing "warp" visualShape
+        {
+            type = "EFFECT",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.PROJECTILE, -- This would normally use PROJ_BASE
+            visualShape = "warp",                         -- But visualShape overrides to UTIL_BASE
+            manaCost = 1,
+            tags = { MOVEMENT = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 10: Testing "mirror" visualShape
+        {
+            type = "CREATE_SHIELD",
+            affinity = Constants.TokenType.WATER,
+            attackType = Constants.AttackType.UTILITY,
+            visualShape = "mirror",
+            manaCost = 2,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 11: Testing "eclipse" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.ZONE,
+            visualShape = "eclipse",
+            manaCost = 5,
+            tags = { DAMAGE = true, DOT = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 12: Testing unknown visualShape (should fall back to attackType)
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "unknown_shape",  -- Not in TEMPLATE_BY_SHAPE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 13: Shield hit effect
+        {
+            type = "SHIELD_HIT",
+            effectType = "shield_hit",
+            shieldType = Constants.ShieldType.BARRIER,
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
     print("===== VisualResolver Test =====")
     for i, event in ipairs(testEvents) do
         print("\nTest " .. i .. ": " .. event.type .. " event with " .. (event.affinity or "unknown") .. " affinity")
+        if event.visualShape then
+            print("visualShape: " .. event.visualShape)
+        end
+        if event.attackType then
+            print("attackType: " .. event.attackType)
+        end
+        
         local base, opts = VisualResolver.pick(event)
         print("Base template: " .. base)
         print("Color: " .. table.concat(opts.color, ","))
@@ -12193,6 +12378,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
         
         -- Draw the elliptical orbit paths (only need to do this once, e.g., during the 'back' pass)
         if layer == "back" then 
+            -- Clear stale casting arc data if this slot is not currently in an active casting phase
+            if not slot.active or (slot.castTime or 0) == 0 or slot.progress >= (slot.castTime or 0) then
+                slot._castArcActive = false
+            end
+
             local shouldDrawOrbit = false
             local orbitColor = {0.5, 0.5, 0.5, 0.4} -- Default inactive/dim color
             local drawProgressArc = false
@@ -12240,9 +12430,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                         0.9
                     }
 
+                    -- Store arc information so the complementary half can be rendered in the "front" pass
+                    slot._castArcActive = true
+                    slot._castArcColor = {progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4]}
+                    slot._castArcProgress = (slot.castTime or 1) > 0 and (slot.progress / slot.castTime) or 0
+
                 else
                     -- POST-CASTING PHASE (or instant spell): Show full orbit based on state
                     drawProgressArc = false
+                    slot._castArcActive = false -- Clear cached arc
                     shouldDrawOrbit = true 
 
                     if slot.isShield then
@@ -12255,15 +12451,9 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         -- Compare against Constants instead of string literals
                         if shieldType == Constants.ShieldType.BARRIER then
-                            -- Draw the base ellipse for the barrier
-                            shouldDrawOrbit = true 
-                            orbitColor = {
-                                shieldColor[1] * (1 + pulseAmount * 0.5), -- Pulse color slightly
-                                shieldColor[2] * (1 + pulseAmount * 0.5),
-                                shieldColor[3] * (1 + pulseAmount * 0.5),
-                                alpha -- Use calculated alpha for the base orbit
-                            }
-                            -- The vertical lines will be drawn AFTER the main orbit below
+                            -- Do NOT draw the horizontal orbit for Barrier; only vertical hedge lines
+                            shouldDrawOrbit = false
+                            -- Vertical cylinder lines are handled later in their dedicated block
                         
                         elseif shieldType == Constants.ShieldType.WARD then
                             shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
@@ -12291,33 +12481,52 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             
                             if runeAssets and #runeAssets > 0 then
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7), -- Stronger color pulse for runes
+                                    shieldColor[1] * (1 + pulseAmount * 0.7),
                                     shieldColor[2] * (1 + pulseAmount * 0.7),
                                     shieldColor[3] * (1 + pulseAmount * 0.7),
                                     alpha
                                 }
-                                love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
 
                                 for r = 1, numRunes do
-                                    -- Ensure rune index is consistent per slot per frame, but rotates over time
-                                    -- Use slot index and rune index for seeding randomness consistently within a frame
+                                    -- Deterministic seed so both passes pick the same rune image
                                     local seed = i * 10 + r + math.floor(love.timer.getTime())
                                     math.randomseed(seed)
                                     local runeIndex = math.random(1, #runeAssets)
-                                    math.randomseed(os.time() + os.clock()*1000000) -- Reseed properly
+                                    math.randomseed(os.time() + os.clock()*1000000)
 
                                     local runeImg = runeAssets[runeIndex]
-                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7 -- Slow rotation
+                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
                                     local runeX = slotX + math.cos(angle) * radiusX
                                     local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
-                                    
-                                    love.graphics.draw(
-                                        runeImg, 
-                                        runeX, runeY, 
-                                        0, -- No rotation needed for runes 
-                                        runeScale, runeScale, 
-                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
-                                    )
+
+                                    -- Determine if rune is front or back half
+                                    local normalizedAngle = (angle % (math.pi * 2))
+                                    local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                                    if runeLayer == layer then
+                                        -- Glow pass
+                                        local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                                        love.graphics.setBlendMode("add")
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                        love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                                        -- Main rune sprite
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
                                 end
                             else
                                 -- Fallback: Draw the orbit if runes aren't loaded
@@ -12413,32 +12622,47 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     local lineAlpha = alpha * 0.6 -- Make vertical lines slightly more transparent
 
                     love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
-                    love.graphics.setLineWidth(1.5) -- Make lines slightly thicker
+                    local prevWidth = love.graphics.getLineWidth()
+                    love.graphics.setLineWidth(1.5) -- thicker
 
                     for k = 1, numLines do
                         local angle = (k / numLines) * math.pi * 2
-                        local px = slotX + math.cos(angle) * radiusX
-                        local py = slotY + math.sin(angle) * radiusY
-                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        local normalizedAngle = angle % (math.pi * 2)
+                        -- Draw only BACK half lines in the back pass (π → 2π)
+                        if normalizedAngle > math.pi then
+                            local px = slotX + math.cos(angle) * radiusX
+                            local py = slotY + math.sin(angle) * radiusY
+
+                            -- Glow pass (thicker, additive blend)
+                            local prevSrc, prevDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setLineWidth(4)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                            love.graphics.setBlendMode(prevSrc, prevDst)
+
+                            -- Main line
+                            love.graphics.setLineWidth(1.5)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        end
                     end
-                    love.graphics.setLineWidth(1) -- Reset line width
+                    love.graphics.setLineWidth(prevWidth) -- restore
                  end
             end
             
             -- Draw progress arc if needed (only during casting phase)
             if drawProgressArc then
-                local startAngle = 0
-                -- Ensure castTime is not zero to avoid division errors
+                -- Compute end angle once
                 local endAngle = ((slot.castTime or 1) > 0) and (slot.progress / slot.castTime) * (math.pi * 2) or 0
-                
-                love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
-                
-                WizardVisuals.drawEllipticalArc(
-                    slotX, slotY, 
-                    radiusX, radiusY, 
-                    startAngle, endAngle, 
-                    32 -- More segments for smoother arc
-                )
+
+                -- Draw only the TOP half (π → 2π) of the arc for the back layer
+                if endAngle > math.pi then
+                    local segStart = math.max(math.pi, 0) -- will always be π
+                    local segEnd = endAngle
+                    love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
+                end
             end
 
             -- Draw state text (TRAP, FROZEN, SUSTAIN) above the orbit if applicable
@@ -12449,6 +12673,24 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     slotX - textWidth / 2, -- Center text
                     slotY - verticalRadii[i] - 15) -- Position above the orbit
             end
+
+            -- Re-draw tokens so they sit on top of the just-drawn orbit / arc graphics (maintains depth vs wizard)
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        -- token.orbitAngle was set earlier in the first pass through tokens
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
+            end
         end -- End of drawing orbits only on 'back' pass
 
         -- NEW: Draw the BOTTOM half of the orbit ellipse during the "front" layer pass
@@ -12457,6 +12699,125 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 local oc = slot._orbitColor
                 love.graphics.setColor(oc[1], oc[2], oc[3], oc[4])
                 WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 32)
+            end
+
+            -- Draw bottom half of casting progress arc if there is one
+            if slot._castArcActive and slot._castArcColor then
+                local endAngle = (slot._castArcProgress or 0) * (math.pi * 2)
+                local segEnd = math.min(endAngle, math.pi)
+                if segEnd > 0.01 then -- Avoid drawing if not progressed into bottom half yet
+                    local cac = slot._castArcColor
+                    love.graphics.setColor(cac[1], cac[2], cac[3], cac[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
+                end
+            end
+
+            -- Draw WARD runes that belong to the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+
+                local numRunes = 5
+                local runeYOffset = 0
+                local runeScale = 1.0
+
+                local runeAssets
+                if VFX.getAsset then
+                    runeAssets = VFX.getAsset("runes")
+                end
+                if not runeAssets and VFX.assets then
+                    runeAssets = VFX.assets.runes
+                end
+
+                if runeAssets and #runeAssets > 0 then
+                    local runeColor = {
+                        shieldColor[1] * (1 + pulseAmount * 0.7),
+                        shieldColor[2] * (1 + pulseAmount * 0.7),
+                        shieldColor[3] * (1 + pulseAmount * 0.7),
+                        alpha
+                    }
+
+                    for r = 1, numRunes do
+                        local seed = i * 10 + r + math.floor(love.timer.getTime())
+                        math.randomseed(seed)
+                        local runeIndex = math.random(1, #runeAssets)
+                        math.randomseed(os.time() + os.clock()*1000000)
+
+                        local runeImg = runeAssets[runeIndex]
+                        local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
+                        local runeX = slotX + math.cos(angle) * radiusX
+                        local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
+
+                        local normalizedAngle = angle % (math.pi * 2)
+                        if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
+                            -- Glow pass
+                            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                            -- Main rune
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                        end
+                    end
+                end
+            end
+
+            -- Draw Barrier vertical hedge lines for the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.BARRIER then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+                local cylinderHeight = 20
+                local numLines = 72
+                local lineAlpha = alpha * 0.6
+
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                local prevWidthF = love.graphics.getLineWidth()
+                love.graphics.setLineWidth(1.5)
+
+                for k = 1, numLines do
+                    local angle = (k / numLines) * math.pi * 2
+                    local normalizedAngle = angle % (math.pi * 2)
+                    -- FRONT half is 0 → π
+                    if normalizedAngle <= math.pi then
+                        local px = slotX + math.cos(angle) * radiusX
+                        local py = slotY + math.sin(angle) * radiusY
+
+                        -- Glow pass
+                        local prevSrc, prevDst = love.graphics.getBlendMode()
+                        love.graphics.setBlendMode("add")
+                        love.graphics.setLineWidth(4)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        love.graphics.setBlendMode(prevSrc, prevDst)
+
+                        -- Main line
+                        love.graphics.setLineWidth(1.5)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                    end
+                end
+                love.graphics.setLineWidth(prevWidthF)
+            end
+
+            -- Re-draw tokens again in front layer to ensure they sit atop orbit/arc
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
             end
         end
     end -- End of loop through spell slots
@@ -13434,6 +13795,9 @@ return success```
 ```lua
 -- UI helper module
 
+-- Load core modules
+local Constants = require("core.Constants")
+
 local UI = {}
 
 -- Spellbook visibility state
@@ -14238,12 +14602,36 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     love.graphics.print("Spellbook", modalX + 170, y + 5)
     y = y + 30
     
+    -- Track which spell entry is currently being hovered over (via keys)
+    local activeSpellIndex = nil
+    local keyCombo = ""
+    
+    -- Check which exact keys are being held down
+    if playerNum == 1 then
+        if love.keyboard.isDown("q") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("w") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("e") then keyCombo = keyCombo .. "3" end
+    else
+        if love.keyboard.isDown("i") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("o") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("p") then keyCombo = keyCombo .. "3" end
+    end
+    
+    -- Store information about each spell entry for later use
+    local spellEntries = {}
+    
     -- Display all spells in a single unified list
-    for _, mapping in ipairs(keyMappings) do
+    for i, mapping in ipairs(keyMappings) do
         local spell = wizard.spellbook[mapping.keyName]
         if spell then
             -- Check if this is the currently keyed spell
             local isCurrentSpell = wizard.currentKeyedSpell and wizard.currentKeyedSpell.name == spell.name
+            
+            -- Check if this exact key combo is being held
+            local isExactMatch = (mapping.keyName == keyCombo)
+            if isExactMatch then
+                activeSpellIndex = i
+            end
             
             -- Use a different background color to highlight the currently keyed spell
             if isCurrentSpell then
@@ -14295,7 +14683,49 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
             love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+            
+            -- Store the spell entry information for later use (for description popup)
+            table.insert(spellEntries, {
+                spell = spell,
+                y = y,
+                isExactMatch = isExactMatch,
+                isCurrentSpell = isCurrentSpell
+            })
+            
             y = y + 45  -- Restore original spacing between spell entries
+        end
+    end
+    
+    -- Draw description popup for the active spell (if any)
+    if activeSpellIndex and spellEntries[activeSpellIndex] then
+        local activeEntry = spellEntries[activeSpellIndex]
+        local activeSpell = activeEntry.spell
+        
+        if activeSpell.description then
+            -- Draw a popup box above the spell entry
+            local popupWidth = 360
+            local popupHeight = 50  -- Height for description text
+            local popupX = modalX + 20  -- Align within the spellbook modal
+            local popupY = activeEntry.y - popupHeight - 10  -- Position above the spell entry
+            
+            -- Draw popup background
+            love.graphics.setColor(0.15, 0.15, 0.25, 0.95)  -- Darker background for contrast
+            love.graphics.rectangle("fill", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a subtle border with the wizard's color
+            love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.7)
+            love.graphics.rectangle("line", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a connecting triangle in the same color
+            love.graphics.polygon("fill", 
+                popupX + popupWidth/2 - 8, popupY + popupHeight,  -- Left point
+                popupX + popupWidth/2 + 8, popupY + popupHeight,  -- Right point
+                popupX + popupWidth/2, popupY + popupHeight + 8   -- Bottom point
+            )
+            
+            -- Draw the description text
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.printf(activeSpell.description, popupX + 10, popupY + 15, popupWidth - 20, "center")
         end
     end
 end
@@ -14487,6 +14917,33 @@ function VFX.init()
             sound = nil
         },
         
+        surge_base = {
+            type = "surge",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.25,
+            endScale = 0.05,
+            color = Constants.Color.SKY,
+            height = 150,
+            spread = 60,
+            pulseRate = 4,
+            sound = "surge"
+        },
+        
+        conjure_base = {
+            type = "conjure",
+            duration = 0.8,
+            particleCount = 35,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden by VisualResolver
+            radius = 70,
+            height = 120,
+            pulseRate = 3,
+            sound = nil,
+            defaultParticleAsset = "sparkle"
+        },
+        
         impact_base = {
             type = "impact",
             duration = 0.5,
@@ -14572,6 +15029,22 @@ function VFX.init()
             color = Constants.Color.MAROON,  -- Purple for gravity theme
             radius = 75,
             sound = "gravity_trap_deploy"  -- Sound will need to be loaded
+        },
+        
+        meteor_dive = {
+            type = "meteor",
+            duration = 1.4,
+            particleCount = 45,
+            startScale = 0.6,
+            endScale = 1.2,
+            color = Constants.Color.CRIMSON,  -- Crimson red for meteor
+            radius = 90,         -- Impact explosion radius
+            height = 300,        -- Height from which meteor falls
+            spread = 20,         -- Spread of the meteor cluster
+            fireTrail = true,    -- Enable fire trail for particles
+            impactExplosion = true, -- Create explosion effect on impact
+            sound = "meteor_impact",
+            defaultParticleAsset = "fireParticle"
         },
         
         force_blast = {
@@ -15177,6 +15650,7 @@ function VFX.resetEffect(effect)
     effect.rangeBand = nil
     effect.elevation = nil
     effect.addons = nil
+    effect.spread = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -15355,6 +15829,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
+        if effect.spread then effect.spread = effect.spread * scaleFactor end
     end
     
     -- Store motion style and positional info
@@ -15378,6 +15853,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.trailLength = template.trailLength
     effect.impactSize = template.impactSize
     effect.spreadRadius = template.spreadRadius
+    effect.spread = template.spread
     
     -- Optional overrides
     effect.options = options or {}
@@ -15661,6 +16137,105 @@ function VFX.initializeParticles(effect)
             
             table.insert(effect.particles, particle)
         end
+    elseif effect.type == "surge" then
+        -- Initialize particles for fountain surge effect
+        local spread = effect.spread or 60
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+
+            -- Start at source position
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+
+            -- Upward velocity with random horizontal
+            particle.speedX = (math.random() - 0.5) * spread
+            particle.speedY = -math.random(180, 260)
+            particle.gravity = 300
+
+            particle.scale = effect.startScale * math.random(0.8, 1.2)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.delay = math.random() * 0.3
+            particle.active = false
+
+            table.insert(effect.particles, particle)
+        end
+    elseif effect.type == "meteor" then
+        -- Initialize particles for meteor dive effect
+        local height = effect.height or 300
+        local spread = effect.spread or 20
+        local particleAsset = effect.defaultParticleAsset or "fireParticle"
+        
+        -- Ensure we have the required asset
+        local asset = VFX.getAsset(particleAsset)
+        
+        -- Create a cluster of meteors falling from above
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Start above the target at random positions
+            local offsetX = (math.random() - 0.5) * spread * 2
+            local offsetY = -height + math.random() * height * 0.3
+            
+            -- Set starting position above target
+            particle.x = effect.targetX + offsetX
+            particle.y = effect.targetY + offsetY
+            
+            -- Downward velocity with slight inward pull toward target
+            local angleToTarget = math.atan2(effect.targetY - particle.y, effect.targetX - particle.x)
+            local fallSpeed = math.random(300, 450)
+            local fallAngleVariance = (math.random() - 0.5) * 0.3
+            particle.speedX = math.cos(angleToTarget + fallAngleVariance) * fallSpeed * 0.3
+            particle.speedY = math.sin(angleToTarget + fallAngleVariance) * fallSpeed
+            
+            -- Set particle properties
+            particle.scale = effect.startScale * math.random(0.8, 1.3)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.rotSpeed = math.random(-5, 5)
+            particle.delay = math.random() * 0.3
+            particle.active = false
+            
+            -- Track if this particle has impacted
+            particle.hasImpacted = false
+            particle.impactTime = 0
+            particle.fireTrail = effect.fireTrail
+            
+            -- Store additional properties
+            particle.assetId = particleAsset
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Create impact area particles (hidden until impact)
+        if effect.impactExplosion then
+            for i = 1, math.floor(effect.particleCount * 0.5) do
+                local particle = Pool.acquire("vfx_particle")
+                
+                -- Start at target position
+                particle.x = effect.targetX
+                particle.y = effect.targetY
+                
+                -- Explosion trajectory
+                local angle = math.random() * math.pi * 2
+                local speed = math.random(100, 300)
+                particle.speedX = math.cos(angle) * speed
+                particle.speedY = math.sin(angle) * speed * 0.7 -- Flatten explosion
+                
+                -- Set particle properties
+                particle.scale = effect.startScale * 0.6 * math.random(0.9, 1.4)
+                particle.alpha = 0 -- Hidden until impact
+                particle.rotation = math.random() * math.pi * 2
+                particle.delay = 0.4 + math.random() * 0.2 -- Delay until impact
+                particle.active = false
+                particle.explosion = true
+                
+                -- Store additional properties
+                particle.assetId = particleAsset
+                
+                table.insert(effect.particles, particle)
+            end
+        end
     end
 end
 
@@ -15701,6 +16276,10 @@ function VFX.update(dt)
             VFX.updateBeam(effect, dt)
         elseif effect.type == "conjure" then
             VFX.updateConjure(effect, dt)
+        elseif effect.type == "surge" then
+            VFX.updateSurge(effect, dt)
+        elseif effect.type == "meteor" then
+            VFX.updateMeteor(effect, dt)
         end
         
         -- Remove effect if complete
@@ -16355,6 +16934,34 @@ function VFX.updateConjure(effect, dt)
     end
 end
 
+-- Update function for surge effects
+function VFX.updateSurge(effect, dt)
+    -- Fountain style upward burst with gravity pull
+    for _, particle in ipairs(effect.particles) do
+        if effect.timer > particle.delay then
+            particle.active = true
+        end
+        if particle.active then
+            -- Motion update
+            particle.x = particle.x + particle.speedX * dt
+            particle.y = particle.y + particle.speedY * dt
+            particle.speedY = particle.speedY + particle.gravity * dt
+
+            -- Visual progression
+            local lifeProgress = effect.progress
+            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * lifeProgress
+
+            -- Fade out towards end of effect
+            if lifeProgress > 0.6 then
+                local fade = (lifeProgress - 0.6) / 0.4
+                particle.alpha = 1 - fade
+            end
+
+            particle.rotation = particle.rotation + dt * 2
+        end
+    end
+end
+
 -- Draw all active effects
 function VFX.draw()
     for _, effect in ipairs(VFX.activeEffects) do
@@ -16370,6 +16977,10 @@ function VFX.draw()
             VFX.drawBeam(effect)
         elseif effect.type == "conjure" then
             VFX.drawConjure(effect)
+        elseif effect.type == "surge" then
+            VFX.drawSurge(effect)
+        elseif effect.type == "meteor" then
+            VFX.drawMeteor(effect)
         end
     end
 end
@@ -16915,6 +17526,29 @@ function VFX.drawConjure(effect)
     end
 end
 
+-- Draw function for surge effects
+function VFX.drawSurge(effect)
+    local particleImage = getAssetInternal("sparkle")
+
+    -- Base glow at origin
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
+    love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+
+    -- Draw particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                particle.scale, particle.scale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+end
+
 -- Helper function for HSV to RGB conversion (for volatile conjuring rainbow effect)
 function HSVtoRGB(h, s, v)
     local r, g, b
@@ -17065,6 +17699,171 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
     }
 end
 
+-- Update function for meteor effect
+function VFX.updateMeteor(effect, dt)
+    -- Process all particles
+    for i, particle in ipairs(effect.particles) do
+        -- Activate particles based on delay
+        if not particle.active and effect.timer >= particle.delay then
+            particle.active = true
+            particle.startTime = effect.timer
+        end
+        
+        if particle.active then
+            -- Track particle lifetime
+            local particleTime = effect.timer - particle.startTime
+            
+            -- Handle meteor particles vs. explosion particles differently
+            if particle.explosion then
+                -- Handle explosion particles (activate after impact)
+                if particleTime >= particle.delay then
+                    -- Fade in quickly
+                    particle.alpha = math.min(1.0, (particleTime - particle.delay) * 10)
+                    
+                    -- Position based on speed
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Add gravity to flatten the explosion
+                    particle.speedY = particle.speedY + 400 * dt
+                    
+                    -- Slow down over time (air resistance)
+                    particle.speedX = particle.speedX * 0.95
+                    particle.speedY = particle.speedY * 0.95
+                    
+                    -- Rotate the particle
+                    particle.rotation = particle.rotation + dt * 2
+                    
+                    -- Fade out near end of effect
+                    if effect.progress > 0.7 then
+                        particle.alpha = math.max(0, 1 - ((effect.progress - 0.7) / 0.3))
+                    end
+                    
+                    -- Scale down slightly
+                    particle.scale = particle.scale * 0.98
+                end
+            else
+                -- Handle meteor particles
+                if not particle.hasImpacted then
+                    -- Still falling - update position
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Rotate the meteor
+                    particle.rotation = particle.rotation + (particle.rotSpeed or 1) * dt
+                    
+                    -- Increase speed (acceleration due to gravity)
+                    local gravityAccel = 200 * dt
+                    particle.speedY = particle.speedY + gravityAccel
+                    
+                    -- Check for impact with ground
+                    if particle.y >= effect.targetY - 10 then
+                        particle.hasImpacted = true
+                        particle.impactTime = particleTime
+                        
+                        -- Stop moving
+                        particle.speedX = 0
+                        particle.speedY = 0
+                        
+                        -- Set Y to exact ground position
+                        particle.y = effect.targetY
+                    end
+                    
+                    -- Create fire trail effect 
+                    if particle.fireTrail and effect.timer % 0.05 < dt then
+                        -- TODO: In a full implementation, this would create small
+                        -- fire particles behind the meteor for a trailing effect
+                    end
+                else
+                    -- After impact, fade out quickly
+                    local impactProgress = (particleTime - particle.impactTime) / 0.3
+                    particle.alpha = math.max(0, 1 - impactProgress)
+                    
+                    -- Expand slightly on impact
+                    local impactScale = 1 + math.min(0.5, impactProgress * 2)
+                    particle.scale = effect.startScale * impactScale
+                    
+                    -- Fade out
+                    if effect.progress > 0.6 then
+                        particle.alpha = particle.alpha * 0.9
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Draw function for meteor effect
+function VFX.drawMeteor(effect)
+    love.graphics.setBlendMode("add")
+    
+    -- Draw all active particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0.01 then
+            -- Get the appropriate asset
+            local asset = VFX.getAsset(particle.assetId or "fireParticle")
+            
+            if asset then
+                -- Save current color
+                local r, g, b, a = love.graphics.getColor()
+                
+                -- Set particle color based on effect color and alpha
+                love.graphics.setColor(
+                    effect.color[1], 
+                    effect.color[2], 
+                    effect.color[3], 
+                    effect.color[4] * particle.alpha
+                )
+                
+                -- Draw the particle
+                love.graphics.draw(
+                    asset,
+                    particle.x,
+                    particle.y,
+                    particle.rotation,
+                    particle.scale,
+                    particle.scale,
+                    asset:getWidth() / 2,
+                    asset:getHeight() / 2
+                )
+                
+                -- Draw fiery glow for meteors
+                if not particle.explosion and not particle.hasImpacted then
+                    local glowAsset = VFX.getAsset("fireGlow")
+                    if glowAsset then
+                        -- Set a more transparent glow color
+                        love.graphics.setColor(
+                            effect.color[1], 
+                            effect.color[2], 
+                            effect.color[3], 
+                            effect.color[4] * particle.alpha * 0.7
+                        )
+                        
+                        -- Draw glow slightly larger than the particle
+                        local glowScale = particle.scale * 1.8
+                        love.graphics.draw(
+                            glowAsset,
+                            particle.x,
+                            particle.y,
+                            particle.rotation,
+                            glowScale,
+                            glowScale,
+                            glowAsset:getWidth() / 2,
+                            glowAsset:getHeight() / 2
+                        )
+                    end
+                end
+                
+                -- Restore original color
+                love.graphics.setColor(r, g, b, a)
+            end
+        end
+    end
+    
+    -- Reset blend mode
+    love.graphics.setBlendMode("alpha")
+end
+
 return VFX```
 
 ## ./wizard.lua
@@ -17180,11 +17979,11 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.novaconjuring,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.forcebarrier,
+            ["12"] = Spells.battleshield,
             ["13"] = Spells.blastwave,
             ["23"] = Spells.emberlift,
 
@@ -18256,6 +19055,87 @@ end
 return Wizard```
 
 # Documentation
+
+## docs/AddingVisualTemplates.md
+# Adding Visual Templates
+
+This guide walks through the **end-to-end** workflow for adding a new VFX "template" (a _base_ effect definition) and making it available everywhere (runtime, constants, resolver and tests).
+
+---
+## 1  Create/extend the template in `vfx.lua`
+1.  Open `vfx.lua` and locate the `VFX.effects` table near the top.
+2.  Add a new entry, e.g.
+   ```lua
+   myeffect_base = {
+       type          = "myEffectType",  -- projectile / beam / surge / etc.
+       duration      = 1.0,
+       particleCount = 30,
+       startScale    = 0.4,
+       endScale      = 0.8,
+       color         = Constants.Color.SMOKE,
+       -- any extra fields that the effect's logic needs
+   }
+   ```
+3.  If you introduce **new per-template fields** (e.g. `spread`, `height`, `defaultParticleAsset`):
+   • Copy them into the effect instance in `VFX.createEffect` (`effect.spread = template.spread`).  
+   • Clear them in `VFX.resetEffect` (`effect.spread = nil`).
+
+---
+## 2  Add particle initialisation
+Inside `VFX.initializeParticles(effect)` insert a new `elseif effect.type == "myEffectType" then ...` branch that **creates particles** and stores them in `effect.particles`.
+
+---
+## 3  Add per-frame logic
+1.  Implement `VFX.updateMyEffect(effect, dt)` to animate particles and update per-effect state.
+2.  Call it from the main dispatcher in `VFX.update`:
+   ```lua
+   elseif effect.type == "myEffectType" then
+       VFX.updateMyEffect(effect, dt)
+   ```
+
+---
+## 4  Add rendering
+1.  Implement `VFX.drawMyEffect(effect)`.
+2.  Dispatch it from `VFX.draw` just like the update step.
+
+---
+## 5  Expose a constant for the template
+Add an identifier in `core/Constants.lua` so other systems can reference it:
+```lua
+Constants.VFXType.MY_EFFECT_BASE = "myeffect_base"
+```
+
+---
+## 6  Hook into **VisualResolver** (optional but typical)
+1.  Decide how the game should pick the template (by `visualShape`, `attackType`, tags, etc.).
+2.  Update `systems/VisualResolver.lua` mapping tables, e.g.:
+   ```lua
+   TEMPLATE_BY_SHAPE["myShape"] = Constants.VFXType.MY_EFFECT_BASE
+   ```
+
+---
+## 7  Assets & sounds (if any)
+• Add asset paths in `VFX.assetPaths`.  
+• If the effect **must** be shown instantly (e.g. shields) preload the asset in `VFX.init()`.  
+• Otherwise it will be lazily loaded on first use.
+
+---
+## 8  Testing checklist
+☑  The game starts with no Lua errors.  
+☑  `VisualResolver.test()` prints the expected base template for a crafted event.  
+☑  In-game the effect animates, updates and fades out correctly.  
+☑  Pool statistics (`VFX.showPoolStats()`) do not leak particles.
+
+---
+## 9  Troubleshooting
+| Symptom | Common cause |
+|---------|--------------|
+| Nil-field error inside update/draw | Forgot to copy the field from template in `createEffect()` |
+| Effect visible but never removed | Didn't mark `effect.progress` to `1` or forgot `isComplete` flag |
+| No visual appears | Asset path typo or `initializeParticles` created **zero** particles |
+
+---
+Happy effect hacking! 🎆 
 
 ## docs/Bugs.md
 * Zone spells not blocked by Barriers - found with Eruption vs. Wrap in Moonlight
@@ -19811,7 +20691,7 @@ This is an early prototype with basic functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Thu May  1 13:36:18 CDT 2025
+Generated: Sat May  3 15:08:59 CDT 2025
 
 # Source Code
 
@@ -21173,6 +22053,8 @@ Constants.VFXType = {
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
     UTIL_BASE = "util_base",       -- Base utility effect
+    SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
     -- Overlay addon effects (used by VisualResolver)
@@ -21192,6 +22074,9 @@ Constants.VFXType = {
     GRAVITY_PIN_GROUND = "gravity_pin_ground",
     GRAVITY_TRAP_SET = "gravity_trap_set",
     FORCE_BLAST = "force_blast",
+    
+    -- Special fire effects
+    METEOR = "meteor_dive",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",
@@ -23699,7 +24584,7 @@ function love.load()
     
     -- Load game font
     -- For now, fall back to system font if custom font isn't available
-    local fontPath = "assets/fonts/Lionscript-Regular.ttf"
+    local fontPath = "assets/fonts/LionscriptNew-Regular.ttf"
     local fontExists = love.filesystem.getInfo(fontPath)
     
     if fontExists then
@@ -26805,7 +27690,7 @@ FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
     affinity = "fire",
-    description = "Conjures a Fire mana token",
+    description = "Conjures a Fire mana token. Takes longer to cast the more Fire tokens already present.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "surge",
     castTime = Constants.CastSpeed.FAST,
@@ -26843,7 +27728,7 @@ FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
     affinity = "fire",
-    description = "Superheated bolt that deals more damage against FAR opponents",
+    description = "Superheated bolt. Maximum damage at FAR RANGE.",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
     visualShape = "bolt",
@@ -26890,19 +27775,24 @@ FireSpells.blastwave = {
     id = "blastwave",
     name = "Blast Wave",
     affinity = "fire",
-    description = "Blast that deals significant damage up close.",
+    description = "Blast of flame. Maximum damage at NEAR RANGE and matched ELEVATION.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = expr.byRange({
-                NEAR = 18,
-                FAR = 5,
-                default = 5
-            }),
-            type = Constants.DamageType.FIRE
+            amount = function(caster, target)
+                local baseDmg = 2
+                if target and target.elevation == caster.elevation then
+                    baseDmg = baseDmg + 9
+                end
+                if target and target.gameState.rangeState == Constants.RangeState.NEAR then
+                    baseDmg = baseDmg + 9
+                end
+                return baseDmg
+            end,
+            type = Constants.DamageType.FIRE,
         },
     },
     sfx = "blastwave",
@@ -26913,7 +27803,7 @@ FireSpells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
     affinity = "fire",
-    description = "Disrupts opponent channeling, burning one token to Salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
     visualShape = "affectManaPool",
@@ -26930,7 +27820,7 @@ FireSpells.blazingAscent = {
     id = "blazingascent",
     name = "Blazing Ascent",
     affinity = "fire",
-    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL",
+    description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL.",
     attackType = Constants.AttackType.ZONE,
     visualShape = "blast",
     castTime = Constants.CastSpeed.SLOW,
@@ -27008,7 +27898,7 @@ FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
     affinity = "fire", 
-    description = "A Barrier of flames that stops Projectile and Zone attacks, damaging attackers.",
+    description = "A Barrier of flames that stops Projectile and Zone attacks, burning NEAR attackers.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "barrier",
     castTime = Constants.CastSpeed.SLOW,
@@ -27022,14 +27912,15 @@ FireSpells.battleshield = {
                 print("[SPELL DEBUG] Flamewreath onBlock handler executing!")
                 local events = {}
                 
-                if attacker then
+                if attacker.elevation == Constants.ElevationState.NEAR then
                     table.insert(events, {
-                        type = "DAMAGE",
+                        type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        amount = 5,
-                        damageType = "fire",
-                        counterDamage = true
+                        statusType = "burn",
+                        duration = 1.5,
+                        tickDamage = 4,
+                        targetSlot = "NEAR"
                     })
                 end
                 
@@ -27109,7 +28000,7 @@ MoonSpells.conjuremoonlight = {
     id = "conjuremoonlight",
     name = "Conjure Moonlight",
     affinity = Constants.TokenType.MOON,
-    description = "Conjures a Moon mana token.",
+    description = "Conjures a Moon mana token. Takes longer to cast the more Moon tokens already present.",
     attackType = "utility",
     visualShape = "affectManaPool",
     castTime = Constants.CastSpeed.FAST,
@@ -27194,7 +28085,7 @@ MoonSpells.moondance = {
     id = "moondance",
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
-    description = "Warp space to switch range, deal chip damage, and freeze <3> enemy Root slot.",
+    description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
     attackType = "remote",
     visualShape = "warp",
     castTime = Constants.CastSpeed.SLOW,
@@ -27259,16 +28150,16 @@ MoonSpells.eclipse = {
     id = "eclipse",
     name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
-    description = "Freeze <3> your Crown slot. Conjure Sun",
+    description = "Freeze xxx your Heart slot. Conjure Sun.",
     attackType = "utility", 
     visualShape = "eclipse",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.VERY_FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = 3,
-            slot = 3,
-            target = "both"
+            slot = 2,
+            target = "self"
         },
         conjure = {
             token = Constants.TokenType.SUN,
@@ -27287,7 +28178,7 @@ MoonSpells.fullmoonbeam = {
     description = "Channels moonlight into a beam that deals more damage the longer it's delayed.",
     attackType = Constants.AttackType.PROJECTILE,
     visualShape = "beam",
-    castTime = Constants.CastSpeed.FAST,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
         damage = {
@@ -27396,7 +28287,7 @@ MoonSpells.wrapinmoonlight = {
 -- Gravity Trap spell
 MoonSpells.gravityTrap = {
     id = "gravityTrap",
-    name = "Gravity Point",
+    name = "Icarus Trap",
     affinity = Constants.TokenType.MOON,
     description = "Gravitational trap that triggers when an enemy becomes AERIAL, grounding and damaging them.",
     attackType = Constants.AttackType.UTILITY,
@@ -27424,8 +28315,8 @@ MoonSpells.gravityTrap = {
                 target = "ENEMY", 
             },
             burn = { 
-                duration = 1.0,
-                tickDamage = 4,
+                duration = 1.5,
+                tickDamage = 3,
                 tickInterval = 0.5,
                 target = "ENEMY"
             },
@@ -27444,7 +28335,7 @@ MoonSpells.infiniteprocession = {
     description = "Transmutes MOON tokens into SUN or SUN into MOON.",
     attackType = Constants.AttackType.UTILITY,
     visualShape = "affectManaPool",
-    castTime = Constants.CastSpeed.SLOW,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {},
     keywords = {
         tokenShift = {
@@ -27851,33 +28742,57 @@ local expr = require("expr")
 
 local SunSpells = {}
 
+-- Sunbolt spell
+SunSpells.radiantbolt = {
+    id = "radiantbolt",
+    name = "Radiant Bolt",
+    affinity = "sun",
+    description = "Bolt of radiation that deals more damage against AERIAL opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.elevation == Constants.Elevation.AERIAL then
+                    return 25
+                end
+                return 10
+            end,
+            type = Constants.DamageType.SUN
+        },
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+
 -- Meteor spell
 SunSpells.meteor = {
     id = "meteor",
     name = "Meteor Dive",
     affinity = "sun",
-    description = "Aerial finisher, only hits GROUNDED enemies",
+    description = "Aerial finisher - GROUND self and create a fiery explosion. Only hits GROUNDED enemies.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "meteor",
-    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SUN},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
-            amount = 20,
-            type = Constants.DamageType.FIRE,
-            condition = function(caster, target, slot)
-                local casterIsAerial = caster and caster.elevation == Constants.ElevationState.AERIAL
-                local targetIsGrounded = target and target.elevation == Constants.ElevationState.GROUNDED
-                return casterIsAerial and targetIsGrounded
-            end
+            amount = function(caster, target)
+                if target and target.elevation == Constants.ElevationState.GROUNDED and caster.elevation == Constants.ElevationState.AERIAL then
+                    return 30
+                end
+                return 0
+            end,
+            type = Constants.DamageType.SUN,
         },
         rangeShift = {
             position = Constants.RangeState.NEAR
         },
         ground = {
             target = Constants.TargetType.SELF 
-        },
-        vfx = { effect = Constants.VFXType.METEOR, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "meteor_impact",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
@@ -27888,7 +28803,7 @@ SunSpells.emberlift = {
     id = "emberlift",
     name = "Emberlift",
     affinity = "sun",
-    description = "Launches caster into the air, shifts range, and conjures a Fire token.",
+    description = "Launches caster into the air, shifts RANGE, and conjures a Fire token.",
     castTime = Constants.CastSpeed.FAST,
     attackType = "utility",
     visualShape = "surge",
@@ -28906,21 +29821,38 @@ EventRunner.EVENT_HANDLERS = {
         local manaPool = caster.manaPool
         if not manaPool then return false end
         
-        -- Create VFX for token conjuration if available
+        -- Create VFX for token conjuration using the rule-driven approach
         if caster.gameState and caster.gameState.vfx then
-            local params = {
+            -- Create an EFFECT event to use the VisualResolver pattern
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = "caster", -- Token conjuration affects the caster
+                
+                -- Check if there's a specific effect for this token type
+                effectOverride = nil, -- Will be set conditionally below
+                
+                -- Token type determines appearance through VisualResolver
+                affinity = event.tokenType,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = event.amount, -- Scale with the amount of tokens
+                
+                -- Metadata to determine visuals and behavior
+                tags = { CONJURE = true, RESOURCE = true },
+                
+                -- Token-specific parameters
                 tokenType = event.tokenType,
                 amount = event.amount
             }
             
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createTokenConjureEffect",
-                Constants.VFXType.CONJUREFIRE,  -- Use a VFX type that matches the conjuring action
-                caster.x,
-                caster.y,
-                params
-            )
+            -- Check if there's a specific effect for this token type
+            local specificEffect = "conjure" .. event.tokenType
+            if Constants.VFXType[specificEffect:upper()] then
+                effectEvent.effectOverride = Constants.VFXType[specificEffect:upper()]
+            end
+            
+            -- Let the EFFECT handler process this with VisualResolver
+            EventRunner.handleEvent(effectEvent, caster, caster, spellSlot, results)
         end
         
         -- Add tokens to the mana pool with animation
@@ -31329,7 +32261,39 @@ local Constants = require("core.Constants")
 
 local VisualResolver = {}
 
+-- Map visualShape strings to base VFX template names
+-- This is the primary mapping table for determining visual template from spell shape
+local TEMPLATE_BY_SHAPE = {
+    -- Beam-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    
+    -- Projectile-like effects
+    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
+    
+    -- Area/zone effects
+    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["groundBurst"] = Constants.VFXType.ZONE_BASE,
+    ["meteor"] = Constants.VFXType.METEOR,
+    
+    -- Remote/direct effects
+    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    
+    -- Utility effects
+    ["surge"] = Constants.VFXType.SURGE_BASE,
+    ["affectManaPool"] = Constants.VFXType.UTIL_BASE,
+    
+    -- Shield-like effects
+    ["wings"] = Constants.VFXType.SHIELD_OVERLAY,
+    ["mirror"] = Constants.VFXType.SHIELD_OVERLAY,
+    
+    -- Special effects with unique templates
+    ["eclipse"] = "eclipse_base"
+}
+
 -- Map attack types to base VFX template names
+-- This is used as a fallback when visualShape is not specified
 local BASE_BY_ATTACK = {
     [Constants.AttackType.PROJECTILE] = Constants.VFXType.PROJ_BASE,
     [Constants.AttackType.REMOTE] = Constants.VFXType.REMOTE_BASE,
@@ -31408,12 +32372,17 @@ function VisualResolver.pick(event)
         VisualResolver.debug("Event contains visualShape: " .. tostring(event.visualShape))
     end
     
-    -- Handle manual override: If the event has an effectOverride, use it directly
+    -- Step 1: Determine base template with priority: effectOverride > legacy > shield_hit > visualShape > attackType > default
+    local baseTemplate = DEFAULT_BASE
+    local selectionPath = "DEFAULT" -- Track which path determined the template
+    
+    -- PRIORITY 1: Handle manual override: If the event has an effectOverride, use it directly
     -- This handles the manual vfx specifications from the vfx keyword
     if event.effectOverride then
-        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
+        baseTemplate = event.effectOverride
+        selectionPath = "EFFECT_OVERRIDE"
         
-        -- Full event logging for debug
+        VisualResolver.debug("Using explicit effect override: " .. event.effectOverride)
         VisualResolver.debug("Effect override source event details:")
         VisualResolver.debug("  - Event type: " .. (event.type or "nil"))
         VisualResolver.debug("  - Affinity: " .. (event.affinity or "nil"))
@@ -31421,7 +32390,7 @@ function VisualResolver.pick(event)
         VisualResolver.debug("  - Tags: " .. (event.tags and "present" or "nil"))
         
         -- Use the specified effect but still use the new parameter system
-        return event.effectOverride, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -31431,11 +32400,14 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Also handle the case where we get the effect directly within an event.effect property
+    -- PRIORITY 2: Also handle the case where we get the effect directly within an event.effect property
     -- This is needed for the showcase examples in spells.lua
     if event.effect and type(event.effect) == "string" then
+        baseTemplate = event.effect
+        selectionPath = "EVENT_EFFECT"
+        
         VisualResolver.debug("Using effect from direct event.effect property: " .. event.effect)
-        return event.effect, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0, 
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -31445,8 +32417,11 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Handle shield hit event (from shield system)
+    -- PRIORITY 3: Handle shield hit event (from shield system)
     if event.effectType == "shield_hit" then
+        baseTemplate = "shield_hit_base"
+        selectionPath = "SHIELD_HIT"
+        
         VisualResolver.debug("Handling shield hit effect")
         
         -- Determine shield color based on shield type
@@ -31460,8 +32435,8 @@ function VisualResolver.pick(event)
             color = {0.3, 1.0, 0.3, 0.8}  -- Green for fields
         end
         
-        -- Return shield hit template with proper color
-        return "shield_hit_base", {
+        -- Build options with shield-specific values
+        local opts = {
             color = color,
             scale = 1.2,  -- Slightly larger scale for impact emphasis
             motion = Constants.MotionStyle.PULSE,
@@ -31470,13 +32445,27 @@ function VisualResolver.pick(event)
             elevation = event.elevation,
             -- VFX system will use vfxParams.x/y first, so we don't need to duplicate
         }
+        
+        VisualResolver.debug(string.format(
+            "Resolved shield hit event to base=%s via %s, color=%s, scale=%.2f, motion=%s",
+            baseTemplate,
+            selectionPath,
+            table.concat(color, ","),
+            opts.scale,
+            opts.motion
+        ))
+        
+        return baseTemplate, opts
     end
     
-    -- Legacy manual VFX: If the event has manualVfx flag and effectType
+    -- PRIORITY 4: Legacy manual VFX: If the event has manualVfx flag and effectType
     if event.manualVfx and event.effectType then
+        baseTemplate = event.effectType
+        selectionPath = "LEGACY_MANUAL"
+        
         VisualResolver.debug("Using legacy manual effect via effectType: " .. event.effectType)
         -- Use the specified effect but still use the new parameter system
-        return event.effectType, {
+        return baseTemplate, {
             color = COLOR_BY_AFF[event.affinity] or DEFAULT_COLOR,
             scale = 1.0,
             motion = AFFINITY_MOTION[event.affinity] or DEFAULT_MOTION,
@@ -31486,37 +32475,31 @@ function VisualResolver.pick(event)
         }
     end
     
-    -- Step 1: Determine base template from visualShape or attack type
-    local baseTemplate = DEFAULT_BASE
-    
-    -- If the event or options has a visualShape property, use a named template instead
+    -- PRIORITY 5: Use visualShape to look up template in TEMPLATE_BY_SHAPE
     if event.visualShape then
         local visualShape = event.visualShape
-        VisualResolver.debug("Using visualShape override: " .. visualShape)
+        local template = TEMPLATE_BY_SHAPE[visualShape]
         
-        -- Map visualShape to appropriate template
-        if visualShape == "beam" then
-            baseTemplate = Constants.VFXType.BEAM_BASE
-        elseif visualShape == "bolt" or visualShape == "orb" or visualShape == "zap" then
-            baseTemplate = Constants.VFXType.PROJ_BASE
-        elseif visualShape == "blast" or visualShape == "groundBurst" then
-            baseTemplate = Constants.VFXType.ZONE_BASE
-        elseif visualShape == "warp" or visualShape == "surge" or visualShape == "affectManaPool" then
-            baseTemplate = Constants.VFXType.UTIL_BASE
-        elseif visualShape == "wings" or visualShape == "mirror" then
-            baseTemplate = Constants.VFXType.SHIELD_OVERLAY
-        elseif visualShape == "eclipse" then
-            baseTemplate = "eclipse_base" -- Specialized template
+        if template then
+            baseTemplate = template
+            selectionPath = "VISUAL_SHAPE"
+            VisualResolver.debug("Using visualShape mapping: " .. visualShape .. " -> " .. baseTemplate)
         else
-            -- For unknown visualShapes, fall back to attack type
+            -- For unknown visualShapes, log warning and fall back to attackType
             VisualResolver.debug("Unknown visualShape: " .. visualShape .. ", falling back to attackType")
-            if event.attackType and BASE_BY_ATTACK[event.attackType] then
-                baseTemplate = BASE_BY_ATTACK[event.attackType]
-            end
         end
-    -- Otherwise use attack type mapping
-    elseif event.attackType and BASE_BY_ATTACK[event.attackType] then
+    end
+    
+    -- PRIORITY 6: If no visualShape match, use attack type mapping
+    if selectionPath == "DEFAULT" and event.attackType and BASE_BY_ATTACK[event.attackType] then
         baseTemplate = BASE_BY_ATTACK[event.attackType]
+        selectionPath = "ATTACK_TYPE"
+        VisualResolver.debug("Using attackType mapping: " .. event.attackType .. " -> " .. baseTemplate)
+    end
+    
+    -- If we still have no valid template, use the default
+    if selectionPath == "DEFAULT" then
+        VisualResolver.debug("No mapping found, using DEFAULT_BASE: " .. DEFAULT_BASE)
     end
     
     -- Step 2: Determine color from affinity
@@ -31557,8 +32540,9 @@ function VisualResolver.pick(event)
     }
     
     VisualResolver.debug(string.format(
-        "Resolved event to base=%s, color=%s, scale=%.2f, motion=%s, addons=%d",
+        "Resolved event to base=%s via %s, color=%s, scale=%.2f, motion=%s, addons=%d",
         baseTemplate,
+        selectionPath,
         table.concat(color, ","),
         scale,
         motion,
@@ -31589,7 +32573,7 @@ end
 -- Helper function to test the resolver with sample events
 function VisualResolver.test()
     local testEvents = {
-        -- Test 1: Fire projectile spell
+        -- Test 1: Fire projectile spell (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -31599,7 +32583,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 2: Water remote spell with higher cost
+        -- Test 2: Water remote spell with higher cost (using attackType)
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.WATER,
@@ -31609,7 +32593,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.AERIAL
         },
-        -- Test 3: Moon-based shield
+        -- Test 3: Moon-based shield (using attackType)
         {
             type = "CREATE_SHIELD",
             affinity = Constants.TokenType.MOON,
@@ -31622,8 +32606,7 @@ function VisualResolver.test()
         -- Test 4: Manually specified effect (vfx keyword)
         {
             type = "EFFECT",
-            effectType = Constants.VFXType.FIREBOLT,
-            manualVfx = true,
+            effectOverride = Constants.VFXType.FIREBOLT,
             affinity = Constants.TokenType.FIRE,
             attackType = Constants.AttackType.PROJECTILE,
             manaCost = 2,
@@ -31631,7 +32614,19 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 5: REMOTE attack with "beam" visualShape override
+        -- Test 5: Legacy manual VFX
+        {
+            type = "EFFECT",
+            effectType = Constants.VFXType.METEOR,
+            manualVfx = true,
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            manaCost = 3,
+            tags = { VFX = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 6: REMOTE attack with "beam" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.MOON,
@@ -31642,7 +32637,7 @@ function VisualResolver.test()
             rangeBand = Constants.RangeState.FAR,
             elevation = Constants.ElevationState.GROUNDED
         },
-        -- Test 6: Projectile attack with "blast" visualShape override
+        -- Test 7: Projectile attack with "blast" visualShape override
         {
             type = "DAMAGE",
             affinity = Constants.TokenType.FIRE,
@@ -31652,12 +32647,82 @@ function VisualResolver.test()
             tags = { DAMAGE = true },
             rangeBand = Constants.RangeState.NEAR,
             elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 8: Testing "orb" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.STAR,
+            attackType = Constants.AttackType.ZONE, -- This would normally use ZONE_BASE
+            visualShape = "orb",                    -- But visualShape overrides to PROJ_BASE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 9: Testing "warp" visualShape
+        {
+            type = "EFFECT",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.PROJECTILE, -- This would normally use PROJ_BASE
+            visualShape = "warp",                         -- But visualShape overrides to UTIL_BASE
+            manaCost = 1,
+            tags = { MOVEMENT = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 10: Testing "mirror" visualShape
+        {
+            type = "CREATE_SHIELD",
+            affinity = Constants.TokenType.WATER,
+            attackType = Constants.AttackType.UTILITY,
+            visualShape = "mirror",
+            manaCost = 2,
+            tags = { SHIELD = true, DEFENSE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 11: Testing "eclipse" visualShape
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.VOID,
+            attackType = Constants.AttackType.ZONE,
+            visualShape = "eclipse",
+            manaCost = 5,
+            tags = { DAMAGE = true, DOT = true },
+            rangeBand = Constants.RangeState.FAR,
+            elevation = Constants.ElevationState.AERIAL
+        },
+        -- Test 12: Testing unknown visualShape (should fall back to attackType)
+        {
+            type = "DAMAGE",
+            affinity = Constants.TokenType.FIRE,
+            attackType = Constants.AttackType.PROJECTILE,
+            visualShape = "unknown_shape",  -- Not in TEMPLATE_BY_SHAPE
+            manaCost = 2,
+            tags = { DAMAGE = true },
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
+        },
+        -- Test 13: Shield hit effect
+        {
+            type = "SHIELD_HIT",
+            effectType = "shield_hit",
+            shieldType = Constants.ShieldType.BARRIER,
+            rangeBand = Constants.RangeState.NEAR,
+            elevation = Constants.ElevationState.GROUNDED
         }
     }
     
     print("===== VisualResolver Test =====")
     for i, event in ipairs(testEvents) do
         print("\nTest " .. i .. ": " .. event.type .. " event with " .. (event.affinity or "unknown") .. " affinity")
+        if event.visualShape then
+            print("visualShape: " .. event.visualShape)
+        end
+        if event.attackType then
+            print("attackType: " .. event.attackType)
+        end
+        
         local base, opts = VisualResolver.pick(event)
         print("Base template: " .. base)
         print("Color: " .. table.concat(opts.color, ","))
@@ -32005,6 +33070,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
         
         -- Draw the elliptical orbit paths (only need to do this once, e.g., during the 'back' pass)
         if layer == "back" then 
+            -- Clear stale casting arc data if this slot is not currently in an active casting phase
+            if not slot.active or (slot.castTime or 0) == 0 or slot.progress >= (slot.castTime or 0) then
+                slot._castArcActive = false
+            end
+
             local shouldDrawOrbit = false
             local orbitColor = {0.5, 0.5, 0.5, 0.4} -- Default inactive/dim color
             local drawProgressArc = false
@@ -32052,9 +33122,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                         0.9
                     }
 
+                    -- Store arc information so the complementary half can be rendered in the "front" pass
+                    slot._castArcActive = true
+                    slot._castArcColor = {progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4]}
+                    slot._castArcProgress = (slot.castTime or 1) > 0 and (slot.progress / slot.castTime) or 0
+
                 else
                     -- POST-CASTING PHASE (or instant spell): Show full orbit based on state
                     drawProgressArc = false
+                    slot._castArcActive = false -- Clear cached arc
                     shouldDrawOrbit = true 
 
                     if slot.isShield then
@@ -32067,15 +33143,9 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         -- Compare against Constants instead of string literals
                         if shieldType == Constants.ShieldType.BARRIER then
-                            -- Draw the base ellipse for the barrier
-                            shouldDrawOrbit = true 
-                            orbitColor = {
-                                shieldColor[1] * (1 + pulseAmount * 0.5), -- Pulse color slightly
-                                shieldColor[2] * (1 + pulseAmount * 0.5),
-                                shieldColor[3] * (1 + pulseAmount * 0.5),
-                                alpha -- Use calculated alpha for the base orbit
-                            }
-                            -- The vertical lines will be drawn AFTER the main orbit below
+                            -- Do NOT draw the horizontal orbit for Barrier; only vertical hedge lines
+                            shouldDrawOrbit = false
+                            -- Vertical cylinder lines are handled later in their dedicated block
                         
                         elseif shieldType == Constants.ShieldType.WARD then
                             shouldDrawOrbit = false -- Don't draw the standard orbit for Ward
@@ -32103,33 +33173,52 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             
                             if runeAssets and #runeAssets > 0 then
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7), -- Stronger color pulse for runes
+                                    shieldColor[1] * (1 + pulseAmount * 0.7),
                                     shieldColor[2] * (1 + pulseAmount * 0.7),
                                     shieldColor[3] * (1 + pulseAmount * 0.7),
                                     alpha
                                 }
-                                love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
 
                                 for r = 1, numRunes do
-                                    -- Ensure rune index is consistent per slot per frame, but rotates over time
-                                    -- Use slot index and rune index for seeding randomness consistently within a frame
+                                    -- Deterministic seed so both passes pick the same rune image
                                     local seed = i * 10 + r + math.floor(love.timer.getTime())
                                     math.randomseed(seed)
                                     local runeIndex = math.random(1, #runeAssets)
-                                    math.randomseed(os.time() + os.clock()*1000000) -- Reseed properly
+                                    math.randomseed(os.time() + os.clock()*1000000)
 
                                     local runeImg = runeAssets[runeIndex]
-                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7 -- Slow rotation
+                                    local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
                                     local runeX = slotX + math.cos(angle) * radiusX
                                     local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
-                                    
-                                    love.graphics.draw(
-                                        runeImg, 
-                                        runeX, runeY, 
-                                        0, -- No rotation needed for runes 
-                                        runeScale, runeScale, 
-                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
-                                    )
+
+                                    -- Determine if rune is front or back half
+                                    local normalizedAngle = (angle % (math.pi * 2))
+                                    local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                                    if runeLayer == layer then
+                                        -- Glow pass
+                                        local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                                        love.graphics.setBlendMode("add")
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                        love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                                        -- Main rune sprite
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX, runeY,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
                                 end
                             else
                                 -- Fallback: Draw the orbit if runes aren't loaded
@@ -32225,32 +33314,47 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     local lineAlpha = alpha * 0.6 -- Make vertical lines slightly more transparent
 
                     love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
-                    love.graphics.setLineWidth(1.5) -- Make lines slightly thicker
+                    local prevWidth = love.graphics.getLineWidth()
+                    love.graphics.setLineWidth(1.5) -- thicker
 
                     for k = 1, numLines do
                         local angle = (k / numLines) * math.pi * 2
-                        local px = slotX + math.cos(angle) * radiusX
-                        local py = slotY + math.sin(angle) * radiusY
-                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        local normalizedAngle = angle % (math.pi * 2)
+                        -- Draw only BACK half lines in the back pass (π → 2π)
+                        if normalizedAngle > math.pi then
+                            local px = slotX + math.cos(angle) * radiusX
+                            local py = slotY + math.sin(angle) * radiusY
+
+                            -- Glow pass (thicker, additive blend)
+                            local prevSrc, prevDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setLineWidth(4)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                            love.graphics.setBlendMode(prevSrc, prevDst)
+
+                            -- Main line
+                            love.graphics.setLineWidth(1.5)
+                            love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                            love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        end
                     end
-                    love.graphics.setLineWidth(1) -- Reset line width
+                    love.graphics.setLineWidth(prevWidth) -- restore
                  end
             end
             
             -- Draw progress arc if needed (only during casting phase)
             if drawProgressArc then
-                local startAngle = 0
-                -- Ensure castTime is not zero to avoid division errors
+                -- Compute end angle once
                 local endAngle = ((slot.castTime or 1) > 0) and (slot.progress / slot.castTime) * (math.pi * 2) or 0
-                
-                love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
-                
-                WizardVisuals.drawEllipticalArc(
-                    slotX, slotY, 
-                    radiusX, radiusY, 
-                    startAngle, endAngle, 
-                    32 -- More segments for smoother arc
-                )
+
+                -- Draw only the TOP half (π → 2π) of the arc for the back layer
+                if endAngle > math.pi then
+                    local segStart = math.max(math.pi, 0) -- will always be π
+                    local segEnd = endAngle
+                    love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
+                end
             end
 
             -- Draw state text (TRAP, FROZEN, SUSTAIN) above the orbit if applicable
@@ -32261,6 +33365,24 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     slotX - textWidth / 2, -- Center text
                     slotY - verticalRadii[i] - 15) -- Position above the orbit
             end
+
+            -- Re-draw tokens so they sit on top of the just-drawn orbit / arc graphics (maintains depth vs wizard)
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        -- token.orbitAngle was set earlier in the first pass through tokens
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
+            end
         end -- End of drawing orbits only on 'back' pass
 
         -- NEW: Draw the BOTTOM half of the orbit ellipse during the "front" layer pass
@@ -32269,6 +33391,125 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 local oc = slot._orbitColor
                 love.graphics.setColor(oc[1], oc[2], oc[3], oc[4])
                 WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, math.pi, 32)
+            end
+
+            -- Draw bottom half of casting progress arc if there is one
+            if slot._castArcActive and slot._castArcColor then
+                local endAngle = (slot._castArcProgress or 0) * (math.pi * 2)
+                local segEnd = math.min(endAngle, math.pi)
+                if segEnd > 0.01 then -- Avoid drawing if not progressed into bottom half yet
+                    local cac = slot._castArcColor
+                    love.graphics.setColor(cac[1], cac[2], cac[3], cac[4])
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
+                end
+            end
+
+            -- Draw WARD runes that belong to the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+
+                local numRunes = 5
+                local runeYOffset = 0
+                local runeScale = 1.0
+
+                local runeAssets
+                if VFX.getAsset then
+                    runeAssets = VFX.getAsset("runes")
+                end
+                if not runeAssets and VFX.assets then
+                    runeAssets = VFX.assets.runes
+                end
+
+                if runeAssets and #runeAssets > 0 then
+                    local runeColor = {
+                        shieldColor[1] * (1 + pulseAmount * 0.7),
+                        shieldColor[2] * (1 + pulseAmount * 0.7),
+                        shieldColor[3] * (1 + pulseAmount * 0.7),
+                        alpha
+                    }
+
+                    for r = 1, numRunes do
+                        local seed = i * 10 + r + math.floor(love.timer.getTime())
+                        math.randomseed(seed)
+                        local runeIndex = math.random(1, #runeAssets)
+                        math.randomseed(os.time() + os.clock()*1000000)
+
+                        local runeImg = runeAssets[runeIndex]
+                        local angle = (r / numRunes) * math.pi * 2 + love.timer.getTime() * 0.7
+                        local runeX = slotX + math.cos(angle) * radiusX
+                        local runeY = slotY + math.sin(angle) * radiusY + runeYOffset
+
+                        local normalizedAngle = angle % (math.pi * 2)
+                        if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
+                            -- Glow pass
+                            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+                            love.graphics.setBlendMode("add")
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
+
+                            -- Main rune
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                        end
+                    end
+                end
+            end
+
+            -- Draw Barrier vertical hedge lines for the FRONT half
+            if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.BARRIER then
+                local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
+                local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
+                local alpha = 0.7 + pulseAmount * 0.3
+                local cylinderHeight = 20
+                local numLines = 72
+                local lineAlpha = alpha * 0.6
+
+                love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                local prevWidthF = love.graphics.getLineWidth()
+                love.graphics.setLineWidth(1.5)
+
+                for k = 1, numLines do
+                    local angle = (k / numLines) * math.pi * 2
+                    local normalizedAngle = angle % (math.pi * 2)
+                    -- FRONT half is 0 → π
+                    if normalizedAngle <= math.pi then
+                        local px = slotX + math.cos(angle) * radiusX
+                        local py = slotY + math.sin(angle) * radiusY
+
+                        -- Glow pass
+                        local prevSrc, prevDst = love.graphics.getBlendMode()
+                        love.graphics.setBlendMode("add")
+                        love.graphics.setLineWidth(4)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha * 0.35)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                        love.graphics.setBlendMode(prevSrc, prevDst)
+
+                        -- Main line
+                        love.graphics.setLineWidth(1.5)
+                        love.graphics.setColor(shieldColor[1], shieldColor[2], shieldColor[3], lineAlpha)
+                        love.graphics.line(px, py - cylinderHeight / 2, px, py + cylinderHeight / 2)
+                    end
+                end
+                love.graphics.setLineWidth(prevWidthF)
+            end
+
+            -- Re-draw tokens again in front layer to ensure they sit atop orbit/arc
+            if slot.active and #slot.tokens > 0 then
+                for j, tokenData in ipairs(slot.tokens) do
+                    local token = tokenData.token
+                    if token and token.status ~= Constants.TokenStatus.RETURNING and token.status ~= Constants.TokenStatus.DISSOLVING then
+                        local normalizedAngle = (token.orbitAngle or 0) % (math.pi * 2)
+                        local tokenLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
+                        if tokenLayer == layer then
+                            if token.status == Constants.TokenStatus.CHANNELED or token.status == Constants.TokenStatus.SHIELDING then
+                                manaPool:drawToken(token)
+                            end
+                        end
+                    end
+                end
             end
         end
     end -- End of loop through spell slots
@@ -33246,6 +34487,9 @@ return success```
 ```lua
 -- UI helper module
 
+-- Load core modules
+local Constants = require("core.Constants")
+
 local UI = {}
 
 -- Spellbook visibility state
@@ -34050,12 +35294,36 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
     love.graphics.print("Spellbook", modalX + 170, y + 5)
     y = y + 30
     
+    -- Track which spell entry is currently being hovered over (via keys)
+    local activeSpellIndex = nil
+    local keyCombo = ""
+    
+    -- Check which exact keys are being held down
+    if playerNum == 1 then
+        if love.keyboard.isDown("q") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("w") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("e") then keyCombo = keyCombo .. "3" end
+    else
+        if love.keyboard.isDown("i") then keyCombo = keyCombo .. "1" end
+        if love.keyboard.isDown("o") then keyCombo = keyCombo .. "2" end
+        if love.keyboard.isDown("p") then keyCombo = keyCombo .. "3" end
+    end
+    
+    -- Store information about each spell entry for later use
+    local spellEntries = {}
+    
     -- Display all spells in a single unified list
-    for _, mapping in ipairs(keyMappings) do
+    for i, mapping in ipairs(keyMappings) do
         local spell = wizard.spellbook[mapping.keyName]
         if spell then
             -- Check if this is the currently keyed spell
             local isCurrentSpell = wizard.currentKeyedSpell and wizard.currentKeyedSpell.name == spell.name
+            
+            -- Check if this exact key combo is being held
+            local isExactMatch = (mapping.keyName == keyCombo)
+            if isExactMatch then
+                activeSpellIndex = i
+            end
             
             -- Use a different background color to highlight the currently keyed spell
             if isCurrentSpell then
@@ -34107,7 +35375,49 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
             love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+            
+            -- Store the spell entry information for later use (for description popup)
+            table.insert(spellEntries, {
+                spell = spell,
+                y = y,
+                isExactMatch = isExactMatch,
+                isCurrentSpell = isCurrentSpell
+            })
+            
             y = y + 45  -- Restore original spacing between spell entries
+        end
+    end
+    
+    -- Draw description popup for the active spell (if any)
+    if activeSpellIndex and spellEntries[activeSpellIndex] then
+        local activeEntry = spellEntries[activeSpellIndex]
+        local activeSpell = activeEntry.spell
+        
+        if activeSpell.description then
+            -- Draw a popup box above the spell entry
+            local popupWidth = 360
+            local popupHeight = 50  -- Height for description text
+            local popupX = modalX + 20  -- Align within the spellbook modal
+            local popupY = activeEntry.y - popupHeight - 10  -- Position above the spell entry
+            
+            -- Draw popup background
+            love.graphics.setColor(0.15, 0.15, 0.25, 0.95)  -- Darker background for contrast
+            love.graphics.rectangle("fill", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a subtle border with the wizard's color
+            love.graphics.setColor(wizard.color[1]/255, wizard.color[2]/255, wizard.color[3]/255, 0.7)
+            love.graphics.rectangle("line", popupX, popupY, popupWidth, popupHeight, 5, 5)
+            
+            -- Add a connecting triangle in the same color
+            love.graphics.polygon("fill", 
+                popupX + popupWidth/2 - 8, popupY + popupHeight,  -- Left point
+                popupX + popupWidth/2 + 8, popupY + popupHeight,  -- Right point
+                popupX + popupWidth/2, popupY + popupHeight + 8   -- Bottom point
+            )
+            
+            -- Draw the description text
+            love.graphics.setColor(1, 1, 1, 0.9)
+            love.graphics.printf(activeSpell.description, popupX + 10, popupY + 15, popupWidth - 20, "center")
         end
     end
 end
@@ -34299,6 +35609,33 @@ function VFX.init()
             sound = nil
         },
         
+        surge_base = {
+            type = "surge",
+            duration = 1.2,
+            particleCount = 35,
+            startScale = 0.25,
+            endScale = 0.05,
+            color = Constants.Color.SKY,
+            height = 150,
+            spread = 60,
+            pulseRate = 4,
+            sound = "surge"
+        },
+        
+        conjure_base = {
+            type = "conjure",
+            duration = 0.8,
+            particleCount = 35,
+            startScale = 0.3,
+            endScale = 0.9,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden by VisualResolver
+            radius = 70,
+            height = 120,
+            pulseRate = 3,
+            sound = nil,
+            defaultParticleAsset = "sparkle"
+        },
+        
         impact_base = {
             type = "impact",
             duration = 0.5,
@@ -34384,6 +35721,22 @@ function VFX.init()
             color = Constants.Color.MAROON,  -- Purple for gravity theme
             radius = 75,
             sound = "gravity_trap_deploy"  -- Sound will need to be loaded
+        },
+        
+        meteor_dive = {
+            type = "meteor",
+            duration = 1.4,
+            particleCount = 45,
+            startScale = 0.6,
+            endScale = 1.2,
+            color = Constants.Color.CRIMSON,  -- Crimson red for meteor
+            radius = 90,         -- Impact explosion radius
+            height = 300,        -- Height from which meteor falls
+            spread = 20,         -- Spread of the meteor cluster
+            fireTrail = true,    -- Enable fire trail for particles
+            impactExplosion = true, -- Create explosion effect on impact
+            sound = "meteor_impact",
+            defaultParticleAsset = "fireParticle"
         },
         
         force_blast = {
@@ -34989,6 +36342,7 @@ function VFX.resetEffect(effect)
     effect.rangeBand = nil
     effect.elevation = nil
     effect.addons = nil
+    effect.spread = nil
     
     -- Reset particles array but don't delete it
     effect.particles = {}
@@ -35167,6 +36521,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
+        if effect.spread then effect.spread = effect.spread * scaleFactor end
     end
     
     -- Store motion style and positional info
@@ -35190,6 +36545,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.trailLength = template.trailLength
     effect.impactSize = template.impactSize
     effect.spreadRadius = template.spreadRadius
+    effect.spread = template.spread
     
     -- Optional overrides
     effect.options = options or {}
@@ -35473,6 +36829,105 @@ function VFX.initializeParticles(effect)
             
             table.insert(effect.particles, particle)
         end
+    elseif effect.type == "surge" then
+        -- Initialize particles for fountain surge effect
+        local spread = effect.spread or 60
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+
+            -- Start at source position
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+
+            -- Upward velocity with random horizontal
+            particle.speedX = (math.random() - 0.5) * spread
+            particle.speedY = -math.random(180, 260)
+            particle.gravity = 300
+
+            particle.scale = effect.startScale * math.random(0.8, 1.2)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.delay = math.random() * 0.3
+            particle.active = false
+
+            table.insert(effect.particles, particle)
+        end
+    elseif effect.type == "meteor" then
+        -- Initialize particles for meteor dive effect
+        local height = effect.height or 300
+        local spread = effect.spread or 20
+        local particleAsset = effect.defaultParticleAsset or "fireParticle"
+        
+        -- Ensure we have the required asset
+        local asset = VFX.getAsset(particleAsset)
+        
+        -- Create a cluster of meteors falling from above
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Start above the target at random positions
+            local offsetX = (math.random() - 0.5) * spread * 2
+            local offsetY = -height + math.random() * height * 0.3
+            
+            -- Set starting position above target
+            particle.x = effect.targetX + offsetX
+            particle.y = effect.targetY + offsetY
+            
+            -- Downward velocity with slight inward pull toward target
+            local angleToTarget = math.atan2(effect.targetY - particle.y, effect.targetX - particle.x)
+            local fallSpeed = math.random(300, 450)
+            local fallAngleVariance = (math.random() - 0.5) * 0.3
+            particle.speedX = math.cos(angleToTarget + fallAngleVariance) * fallSpeed * 0.3
+            particle.speedY = math.sin(angleToTarget + fallAngleVariance) * fallSpeed
+            
+            -- Set particle properties
+            particle.scale = effect.startScale * math.random(0.8, 1.3)
+            particle.alpha = 1.0
+            particle.rotation = math.random() * math.pi * 2
+            particle.rotSpeed = math.random(-5, 5)
+            particle.delay = math.random() * 0.3
+            particle.active = false
+            
+            -- Track if this particle has impacted
+            particle.hasImpacted = false
+            particle.impactTime = 0
+            particle.fireTrail = effect.fireTrail
+            
+            -- Store additional properties
+            particle.assetId = particleAsset
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Create impact area particles (hidden until impact)
+        if effect.impactExplosion then
+            for i = 1, math.floor(effect.particleCount * 0.5) do
+                local particle = Pool.acquire("vfx_particle")
+                
+                -- Start at target position
+                particle.x = effect.targetX
+                particle.y = effect.targetY
+                
+                -- Explosion trajectory
+                local angle = math.random() * math.pi * 2
+                local speed = math.random(100, 300)
+                particle.speedX = math.cos(angle) * speed
+                particle.speedY = math.sin(angle) * speed * 0.7 -- Flatten explosion
+                
+                -- Set particle properties
+                particle.scale = effect.startScale * 0.6 * math.random(0.9, 1.4)
+                particle.alpha = 0 -- Hidden until impact
+                particle.rotation = math.random() * math.pi * 2
+                particle.delay = 0.4 + math.random() * 0.2 -- Delay until impact
+                particle.active = false
+                particle.explosion = true
+                
+                -- Store additional properties
+                particle.assetId = particleAsset
+                
+                table.insert(effect.particles, particle)
+            end
+        end
     end
 end
 
@@ -35513,6 +36968,10 @@ function VFX.update(dt)
             VFX.updateBeam(effect, dt)
         elseif effect.type == "conjure" then
             VFX.updateConjure(effect, dt)
+        elseif effect.type == "surge" then
+            VFX.updateSurge(effect, dt)
+        elseif effect.type == "meteor" then
+            VFX.updateMeteor(effect, dt)
         end
         
         -- Remove effect if complete
@@ -36167,6 +37626,34 @@ function VFX.updateConjure(effect, dt)
     end
 end
 
+-- Update function for surge effects
+function VFX.updateSurge(effect, dt)
+    -- Fountain style upward burst with gravity pull
+    for _, particle in ipairs(effect.particles) do
+        if effect.timer > particle.delay then
+            particle.active = true
+        end
+        if particle.active then
+            -- Motion update
+            particle.x = particle.x + particle.speedX * dt
+            particle.y = particle.y + particle.speedY * dt
+            particle.speedY = particle.speedY + particle.gravity * dt
+
+            -- Visual progression
+            local lifeProgress = effect.progress
+            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * lifeProgress
+
+            -- Fade out towards end of effect
+            if lifeProgress > 0.6 then
+                local fade = (lifeProgress - 0.6) / 0.4
+                particle.alpha = 1 - fade
+            end
+
+            particle.rotation = particle.rotation + dt * 2
+        end
+    end
+end
+
 -- Draw all active effects
 function VFX.draw()
     for _, effect in ipairs(VFX.activeEffects) do
@@ -36182,6 +37669,10 @@ function VFX.draw()
             VFX.drawBeam(effect)
         elseif effect.type == "conjure" then
             VFX.drawConjure(effect)
+        elseif effect.type == "surge" then
+            VFX.drawSurge(effect)
+        elseif effect.type == "meteor" then
+            VFX.drawMeteor(effect)
         end
     end
 end
@@ -36727,6 +38218,29 @@ function VFX.drawConjure(effect)
     end
 end
 
+-- Draw function for surge effects
+function VFX.drawSurge(effect)
+    local particleImage = getAssetInternal("sparkle")
+
+    -- Base glow at origin
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
+    love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+
+    -- Draw particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                particle.scale, particle.scale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+end
+
 -- Helper function for HSV to RGB conversion (for volatile conjuring rainbow effect)
 function HSVtoRGB(h, s, v)
     local r, g, b
@@ -36877,6 +38391,171 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
     }
 end
 
+-- Update function for meteor effect
+function VFX.updateMeteor(effect, dt)
+    -- Process all particles
+    for i, particle in ipairs(effect.particles) do
+        -- Activate particles based on delay
+        if not particle.active and effect.timer >= particle.delay then
+            particle.active = true
+            particle.startTime = effect.timer
+        end
+        
+        if particle.active then
+            -- Track particle lifetime
+            local particleTime = effect.timer - particle.startTime
+            
+            -- Handle meteor particles vs. explosion particles differently
+            if particle.explosion then
+                -- Handle explosion particles (activate after impact)
+                if particleTime >= particle.delay then
+                    -- Fade in quickly
+                    particle.alpha = math.min(1.0, (particleTime - particle.delay) * 10)
+                    
+                    -- Position based on speed
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Add gravity to flatten the explosion
+                    particle.speedY = particle.speedY + 400 * dt
+                    
+                    -- Slow down over time (air resistance)
+                    particle.speedX = particle.speedX * 0.95
+                    particle.speedY = particle.speedY * 0.95
+                    
+                    -- Rotate the particle
+                    particle.rotation = particle.rotation + dt * 2
+                    
+                    -- Fade out near end of effect
+                    if effect.progress > 0.7 then
+                        particle.alpha = math.max(0, 1 - ((effect.progress - 0.7) / 0.3))
+                    end
+                    
+                    -- Scale down slightly
+                    particle.scale = particle.scale * 0.98
+                end
+            else
+                -- Handle meteor particles
+                if not particle.hasImpacted then
+                    -- Still falling - update position
+                    particle.x = particle.x + particle.speedX * dt
+                    particle.y = particle.y + particle.speedY * dt
+                    
+                    -- Rotate the meteor
+                    particle.rotation = particle.rotation + (particle.rotSpeed or 1) * dt
+                    
+                    -- Increase speed (acceleration due to gravity)
+                    local gravityAccel = 200 * dt
+                    particle.speedY = particle.speedY + gravityAccel
+                    
+                    -- Check for impact with ground
+                    if particle.y >= effect.targetY - 10 then
+                        particle.hasImpacted = true
+                        particle.impactTime = particleTime
+                        
+                        -- Stop moving
+                        particle.speedX = 0
+                        particle.speedY = 0
+                        
+                        -- Set Y to exact ground position
+                        particle.y = effect.targetY
+                    end
+                    
+                    -- Create fire trail effect 
+                    if particle.fireTrail and effect.timer % 0.05 < dt then
+                        -- TODO: In a full implementation, this would create small
+                        -- fire particles behind the meteor for a trailing effect
+                    end
+                else
+                    -- After impact, fade out quickly
+                    local impactProgress = (particleTime - particle.impactTime) / 0.3
+                    particle.alpha = math.max(0, 1 - impactProgress)
+                    
+                    -- Expand slightly on impact
+                    local impactScale = 1 + math.min(0.5, impactProgress * 2)
+                    particle.scale = effect.startScale * impactScale
+                    
+                    -- Fade out
+                    if effect.progress > 0.6 then
+                        particle.alpha = particle.alpha * 0.9
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Draw function for meteor effect
+function VFX.drawMeteor(effect)
+    love.graphics.setBlendMode("add")
+    
+    -- Draw all active particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0.01 then
+            -- Get the appropriate asset
+            local asset = VFX.getAsset(particle.assetId or "fireParticle")
+            
+            if asset then
+                -- Save current color
+                local r, g, b, a = love.graphics.getColor()
+                
+                -- Set particle color based on effect color and alpha
+                love.graphics.setColor(
+                    effect.color[1], 
+                    effect.color[2], 
+                    effect.color[3], 
+                    effect.color[4] * particle.alpha
+                )
+                
+                -- Draw the particle
+                love.graphics.draw(
+                    asset,
+                    particle.x,
+                    particle.y,
+                    particle.rotation,
+                    particle.scale,
+                    particle.scale,
+                    asset:getWidth() / 2,
+                    asset:getHeight() / 2
+                )
+                
+                -- Draw fiery glow for meteors
+                if not particle.explosion and not particle.hasImpacted then
+                    local glowAsset = VFX.getAsset("fireGlow")
+                    if glowAsset then
+                        -- Set a more transparent glow color
+                        love.graphics.setColor(
+                            effect.color[1], 
+                            effect.color[2], 
+                            effect.color[3], 
+                            effect.color[4] * particle.alpha * 0.7
+                        )
+                        
+                        -- Draw glow slightly larger than the particle
+                        local glowScale = particle.scale * 1.8
+                        love.graphics.draw(
+                            glowAsset,
+                            particle.x,
+                            particle.y,
+                            particle.rotation,
+                            glowScale,
+                            glowScale,
+                            glowAsset:getWidth() / 2,
+                            glowAsset:getHeight() / 2
+                        )
+                    end
+                end
+                
+                -- Restore original color
+                love.graphics.setColor(r, g, b, a)
+            end
+        end
+    end
+    
+    -- Reset blend mode
+    love.graphics.setBlendMode("alpha")
+end
+
 return VFX```
 
 ## ./wizard.lua
@@ -36992,11 +38671,11 @@ function Wizard.new(name, x, y, color)
         self.spellbook = {
             -- Single key spells
             ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.firebolt,
-            ["3"]  = Spells.novaconjuring,
+            ["2"]  = Spells.novaconjuring,
+            ["3"]  = Spells.firebolt,
 
             -- Two key combos
-            ["12"] = Spells.forcebarrier,
+            ["12"] = Spells.battleshield,
             ["13"] = Spells.blastwave,
             ["23"] = Spells.emberlift,
 
@@ -38068,6 +39747,87 @@ end
 return Wizard```
 
 # Documentation
+
+## docs/AddingVisualTemplates.md
+# Adding Visual Templates
+
+This guide walks through the **end-to-end** workflow for adding a new VFX "template" (a _base_ effect definition) and making it available everywhere (runtime, constants, resolver and tests).
+
+---
+## 1  Create/extend the template in `vfx.lua`
+1.  Open `vfx.lua` and locate the `VFX.effects` table near the top.
+2.  Add a new entry, e.g.
+   ```lua
+   myeffect_base = {
+       type          = "myEffectType",  -- projectile / beam / surge / etc.
+       duration      = 1.0,
+       particleCount = 30,
+       startScale    = 0.4,
+       endScale      = 0.8,
+       color         = Constants.Color.SMOKE,
+       -- any extra fields that the effect's logic needs
+   }
+   ```
+3.  If you introduce **new per-template fields** (e.g. `spread`, `height`, `defaultParticleAsset`):
+   • Copy them into the effect instance in `VFX.createEffect` (`effect.spread = template.spread`).  
+   • Clear them in `VFX.resetEffect` (`effect.spread = nil`).
+
+---
+## 2  Add particle initialisation
+Inside `VFX.initializeParticles(effect)` insert a new `elseif effect.type == "myEffectType" then ...` branch that **creates particles** and stores them in `effect.particles`.
+
+---
+## 3  Add per-frame logic
+1.  Implement `VFX.updateMyEffect(effect, dt)` to animate particles and update per-effect state.
+2.  Call it from the main dispatcher in `VFX.update`:
+   ```lua
+   elseif effect.type == "myEffectType" then
+       VFX.updateMyEffect(effect, dt)
+   ```
+
+---
+## 4  Add rendering
+1.  Implement `VFX.drawMyEffect(effect)`.
+2.  Dispatch it from `VFX.draw` just like the update step.
+
+---
+## 5  Expose a constant for the template
+Add an identifier in `core/Constants.lua` so other systems can reference it:
+```lua
+Constants.VFXType.MY_EFFECT_BASE = "myeffect_base"
+```
+
+---
+## 6  Hook into **VisualResolver** (optional but typical)
+1.  Decide how the game should pick the template (by `visualShape`, `attackType`, tags, etc.).
+2.  Update `systems/VisualResolver.lua` mapping tables, e.g.:
+   ```lua
+   TEMPLATE_BY_SHAPE["myShape"] = Constants.VFXType.MY_EFFECT_BASE
+   ```
+
+---
+## 7  Assets & sounds (if any)
+• Add asset paths in `VFX.assetPaths`.  
+• If the effect **must** be shown instantly (e.g. shields) preload the asset in `VFX.init()`.  
+• Otherwise it will be lazily loaded on first use.
+
+---
+## 8  Testing checklist
+☑  The game starts with no Lua errors.  
+☑  `VisualResolver.test()` prints the expected base template for a crafted event.  
+☑  In-game the effect animates, updates and fades out correctly.  
+☑  Pool statistics (`VFX.showPoolStats()`) do not leak particles.
+
+---
+## 9  Troubleshooting
+| Symptom | Common cause |
+|---------|--------------|
+| Nil-field error inside update/draw | Forgot to copy the field from template in `createEffect()` |
+| Effect visible but never removed | Didn't mark `effect.progress` to `1` or forgot `isComplete` flag |
+| No visual appears | Asset path typo or `initializeParticles` created **zero** particles |
+
+---
+Happy effect hacking! 🎆 
 
 ## docs/Bugs.md
 * Zone spells not blocked by Barriers - found with Eruption vs. Wrap in Moonlight
@@ -41646,4 +43406,475 @@ AI-2: Perception Implementation
 AI-3: Basic FSM & Decision Logic
 AI-4: Action Execution
 AI-5: Spell Knowledge & Basic Strategy
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-Rule_Driven_System-Game_Plan.md
+# Manastorm VFX Refactoring: Rule-Driven System - Game Plan
+**Version:** 2.0  
+**Date:** Thu May 1 13:36:18 CDT 2025  
+**Context:** This document outlines the plan for Sprint 2 of the VFX refactoring, focusing on implementing a rule-driven visual system.
+
+## 1. Purpose & Problem Statement
+
+### Goal
+To refactor Manastorm's Visual Effects (VFX) system so that visuals are primarily derived from gameplay rules and metadata (affinity, attack type, visual shape, cost, tags), rather than being manually specified for every spell. This aims to improve consistency, maintainability, and designer workflow.
+
+### Current Problem
+The existing system relies heavily on manual VFX specification (vfx property or keyword) for most spells. This couples visual decisions tightly to gameplay definitions, leading to:
+- **Inconsistency:** Visuals can easily mismatch a spell's element or type.
+- **Maintenance Burden:** Changing a spell's affinity requires manually updating its VFX.
+- **Scalability Issues:** Adding new elements/shapes requires widespread manual updates.
+- **Scattered Logic:** VFX triggers are distributed, making the flow hard to follow.
+
+## 2. Target Architecture: Rule-Driven Visuals
+
+We are moving to a system where gameplay events imply the necessary visuals.
+
+### Core Components & Flow:
+
+#### Enriched Events
+Gameplay keywords (damage, conjure, etc.) generate events containing rich metadata:
+- **affinity:** (Fire, Moon, etc.) -> Determines Color & Motion
+- **attackType:** (Projectile, Zone, etc.) -> Determines Base Structure (if visualShape absent)
+- **visualShape:** (Beam, Bolt, Blast, etc.) -> Overrides Base Structure
+- **manaCost:** (Number) -> Determines Scale/Intensity
+- **tags:** ({ BURN=true, SHIELD=true }) -> Determines Additive Overlays (Future)
+- **Context:** (rangeBand, elevation) -> Influences Trajectory/Appearance
+
+#### VisualResolver (systems/VisualResolver.lua)
+- Acts as the central mapping service.
+- Takes an enriched event as input.
+- Uses internal mapping tables (TEMPLATE_BY_SHAPE, BASE_BY_ATTACK, COLOR_BY_AFF, AFFINITY_MOTION) and logic (scaling by manaCost) to determine visual parameters.
+- Outputs: baseTemplateName (String), opts (Table: { color, scale, motion, addons, rangeBand, elevation, particleAsset, ... }).
+- Handles effectOverride as the highest priority bypass.
+
+#### EventRunner (systems/EventRunner.lua)
+- Processes all game events, including EFFECT events.
+- For EFFECT events, calls VisualResolver.pick(event) to get visual parameters.
+- Calls VFX.createEffect(baseTemplateName, ..., opts) to trigger the visual.
+
+#### VFX Module (vfx.lua)
+- VFX.effects registry contains primarily base templates (proj_base, beam_base, impact_base, etc.) defining structure and default particle assets.
+- VFX.createEffect consumes the baseTemplateName and the opts table.
+- Initializes effect instances using parameters from opts (overriding template defaults for color, scale, motion, particle asset, etc.).
+- update*/draw* functions render the effect based on the instance's parameters and motion style.
+
+### Key Principle
+Define the gameplay, get consistent visuals for free. Override only when necessary.
+
+## 3. Sprint Ticket Breakdown (VFX-S2-T1 to VFX-S2-T6)
+
+This sprint builds the rule-driven system step-by-step:
+1. **T1 (Refine Resolver):** Implement visualShape mapping in VisualResolver and clarify priority (override > shape > attackType).
+2. **T2 (Decouple Assets):** Make particle/asset choice in vfx.lua data-driven via templates and opts. Remove hardcoded asset names from draw*.
+3. **T3 (Consume Params):** Ensure VFX.createEffect fully uses all parameters from opts (color, scale, motion, overrides) and passes them to the effect instance.
+4. **T4 (Purge Registry):** Clean VFX.effects, leaving mostly base templates and a few truly unique named effects.
+5. **T5 (Motion Styles):** Fully implement the particle movement logic for different motion styles in VFX.updateParticle.
+6. **T6 (Deprecate Old Specs):** Remove legacy vfx properties from spells, ensuring reliance on the resolver.
+
+## 4. Example Flow (Post-Refactor)
+
+1. **Spell Def:** `MySpells.AquaBlast = { affinity=WATER, attackType=ZONE, visualShape="blast", keywords={damage={...}} }`
+2. **Event:** DAMAGE event generated with `{ affinity=WATER, attackType=ZONE, visualShape="blast", manaCost=3, tags={DAMAGE=true} }`
+3. **EventRunner:** Processes EFFECT event derived from DAMAGE.
+4. **Resolver:** VisualResolver.pick(event):
+   - Sees visualShape="blast", maps to baseTemplate="zone_base".
+   - Sees affinity=WATER, maps to color=OCEAN, motion=SWIRL.
+   - Sees manaCost=3, calculates scale=1.25.
+   - Sees tags={DAMAGE=true}, adds addon=DAMAGE_OVERLAY.
+   - Returns ("zone_base", {color=OCEAN, scale=1.25, motion=SWIRL, addons={...}, ...}).
+5. **VFX:** VFX.createEffect("zone_base", ..., {color=OCEAN, ...}). Renders a zone effect, tinted blue, 25% larger, with swirling particles.
+
+## 5. Guidance & Notes
+
+- **Focus on Base Templates:** Make proj_base, beam_base, etc., robust and parameterizable.
+- **Use Constants:** Heavily rely on core/Constants.lua.
+- **Incremental Testing:** Test visuals after each ticket, ensuring the resolver and VFX module interact correctly.
+- **Visual Language Doc:** Refer to docs/Visual_Language.md to guide parameter choices (default particle assets, motion styles per affinity).
+
+## 6. Conclusion
+
+This sprint fundamentally shifts how VFX are handled, moving from manual specification to a rule-driven, metadata-based system. This will improve consistency, reduce maintenance, and make adding visually appropriate effects for new spells significantly easier.
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T1-Refine_VisualResolver_for_visualShape_Mapping.md
+# Ticket #VFX-S2-T1: Refine VisualResolver for visualShape Mapping
+
+## Goal
+Make the VisualResolver prioritize visualShape over attackType for selecting the base VFX template and centralize this mapping logic.
+
+## Background
+The VisualResolver currently relies primarily on attackType to determine the base VFX template. We want to shift toward using the visualShape property as the primary determinant, which will allow for more consistent and intuitive visual effects based on the spell's shape rather than its combat mechanics.
+
+## Tasks
+
+### Define Mapping Table (VisualResolver.lua)
+- Create a private table `TEMPLATE_BY_SHAPE` mapping visualShape strings (e.g., "beam", "bolt", "blast") to Constants.VFXType base template names
+- Include all shapes from docs/visualShape.md
+- Example mapping:
+  - "beam" -> Constants.VFXType.BEAM_BASE
+  - "bolt" -> Constants.VFXType.PROJ_BASE
+  - "blast" -> Constants.VFXType.IMPACT_BASE
+  - etc.
+
+### Modify VisualResolver.pick(event)
+- Implement priority logic for determining baseTemplate:
+  1. Check event.effectOverride first
+  2. If no override, check event.visualShape and look it up in TEMPLATE_BY_SHAPE
+  3. If no match or no visualShape, fall back to BASE_BY_ATTACK[event.attackType]
+  4. If still no match, use DEFAULT_BASE
+- Ensure the rest of the function (color, scale, motion, addons) uses the final resolved baseTemplate consistently
+- Add debug prints to clearly show which logic path (override, shape, attackType, default) determined the baseTemplate
+
+## Acceptance Criteria
+- VisualResolver.pick correctly uses event.visualShape to determine the base template when present
+- The fallback logic to attackType and default still works correctly
+- Debug logs clearly indicate the selection path
+- Spells defined with visualShape (e.g., Full Moon Beam) now use the corresponding base template according to the new mapping table
+
+## Technical Notes
+This change isolates the shape-to-template logic, making it easier to manage and extend visualShape support. The refactoring should maintain backward compatibility with spells that don't yet have visualShape defined.
+
+## Dependencies
+- Requires Constants.VFXType to be properly defined
+- Should be implemented before other VFX system refactoring tickets
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T2-Decouple_Particle_Assets_in_VFX_Module.md
+# Ticket #VFX-S2-T2: Decouple Particle Assets in VFX Module
+
+## Goal
+Remove hardcoded particle asset names from vfx.lua's draw* functions, making particle choice data-driven via templates and options.
+
+## Background
+Currently, the vfx.lua module has hardcoded asset names in its drawing functions, limiting flexibility and making it difficult to vary particle appearances based on spell properties. This refactoring will make the particle asset selection configurable through templates and options.
+
+## Tasks
+
+### Add Default Assets to Templates (vfx.lua)
+- For each base template definition in VFX.effects (e.g., proj_base, impact_base), add a defaultParticleAsset field
+- Example changes:
+  ```lua
+  VFX.effects = {
+    proj_base = {
+      -- existing properties
+      defaultParticleAsset = "sparkle",
+      defaultGlowAsset = "fireGlow",
+    },
+    impact_base = {
+      -- existing properties
+      defaultParticleAsset = "sparkle",
+    },
+    -- other templates
+  }
+  ```
+- Consider adding fields for secondary assets if needed (e.g., defaultGlowAsset)
+
+### Modify VFX.createEffect (vfx.lua)
+- When processing the opts table, look for optional opts.particleAsset (and opts.glowAsset, etc.)
+- Store the chosen asset key on the effect instance:
+  ```lua
+  effect.particleAssetKey = opts.particleAsset or template.defaultParticleAsset
+  effect.glowAssetKey = opts.glowAsset or template.defaultGlowAsset
+  ```
+
+### Update draw* Functions (vfx.lua)
+- Modify functions like drawProjectile, drawImpact, drawAura etc.
+- Replace direct asset references:
+  ```lua
+  -- Before
+  local particleImage = getAssetInternal("fireParticle")
+  
+  -- After
+  local particleImage = getAssetInternal(effect.particleAssetKey)
+  ```
+- Handle cases where an asset might be missing gracefully
+- Update logic for glow images and impact rings similarly
+
+## Acceptance Criteria
+- Base templates in vfx.lua define default particle/glow asset keys
+- VFX.createEffect stores the correct asset key based on options or template defaults
+- draw* functions dynamically load assets using the stored key via getAssetInternal
+- Visual effects render using the particle assets defined by their templates (no visual change expected yet, just refactoring)
+
+## Technical Notes
+- Ensure getAssetInternal handles nil paths gracefully
+- Consistent naming of asset keys is important
+- This change will enable future improvements where particle appearance can be determined by spell properties
+
+## Dependencies
+- This change should be implemented after VFX-S2-T1 since it builds on the template selection logic
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T3-Full_Parameter_Consumption_in_VFX_Module.md
+# Ticket #VFX-S2-T3: Full Parameter Consumption in VFX Module
+
+## Goal
+Ensure VFX.createEffect and the corresponding update*/draw* functions fully utilize the parameters provided in the opts table from the VisualResolver.
+
+## Background
+Currently, the VFX module only partially consumes parameters from the opts table produced by the VisualResolver. This ticket aims to enhance parameter utilization to allow for more nuanced control over visual effects based on spell properties.
+
+## Tasks
+
+### Enhance VFX.createEffect (vfx.lua)
+- Explicitly read and store all relevant parameters from the opts table:
+  ```lua
+  -- Read and store all parameters from opts
+  effect.color = opts.color or template.defaultColor
+  effect.scale = opts.scale or 1.0
+  effect.motion = opts.motion or template.defaultMotion or Constants.MotionStyle.DEFAULT
+  effect.duration = opts.duration or template.duration
+  effect.particleCount = opts.particleCount or template.particleCount
+  effect.rangeBand = opts.rangeBand -- for trajectory calculation
+  effect.elevation = opts.elevation -- for trajectory calculation
+  effect.addons = opts.addons or {} -- for future extensions
+  ```
+- Apply opts.scale more comprehensively:
+  - Define scaling rules for different properties (radius, beamWidth, height, impactSize)
+  - Example: 
+    ```lua
+    effect.radius = template.radius * effect.scale
+    effect.beamWidth = template.beamWidth * effect.scale
+    effect.particleSize = template.particleSize * math.sqrt(effect.scale) -- Non-linear scaling option
+    ```
+
+### Adapt update*/draw* Functions (vfx.lua)
+- Ensure all update* and draw* functions read parameters from the effect instance rather than using template values directly
+- Update position/trajectory logic to account for rangeBand and elevation:
+  ```lua
+  -- In updateProjectile for example:
+  local distance = effect.rangeBand and (effect.rangeBand * Constants.RANGE_BAND_PIXELS) or defaultDistance
+  local height = effect.elevation and (effect.elevation * Constants.ELEVATION_PIXELS) or 0
+  ```
+- Ensure color tinting is properly applied in all drawing functions
+
+## Acceptance Criteria
+- VFX.createEffect correctly initializes effect instances based on the full opts table
+- Color tints are applied correctly based on opts.color
+- Visual scale (size, count, radius) reflects opts.scale
+- Particle motion reflects opts.motion (basic integration with VFX-S2-T5)
+- Trajectory reflects opts.rangeBand and opts.elevation
+- All parameters from the VisualResolver are meaningfully utilized
+
+## Technical Notes
+- Define clear rules for how opts.scale affects different geometric properties
+- Consider documenting the scaling behavior for future reference
+- This change is foundational for rule-driven visual effects
+
+## Dependencies
+- This ticket builds upon VFX-S2-T2
+- Should be implemented before VFX-S2-T5 (Full Motion Style Integration)
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T4-Purge_Specific_Effects_from_VFX_Registry.md
+# Ticket #VFX-S2-T4: Purge Specific Effects from VFX Registry
+
+## Goal
+Clean up the VFX.effects registry in vfx.lua, removing specific named effects and leaving only parameterized base templates.
+
+## Background
+The VFX.effects registry currently contains many specific named effect definitions (firebolt, meteor, emberlift, etc.) alongside base templates. This approach has led to code duplication and made it difficult to maintain consistency. With the VisualResolver now handling template selection and parameter generation, we can simplify by focusing on base templates.
+
+## Tasks
+
+### Identify Base Templates (vfx.lua)
+- Clearly mark the essential base templates that should be kept:
+  - proj_base
+  - beam_base
+  - impact_base
+  - aura_base
+  - util_base
+  - shield_hit_base
+  - vertical_base
+  - conjure_base
+  - Any other truly essential base templates
+
+### Remove Specific Definitions (vfx.lua)
+- Delete specific named effect entries from VFX.effects, such as:
+  - firebolt
+  - meteor
+  - emberlift
+  - conjurefire
+  - tidal_force
+  - shield
+  - Any other effect that can be represented as a base template + parameters
+
+### Review Constants.VFXType (core/Constants.lua)
+- Review Constants.VFXType to ensure consistency with the new approach:
+  - Keep constants for base templates
+  - Keep constants for any truly unique effects that are maintained as overrides
+  - Ensure constants are used consistently throughout the codebase
+
+### Update Override Examples
+- Identify any remaining spells using overrides
+- Ensure they reference a valid Constants.VFXType value
+- Document the override approach for the few cases where it's still needed
+
+## Acceptance Criteria
+- VFX.effects registry primarily contains base template definitions
+- The game runs without errors related to missing effect definitions
+- Spells previously using removed named effects correctly resolve to a base template via VisualResolver
+- Explicit override spells (if any were kept) still function correctly
+
+## Technical Notes
+- This is a significant removal step that should be done carefully
+- Thorough testing is needed to catch spells whose visuals might break
+- Consider backup/documentation of removed templates before deletion
+- This change simplifies the VFX system but requires all visual effects to be properly parameterized through the VisualResolver
+
+## Dependencies
+- This ticket should be implemented after VFX-S2-T1, VFX-S2-T2, and VFX-S2-T3
+- Should be completed before VFX-S2-T6 (final cleanup)
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T5-Full_Motion_Style_Integration.md
+# Ticket #VFX-S2-T5: Full Motion Style Integration
+
+## Goal
+Fully integrate the defined motion styles into the particle update logic, ensuring particles behave correctly according to the style determined by the VisualResolver.
+
+## Background
+The VisualResolver determines motion styles based on spell properties, but the VFX module needs to be enhanced to fully implement these styles. This ticket focuses on refactoring the particle update logic to support different motion behaviors based on the assigned style.
+
+## Tasks
+
+### Refactor update* Functions (vfx.lua)
+- Review VFX.updateProjectile, VFX.updateImpact, VFX.updateAura, etc.
+- Ensure particle movement logic is delegated to a common helper function:
+  ```lua
+  -- In update functions, focus on effect-level progression
+  for i, particle in ipairs(effect.particles) do
+    if particle.active then
+      local particleProgress = (effect.elapsedTime - particle.startTime) / particle.lifespan
+      VFX.updateParticle(particle, effect, dt, particleProgress)
+    end
+  end
+  ```
+- The main update* functions should focus on:
+  - Overall effect progression (beam extension, projectile trajectory)
+  - Particle lifecycle management (activation, deactivation)
+
+### Enhance VFX.updateParticle (vfx.lua)
+- Implement or refine logic for each Constants.MotionStyle:
+  ```lua
+  function VFX.updateParticle(particle, effect, dt, progress)
+    -- Base updates common to all styles
+    particle.alpha = VFX.calculateAlpha(progress, effect.fadeIn, effect.fadeOut)
+    
+    -- Apply motion style-specific updates
+    if effect.motion == Constants.MotionStyle.RISE then
+      -- Particles gradually rise upward
+      particle.y = particle.y - (particle.speed * dt)
+      particle.rotation = particle.rotation + (dt * 0.5)
+    elseif effect.motion == Constants.MotionStyle.SWIRL then
+      -- Particles move in a circular pattern
+      local radius = particle.distance * (1 - 0.5 * progress) -- Decreasing radius
+      local angle = particle.angle + (dt * particle.speed)
+      particle.angle = angle
+      particle.x = effect.x + math.cos(angle) * radius
+      particle.y = effect.y + math.sin(angle) * radius
+    elseif effect.motion == Constants.MotionStyle.PULSE then
+      -- Particles expand and contract
+      local scale = 1 + 0.5 * math.sin(progress * math.pi * 2)
+      particle.scale = particle.baseScale * scale
+    elseif effect.motion == Constants.MotionStyle.DIRECTIONAL then
+      -- Particles move in their assigned direction
+      particle.x = particle.x + math.cos(particle.angle) * particle.speed * dt
+      particle.y = particle.y + math.sin(particle.angle) * particle.speed * dt
+    else -- DEFAULT motion
+      -- Simple motion outward from center
+      particle.x = particle.x + particle.dx * dt
+      particle.y = particle.y + particle.dy * dt
+    end
+  end
+  ```
+
+## Acceptance Criteria
+- Particles in different effects clearly exhibit the motion behavior associated with their spell's affinity
+- Motion styles are applied correctly regardless of the base effect type
+- update* functions are cleaner, primarily managing effect state and calling updateParticle
+- Different spells with the same base template but different affinities show visually distinct particle behaviors
+
+## Technical Notes
+- This refactoring separates effect-level progression from particle-level movement
+- Consider adding comments explaining each motion style's visual intention
+- The implementation should be efficient and avoid unnecessary calculations
+
+## Dependencies
+- This ticket builds upon VFX-S2-T3
+- Should be implemented before VFX-S2-T6 (final cleanup)
+
+## Tickets/S9_VfxSystemRefactor/VFX-S2-T6-Deprecate_Old_VFX_Specifications_Final_Cleanup.md
+# Ticket #VFX-S2-T6: Deprecate Old VFX Specifications & Final Cleanup
+
+## Goal
+Remove remaining legacy ways of specifying VFX in spell definitions and ensure the codebase relies solely on the VisualResolver (plus explicit overrides via vfx keyword where necessary).
+
+## Background
+Currently, spells can specify visual effects in multiple ways, including a top-level vfx property and through the vfx keyword. This ticket aims to standardize on using the rule-driven VisualResolver, with overrides only as exceptions.
+
+## Tasks
+
+### Remove Top-Level vfx Properties
+- Search all spell definition files (spells/*.lua) for top-level vfx = "effect_name" properties
+- Remove these properties, instead relying on:
+  - affinity (for color)
+  - attackType (as fallback)
+  - visualShape (as primary determinant)
+- Example:
+  ```lua
+  -- Before
+  {
+    name = "Fire Bolt",
+    affinity = "fire",
+    attackType = Constants.AttackType.PROJECTILE,
+    vfx = "firebolt", -- Remove this line
+    -- Add this if not already present
+    visualShape = "bolt",
+    -- other properties
+  }
+  ```
+
+### Review vfx Keyword Usage
+- Examine all uses of the vfx keyword in spell definitions
+- Remove most instances, relying on the resolver instead
+- Keep only those intended as explicit overrides for unique spells:
+  ```lua
+  -- Example of a valid override that should be kept
+  keywords = {
+    vfx = { effectOverride = Constants.VFXType.METEOR } -- Intentional override for unique appearance
+  }
+  ```
+
+### Code Search & Cleanup
+- Search the codebase for any remaining logic that might read spell.vfx directly
+- Look for instances in EventRunner, keywords.lua, and wizard.lua
+- Remove or refactor these instances to use the VisualResolver
+
+### Documentation Update
+- Update docs/spellcasting.md to reflect that VFX are now primarily rule-driven
+- Add or update documentation about visualShape's role in determining VFX
+- Example addition:
+  ```markdown
+  ## Visual Effects
+  
+  Spell visual effects are now primarily determined through rule-based resolution using:
+  
+  1. **visualShape**: The primary determinant of effect type (beam, bolt, blast, etc.)
+  2. **affinity**: Determines color and particle motion style
+  3. **attackType**: Used as fallback when visualShape is not specified
+  
+  Manual specification via the `vfx` keyword should only be used for exceptional cases where 
+  a completely unique visual effect is required.
+  ```
+
+## Acceptance Criteria
+- No spells use the top-level vfx property
+- The vfx keyword is used sparingly, only for intentional overrides
+- The game relies on the VisualResolver for the vast majority of spell VFX
+- Codebase is cleaner, with fewer ways to specify or trigger VFX
+- Documentation accurately reflects the new standard
+
+## Technical Notes
+- This is the final cleanup step in the VFX refactoring process
+- After this ticket, the visual effects system should be fully rule-driven
+- Consider running tests with various spells to ensure visuals still appear correctly
+
+## Dependencies
+- This ticket should be implemented last, after all other VFX system refactoring tickets
 
