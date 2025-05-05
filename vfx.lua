@@ -901,7 +901,12 @@ function VFX.resetEffect(effect)
     effect.elevation = nil
     effect.addons = nil
     effect.spread = nil
-    
+    effect.visualProgress = nil
+    effect.blockTimerStarted = nil
+    effect.blockTimer = nil
+    effect.blockInfo = nil
+    effect.blockLogged = nil
+    effect.impactParticlesCreated = nil
     -- Reset particles array but don't delete it
     effect.particles = {}
     
@@ -2356,9 +2361,52 @@ end
 
 -- Update function for beam effects
 function VFX.updateBeam(effect, dt)
-    -- Update beam progress
-    effect.beamProgress = math.min(effect.progress * 2, 1.0) -- Beam reaches full extension halfway through
-    
+    -- Enhanced beam update with shield block handling
+    local Constants = require("core.Constants")
+
+    -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
+    local baseProgress
+    if effect.options and effect.options.blockPoint and effect.visualProgress then
+        baseProgress = effect.visualProgress -- Use smoothed visual progress when beam can be blocked
+    else
+        baseProgress = effect.progress
+    end
+
+    -- Determine how far the beam is allowed to extend (full length or up to the shield)
+    local extensionTarget = (effect.options and effect.options.blockPoint) or 1.0
+
+    -- Update beam progress – beam extends twice as fast, but never beyond its target length
+    effect.beamProgress = math.min(baseProgress * 2, extensionTarget)
+
+    -- If this beam was blocked, trigger shield-impact visuals once
+    if extensionTarget < 1.0 and effect.blockTimerStarted and not effect.impactParticlesCreated then
+        effect.impactParticlesCreated = true
+
+        -- Calculate impact coordinates at the block point
+        local impactX = effect.sourceX + (effect.targetX - effect.sourceX) * extensionTarget
+        local impactY = effect.sourceY + (effect.targetY - effect.sourceY) * extensionTarget
+
+        -- Resolve shield color based on shieldType / override
+        local shieldColor = {1.0, 1.0, 0.3, 0.7} -- Default barrier yellow
+        if effect.options and effect.options.shieldType == Constants.ShieldType.WARD then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}
+        elseif effect.options and effect.options.shieldType == Constants.ShieldType.FIELD then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}
+        elseif effect.options and effect.options.shieldColor then
+            shieldColor = effect.options.shieldColor
+        end
+
+        -- Spawn the shield hit effect at the impact point
+        local shieldHitOpts = {
+            duration       = 0.5,
+            color          = shieldColor,
+            particleCount  = math.floor((effect.particleCount or 30) * 0.8),
+            shieldType     = effect.options and effect.options.shieldType
+        }
+        VFX.createEffect("shield_hit_base", impactX, impactY, nil, nil, shieldHitOpts)
+    end
+
+    -- === Existing particle update logic ===
     -- Update beam particles
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
