@@ -12,17 +12,18 @@ local TEMPLATE_BY_SHAPE = {
     ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
-    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
     ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
-    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
+    ["cone"] = Constants.VFXType.BLAST_BASE,   -- Alternative name for same template
     ["groundBurst"] = Constants.VFXType.ZONE_BASE,
     ["meteor"] = Constants.VFXType.METEOR,
     
     -- Remote/direct effects
-    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    ["warp"] = Constants.VFXType.WARP_BASE,
     
     -- Utility effects
     ["surge"] = Constants.VFXType.SURGE_BASE,

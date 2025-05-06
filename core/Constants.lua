@@ -323,9 +323,12 @@ Constants.VFXType = {
     
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
+    BOLT_BASE = "bolt_base",       -- Base bolt effect
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
+    WARP_BASE = "warp_base",       -- Base warp effect (reality distortion)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
+    BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect

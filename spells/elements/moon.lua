@@ -218,8 +218,7 @@ MoonSpells.fullmoonbeam = {
                 return damage
             end,
             type = Constants.TokenType.MOON
-        },
-        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "beam_charge",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
