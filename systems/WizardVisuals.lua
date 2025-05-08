@@ -818,14 +818,25 @@ function WizardVisuals.drawWizard(wizard)
         yOffset = targetYOffset
     end
     
-    -- Set color and draw wizard
-    if wizard.stunTimer > 0 then
+    -- Determine the wizard sprite color based on state
+    local wizardColor = {1, 1, 1, 1} -- Default white color
+    
+    if wizard.hitFlashTimer > 0 then
+        -- Store the default wizard color
+        wizard.flashBlendMode = "add" -- Will use additive blending for flash
+        
+        -- Use bright white (values > 1 for over-brightness effect)
+        wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
+        
+        -- Flash effect is now implemented with additive blending
+    elseif wizard.stunTimer > 0 then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
-        love.graphics.setColor(1, 1, flashIntensity)
-    else
-        love.graphics.setColor(1, 1, 1)
+        wizardColor = {1, 1, flashIntensity, 1}
     end
+    
+    -- Set initial color for ground indicator
+    love.graphics.setColor(1, 1, 1, 1)
     
     -- Draw elevation effect (GROUNDED only - AERIAL clouds moved after wizard)
     if wizard.elevation == Constants.ElevationState.GROUNDED then
@@ -861,9 +872,50 @@ function WizardVisuals.drawWizard(wizard)
             )
         end
         
-        -- Draw the actual wizard
-        love.graphics.setColor(1, 1, 1)
-        love.graphics.draw(
+        -- Draw the actual wizard with the appropriate color based on state
+        
+        -- For hit flash, we use a special blend mode and draw the sprite twice
+        if wizard.hitFlashTimer > 0 then
+            -- First draw the normal sprite
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(
+                wizard.sprite, 
+                wizard.x + xOffset, 
+                wizard.y + yOffset, 
+                0, -- No rotation
+                adjustedScale * 2, -- Double scale
+                wizard.scale * 2, -- Double scale
+                wizard.sprite:getWidth() / 2, 
+                wizard.sprite:getHeight() / 2
+            )
+            
+            -- Save current blend mode
+            local prevBlendMode = love.graphics.getBlendMode()
+            
+            -- Set additive blend mode for glow effect
+            love.graphics.setBlendMode("add")
+            
+            -- Draw the bright overlay
+            love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
+            
+            -- Then overdraw with bright additive color
+            love.graphics.draw(
+                wizard.sprite, 
+                wizard.x + xOffset, 
+                wizard.y + yOffset, 
+                0, -- No rotation
+                adjustedScale * 2, -- Double scale
+                wizard.scale * 2, -- Double scale
+                wizard.sprite:getWidth() / 2, 
+                wizard.sprite:getHeight() / 2
+            )
+            
+            -- Restore previous blend mode
+            love.graphics.setBlendMode(prevBlendMode)
+        else
+            -- Normal drawing
+            love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
+            love.graphics.draw(
             wizard.sprite, 
             wizard.x + xOffset, 
             wizard.y + yOffset, 
@@ -873,6 +925,11 @@ function WizardVisuals.drawWizard(wizard)
             wizard.sprite:getWidth() / 2, 
             wizard.sprite:getHeight() / 2
         )
+        
+        end -- End of if wizard.hitFlashTimer > 0 block
+        
+        -- Reset color back to default after drawing wizard
+        love.graphics.setColor(1, 1, 1, 1)
 
         -- Draw AERIAL cloud effect after wizard for proper layering
         if wizard.elevation == Constants.ElevationState.AERIAL then

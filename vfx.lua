@@ -1006,7 +1006,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     VFX.initializeParticles(effect)
     
     -- Play sound effect if available
-    if effect.sound and VFX.sounds[effect.sound] then
+    if effect.sound and VFX.sounds and VFX.sounds[effect.sound] then
         -- Will play sound when implemented
     end
     
@@ -2041,6 +2041,27 @@ function VFX.updateProjectile(effect, dt)
     if isBlocked and not effect.blockLogged then
         -- Log block point for debugging (only once)
         print(string.format("[VFX] Projectile blocked at blockPoint=%.2f", blockPoint))
+        
+        -- Debug information about effect.options to see what we have available
+        print("[VFX] Effect options for blocked projectile:")
+        if effect.options then
+            for k, v in pairs(effect.options) do
+                if type(v) ~= "table" and type(v) ~= "function" then
+                    print(string.format("  options.%s = %s", tostring(k), tostring(v)))
+                elseif type(v) == "table" then
+                    print(string.format("  options.%s = [table]", tostring(k)))
+                elseif type(v) == "function" then
+                    print(string.format("  options.%s = [function]", tostring(k)))
+                end
+            end
+        else
+            print("  No options available!")
+        end
+        
+        -- Debug entity references
+        print(string.format("  sourceEntity available: %s", tostring(effect.options and effect.options.sourceEntity ~= nil)))
+        print(string.format("  targetEntity available: %s", tostring(effect.options and effect.options.targetEntity ~= nil)))
+        
         if effect.blockInfo then
             print(string.format("[VFX] BlockInfo: blockType=%s, blockingSlot=%s", 
                 tostring(effect.blockInfo.blockType),
@@ -2087,6 +2108,26 @@ function VFX.updateProjectile(effect, dt)
             shieldHitOpts = shieldHitOpts or {}
             shieldHitOpts.duration = shieldHitOpts.duration or 0.5
             shieldHitOpts.particleCount = shieldHitOpts.particleCount or 10
+            
+            -- Trigger screen shake at the exact moment of shield impact
+            -- Get the game state reference from the effect options if available
+            local gameState = nil
+            if effect.options and effect.options.sourceEntity and effect.options.sourceEntity.gameState then
+                gameState = effect.options.sourceEntity.gameState
+            elseif effect.options and effect.options.targetEntity and effect.options.targetEntity.gameState then
+                gameState = effect.options.targetEntity.gameState
+            end
+            
+            -- Trigger shake if we have access to the game state
+            if gameState and gameState.triggerShake then
+                -- Determine impact amount for shake intensity (from effect or default)
+                local amount = effect.options.amount or 10
+                local intensity = math.min(4, 2 + (amount / 20))
+                -- Trigger a light shake for shield blocks
+                gameState.triggerShake(0.2, intensity)
+                print(string.format("[VFX] Shield block impact! Triggering light shake (%.2f, %.2f) at blockPoint=%.2f", 
+                    0.2, intensity, blockPoint))
+            end
             
             VFX.createEffect("shield_hit_base", safeBlockX, safeBlockY, nil, nil, shieldHitOpts)
             

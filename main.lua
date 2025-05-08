@@ -24,6 +24,13 @@ local scale = 1          -- Current scaling factor
 local offsetX = 0        -- Horizontal offset for pillarboxing
 local offsetY = 0        -- Vertical offset for letterboxing
 
+-- Screen shake variables
+local shakeTimer = 0
+local shakeIntensity = 0
+
+-- Hitstop variables
+local hitstopTimer = 0
+
 -- Game state (globally accessible)
 game = {
     wizards = {},
@@ -47,6 +54,23 @@ game = {
     offsetX = offsetX,
     offsetY = offsetY
 }
+
+-- Helper function to trigger screen shake
+function triggerShake(duration, intensity)
+    shakeTimer = duration or 0.5
+    shakeIntensity = intensity or 5
+    print("Screen shake triggered: " .. duration .. "s, intensity " .. intensity)
+end
+
+-- Helper function to trigger hitstop (game pause)
+function triggerHitstop(duration)
+    hitstopTimer = duration or 0.1
+    print("Hitstop triggered: " .. duration .. "s")
+end
+
+-- Make these functions available to other modules through the game table
+game.triggerShake = triggerShake
+game.triggerHitstop = triggerHitstop
 
 -- Define token types and images (globally available for consistency)
 game.tokenTypes = {
@@ -431,6 +455,25 @@ function game.resetGame()
 end
 
 function love.update(dt)
+    -- Update shake timer
+    if shakeTimer > 0 then
+        shakeTimer = shakeTimer - dt
+        if shakeTimer < 0 then
+            shakeTimer = 0
+            shakeIntensity = 0
+        end
+    end
+    
+    -- Check for hitstop - if active, decrement timer and skip all other updates
+    if hitstopTimer > 0 then
+        hitstopTimer = hitstopTimer - dt
+        if hitstopTimer < 0 then
+            hitstopTimer = 0
+        end
+        return -- Skip the rest of the update
+    end
+    
+    -- Only update the game when not in hitstop
     -- Different update logic based on current game state
     if game.currentState == "MENU" then
         -- Menu state updates (minimal, just for animations)
@@ -532,9 +575,18 @@ function love.draw()
     -- Clear entire screen to black first (for letterboxing/pillarboxing)
     love.graphics.clear(0, 0, 0, 1)
     
-    -- Setup scaling transform
+    -- Calculate shake offset if active
+    local shakeOffsetX, shakeOffsetY = 0, 0
+    if shakeTimer > 0 then
+        -- Random shake that gradually reduces as timer decreases
+        local shakeFactor = shakeTimer / (shakeTimer + 0.1) -- Smooth falloff
+        shakeOffsetX = math.random(-shakeIntensity, shakeIntensity) * shakeFactor
+        shakeOffsetY = math.random(-shakeIntensity, shakeIntensity) * shakeFactor
+    end
+    
+    -- Setup scaling transform with shake offset
     love.graphics.push()
-    love.graphics.translate(offsetX, offsetY)
+    love.graphics.translate(offsetX + shakeOffsetX, offsetY + shakeOffsetY)
     love.graphics.scale(scale, scale)
     
     -- Draw based on current game state

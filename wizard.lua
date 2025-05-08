@@ -93,6 +93,9 @@ function Wizard.new(name, x, y, color)
         y = 0
     }
     
+    -- Hit flash effect
+    self.hitFlashTimer = 0
+    
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
     
@@ -212,6 +215,11 @@ function Wizard:update(dt)
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
     
+    -- Update hit flash timer
+    if self.hitFlashTimer > 0 then
+        self.hitFlashTimer = math.max(0, self.hitFlashTimer - dt)
+    end
+    
     -- Update position animation
     if self.positionAnimation.active then
         self.positionAnimation.progress = self.positionAnimation.progress + dt / self.positionAnimation.duration
@@ -290,6 +298,10 @@ function Wizard:update(dt)
                     if effectData.elapsed >= effectData.tickInterval then
                         -- Apply burn damage
                         self.health = math.max(0, self.health - effectData.tickDamage)
+                        
+                        -- Set hit flash timer for DoT visual feedback
+                        self.hitFlashTimer = 0.125 -- 125ms flash duration
+                        
                         print(string.format("%s took %d burn damage (health: %d)", 
                             self.name, effectData.tickDamage, self.health))
                         

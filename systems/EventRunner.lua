@@ -345,6 +345,36 @@ EventRunner.EVENT_HANDLERS = {
             -- Ensure health doesn't go below zero
             if targetWizard.health < 0 then targetWizard.health = 0 end
             
+            -- Set hit flash timer for visual feedback
+            targetWizard.hitFlashTimer = 0.125 -- 125ms flash duration
+            
+            -- Trigger screen shake and hitstop for high-impact hits
+            if event.amount >= 15 or (event.tags and event.tags.HIGH_IMPACT) then
+                -- Strong hit - significant screenshake and hitstop
+                if targetWizard.gameState and targetWizard.gameState.triggerShake then
+                    local intensity = math.min(10, 5 + (event.amount / 10))
+                    targetWizard.gameState.triggerShake(0.35, intensity) -- Longer, stronger shake
+                    targetWizard.gameState.triggerHitstop(0.12) -- Strong hitstop
+                    print(string.format("[DAMAGE EVENT] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                        0.35, intensity, 0.12))
+                end
+            elseif event.amount >= 8 then
+                -- Medium hit - moderate screenshake and brief hitstop
+                if targetWizard.gameState and targetWizard.gameState.triggerShake then
+                    targetWizard.gameState.triggerShake(0.25, 6) -- Medium shake
+                    targetWizard.gameState.triggerHitstop(0.08) -- Medium hitstop
+                    print(string.format("[DAMAGE EVENT] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                        0.25, 6, 0.08))
+                end
+            elseif event.amount >= 3 then
+                -- Light hit - minimal screenshake, no hitstop
+                if targetWizard.gameState and targetWizard.gameState.triggerShake then
+                    targetWizard.gameState.triggerShake(0.15, 4) -- Light shake
+                    print(string.format("[DAMAGE EVENT] Light impact hit! Triggering shake (%.2f, %.2f)",
+                        0.15, 4))
+                end
+            end
+            
             -- Debug log damage application
             print(string.format("[DAMAGE EVENT] Applied %d damage to %s. New health: %d", 
                 event.amount, targetWizard.name, targetWizard.health))
@@ -450,6 +480,10 @@ EventRunner.EVENT_HANDLERS = {
             
         -- Track in results that a block occurred
         results.damageBlocked = (results.damageBlocked or 0) + (event.amount or 0)
+        
+        -- The block shake will be triggered in vfx.lua when the projectile actually hits the shield
+        -- instead of when the BLOCKED_DAMAGE event is first generated
+        -- We'll add the shield hit info to the event instead
         
         -- Enhanced debugging for BLOCKED_DAMAGE event
         print("[BLOCKED_DAMAGE] Full event details:")
@@ -1648,6 +1682,36 @@ EventRunner.EVENT_HANDLERS = {
                     if target and amount then
                         target.health = target.health - amount
                         if target.health < 0 then target.health = 0 end
+                        
+                        -- Set hit flash timer for delayed damage visual feedback
+                        target.hitFlashTimer = 0.125 -- 125ms flash duration
+                        
+                        -- Apply screen shake and hitstop for delayed damage too
+                        if amount >= 15 or (event.tags and event.tags.HIGH_IMPACT) then
+                            -- Strong hit
+                            if target.gameState and target.gameState.triggerShake then
+                                local intensity = math.min(10, 5 + (amount / 10))
+                                target.gameState.triggerShake(0.35, intensity)
+                                target.gameState.triggerHitstop(0.12)
+                                print(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                    0.35, intensity, 0.12))
+                            end
+                        elseif amount >= 8 then
+                            -- Medium hit
+                            if target.gameState and target.gameState.triggerShake then
+                                target.gameState.triggerShake(0.25, 6)
+                                target.gameState.triggerHitstop(0.08)
+                                print(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                    0.25, 6, 0.08))
+                            end
+                        elseif amount >= 3 then
+                            -- Light hit
+                            if target.gameState and target.gameState.triggerShake then
+                                target.gameState.triggerShake(0.15, 4)
+                                print(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
+                                    0.15, 4))
+                            end
+                        end
                         
                         print(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d", 
                             amount, target.name, target.health))

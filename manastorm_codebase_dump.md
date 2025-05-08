@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Mon May  5 10:18:38 CDT 2025
+Generated: Thu May  8 13:39:51 CDT 2025
 
 # Source Code
 
@@ -1357,9 +1357,12 @@ Constants.VFXType = {
     
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
+    BOLT_BASE = "bolt_base",       -- Base bolt effect
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
+    WARP_BASE = "warp_base",       -- Base warp effect (reality distortion)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
+    BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect
@@ -7575,8 +7578,7 @@ MoonSpells.fullmoonbeam = {
                 return damage
             end,
             type = Constants.TokenType.MOON
-        },
-        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "beam_charge",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -11723,17 +11725,18 @@ local TEMPLATE_BY_SHAPE = {
     ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
-    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
     ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
-    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
+    ["cone"] = Constants.VFXType.BLAST_BASE,   -- Alternative name for same template
     ["groundBurst"] = Constants.VFXType.ZONE_BASE,
     ["meteor"] = Constants.VFXType.METEOR,
     
     -- Remote/direct effects
-    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    ["warp"] = Constants.VFXType.WARP_BASE,
     
     -- Utility effects
     ["surge"] = Constants.VFXType.SURGE_BASE,
@@ -14968,6 +14971,20 @@ function VFX.init()
         -- Generic effects
         sparkle = "assets/sprites/sparkle.png",
         impactRing = "assets/sprites/impact-ring.png",
+        
+        -- Bolt effects
+        boltFrames = {
+            "assets/sprites/bolt/bolt1.png",
+            "assets/sprites/bolt/bolt2.png",
+            "assets/sprites/bolt/bolt3.png"
+        },
+        
+        -- Warp effects
+        warpFrames = {
+            "assets/sprites/warp/warp1.png",
+            "assets/sprites/warp/warp2.png",
+            "assets/sprites/warp/warp3.png"
+        },
 
         -- Rune assets for Ward shields (paths only)
         runes = {}
@@ -15007,6 +15024,32 @@ function VFX.init()
     print("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
     
+    -- Preload bolt frames for the bolt effects
+    print("[VFX] Preloading bolt frame assets")
+    VFX.assets.boltFrames = {}
+    for i, boltPath in ipairs(VFX.assetPaths.boltFrames) do
+        print("[VFX] Preloading bolt frame " .. i)
+        local boltImg = AssetCache.getImage(boltPath)
+        if boltImg then
+            table.insert(VFX.assets.boltFrames, boltImg)
+        else
+            print("[VFX] Warning: Failed to preload bolt frame asset: " .. boltPath)
+        end
+    end
+    
+    -- Preload warp frames for the warp effects
+    print("[VFX] Preloading warp frame assets")
+    VFX.assets.warpFrames = {}
+    for i, warpPath in ipairs(VFX.assetPaths.warpFrames) do
+        print("[VFX] Preloading warp frame " .. i)
+        local warpImg = AssetCache.getImage(warpPath)
+        if warpImg then
+            table.insert(VFX.assets.warpFrames, warpImg)
+        else
+            print("[VFX] Warning: Failed to preload warp frame asset: " .. warpPath)
+        end
+    end
+    
     -- Effect definitions keyed by effect name
     VFX.effects = {
         -- Base templates for the rules-driven VFX system
@@ -15028,6 +15071,61 @@ function VFX.init()
             leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
         
+        bolt_base = {
+            type = Constants.AttackType.PROJECTILE,  -- Still uses projectile logic
+            duration = 0.8,               -- Faster than standard projectile
+            particleCount = 20,           -- Fewer particles since we're using sprites
+            startScale = 0.4,
+            endScale = 0.7,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            trailLength = 18,             -- Longer trail for lightning-like effect
+            impactSize = 1.3,             -- Slightly larger impact
+            sound = nil,                  -- No default sound
+            coreDensity = 0.3,            -- Less dense core, since we're using sprites
+            trailDensity = 0.4,           -- Less dense trail, since we're using sprites
+            turbulence = 0.8,             -- More random motion for lightning effect
+            arcHeight = 0,                -- Zero arc height for straight-line trajectory
+            straightLine = true,          -- New: Flag for straight-line movement
+            particleLifespan = 0.5,       -- Shorter particle lifespan for quick flashes
+            leadingIntensity = 1.8,       -- Brighter leading edge
+            flickerRate = 12,             -- Rate at which particles flicker (Hz)
+            flickerIntensity = 0.3,       -- Intensity of the flicker effect (0-1)
+            useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 15,         -- Frames per second for sprite animation
+            spriteRotationOffset = 0.78,  -- Radians to rotate the sprite by default (≈45 degrees)
+            spriteScale = 0.85,           -- Base scale factor for the sprite
+            spriteTint = true,            -- Whether to apply color tinting to sprites
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true,     -- Track target position
+            criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+        
+        warp_base = {
+            type = "remote",               -- Uses remote effect type (action at a distance)
+            duration = 1.0,                -- Standard duration
+            particleCount = 25,            -- Particles for additional effects
+            startScale = 0.5,
+            endScale = 1.0,
+            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            radius = 80,                   -- Radius for particle effects
+            impactSize = 1.5,              -- Slightly larger impact
+            sound = nil,                   -- No default sound
+            pulseRate = 6.0,               -- Rate of pulsing effect
+            useSprites = true,             -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 10,          -- Frames per second for sprite animation
+            spriteScale = 1.0,             -- Base scale factor for the sprite
+            spriteTint = true,             -- Whether to apply color tinting to sprites
+            rotateSprite = true,           -- Whether to rotate the sprite
+            rotationSpeed = 1.2,           -- Rotation speed in radians per second
+            drawAtTarget = true,           -- Draw directly at target position
+            usePulse = true,               -- Use pulsing effect
+            pulseAmount = 0.2,             -- Amount of pulse (scale variation)
+            glowIntensity = 0.7,           -- Intensity of the glow effect
+            particleDensity = 0.6,         -- How dense the particles should be
+            useTargetPosition = true,      -- Track the target's position
+            criticalAssets = {"warpFrames"} -- Mark warp frames as critical assets to preload
+        },
+        
         beam_base = {
             type = "beam",
             duration = 1.2,
@@ -15037,7 +15135,36 @@ function VFX.init()
             endScale = 0.9,
             color = Constants.Color.SMOKE,  -- Default color, will be overridden
             pulseRate = 3,
-            sound = nil
+            sound = nil,
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true      -- Track target position
+        },
+        
+        blast_base = {
+            type = "cone",                -- Cone-shaped blast effect
+            duration = 1.3,               -- Even longer duration for more dramatic impact
+            particleCount = 95,           -- More particles for density and impact
+            startScale = 0.45,            -- Larger starting scale
+            endScale = 1.35,              -- Larger end scale for dramatic growth
+            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            coneAngle = 45,               -- Narrower cone angle (45° instead of 70°)
+            coneLength = 320,             -- Much longer range for dramatic reach
+            waveCount = 5,                -- More waves for increased visual impact
+            waveSpeed = 350,              -- Faster wave propagation 
+            nearRangeIntensity = 2.2,     -- Stronger intensity multiplier at NEAR range
+            matchedElevationIntensity = 1.7, -- Stronger multiplier for matched elevation
+            useSourcePosition = true,     -- Track source (caster) position
+            motionStyle = Constants.MotionStyle.DIRECTIONAL, -- Directional movement for particles
+            waveCrest = true,             -- Enable wave crest visual effect
+            waveCrestSize = 2.2,          -- Even larger wave crests
+            turbulence = 0.35,            -- Slightly reduced turbulence for more focused beam
+            leadingEdgeGlow = true,       -- Add bright leading edge to waves
+            particleSizeVariance = 0.6,   -- Greater size variance for particles
+            wavePersistence = 0.9,        -- How long waves remain visible (new parameter)
+            trailingGlowStrength = 0.8,   -- Strength of glow trail behind waves (new parameter)
+            sound = nil,                  -- No default sound
+            intensityFalloff = 0.65,      -- Control how quickly intensity drops with distance
+            focusedCore = true            -- Concentrate particles in center of cone (new parameter)
         },
         
         zone_base = {
@@ -15066,15 +15193,30 @@ function VFX.init()
         
         surge_base = {
             type = "surge",
-            duration = 1.2,
-            particleCount = 35,
-            startScale = 0.25,
-            endScale = 0.05,
-            color = Constants.Color.SKY,
-            height = 150,
-            spread = 60,
-            pulseRate = 4,
-            sound = "surge"
+            duration = 1.5,                -- Longer duration for buff visual
+            particleCount = 60,            -- More particles for richer effect
+            startScale = 0.3,              -- Larger starting scale
+            endScale = 0.08,               -- Smaller end scale for fade-out
+            color = Constants.Color.SKY,   -- Default color, will be overridden
+            height = 200,                  -- Higher fountain effect
+            spread = 45,                   -- Narrower spread for more focused fountain
+            riseFactor = 1.4,              -- How quickly particles rise (new parameter)
+            gravity = 180,                 -- Gravity effect for natural arc (new parameter)
+            centerGlow = true,             -- Create glowing core at caster (new parameter)
+            centerGlowSize = 50,           -- Size of the center glow
+            centerGlowIntensity = 1.3,     -- Intensity of center glow
+            spiralMotion = true,           -- Add spiral motion to particles (new parameter)
+            spiralTightness = 2.5,         -- How tight the spiral is (new parameter)
+            particleSizeVariance = 0.6,    -- Varied particle sizes
+            riseAcceleration = 1.2,        -- Particles accelerate as they rise (new parameter)
+            bloomEffect = true,            -- Add bloom/glow to particles (new parameter)
+            bloomIntensity = 0.8,          -- Intensity of bloom effect (new parameter)
+            sparkleChance = 0.4,           -- Chance for sparkle effect on particles (new parameter)
+            useSprites = true,             -- Use sprite images
+            spriteFrameRate = 8,           -- Frame rate for sprite animation
+            pulsateParticles = true,       -- Pulsate particle size (new parameter)
+            sound = "surge",               -- Sound effect
+            criticalAssets = {"sparkle"}   -- Required assets
         },
         
         conjure_base = {
@@ -15142,42 +15284,6 @@ function VFX.init()
             sound = nil  -- No default sound
         },
         
-        -- Tidal Force Ground effect - for forcing opponents down from AERIAL to GROUNDED
-        tidal_force_ground = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 25,
-            startScale = 0.5,
-            endScale = 1.2,
-            color = Constants.Color.OCEAN,  -- Blue-ish for water/tidal theme
-            radius = 80,
-            sound = "tidal_wave"
-        },
-        
-        -- Gravity Pin Ground effect - for forcing opponents down from AERIAL to GROUNDED
-        gravity_pin_ground = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 20,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
-            radius = 70,
-            sound = "gravity_slam"
-        },
-        
-        -- Gravity Trap Set effect - when placing a gravity trap
-        gravity_trap_set = {
-            type = "impact",
-            duration = 1.2,
-            particleCount = 30,
-            startScale = 0.4,
-            endScale = 1.2,
-            color = Constants.Color.MAROON,  -- Purple for gravity theme
-            radius = 75,
-            sound = "gravity_trap_deploy"  -- Sound will need to be loaded
-        },
-        
         meteor = {
             type = "meteor",
             duration = 1.4,
@@ -15217,206 +15323,6 @@ function VFX.init()
             pulseRate = 4,
             sound = "release"
         },
-
-        -- Firebolt effect - showcasing the improved projectile system
-        firebolt = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 0.75,               -- Reduced from 1.0 for faster projectile
-            particleCount = 40,            -- Good particle count for rich visuals
-            startScale = 0.5,
-            endScale = 1.0,
-            color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
-            trailLength = 12,               -- Trail points for calculation
-            impactSize = 1.4,
-            sound = "firebolt",
-            coreDensity = 0.75,             -- More particles at the leading edge
-            trailDensity = 0.5,             -- Fewer trail particles
-            turbulence = 0.8,               -- Higher turbulence for fire feeling
-            arcHeight = 15,                 -- Much shallower arc (more direct flight)
-            particleLifespan = 0.5,         -- Shorter individual particle life
-            leadingIntensity = 1.8,         -- Brighter leading edge for fire
-            motion = Constants.MotionStyle.RISE  -- Use rising motion for fire
-        },
-        
-        -- Mist Veil effect
-        mistveil = {
-            type = "aura",
-            duration = 3.0,
-            particleCount = 30,
-            startScale = 0.2,
-            endScale = 0.8,
-            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
-            radius = 80,
-            pulseRate = 2,
-            sound = "mist",
-            criticalAssets = {"sparkle", "runes"} -- Define assets critical for this effect
-        },
-        
-        -- Emberlift effect
-        emberlift = {
-            type = "vertical",
-            duration = 1.2,
-            particleCount = 25,
-            startScale = 0.3,
-            endScale = 0.1,
-            color = Constants.Color.ORANGE, -- {1, 0.6, 0.2, 0.8}
-            height = 100,
-            sound = "whoosh"
-        },
-        
-        -- Force Blast Up effect (for forcing opponents up to AERIAL)
-        force_blast_up = {
-            type = "vertical",
-            duration = 1.5,
-            particleCount = 35,
-            startScale = 0.4,
-            endScale = 0.2,
-            color = Constants.Color.YELLOW,  -- Blue-ish for force -> YELLOW
-            height = 120,
-            sound = "force_wind"
-        },
-        
-        -- Full Moon Beam effect
-        fullmoonbeam = {
-            type = "beam",
-            duration = 1.8,
-            particleCount = 30,
-            beamWidth = 40,
-            startScale = 0.2,
-            endScale = 1.0,
-            color = Constants.Color.PINK,
-            pulseRate = 3,
-            sound = "moonbeam"
-        },
-        
-        -- Tidal Force effect
-        tidal_force = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 1.2,
-            particleCount = 30,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.OCEAN, -- {0.3, 0.5, 1.0, 0.8} -> Blue-ish for water theme
-            trailLength = 15,
-            impactSize = 1.6,
-            sound = "tidal_wave"
-        },
-        
-        -- Lunar Disjunction effect
-        lunardisjunction = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 1.0,
-            particleCount = 25,
-            startScale = 0.3,
-            endScale = 0.6,
-            color = Constants.Color.PINK, -- {0.8, 0.6, 1.0, 0.9} -> Purple-blue for moon/cosmic theme -> PINK
-            trailLength = 10,
-            impactSize = 1.8,  -- Bigger impact
-            sound = "lunar_disrupt"
-        },
-        
-        -- Disjoint effect (for cancelling opponent's spell)
-        disjoint_cancel = {
-            type = "impact",
-            duration = 1.2,
-            particleCount = 35,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.PINK, -- {0.9, 0.5, 1.0, 0.9} -> Brighter purple for disruption -> PINK
-            radius = 70,
-            sound = "lunar_disrupt"
-        },
-        
-        -- Conjure Fire effect
-        conjurefire = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.ORANGE, -- {1.0, 0.5, 0.2, 0.9}
-            height = 140,  -- Height to rise toward mana pool
-            spreadRadius = 40, -- Initial spread around the caster
-            sound = "conjure"
-        },
-        
-        -- Conjure Moonlight effect
-        conjuremoonlight = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.9}
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-        
-        -- Conjure Force effect
-        force_conjure = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW, -- {0.3, 0.5, 1.0, 0.9} -> Blue-ish -> YELLOW
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-
-        -- Conjure Star effect
-        star_conjure = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.BONE, -- {0.9, 0.9, 0.2, 0.9} -> Yellow-ish -> BONE
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-        
-        -- Volatile Conjuring effect (random mana)
-        volatileconjuring = {
-            type = "conjure",
-            duration = 1.2,
-            particleCount = 25,
-            startScale = 0.2,
-            endScale = 0.6,
-            color = Constants.Color.YELLOW,  -- Yellow base color, will be randomized
-            height = 140,
-            spreadRadius = 55,  -- Wider spread for volatile
-            sound = "conjure"
-        },
-        
-        -- Nova Conjuring effect (Fire, Force, Star)
-        nova_conjure = {
-            type = "conjure",
-            duration = 2.0, -- Slightly longer duration
-            particleCount = 30, -- More particles
-            startScale = 0.4,
-            endScale = 1.0,
-            color = Constants.Color.ORANGE, -- Mixed color base (orange/gold) -> ORANGE
-            height = 140,
-            spreadRadius = 60, -- Wider spread
-            sound = "conjure_nova" -- Assumed sound effect
-        },
-
-        -- Witch Conjuring effect (Moon, Force, Nature)
-        witch_conjure = {
-            type = "conjure",
-            duration = 2.0, -- Slightly longer duration
-            particleCount = 30, -- More particles
-            startScale = 0.4,
-            endScale = 1.0,
-            color = Constants.Color.MAROON, -- Mixed color base (purple/indigo) -> MAROON
-            height = 140,
-            spreadRadius = 60, -- Wider spread
-            sound = "conjure_witch" -- Assumed sound effect
-        },
         
         -- Shield effect (used for barrier or ward shield activation)
         shield = {
@@ -15432,166 +15338,9 @@ function VFX.init()
             criticalAssets = {"sparkle", "runes", "impactRing"}, -- Assets needed for shields
             shieldType = nil -- Will be set at runtime based on the spell
         },
-        
-        -- Additional effects for VFXType constants
-        
-        -- Movement and positioning effects
-        elevation_up = {
-            type = "vertical",
-            duration = 1.0,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.1,
-            color = Constants.Color.SKY,
-            height = 80,
-            sound = "whoosh"
-        },
-        
-        elevation_down = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 20,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.SMOKE,
-            radius = 60,
-            sound = "thud"
-        },
-        
-        range_change = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW,
-            radius = 40,
-            sound = nil
-        },
-        
-        force_position = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 25,
-            startScale = 0.5,
-            endScale = 1.2,
-            color = Constants.Color.OCEAN,
-            radius = 50,
-            sound = "force_wind"
-        },
-        
-        -- Resource effects
-        token_lock = {
-            type = "aura",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.2,
-            endScale = 0.5,
-            color = Constants.Color.MAROON,
-            radius = 20,
-            pulseRate = 4,
-            sound = "lock"
-        },
-        
-        token_shift = {
-            type = "aura",
-            duration = 0.6,
-            particleCount = 12,
-            startScale = 0.2,
-            endScale = 0.4,
-            color = Constants.Color.PINK,
-            radius = 20,
-            pulseRate = 5,
-            sound = "shift"
-        },
-        
-        token_consume = {
-            type = "impact",
-            duration = 0.7,
-            particleCount = 18,
-            startScale = 0.4,
-            endScale = 0.1,
-            color = Constants.Color.CRIMSON,
-            radius = 25,
-            sound = "consume"
-        },
-        
-        -- Defense effects
-        reflect = {
-            type = "aura",
-            duration = 1.2,
-            particleCount = 20,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW,
-            radius = 50,
-            pulseRate = 4,
-            sound = "reflect"
-        },
-        
-        -- Spell timing effects
-        spell_accelerate = {
-            type = "aura",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.2,
-            endScale = 0.5,
-            color = Constants.Color.LIME,
-            radius = 30,
-            pulseRate = 5,
-            sound = "accelerate"
-        },
-        
-        spell_cancel = {
-            type = "impact",
-            duration = 0.7,
-            particleCount = 20,
-            startScale = 0.5,
-            endScale = 0.2,
-            color = Constants.Color.CRIMSON,
-            radius = 40,
-            sound = "cancel"
-        },
-        
-        spell_freeze = {
-            type = "aura",
-            duration = 1.0,
-            particleCount = 18,
-            startScale = 0.3,
-            endScale = 0.6,
-            color = Constants.Color.OCEAN,
-            radius = 35,
-            pulseRate = 3,
-            sound = "freeze"
-        },
-        
-        spell_echo = {
-            type = "aura",
-            duration = 1.0,
-            particleCount = 15,
-            startScale = 0.3,
-            endScale = 0.7,
-            color = Constants.Color.BONE,
-            radius = 40,
-            pulseRate = 4,
-            sound = "echo"
-        }
     }
     
-    -- Initialize sound effects
-    VFX.sounds = {
-        firebolt = nil, -- Sound files will be loaded when available
-        meteor = nil,
-        mist = nil,
-        whoosh = nil,
-        moonbeam = nil,
-        conjure = nil,
-        shield = nil
-    }
-    
-    -- Preload sound effects when they become available
-    -- Example of how to load sounds with AssetCache:
-    -- VFX.sounds.firebolt = AssetCache.getSound("assets/sounds/firebolt.wav")
+    -- TODO: Initialize sound effects
     
     -- Create effect pool - each effect is a container object
     Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
@@ -15771,6 +15520,27 @@ function VFX.resetEffect(effect)
     effect.impactSize = nil
     effect.spreadRadius = nil
     effect.options = nil
+    effect.coreDensity = nil
+    effect.trailDensity = nil
+    effect.turbulence = nil
+    effect.arcHeight = nil
+    effect.particleLifespan = nil
+    effect.leadingIntensity = nil
+    effect.flickerRate = nil
+    effect.flickerIntensity = nil
+    effect.useSprites = nil
+    effect.spriteFrameRate = nil
+    effect.spriteRotationOffset = nil
+    effect.spriteScale = nil
+    effect.spriteTint = nil
+    effect.straightLine = nil
+    effect.rotateSprite = nil
+    effect.rotationSpeed = nil
+    effect.drawAtTarget = nil
+    effect.usePulse = nil
+    effect.pulseAmount = nil
+    effect.glowIntensity = nil
+    effect.particleDensity = nil
     effect.beamProgress = nil
     effect.beamLength = nil
     effect.beamAngle = nil
@@ -15784,7 +15554,12 @@ function VFX.resetEffect(effect)
     effect.elevation = nil
     effect.addons = nil
     effect.spread = nil
-    
+    effect.visualProgress = nil
+    effect.blockTimerStarted = nil
+    effect.blockTimer = nil
+    effect.blockInfo = nil
+    effect.blockLogged = nil
+    effect.impactParticlesCreated = nil
     -- Reset particles array but don't delete it
     effect.particles = {}
     
@@ -15963,15 +15738,34 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.targetX = targetX or sourceX
     effect.targetY = targetY or sourceY
     
-    -- Store target entity for position tracking if provided in options
+    -- Store source and target entities for position tracking if provided in options
+    if options and options.sourceEntity then
+        effect.sourceEntity = options.sourceEntity
+        
+        -- Initialize with source position including offsets if available
+        if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
+            effect.sourceX = effect.sourceEntity.x + effect.sourceEntity.currentXOffset
+            effect.sourceY = effect.sourceEntity.y + effect.sourceEntity.currentYOffset
+        end
+    end
+    
     if options and options.targetEntity then
         effect.targetEntity = options.targetEntity
+        
+        -- Initialize with target position including offsets if available
+        if effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+            effect.targetX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+            effect.targetY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+        end
     end
     
     -- Flag for effects that should use target's actual position including offsets
     effect.trackTargetOffsets = (options and options.trackTargetOffsets) or (template and template.trackTargetOffsets) or false
     
-    -- Flag for effects that should use target position instead of source
+    -- Flag for effects that should use source position tracking
+    effect.useSourcePosition = (options and options.useSourcePosition) or (template and template.useSourcePosition) or false
+    
+    -- Flag for effects that should use target position tracking
     effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
     
     -- Timing
@@ -16069,6 +15863,27 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.impactSize = template.impactSize
     effect.spreadRadius = template.spreadRadius
     effect.spread = template.spread
+    effect.coreDensity = template.coreDensity
+    effect.trailDensity = template.trailDensity
+    effect.turbulence = template.turbulence
+    effect.arcHeight = template.arcHeight
+    effect.particleLifespan = template.particleLifespan
+    effect.leadingIntensity = template.leadingIntensity
+    effect.flickerRate = template.flickerRate
+    effect.flickerIntensity = template.flickerIntensity
+    effect.useSprites = template.useSprites
+    effect.spriteFrameRate = template.spriteFrameRate
+    effect.spriteRotationOffset = template.spriteRotationOffset
+    effect.spriteScale = template.spriteScale
+    effect.spriteTint = template.spriteTint
+    effect.straightLine = template.straightLine
+    effect.rotateSprite = template.rotateSprite
+    effect.rotationSpeed = template.rotationSpeed
+    effect.drawAtTarget = template.drawAtTarget
+    effect.usePulse = template.usePulse
+    effect.pulseAmount = template.pulseAmount
+    effect.glowIntensity = template.glowIntensity
+    effect.particleDensity = template.particleDensity
     
     -- Optional overrides
     effect.options = options or {}
@@ -16077,7 +15892,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     VFX.initializeParticles(effect)
     
     -- Play sound effect if available
-    if effect.sound and VFX.sounds[effect.sound] then
+    if effect.sound and VFX.sounds and VFX.sounds[effect.sound] then
         -- Will play sound when implemented
     end
     
@@ -16245,6 +16060,156 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
         
+    elseif effect.type == "cone" then
+        -- For conical blast effects
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Convert cone angle from degrees to radians
+        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+        local halfConeAngle = coneAngleRad / 2
+        
+        -- Set up wave parameters
+        local waveCount = effect.waveCount or 3
+        
+        -- Calculate effect properties based on range and elevation
+        local intensityMultiplier = 1.0
+        if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
+            intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
+        end
+        
+        -- Create particles for the cone blast
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Determine if this particle is part of a wave or general cone fill
+            local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
+            
+            -- Random position within the cone but with focus toward center if focusedCore enabled
+            local conePos = math.random()
+            local angleOffset
+            
+            if effect.focusedCore then
+                -- Apply quadratic distribution to concentrate particles near center
+                -- Use squared random value to cluster toward cone center
+                local angleRand = math.random()
+                -- Apply bias toward center (squared distribution pushes values toward 0)
+                angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
+                angleOffset = angleRand * halfConeAngle
+            else
+                -- Standard uniform distribution across cone
+                angleOffset = (math.random() * 2 - 1) * halfConeAngle
+            end
+            
+            local angle = baseAngle + angleOffset
+            
+            -- Distance based on position in the cone (closer to edge or center)
+            local maxDistance = effect.coneLength or 320
+            
+            -- For longer cone, we want more particles toward the end
+            local distanceRand
+            if math.random() < 0.6 then
+                -- 60% chance for farther particles
+                distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
+            else
+                -- 40% chance for closer particles
+                distanceRand = math.random() * 0.5 -- 0.0 to 0.5
+            end
+            
+            local distance = maxDistance * distanceRand
+            
+            -- Wave-specific properties
+            if isWaveParticle and effect.waveCrest then
+                -- Assign to a specific wave
+                local waveIndex = math.floor(math.random() * waveCount) + 1
+                particle.waveIndex = waveIndex
+                particle.waveTime = waveIndex / waveCount -- Staggered wave timing
+                particle.isWave = true
+                
+                -- Calculate wave speed and distance based on wave index (later waves move faster)
+                local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15 -- Each wave is faster than the previous
+                particle.distance = maxDistance * 0.95 -- Waves extend almost to max distance
+                particle.speed = (effect.waveSpeed or 350) * speedMultiplier
+                particle.scale = effect.startScale * (1.5 + waveIndex * 0.1) -- Later waves slightly larger
+                particle.alpha = 0.9
+                
+                -- Wave persistence for long-lasting waves (new property)
+                if effect.wavePersistence then
+                    particle.persistenceFactor = effect.wavePersistence
+                end
+                
+                -- For trailing glow effect
+                if effect.trailingGlowStrength then
+                    particle.trailGlow = effect.trailingGlowStrength
+                end
+                
+                -- Wave particles need a more consistent angle within the cone
+                -- Distribute wave particles more densely in the center if focusedCore is enabled
+                local waveAnglePos = math.random()
+                if effect.focusedCore then
+                    -- Apply curve to concentrate in center
+                    waveAnglePos = (waveAnglePos * 2 - 1)
+                    -- Cubic function to keep more particles in center
+                    waveAnglePos = waveAnglePos * waveAnglePos * waveAnglePos
+                    waveAnglePos = (waveAnglePos + 1) / 2 -- Remap to 0-1
+                end
+                angle = baseAngle + (waveAnglePos * 2 - 1) * halfConeAngle * 0.85
+            else
+                -- Regular fill particles
+                particle.distance = distance
+                -- Faster particles for longer cone
+                particle.speed = math.random(100, 250)
+                -- More varied scale based on particleSizeVariance
+                local sizeVariance = effect.particleSizeVariance or 0.6
+                particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
+                particle.alpha = 0.6 + math.random() * 0.4
+                particle.isWave = false
+                
+                -- For focused cone, make particles in the center brighter and larger
+                if effect.focusedCore then
+                    -- Calculate distance from center angle
+                    local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
+                    -- Particles closer to center get enhancements
+                    if angleDiff < 0.4 then
+                        local centerBoost = (1.0 - angleDiff/0.4) * 0.5
+                        particle.scale = particle.scale * (1 + centerBoost)
+                        particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
+                    end
+                end
+            end
+            
+            -- Common properties
+            particle.angle = angle
+            particle.rotation = angle -- Align rotation with direction
+            particle.delay = math.random() * 0.3 -- Staggered start
+            particle.active = false
+            particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
+            particle.intensityMultiplier = intensityMultiplier
+            
+            -- Set position at source
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+            
+            -- Additional properties for motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            
+            -- Target destination for the particle
+            particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
+            particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Flag to track which waves have started
+        effect.waveStarted = {}
+        for i = 1, waveCount do
+            effect.waveStarted[i] = false
+        end
+        
     elseif effect.type == "aura" then
         -- For aura effects, create particles that orbit the character
         for i = 1, effect.particleCount do
@@ -16294,6 +16259,77 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
         
+    elseif effect.type == "remote" then
+        -- For remote effects like warp, create particles at the target location
+        -- Use the target position as the center
+        -- Set flags for position tracking
+        effect.useTargetPosition = true  -- This tells the system to use the current target position
+        
+        -- Make sure to use the initial position with offsets if available
+        local centerX = effect.targetX
+        local centerY = effect.targetY
+        
+        -- Initialize with offset if the target entity has position offsets
+        if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+            centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+            centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+            
+            -- Update effect's target position to include offsets
+            effect.targetX = centerX
+            effect.targetY = centerY
+            
+            print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)", 
+                centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
+        end
+        
+        local radius = effect.radius or 60
+        
+        -- Calculate how many particles to create based on density
+        local particlesToCreate = effect.particleCount
+        if effect.particleDensity then
+            particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
+        end
+        
+        for i = 1, particlesToCreate do
+            -- Create particles in a circular pattern around the target
+            local angle = (i / particlesToCreate) * math.pi * 2
+            -- Random distance from center
+            local distance = math.random(10, radius) 
+            -- Random speed for movement
+            local speed = math.random(10, 70) 
+            
+            local particle = Pool.acquire("vfx_particle")
+            -- Start at the center
+            particle.x = centerX
+            particle.y = centerY 
+            -- Target position (for radial movement)
+            particle.targetX = centerX + math.cos(angle) * distance
+            particle.targetY = centerY + math.sin(angle) * distance
+            particle.speed = speed
+            particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
+            particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
+            particle.rotation = angle
+            -- Randomized delay for staggered appearance
+            particle.delay = math.random() * 0.4
+            particle.active = false
+            -- Store motion style and other properties
+            particle.motion = effect.motion
+            particle.angle = angle
+            particle.distance = distance
+            -- Don't store fixed coordinates, just the angle and distance
+            -- This way particles can be positioned relative to the current
+            -- target position, which may change over time
+            -- particle.baseX = centerX
+            -- particle.baseY = centerY
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Initialize sprite rotation angle if needed
+        if effect.rotateSprite then
+            effect.spriteAngle = 0
+        end
+    
     elseif effect.type == "beam" then
         -- For beam effects like fullmoonbeam, create a beam with particles
         -- First create the main beam shape
@@ -16367,25 +16403,107 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
     elseif effect.type == "surge" then
-        -- Initialize particles for fountain surge effect
-        local spread = effect.spread or 60
+        -- Initialize particles for fountain surge effect centered on caster
+        local spread = effect.spread or 45
+        local riseFactor = effect.riseFactor or 1.4
+        local gravity = effect.gravity or 180
+        local particleSizeVariance = effect.particleSizeVariance or 0.6
+        
+        -- Determine if we're using sprites
+        local useSprites = effect.useSprites
+        local spriteFrameCount = 0
+        if useSprites and effect.criticalAssets then
+            -- Count how many sprite frames we have for animation
+            for _, assetName in ipairs(effect.criticalAssets) do
+                if assetName == "sparkle" then
+                    -- Single sprite - no animation frames
+                    spriteFrameCount = 1
+                    break
+                end
+            end
+        end
+        
+        -- Pre-load center particle
+        effect.centerParticleTimer = 0
+        
+        -- Create particles with varied properties
         for i = 1, effect.particleCount do
             local particle = Pool.acquire("vfx_particle")
 
-            -- Start at source position
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
+            -- Start at source position with slight random offset
+            local startOffsetX = math.random(-10, 10)
+            local startOffsetY = math.random(-10, 10)
+            particle.x = effect.sourceX + startOffsetX
+            particle.y = effect.sourceY + startOffsetY
+            
+            -- Store initial position for spiral motion calculations
+            particle.initialX = particle.x
+            particle.initialY = particle.y
 
-            -- Upward velocity with random horizontal
-            particle.speedX = (math.random() - 0.5) * spread
-            particle.speedY = -math.random(180, 260)
-            particle.gravity = 300
-
-            particle.scale = effect.startScale * math.random(0.8, 1.2)
-            particle.alpha = 1.0
+            -- Create upward velocity with variety
+            -- More focused in the center for a fountain effect
+            local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
+            particle.speedX = (math.random() - 0.5) * spread * horizontalBias
+            
+            -- Vertical speed with some variance and acceleration
+            local riseSpeed = math.random(220, 320) * riseFactor
+            if effect.riseAcceleration then
+                -- Some particles have extra acceleration
+                particle.riseAcceleration = math.random() * effect.riseAcceleration
+            end
+            
+            particle.speedY = -riseSpeed
+            particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+            
+            -- Visual properties with variance
+            local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
+            particle.scale = effect.startScale * sizeVariance
+            particle.baseScale = particle.scale -- Store for pulsation
+            
+            particle.alpha = 0.9 + math.random() * 0.1
             particle.rotation = math.random() * math.pi * 2
-            particle.delay = math.random() * 0.3
+            particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+            
+            -- Staggered appearance
+            particle.delay = math.random() * 0.4
             particle.active = false
+            
+            -- Add sprite animation if enabled
+            if useSprites then
+                particle.useSprite = true
+                if spriteFrameCount > 1 then
+                    particle.frameIndex = 1
+                    particle.frameTimer = 0
+                    particle.frameRate = effect.spriteFrameRate or 8
+                end
+            end
+            
+            -- Special properties based on effect template settings
+            if effect.spiralMotion then
+                particle.spiral = true
+                particle.spiralFrequency = 5 + math.random() * 3
+                particle.spiralAmplitude = 10 + math.random() * 20
+                particle.spiralPhase = math.random() * math.pi * 2
+                particle.spiralTightness = effect.spiralTightness or 2.5
+            end
+            
+            if effect.pulsateParticles and math.random() < 0.7 then
+                particle.pulsate = true
+                particle.pulseRate = 3 + math.random() * 5
+                particle.pulseAmount = 0.2 + math.random() * 0.3
+            end
+            
+            -- Chance for special sparkle particles
+            if effect.sparkleChance and math.random() < effect.sparkleChance then
+                particle.sparkle = true
+                particle.sparkleIntensity = 0.7 + math.random() * 0.3
+            end
+            
+            -- Add bloom glow effect
+            if effect.bloomEffect then
+                particle.bloom = true
+                particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
+            end
 
             table.insert(effect.particles, particle)
         end
@@ -16494,6 +16612,27 @@ function VFX.update(dt)
         
         -- Update timer
         effect.timer = effect.timer + dt
+        
+        -- Update positions based on tracked entities
+        -- First check source position updates
+        if effect.useSourcePosition and effect.sourceEntity then
+            -- Check for wizard-specific position offsets
+            if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
+                -- Update source position with offsets
+                effect.sourceX = effect.sourceEntity.x + effect.sourceEntity.currentXOffset
+                effect.sourceY = effect.sourceEntity.y + effect.sourceEntity.currentYOffset
+            end
+        end
+        
+        -- Then check target position updates
+        if effect.useTargetPosition and effect.targetEntity then
+            -- Check for wizard-specific position offsets
+            if effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+                -- Update target position with offsets
+                effect.targetX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+                effect.targetY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+            end
+        end
         
         -- Only calculate progress if duration is valid
         if effect.duration > 0 then
@@ -16628,6 +16767,10 @@ function VFX.update(dt)
             VFX.updateProjectile(effect, dt)
         elseif effect.type == "impact" then
             VFX.updateImpact(effect, dt)
+        elseif effect.type == "cone" then
+            VFX.updateCone(effect, dt)
+        elseif effect.type == "remote" then
+            VFX.updateRemote(effect, dt)
         elseif effect.type == "aura" then
             VFX.updateAura(effect, dt)
         elseif effect.type == "vertical" then
@@ -16698,61 +16841,84 @@ function VFX.updateProjectile(effect, dt)
     end
     
     -- Calculate base projectile position
+    -- Using current source and target positions (which may have been updated for tracking)
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * baseProgress
     local posY = effect.sourceY + (effect.targetY - effect.sourceY) * baseProgress
     
-    -- Calculate improved trajectory arc with natural physics
-    -- Adjust trajectory based on rangeBand
-    local rangeBandModifier = 1.0
-    if effect.rangeBand == Constants.RangeState.FAR then
-        rangeBandModifier = 1.6  -- Higher arc for far range
-    elseif effect.rangeBand == Constants.RangeState.NEAR then
-        rangeBandModifier = 0.5  -- Lower, flatter arc for near range
-    end
-    
-    -- Adjust trajectory based on elevation with smoother transitions
-    local elevationOffset = 0
-    local arcModifier = 1.0
-    
-    if effect.elevation then
-        if effect.elevation == Constants.ElevationState.AERIAL then
-            -- When target is aerial, use more curved upward trajectory
-            arcModifier = 0.7 -- Less pronounced arc
-            elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
-        elseif effect.elevation == Constants.ElevationState.GROUNDED then
-            -- When target is grounded, use more gravity-influenced downward arc
-            arcModifier = 1.3 -- More pronounced arc
-            elevationOffset = 40 * baseProgress^2 -- Accelerating downward
+    -- For straight-line effects (like bolts), skip the arc calculation
+    if not effect.straightLine then
+        -- Calculate improved trajectory arc with natural physics
+        -- Adjust trajectory based on rangeBand
+        local rangeBandModifier = 1.0
+        if effect.rangeBand == Constants.RangeState.FAR then
+            rangeBandModifier = 1.6  -- Higher arc for far range
+        elseif effect.rangeBand == Constants.RangeState.NEAR then
+            rangeBandModifier = 0.5  -- Lower, flatter arc for near range
+        end
+        
+        -- Adjust trajectory based on elevation with smoother transitions
+        local elevationOffset = 0
+        local arcModifier = 1.0
+        
+        if effect.elevation then
+            if effect.elevation == Constants.ElevationState.AERIAL then
+                -- When target is aerial, use more curved upward trajectory
+                arcModifier = 0.7 -- Less pronounced arc
+                elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
+            elseif effect.elevation == Constants.ElevationState.GROUNDED then
+                -- When target is grounded, use more gravity-influenced downward arc
+                arcModifier = 1.3 -- More pronounced arc
+                elevationOffset = 40 * baseProgress^2 -- Accelerating downward
+            end
+        end
+        
+        -- Apply motion style variations to the arc
+        if effect.motion == Constants.MotionStyle.RISE then
+            -- Rising motion: mostly flat but with subtle upward momentum for fire
+            local riseProgress = math.sin(baseProgress * math.pi * 0.4)
+            elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
+            arcModifier = arcModifier * 0.5 -- Reduce arc height further
+        elseif effect.motion == Constants.MotionStyle.FALL then
+            -- Falling motion: starts high, accelerates downward
+            elevationOffset = elevationOffset + 20 * baseProgress^1.5
+            arcModifier = arcModifier * 1.3
+        elseif effect.motion == Constants.MotionStyle.SWIRL then
+            -- Swirl adds a slight sine wave to the path
+            local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
+            posX = posX + swirlFactor
+            posY = posY + swirlFactor * 0.5
+        elseif effect.motion == Constants.MotionStyle.PULSE then
+            -- Pulse adds a throbbing effect to the arc height
+            local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
+            arcModifier = arcModifier * (1 + pulseFactor)
+        end
+        
+        -- Apply dynamic arc - smoother easing function
+        local arcHeight = effect.arcHeight or 60
+        local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
+        local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
+        
+        -- Apply final position
+        posY = posY + verticalOffset + elevationOffset * baseProgress
+    else
+        -- For straight-line effects like bolts, we can still add minor variations
+        -- Add a slight zigzag effect for lightning bolts, if desired
+        if effect.turbulence and effect.turbulence > 0 then
+            local turbAmt = effect.turbulence * 4
+            local zigzag = math.sin(baseProgress * 12) * turbAmt * baseProgress * (1 - baseProgress) * 2
+            -- Apply zigzag perpendicularly to the direction of travel
+            local dx = effect.targetX - effect.sourceX
+            local dy = effect.targetY - effect.sourceY
+            local len = math.sqrt(dx*dx + dy*dy)
+            if len > 0 then
+                -- Normalized perpendicular vector
+                local perpX = -dy / len
+                local perpY = dx / len
+                posX = posX + perpX * zigzag
+                posY = posY + perpY * zigzag
+            end
         end
     end
-    
-    -- Apply motion style variations to the arc
-    if effect.motion == Constants.MotionStyle.RISE then
-        -- Rising motion: mostly flat but with subtle upward momentum for fire
-        local riseProgress = math.sin(baseProgress * math.pi * 0.4)
-        elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
-        arcModifier = arcModifier * 0.5 -- Reduce arc height further
-    elseif effect.motion == Constants.MotionStyle.FALL then
-        -- Falling motion: starts high, accelerates downward
-        elevationOffset = elevationOffset + 20 * baseProgress^1.5
-        arcModifier = arcModifier * 1.3
-    elseif effect.motion == Constants.MotionStyle.SWIRL then
-        -- Swirl adds a slight sine wave to the path
-        local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
-        posX = posX + swirlFactor
-        posY = posY + swirlFactor * 0.5
-    elseif effect.motion == Constants.MotionStyle.PULSE then
-        -- Pulse adds a throbbing effect to the arc height
-        local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
-        arcModifier = arcModifier * (1 + pulseFactor)
-    end
-    
-    -- Apply dynamic arc - smoother easing function
-    local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
-    local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
-    
-    -- Apply final position
-    posY = posY + verticalOffset + elevationOffset * baseProgress
     
     -- Check for special shield block point
     local blockPoint = effect.options and effect.options.blockPoint
@@ -17239,9 +17405,57 @@ end
 
 -- Update function for beam effects
 function VFX.updateBeam(effect, dt)
-    -- Update beam progress
-    effect.beamProgress = math.min(effect.progress * 2, 1.0) -- Beam reaches full extension halfway through
-    
+    -- Enhanced beam update with shield block handling
+    local Constants = require("core.Constants")
+
+    -- Update beam properties based on current source and target positions
+    -- This ensures the beam adjusts if the wizards move due to range/elevation changes
+    effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
+    effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+
+    -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
+    local baseProgress
+    if effect.options and effect.options.blockPoint and effect.visualProgress then
+        baseProgress = effect.visualProgress -- Use smoothed visual progress when beam can be blocked
+    else
+        baseProgress = effect.progress
+    end
+
+    -- Determine how far the beam is allowed to extend (full length or up to the shield)
+    local extensionTarget = (effect.options and effect.options.blockPoint) or 1.0
+
+    -- Update beam progress – beam extends twice as fast, but never beyond its target length
+    effect.beamProgress = math.min(baseProgress * 2, extensionTarget)
+
+    -- If this beam was blocked, trigger shield-impact visuals once
+    if extensionTarget < 1.0 and effect.blockTimerStarted and not effect.impactParticlesCreated then
+        effect.impactParticlesCreated = true
+
+        -- Calculate impact coordinates at the block point
+        local impactX = effect.sourceX + (effect.targetX - effect.sourceX) * extensionTarget
+        local impactY = effect.sourceY + (effect.targetY - effect.sourceY) * extensionTarget
+
+        -- Resolve shield color based on shieldType / override
+        local shieldColor = {1.0, 1.0, 0.3, 0.7} -- Default barrier yellow
+        if effect.options and effect.options.shieldType == Constants.ShieldType.WARD then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}
+        elseif effect.options and effect.options.shieldType == Constants.ShieldType.FIELD then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}
+        elseif effect.options and effect.options.shieldColor then
+            shieldColor = effect.options.shieldColor
+        end
+
+        -- Spawn the shield hit effect at the impact point
+        local shieldHitOpts = {
+            duration       = 0.5,
+            color          = shieldColor,
+            particleCount  = math.floor((effect.particleCount or 30) * 0.8),
+            shieldType     = effect.options and effect.options.shieldType
+        }
+        VFX.createEffect("shield_hit_base", impactX, impactY, nil, nil, shieldHitOpts)
+    end
+
+    -- === Existing particle update logic ===
     -- Update beam particles
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
@@ -17370,29 +17584,90 @@ end
 
 -- Update function for surge effects
 function VFX.updateSurge(effect, dt)
-    -- Fountain style upward burst with gravity pull
+    -- Update center glow animation
+    if effect.centerGlow then
+        effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
+    end
+    
+    -- Fountain style upward burst with gravity pull and enhanced effects
     for _, particle in ipairs(effect.particles) do
         if effect.timer > particle.delay then
             particle.active = true
         end
+        
         if particle.active then
-            -- Motion update
+            -- Apply acceleration if enabled
+            if particle.riseAcceleration then
+                -- Boost upward velocity over time
+                local accelerationBoost = -particle.riseAcceleration * 60 * dt
+                particle.speedY = particle.speedY + accelerationBoost
+            end
+            
+            -- Base motion update
             particle.x = particle.x + particle.speedX * dt
             particle.y = particle.y + particle.speedY * dt
             particle.speedY = particle.speedY + particle.gravity * dt
-
-            -- Visual progression
-            local lifeProgress = effect.progress
-            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * lifeProgress
-
-            -- Fade out towards end of effect
-            if lifeProgress > 0.6 then
-                local fade = (lifeProgress - 0.6) / 0.4
+            
+            -- Handle sprite animation if enabled
+            if particle.useSprite and particle.frameIndex and particle.frameRate then
+                particle.frameTimer = (particle.frameTimer or 0) + dt
+                if particle.frameTimer >= 1/particle.frameRate then
+                    particle.frameIndex = particle.frameIndex + 1
+                    if particle.frameIndex > spriteFrameCount then
+                        particle.frameIndex = 1
+                    end
+                    particle.frameTimer = 0
+                end
+            end
+            
+            -- Apply spiral motion if enabled
+            if particle.spiral then
+                local spiralProgress = (effect.timer - particle.delay) * particle.spiralTightness
+                local spiralAngle = spiralProgress * particle.spiralFrequency + particle.spiralPhase
+                local spiralX = math.cos(spiralAngle) * particle.spiralAmplitude
+                local spiralY = math.sin(spiralAngle) * particle.spiralAmplitude
+                
+                -- Apply spiral offset to position
+                particle.x = particle.x + spiralX * dt * 5
+                particle.y = particle.y + spiralY * dt * 5
+            end
+            
+            -- Handle pulsation if enabled
+            if particle.pulsate then
+                local pulseOffset = math.sin(effect.timer * particle.pulseRate) * particle.pulseAmount
+                particle.scale = particle.baseScale * (1 + pulseOffset)
+            else
+                -- Standard scale progression if not pulsating
+                local scaleProgress = effect.progress
+                particle.scale = effect.startScale + (effect.endScale - effect.startScale) * scaleProgress
+            end
+            
+            -- Control sparkle flickering if enabled
+            if particle.sparkle then
+                -- Random flickering for sparkle particles
+                local flicker = 0.7 + math.random() * 0.5
+                particle.sparkleAlpha = flicker * particle.sparkleIntensity
+            end
+            
+            -- Fade out toward end of effect, but with smoother transition
+            if effect.progress > 0.6 then
+                local fadeStart = 0.6
+                local fadeDuration = 0.4
+                local fadeProgress = (effect.progress - fadeStart) / fadeDuration
+                -- Use smooth step function for nicer fade
+                local fade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
                 particle.alpha = 1 - fade
             end
-
-            particle.rotation = particle.rotation + dt * 2
+            
+            -- Apply rotation 
+            particle.rotation = particle.rotation + particle.rotationSpeed * dt
         end
+    end
+    
+    -- Update center glow pulsing if enabled
+    if effect.centerGlow then
+        local pulseSpeed = 5
+        effect.centerGlowPulse = 0.7 + 0.3 * math.sin(effect.centerParticleTimer * pulseSpeed)
     end
 end
 
@@ -17403,6 +17678,10 @@ function VFX.draw()
             VFX.drawProjectile(effect)
         elseif effect.type == "impact" then
             VFX.drawImpact(effect)
+        elseif effect.type == "cone" then
+            VFX.drawCone(effect)
+        elseif effect.type == "remote" then
+            VFX.drawRemote(effect)
         elseif effect.type == "aura" then
             VFX.drawAura(effect)
         elseif effect.type == "vertical" then
@@ -17425,6 +17704,24 @@ function VFX.drawProjectile(effect)
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
     
+    -- Get bolt frames if needed
+    local boltFrames = nil
+    if effect.useSprites then
+        boltFrames = getAssetInternal("boltFrames")
+    end
+    
+    -- Calculate the actual trajectory angle for aimed shots
+    -- This will be used for sprite rotation if it's a bolt
+    local trajectoryAngle = nil
+    if effect.useSourcePosition and effect.useTargetPosition then
+        -- Calculate direction vector from current source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        
+        -- Calculate the angle
+        trajectoryAngle = math.atan2(dirY, dirX)
+    end
+    
     -- Calculate trail points but don't draw central line anymore
     -- We'll keep the trail points for particle positioning
     
@@ -17432,6 +17729,14 @@ function VFX.drawProjectile(effect)
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
         local leadingIntensity = effect.leadingIntensity or 1.5
+        
+        -- Apply flicker effect for bolt-type projectiles
+        if effect.flickerRate and effect.flickerIntensity then
+            -- Calculate flicker based on time and rate
+            local flickerMod = math.sin(effect.timer * effect.flickerRate) * effect.flickerIntensity
+            -- Apply intensity modification (make it brighter only, not dimmer)
+            leadingIntensity = leadingIntensity * (1 + math.max(0, flickerMod))
+        end
         
         -- Draw multiple layered glows for a more intense effect
         -- Outer glow
@@ -17547,7 +17852,17 @@ function VFX.drawProjectile(effect)
             local g = effect.color[2] * 0.9
             local b = effect.color[3] * 0.9
             
-            love.graphics.setColor(r, g, b, particle.alpha * 0.8)
+            -- Apply flicker effect to trail particles for bolt-type projectiles
+            local trailAlpha = particle.alpha * 0.8
+            if effect.flickerRate and effect.flickerIntensity then
+                -- Calculate unique flicker phase for each particle to create lightning-like effect
+                local particlePhase = effect.timer * effect.flickerRate + particle.x * 0.05
+                local flickerMod = math.sin(particlePhase) * effect.flickerIntensity
+                -- Make particles brighter during flicker but not completely invisible
+                trailAlpha = trailAlpha * (1 + math.max(-0.3, flickerMod))
+            end
+            
+            love.graphics.setColor(r, g, b, trailAlpha)
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -17563,6 +17878,16 @@ function VFX.drawProjectile(effect)
         if particle.active and particle.alpha > 0 and particle.isCore then
             -- Core particles are brighter
             local leadingIntensity = effect.leadingIntensity or 1.5
+            
+            -- Apply flicker effect to core particles for bolt-type projectiles
+            if effect.flickerRate and effect.flickerIntensity then
+                -- Calculate unique flicker phase for each particle to create lightning-like effect
+                local particlePhase = effect.timer * effect.flickerRate + particle.x * 0.05
+                local flickerMod = math.sin(particlePhase) * effect.flickerIntensity
+                -- Apply intensity modification (make it brighter during flashes)
+                leadingIntensity = leadingIntensity * (1 + math.max(0, flickerMod))
+            end
+            
             local r = math.min(1.0, effect.color[1] * leadingIntensity)
             local g = math.min(1.0, effect.color[2] * leadingIntensity)
             local b = math.min(1.0, effect.color[3] * leadingIntensity)
@@ -17648,6 +17973,87 @@ function VFX.drawProjectile(effect)
                 flashSize / glowImage:getWidth(), flashSize / glowImage:getHeight(),
                 glowImage:getWidth()/2, glowImage:getHeight()/2
             )
+        end
+    end
+    
+    -- Sprite-based rendering for bolt effects
+    if effect.useSprites and boltFrames and #boltFrames > 0 then
+        -- Calculate which frame to use based on animation time
+        local frameRate = effect.spriteFrameRate or 15
+        local totalFrames = #boltFrames
+        local frameIndex = math.floor((effect.timer * frameRate) % totalFrames) + 1
+        local currentFrame = boltFrames[frameIndex]
+        
+        if currentFrame then
+            -- Calculate rotation angle for the sprite
+            local rotationAngle = effect.spriteRotationOffset or 0
+            
+            -- If we have a trajectory angle from source to target (for aimed shots)
+            -- use that instead of the trail points
+            if trajectoryAngle then
+                rotationAngle = trajectoryAngle + (effect.spriteRotationOffset or 0)
+            elseif #effect.trailPoints >= 2 then
+                -- Fallback to using trail points
+                local p1 = effect.trailPoints[1]
+                local p2 = effect.trailPoints[2]
+                
+                -- Get direction vector for trajectory
+                local dirX = p1.x - p2.x
+                local dirY = p1.y - p2.y
+                local len = math.sqrt(dirX*dirX + dirY*dirY)
+                
+                if len > 0 then
+                    -- Calculate rotation angle
+                    rotationAngle = math.atan2(dirY, dirX) + (effect.spriteRotationOffset or 0)
+                end
+            end
+            
+            -- Draw the bolt sprite along the trail
+            local trailSegmentCount = math.min(5, #effect.trailPoints)
+            local segmentSpacing = 1
+            
+            for i = 1, trailSegmentCount, segmentSpacing do
+                local point = effect.trailPoints[i]
+                local alpha = 1.0
+                
+                -- Fade out at the back of the trail
+                if i > 1 then
+                    alpha = (trailSegmentCount - i + 1) / trailSegmentCount
+                end
+                
+                -- Apply flicker effect to bolt sprite
+                if effect.flickerRate and effect.flickerIntensity then
+                    -- Calculate unique flicker phase for each segment
+                    local segmentPhase = effect.timer * effect.flickerRate + i * 0.2
+                    local flickerMod = math.sin(segmentPhase) * effect.flickerIntensity
+                    -- Adjust alpha but keep it visible
+                    alpha = alpha * (1 + math.max(-0.3, flickerMod))
+                end
+                
+                -- Determine scaling based on position in the trail
+                local scale = effect.spriteScale or 0.85
+                if i == 1 then
+                    -- Head of bolt is slightly larger
+                    scale = scale * 1.2
+                end
+                
+                -- Set color with tinting if enabled
+                if effect.spriteTint then
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+                else
+                    -- Pure white with alpha
+                    love.graphics.setColor(1, 1, 1, alpha)
+                end
+                
+                -- Draw sprite
+                love.graphics.draw(
+                    currentFrame,
+                    point.x, point.y,
+                    rotationAngle,
+                    scale, scale,
+                    currentFrame:getWidth()/2, currentFrame:getHeight()/2
+                )
+            end
         end
     end
     
@@ -17797,6 +18203,8 @@ end
 -- Draw function for beam effects
 function VFX.drawBeam(effect)
     local particleImage = getAssetInternal("sparkle")
+    
+    -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
     -- Draw base beam
@@ -17963,14 +18371,76 @@ end
 -- Draw function for surge effects
 function VFX.drawSurge(effect)
     local particleImage = getAssetInternal("sparkle")
-
-    -- Base glow at origin
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+    
+    -- Draw expanding ground effect ring at source
+    if effect.progress < 0.7 then
+        local ringProgress = effect.progress / 0.7
+        local ringSize = 30 + ringProgress * 40 -- Grows from 30 to 70 pixels
+        local ringAlpha = 0.5 * (1 - ringProgress)
+        
+        love.graphics.setColor(effect.color[1] * 0.8, effect.color[2] * 0.8, effect.color[3] * 0.8, ringAlpha)
+        love.graphics.circle("line", effect.sourceX, effect.sourceY, ringSize)
+        
+        -- Add inner filled ring
+        local innerRingSize = ringSize * 0.7
+        love.graphics.setColor(effect.color[1] * 0.6, effect.color[2] * 0.6, effect.color[3] * 0.6, ringAlpha * 0.5)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, innerRingSize)
+    end
+    
+    -- Draw enhanced center glow if enabled
+    if effect.centerGlow then
+        -- Get size and pulse parameters
+        local centerGlowSize = effect.centerGlowSize or 50
+        local glowIntensity = effect.centerGlowIntensity or 1.3
+        local glowPulse = effect.centerGlowPulse or 1.0
+        
+        -- Calculate fade based on progress
+        local glowAlpha
+        if effect.progress < 0.6 then
+            glowAlpha = 0.7  -- Full strength during main part
+        else
+            -- Fade out during last 40% of effect
+            glowAlpha = 0.7 * (1 - (effect.progress - 0.6) / 0.4)
+        end
+        
+        -- Draw outer glow layers
+        love.graphics.setColor(effect.color[1] * 0.5, effect.color[2] * 0.5, effect.color[3] * 0.5, glowAlpha * 0.4)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 1.2 * glowPulse)
+        
+        -- Middle glow layer
+        love.graphics.setColor(effect.color[1] * 0.8, effect.color[2] * 0.8, effect.color[3] * 0.8, glowAlpha * 0.6)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.8 * glowPulse)
+        
+        -- Bright core
+        love.graphics.setColor(effect.color[1] * glowIntensity, effect.color[2] * glowIntensity, 
+                              effect.color[3] * glowIntensity, glowAlpha * 0.8)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.5 * glowPulse)
+        
+        -- White inner core
+        love.graphics.setColor(1, 1, 1, glowAlpha * 0.9 * glowPulse)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.2 * glowPulse)
+    else
+        -- Simpler base glow at origin if centerGlow not enabled
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+    end
+    
+    -- Draw bloom halos first (rendered underneath particles)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.bloom then
+            local bloomIntensity = particle.bloomIntensity or 0.8
+            local bloomAlpha = particle.alpha * 0.6 * bloomIntensity
+            local bloomScale = particle.scale * 2.5
+            
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], bloomAlpha)
+            love.graphics.circle("fill", particle.x, particle.y, particleImage:getWidth()/2 * bloomScale)
+        end
+    end
 
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
+            -- Base particle
             love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
             love.graphics.draw(
                 particleImage,
@@ -17979,6 +18449,35 @@ function VFX.drawSurge(effect)
                 particle.scale, particle.scale,
                 particleImage:getWidth()/2, particleImage:getHeight()/2
             )
+            
+            -- Add sparkle overlay for sparkle particles
+            if particle.sparkle and particle.sparkleAlpha and particle.sparkleAlpha > 0 then
+                -- Draw a bright white overlay
+                love.graphics.setColor(1, 1, 1, particle.sparkleAlpha)
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    particle.rotation,
+                    particle.scale * 0.6, particle.scale * 0.6,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            end
+        end
+    end
+    
+    -- Draw additional radial lines emanating from center for dramatic effect
+    if effect.progress < 0.3 then
+        local lineProgress = effect.progress / 0.3
+        local lineCount = 12
+        local lineLength = 40 * (1 - lineProgress) -- Lines shrink as they dissipate
+        local lineAlpha = 0.4 * (1 - lineProgress)
+        
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], lineAlpha)
+        for i = 1, lineCount do
+            local angle = (i / lineCount) * math.pi * 2
+            local endX = effect.sourceX + math.cos(angle) * lineLength
+            local endY = effect.sourceY + math.sin(angle) * lineLength
+            love.graphics.line(effect.sourceX, effect.sourceY, endX, endY)
         end
     end
 end
@@ -18004,103 +18503,6 @@ function HSVtoRGB(h, s, v)
     end
     
     return r, g, b
-end
-
--- Helper function to create the appropriate effect for a spell
-function VFX.createSpellEffect(spell, caster, target)
-    local Constants = require("core.Constants")
-    
-    -- Get mana pool position for conjuration spells
-    local manaPoolX = caster.manaPool and caster.manaPool.x or 400
-    local manaPoolY = caster.manaPool and caster.manaPool.y or 120
-    
-    -- Determine source and target positions
-    local sourceX, sourceY = caster.x, caster.y
-    print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
-    local targetX, targetY = target.x, target.y
-    print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
-    -- Handle different spell types
-    local spellName = spell.name:lower():gsub("%s+", "") -- Convert to lowercase and remove spaces
-    
-    -- Handle conjuration spells first
-    if spellName == "conjurefire" then
-        return VFX.createEffect(Constants.VFXType.CONJUREFIRE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjuremoonlight" then
-        return VFX.createEffect(Constants.VFXType.CONJUREMOONLIGHT, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjureforce" then
-        return VFX.createEffect(Constants.VFXType.FORCE_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjurestars" then
-        return VFX.createEffect(Constants.VFXType.STAR_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "volatileconjuring" then
-        return VFX.createEffect(Constants.VFXType.VOLATILECONJURING, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "novaconjuring" then
-        return VFX.createEffect(Constants.VFXType.NOVA_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "witchconjuring" then
-        return VFX.createEffect(Constants.VFXType.WITCH_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    
-    -- Special handling for other specific spells
-    elseif spellName == "firebolt" then
-        return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY - 20, targetX, targetY - 20)
-    elseif spellName == "meteor" then
-        return VFX.createEffect(Constants.VFXType.METEOR, targetX, targetY - 100, targetX, targetY)
-    elseif spellName == "mistveil" then
-        return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
-    elseif spellName == "emberlift" then
-        return VFX.createEffect(Constants.VFXType.EMBERLIFT, sourceX, sourceY, nil, nil)
-    elseif spellName == "fullmoonbeam" then
-        return VFX.createEffect(Constants.VFXType.FULLMOONBEAM, sourceX, sourceY - 20, targetX, targetY - 20)
-    elseif spellName == "tidalforce" then
-        return VFX.createEffect(Constants.VFXType.TIDAL_FORCE, sourceX, sourceY - 15, targetX, targetY - 15)
-    elseif spellName == "lunardisjunction" then
-        return VFX.createEffect(Constants.VFXType.LUNARDISJUNCTION, sourceX, sourceY - 15, targetX, targetY - 15)
-    elseif spellName == "forceblast" then
-        return VFX.createEffect(Constants.VFXType.FORCE_BLAST, sourceX, sourceY - 15, targetX, targetY - 15)
-    else
-        -- Create a generic effect based on spell type or mana cost
-        if spell.spellType == Constants.AttackType.PROJECTILE then
-            return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
-        else
-            -- Look at spell cost to determine effect type
-            local hasFireMana = false
-            local hasMoonMana = false
-            
-            for _, cost in ipairs(spell.cost or {}) do
-                if cost.type == Constants.TokenType.FIRE then hasFireMana = true end
-                if cost.type == Constants.TokenType.MOON then hasMoonMana = true end
-            end
-            
-            if hasFireMana then
-                return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
-            elseif hasMoonMana then
-                return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
-            else
-                -- Default generic effect if no specific match
-                print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
-                return VFX.createEffect(Constants.VFXType.IMPACT, targetX, targetY, nil, nil) -- Default to a simple impact at target
-            end
-        end
-    end
 end
 
 -- Show Pool stats in debug mode
@@ -18134,6 +18536,231 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
 end
 
 -- Update function for meteor effect
+function VFX.updateRemote(effect, dt)
+    -- Target position tracking now handled in main VFX.update
+    
+    -- Update particles for the warp/remote effect
+    for i, particle in ipairs(effect.particles) do
+        -- Activate particles based on delay
+        if effect.timer > particle.delay then
+            particle.active = true
+        end
+        
+        if particle.active then
+            -- Calculate particle progress
+            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
+            
+            -- Check if we have a motion style to apply
+            if particle.motion then
+                -- Use the updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Default behavior: move from center outward with easing
+                local moveProgress = math.min(particleProgress * 1.5, 1.0) -- Move faster than the total duration
+                local easeProgress = math.sin(moveProgress * math.pi / 2) -- Ease out curve
+                
+                -- Get current target position
+                local centerX = effect.targetX
+                local centerY = effect.targetY
+                
+                -- Calculate angle and distance for this particle
+                local angle = particle.angle
+                local distance = particle.distance
+                
+                -- Calculate position directly from center using angle and distance
+                -- This ensures we're always relative to the current target position
+                local moveDistance = distance * easeProgress
+                particle.x = centerX + math.cos(angle) * moveDistance
+                particle.y = centerY + math.sin(angle) * moveDistance
+                
+                -- Fade out near the end
+                if particleProgress > 0.7 then
+                    particle.alpha = (1.0 - particleProgress) / 0.3 -- Fade out in the last 30% of lifetime
+                end
+                
+                -- Scale up then down
+                local scaleProgress = 1.0 - math.abs(particleProgress * 2 - 1.0) -- Peak at the middle
+                particle.scale = effect.startScale + (effect.endScale - effect.startScale) * scaleProgress
+            end
+        end
+    end
+    
+    -- Update sprite rotation if enabled
+    if effect.rotateSprite and effect.rotationSpeed then
+        -- Accumulate rotation over time
+        effect.spriteAngle = (effect.spriteAngle or 0) + effect.rotationSpeed * dt
+    end
+end
+
+-- Update function for cone blast effects
+function VFX.updateCone(effect, dt)
+    -- Calculate the base direction from source to target
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local baseAngle = math.atan2(dirY, dirX)
+    
+    -- Update wave timing
+    local waveCount = effect.waveCount or 3
+    for i = 1, waveCount do
+        -- Calculate when this wave should start
+        local waveStartTime = (i - 1) * effect.duration * 0.3 / waveCount
+        
+        -- Check if this wave should be started
+        if effect.timer >= waveStartTime and (not effect.waveStarted or not effect.waveStarted[i]) then
+            -- Mark this wave as started
+            effect.waveStarted = effect.waveStarted or {}
+            effect.waveStarted[i] = true
+        end
+    end
+    
+    -- Update particles based on their properties
+    for _, particle in ipairs(effect.particles) do
+        -- Initialize particle if delayed start time has been reached
+        if not particle.active and effect.timer >= particle.delay then
+            particle.active = true
+            particle.startTime = 0
+        end
+        
+        -- Only process active particles
+        if particle.active then
+            -- Update particle timing
+            particle.startTime = (particle.startTime or 0) + dt
+            
+            -- Handle wave particles specially
+            if particle.isWave and particle.waveIndex then
+                -- Calculate wave progress
+                local waveDelay = (particle.waveIndex - 1) / waveCount * 0.3
+                local waveProgress = (effect.progress - waveDelay) / 0.7
+                
+                if waveProgress > 0 and waveProgress < 1.0 then
+                    -- Apply wave persistence to extend wave visibility if property exists
+                    local visibleProgress = waveProgress
+                    if particle.persistenceFactor then
+                        -- Scale progress value to make waves fade more slowly
+                        visibleProgress = waveProgress / particle.persistenceFactor
+                    end
+                    
+                    if visibleProgress < 1.0 then
+                        -- Calculate wave position along cone
+                        local distance = (effect.coneLength or 320) * waveProgress * 0.95  -- Extended wave reach
+                        
+                        -- Move particle along its angle
+                        particle.x = effect.sourceX + math.cos(particle.angle) * distance
+                        particle.y = effect.sourceY + math.sin(particle.angle) * distance
+                        
+                        -- Calculate wave intensity - stronger at the front edge
+                        local waveFront = math.max(0, 1 - math.abs(waveProgress - 0.3) * 5) -- Peak around 30% progress
+                        local waveCrestSize = effect.waveCrestSize or 2.2
+                        
+                        -- Apply size increase for wave crest particles
+                        if waveFront > 0.1 then
+                            -- Make particles larger near the wave front
+                            particle.scale = particle.scale * (1 + waveFront * waveCrestSize)
+                        end
+                        
+                        -- Apply glow effect to leading edge if enabled
+                        if effect.leadingEdgeGlow and waveFront > 0.1 then
+                            -- Flag for special rendering in draw function
+                            particle.isLeadingEdge = true
+                            particle.glowIntensity = waveFront
+                            
+                            -- Create trailing glow if enabled
+                            if particle.trailGlow and particle.trailGlow > 0 then
+                                particle.drawTrail = true
+                                particle.trailLength = distance * 0.2 * particle.trailGlow -- 20% of distance back
+                                particle.trailWidth = waveFront * 10 * particle.trailGlow -- Width based on wave front
+                            end
+                        end
+                    
+                    -- Apply intensity falloff with distance if specified
+                    local falloff = 1.0
+                    if effect.intensityFalloff then
+                        -- Calculate distance from source as a percentage of total cone length
+                        local distancePercent = distance / (effect.coneLength or 320)
+                        -- Apply non-linear falloff (more dramatic at edges)
+                        falloff = 1.0 - (distancePercent * effect.intensityFalloff)
+                        falloff = math.max(0.15, falloff) -- Higher minimum intensity
+                    end
+                    
+                    -- Adjust alpha based on wave progress with pulsing effect
+                    local pulseEffect = 1.0 + 0.3 * math.sin(waveProgress * math.pi * 8)
+                    -- Slower fade for longer persistence
+                    local fadeRate = particle.persistenceFactor and 0.8 or 1.0
+                    particle.alpha = math.min(1.0, 1.1 * (1 - visibleProgress * fadeRate) * pulseEffect * falloff)
+                    
+                    -- Add wave-specific motion effects based on spell properties and wave index
+                    if particle.waveIndex and particle.waveIndex > 1 then
+                        -- Later waves can have additional motion effects
+                        local wiggle = math.sin(effect.timer * (8 + particle.waveIndex * 2) + particle.x * 0.02) * 2
+                        particle.x = particle.x + wiggle * (particle.waveIndex * 0.5)
+                    end
+                else
+                    -- Wave not visible due to progress
+                    particle.alpha = 0
+                end
+            else
+                -- Wave not visible yet or has passed
+                particle.alpha = 0
+            end
+            else
+                -- Regular fill particles
+                -- Calculate progress for this particle
+                local particleProgress = math.min(particle.startTime / (effect.duration * 0.8), 1.0)
+                
+                -- Move particle from source toward target position - faster for more dramatic movement
+                local moveProgress = math.min(particleProgress * 1.7, 1.0) -- Even faster movement for dramatic effect
+                
+                particle.x = effect.sourceX + (particle.targetX - effect.sourceX) * moveProgress
+                particle.y = effect.sourceY + (particle.targetY - effect.sourceY) * moveProgress
+                
+                -- Add more chaotic turbulence for background particles
+                local turbulence = effect.turbulence or 0.4
+                -- Scale jitter with distance from center of cone for more chaotic edges
+                local dirX = particle.targetX - effect.sourceX
+                local dirY = particle.targetY - effect.sourceY
+                local angle = math.atan2(dirY, dirX)
+                local coneDir = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+                local angleDiff = math.abs(angle - coneDir)
+                -- More jitter at the edges of the cone
+                local edgeFactor = math.min(1.0, angleDiff / (math.rad(effect.coneAngle or 70) / 2))
+                local jitterScale = 8 * turbulence * (1 - moveProgress) * (1 + edgeFactor)
+                
+                particle.x = particle.x + math.cos(particle.startTime * 5) * jitterScale
+                particle.y = particle.y + math.sin(particle.startTime * 5) * jitterScale
+                
+                -- Calculate particle size variance based on template parameter
+                local sizeVariance = effect.particleSizeVariance or 0.2
+                local sizeMultiplier = 1.0 + (math.random() * 2 - 1) * sizeVariance
+                
+                -- Apply scale changes with size variance
+                particle.scale = (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * sizeMultiplier
+                
+                -- Adjust alpha for more dramatic falloff and occasional flicker
+                if moveProgress > 0.5 then
+                    -- Base falloff
+                    local alphaFalloff = (1 - (moveProgress - 0.5) / 0.5)
+                    -- Add subtle flicker
+                    local flicker = 1.0 + 0.2 * math.sin(particle.startTime * 12 + particle.x * 0.05)
+                    particle.alpha = particle.alpha * alphaFalloff * flicker
+                end
+                
+                -- Faster rotation for more energetic appearance
+                particle.rotation = particle.rotation + dt * (3 + math.random() * 2)
+            end
+        end
+    end
+    
+    -- Apply intensity based on range/elevation if not already handled
+    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity and not effect.currentIntensityMultiplier then
+        effect.currentIntensityMultiplier = effect.nearRangeIntensity
+    end
+    
+    if effect.elevation == Constants.ElevationState.GROUNDED and effect.matchedElevationIntensity and not effect.currentIntensityMultiplier then
+        effect.currentIntensityMultiplier = effect.currentIntensityMultiplier or 1.0
+        effect.currentIntensityMultiplier = effect.currentIntensityMultiplier * effect.matchedElevationIntensity
+    end
+end
+
 function VFX.updateMeteor(effect, dt)
     -- Process all particles
     for i, particle in ipairs(effect.particles) do
@@ -18227,7 +18854,388 @@ function VFX.updateMeteor(effect, dt)
     end
 end
 
--- Draw function for meteor effect
+-- Draw function for cone blast effects
+function VFX.drawCone(effect)
+    local particleImage = getAssetInternal("sparkle")
+    local glowImage = getAssetInternal("fireGlow") -- For enhanced glow effects
+    
+    -- Get intensity multiplier for range-based effects
+    local intensityMult = effect.currentIntensityMultiplier or 1.0
+    
+    -- Draw background glow for the entire cone area at the beginning
+    if effect.progress < 0.5 then
+        -- Calculate cone properties
+        local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
+        local coneLength = effect.coneLength or 240
+        local halfConeLength = coneLength * 0.7 * (1 - effect.progress * 0.8) -- Fades with progress
+        
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Draw a subtle background glow using triangles
+        local numSegments = 12
+        love.graphics.setColor(effect.color[1] * 0.7, effect.color[2] * 0.7, effect.color[3] * 0.7, 
+                             0.2 * (1 - effect.progress) * intensityMult)
+        
+        for j = 1, numSegments - 1 do
+            local angle1 = baseAngle - coneAngleRad/2 + (j-1) * coneAngleRad / (numSegments-1)
+            local angle2 = baseAngle - coneAngleRad/2 + j * coneAngleRad / (numSegments-1)
+            
+            local x1 = effect.sourceX + math.cos(angle1) * halfConeLength
+            local y1 = effect.sourceY + math.sin(angle1) * halfConeLength
+            local x2 = effect.sourceX + math.cos(angle2) * halfConeLength
+            local y2 = effect.sourceY + math.sin(angle2) * halfConeLength
+            
+            -- Draw triangle from source to arc segment
+            love.graphics.polygon("fill", effect.sourceX, effect.sourceY, x1, y1, x2, y2)
+        end
+    end
+    
+    -- Draw wave fronts (for wave particles)
+    for i = 1, effect.waveCount or 4 do
+        -- Only draw if the wave has started
+        if effect.waveStarted and effect.waveStarted[i] then
+            -- Calculate wave progress based on wave index
+            local waveDelay = (i - 1) / (effect.waveCount or 4) * 0.4 -- Spread waves out more
+            local waveProgress = (effect.progress - waveDelay) / 0.6
+            
+            if waveProgress > 0 and waveProgress < 1.0 then
+                -- Calculate cone properties
+                local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
+                local coneLength = effect.coneLength or 240
+                local waveDistance = coneLength * waveProgress * 0.95  -- Extended wave reach
+                
+                -- Calculate the base direction from source to target
+                local dirX = effect.targetX - effect.sourceX
+                local dirY = effect.targetY - effect.sourceY
+                local baseAngle = math.atan2(dirY, dirX)
+                
+                -- Calculate wave arc points
+                local numPoints = 16  -- More points for smoother arc
+                local waveFront = math.max(0, 1 - math.abs(waveProgress - 0.3) * 5) -- Peak around 30% progress
+                local waveThickness = (4 + waveFront * 3) * intensityMult -- Thicker at wave front
+                
+                -- Calculate wave color with leading edge glow
+                local r, g, b = effect.color[1], effect.color[2], effect.color[3]
+                if waveFront > 0.1 and effect.leadingEdgeGlow then
+                    -- Brighter color at wave front
+                    r = r * (1 + waveFront * 0.5)
+                    g = g * (1 + waveFront * 0.5)
+                    b = b * (1 + waveFront * 0.5)
+                end
+                
+                -- Draw wave arc
+                love.graphics.setLineWidth(waveThickness)
+                love.graphics.setColor(r, g, b, (0.7 + waveFront * 0.3) * (1 - waveProgress * 0.7) * intensityMult)
+                
+                -- Draw arc segments
+                for j = 1, numPoints - 1 do
+                    local angle1 = baseAngle - coneAngleRad/2 + (j-1) * coneAngleRad / (numPoints-1)
+                    local angle2 = baseAngle - coneAngleRad/2 + j * coneAngleRad / (numPoints-1)
+                    
+                    local x1 = effect.sourceX + math.cos(angle1) * waveDistance
+                    local y1 = effect.sourceY + math.sin(angle1) * waveDistance
+                    local x2 = effect.sourceX + math.cos(angle2) * waveDistance
+                    local y2 = effect.sourceY + math.sin(angle2) * waveDistance
+                    
+                    love.graphics.line(x1, y1, x2, y2)
+                    
+                    -- Add extra glow points at wave crest
+                    if waveFront > 0.2 and j % 3 == 1 then
+                        local glowSize = waveFront * (effect.waveCrestSize or 1.0) * 15
+                        love.graphics.setColor(r, g, b, waveFront * 0.7)
+                        love.graphics.circle("fill", (x1 + x2)/2, (y1 + y2)/2, glowSize * intensityMult)
+                    end
+                end
+                
+                -- Reset line width
+                love.graphics.setLineWidth(1)
+            end
+        end
+    end
+    
+    -- Draw source effect with enhanced glow
+    local sourceGlowSize = 40 * (1 - effect.progress * 0.6) * intensityMult
+    if sourceGlowSize > 0 then
+        -- Draw outer glow
+        love.graphics.setColor(effect.color[1] * 0.6, effect.color[2] * 0.6, effect.color[3] * 0.6, 
+                             0.4 * (1 - effect.progress * 0.5) * intensityMult)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 1.5)
+        
+        -- Draw inner brighter glow
+        love.graphics.setColor(effect.color[1] * 1.2, effect.color[2] * 1.2, effect.color[3] * 1.2, 
+                              0.7 * (1 - effect.progress * 0.5) * intensityMult)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 0.7)
+        
+        -- Draw bright core (pulsing)
+        local pulseEffect = 1.0 + 0.2 * math.sin(effect.timer * 12)
+        love.graphics.setColor(1, 1, 1, 0.8 * (1 - effect.progress * 0.7) * pulseEffect)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 0.3 * pulseEffect)
+    end
+    
+    -- Draw particles (draw regular particles first, then wave particles on top for better layering)
+    
+    -- First pass: draw regular particles (background fill)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and not particle.isWave then
+            -- Apply intensity multiplier to particle alpha and scale for range-based effects
+            local adjustedAlpha = particle.alpha * (particle.intensityMultiplier or intensityMult)
+            local adjustedScale = particle.scale * (particle.intensityMultiplier or intensityMult)
+            
+            -- Regular particles
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], adjustedAlpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                adjustedScale, adjustedScale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Second pass: draw wave particles (they should appear on top)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.isWave then
+            -- Apply intensity multiplier to particle alpha and scale for range-based effects
+            local adjustedAlpha = particle.alpha * (particle.intensityMultiplier or intensityMult)
+            local adjustedScale = particle.scale * (particle.intensityMultiplier or intensityMult)
+            
+            -- Draw trail if enabled for this particle
+            if particle.drawTrail and particle.trailLength and particle.trailWidth then
+                -- Calculate trail endpoints
+                local trailAngle = math.atan2(effect.sourceY - particle.y, effect.sourceX - particle.x)
+                local trailEndX = particle.x + math.cos(trailAngle) * particle.trailLength
+                local trailEndY = particle.y + math.sin(trailAngle) * particle.trailLength
+                
+                -- Draw gradient trail with higher brightness at particle position
+                love.graphics.setLineWidth(particle.trailWidth)
+                
+                -- Use polygon to draw trail with gradient
+                local perpX = -math.sin(trailAngle) * (particle.trailWidth * 0.5)
+                local perpY = math.cos(trailAngle) * (particle.trailWidth * 0.5)
+                
+                -- Calculate trail vertices
+                local x1 = particle.x + perpX
+                local y1 = particle.y + perpY
+                local x2 = particle.x - perpX
+                local y2 = particle.y - perpY
+                local x3 = trailEndX - perpX * 0.5 -- narrow at the end
+                local y3 = trailEndY - perpY * 0.5
+                local x4 = trailEndX + perpX * 0.5
+                local y4 = trailEndY + perpY * 0.5
+                
+                -- Draw trail with gradient alpha
+                love.graphics.setColor(effect.color[1] * 1.5, effect.color[2] * 1.5, effect.color[3] * 1.5, adjustedAlpha * 0.7)
+                love.graphics.polygon("fill", x1, y1, x2, y2, x3, y3, x4, y4)
+            end
+            
+            -- Choose image based on whether it's a leading edge particle
+            local imgToDraw = particleImage
+            if particle.isLeadingEdge and particle.glowIntensity and particle.glowIntensity > 0.1 then
+                imgToDraw = glowImage -- Use glow image for leading edge particles
+                -- Draw halo effect for leading wave particles
+                love.graphics.setColor(effect.color[1] * 1.7, effect.color[2] * 1.7, effect.color[3] * 1.7, 
+                                     adjustedAlpha * 0.8 * particle.glowIntensity)
+                love.graphics.circle("fill", particle.x, particle.y, adjustedScale * 15 * particle.glowIntensity)
+            end
+            
+            -- Draw the main particle
+            love.graphics.setColor(effect.color[1] * 1.5, effect.color[2] * 1.5, effect.color[3] * 1.5, adjustedAlpha * 1.3)
+            love.graphics.draw(
+                imgToDraw,
+                particle.x, particle.y,
+                particle.rotation,
+                adjustedScale * 1.7, adjustedScale * 1.7, -- Even bigger wave particles
+                imgToDraw:getWidth()/2, imgToDraw:getHeight()/2
+            )
+            
+            -- Add extra bright core for wave particles
+            if math.random() < 0.3 then
+                love.graphics.setColor(1, 1, 1, adjustedAlpha * 0.8)
+                love.graphics.circle("fill", particle.x, particle.y, adjustedScale * 3.5 * math.random())
+            end
+            
+            -- Add burst effect for leading edge particles
+            if particle.isLeadingEdge and particle.glowIntensity and particle.glowIntensity > 0.5 and math.random() < 0.4 then
+                -- Occasional bursts of energy at leading edge
+                local burstSize = adjustedScale * 8 * particle.glowIntensity * math.random()
+                love.graphics.setColor(1, 1, 1, adjustedAlpha * 0.9)
+                love.graphics.circle("fill", 
+                    particle.x + math.random(-3, 3), 
+                    particle.y + math.random(-3, 3),
+                    burstSize)
+            end
+        end
+    end
+    
+    -- Draw subtle cone outline at the beginning of the effect
+    if effect.progress < 0.3 then
+        -- Calculate cone properties
+        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+        local coneLength = (effect.coneLength or 160) * (1 - effect.progress)
+        
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Calculate cone edges
+        local leftAngle = baseAngle - coneAngleRad/2
+        local rightAngle = baseAngle + coneAngleRad/2
+        
+        local leftX = effect.sourceX + math.cos(leftAngle) * coneLength
+        local leftY = effect.sourceY + math.sin(leftAngle) * coneLength
+        local rightX = effect.sourceX + math.cos(rightAngle) * coneLength
+        local rightY = effect.sourceY + math.sin(rightAngle) * coneLength
+        
+        -- Draw cone outline
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 
+                              0.2 * (1 - effect.progress/0.3) * intensityMult)
+        love.graphics.line(effect.sourceX, effect.sourceY, leftX, leftY)
+        love.graphics.line(effect.sourceX, effect.sourceY, rightX, rightY)
+        
+        -- Draw arc connecting the edges
+        local numPoints = 10
+        love.graphics.setLineWidth(1)
+        for j = 1, numPoints - 1 do
+            local angle1 = leftAngle + (j-1) * (rightAngle - leftAngle) / (numPoints-1)
+            local angle2 = leftAngle + j * (rightAngle - leftAngle) / (numPoints-1)
+            
+            local x1 = effect.sourceX + math.cos(angle1) * coneLength
+            local y1 = effect.sourceY + math.sin(angle1) * coneLength
+            local x2 = effect.sourceX + math.cos(angle2) * coneLength
+            local y2 = effect.sourceY + math.sin(angle2) * coneLength
+            
+            love.graphics.line(x1, y1, x2, y2)
+        end
+    end
+end
+
+-- Draw function for remote effect
+function VFX.drawRemote(effect)
+    local particleImage = getAssetInternal("sparkle")
+    local glowImage = getAssetInternal("fireGlow")
+    local impactImage = getAssetInternal("impactRing")
+    
+    -- Get warp frames if needed
+    local warpFrames = nil
+    if effect.useSprites then
+        warpFrames = getAssetInternal("warpFrames")
+    end
+    
+    -- Center position is at the current target position
+    -- This will automatically reflect any position updates from updateRemote
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+    
+    -- Draw base glow at the center
+    local glowAlpha = 0.5 * (1 - 0.5 * math.abs(effect.progress * 2 - 1)) -- Peak at the middle
+    local glowIntensity = effect.glowIntensity or 0.7
+    glowAlpha = glowAlpha * glowIntensity
+    
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], glowAlpha)
+    local glowScale = 0.5 + effect.progress * 0.5 -- Grow slightly over time
+    
+    -- Add pulsing if enabled
+    if effect.usePulse then
+        local pulseAmount = effect.pulseAmount or 0.2
+        local pulseRate = effect.pulseRate or 6.0
+        glowScale = glowScale * (1 + math.sin(effect.timer * pulseRate) * pulseAmount)
+    end
+    
+    -- Draw the glow
+    love.graphics.draw(
+        glowImage,
+        centerX, centerY,
+        0,
+        glowScale * 4, glowScale * 4, -- Larger glow
+        glowImage:getWidth()/2, glowImage:getHeight()/2
+    )
+    
+    -- Draw expanding circle
+    local ringProgress = math.min(effect.progress * 1.2, 1.0)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - ringProgress))
+    local ringScale = (effect.radius or 60) * 0.02 * ringProgress
+    love.graphics.draw(
+        impactImage,
+        centerX, centerY,
+        0,
+        ringScale, ringScale,
+        impactImage:getWidth()/2, impactImage:getHeight()/2
+    )
+    
+    -- Draw sprite animation if enabled
+    if effect.useSprites and warpFrames and #warpFrames > 0 then
+        -- Calculate which frame to use based on animation time
+        local frameRate = effect.spriteFrameRate or 10
+        local totalFrames = #warpFrames
+        local frameIndex = math.floor((effect.timer * frameRate) % totalFrames) + 1
+        local currentFrame = warpFrames[frameIndex]
+        
+        if currentFrame then
+            -- Calculate scale with pulsing effect if enabled
+            local spriteScale = effect.spriteScale or 1.0
+            
+            -- Apply pulse if enabled
+            if effect.usePulse then
+                local pulseAmount = effect.pulseAmount or 0.2
+                local pulseRate = effect.pulseRate or 6.0
+                spriteScale = spriteScale * (1 + math.sin(effect.timer * pulseRate) * pulseAmount)
+            end
+            
+            -- Calculate opacity curve (fade in, stay visible, fade out)
+            local alpha = 1.0
+            if effect.progress < 0.2 then
+                -- Fade in during the first 20%
+                alpha = effect.progress / 0.2
+            elseif effect.progress > 0.8 then
+                -- Fade out during the last 20%
+                alpha = (1.0 - effect.progress) / 0.2
+            end
+            
+            -- Set color with tinting if enabled
+            if effect.spriteTint then
+                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+            else
+                -- Pure white with alpha
+                love.graphics.setColor(1, 1, 1, alpha)
+            end
+            
+            -- Calculate rotation angle if needed
+            local rotation = 0
+            if effect.rotateSprite then
+                rotation = effect.spriteAngle or 0
+            end
+            
+            -- Draw the sprite at the center
+            love.graphics.draw(
+                currentFrame,
+                centerX, centerY,
+                rotation,
+                spriteScale, spriteScale,
+                currentFrame:getWidth()/2, currentFrame:getHeight()/2
+            )
+        end
+    end
+    
+    -- Draw particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                particle.scale, particle.scale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+end
+
 function VFX.drawMeteor(effect)
     love.graphics.setBlendMode("add")
     
@@ -19720,6 +20728,31 @@ This report shows the current VFX setup for each spell and recommendations for i
    lua tools/test_vfx_events.lua
    ```
 
+## docs/VerticalSliceMustHaves.md
+Polished spell templates:
+* ORB
+* BEAM
+* WARP
+* BLAST
+* METEOR
+* FOUNTAIN
+
+Polished mechanical templates:
+* WARD
+* BARRIER
+* TRAP
+
+SFX:
+* Figure this out!
+
+Character animation:
+* Absolute bare minimum: 2-frame idles
+* Ideally: 4-frame idles _per position_.
+* 1-frame Cast per-position
+* Flash/shake on-hit
+* Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
+* 
+
 ## docs/Visual_Language.md
 # Visual Language Reference
 
@@ -21126,24 +22159,26 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Development Status
 
-This is an early prototype with basic functionality:
+This is a late prototype with basic full engine functionality:
 - Two opposing wizards with health bars
 - Shared mana pool with floating tokens
 - Three spell slots per wizard with visual feedback
-- Basic state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Simple spatial state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Data-driven VFX engine (actual visuals are still rough)
+- Various spell types with unique mechanics: Attack, Utility, Shield, Trap (with various subtypes of each)
+- Various spell keywords with rigorously defined mechanics.
+- "Triune Spell Engine" custom DSL/data-driven format for defining spells in terms of keywords. Spells are "compiled" at runtime from keyword-based definitions which can be authored using any convenient tool.
 
 ## Next Steps
 
-- Connect mana tokens to spell queueing
-- Implement actual spell effects
-- Add position changes
-- Create proper spell descriptions
-- Add collision detection
-- Add visual effects
+- Polish VFX and add SFX. Use consistent design language driven by TSE spell definitions.
+- Add basic main menu, mode select, control customization.
+- Add AI opponent (strategy design pattern).
+- Add content. Lots of content. Lots and lots and lots of content.
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Mon May  5 10:18:38 CDT 2025
+Generated: Thu May  8 13:39:51 CDT 2025
 
 # Source Code
 
@@ -22501,9 +23536,12 @@ Constants.VFXType = {
     
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
+    BOLT_BASE = "bolt_base",       -- Base bolt effect
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
+    WARP_BASE = "warp_base",       -- Base warp effect (reality distortion)
     ZONE_BASE = "zone_base",       -- Base zone/area effect
+    BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect
@@ -28719,8 +29757,7 @@ MoonSpells.fullmoonbeam = {
                 return damage
             end,
             type = Constants.TokenType.MOON
-        },
-        vfx = { effect = Constants.VFXType.FULLMOONBEAM, target = Constants.TargetType.ENEMY }
+        }
     },
     sfx = "beam_charge",
     blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
@@ -32867,17 +33904,18 @@ local TEMPLATE_BY_SHAPE = {
     ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
-    ["bolt"] = Constants.VFXType.PROJ_BASE,
+    ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
     ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
-    ["blast"] = Constants.VFXType.ZONE_BASE,
+    ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
+    ["cone"] = Constants.VFXType.BLAST_BASE,   -- Alternative name for same template
     ["groundBurst"] = Constants.VFXType.ZONE_BASE,
     ["meteor"] = Constants.VFXType.METEOR,
     
     -- Remote/direct effects
-    ["warp"] = Constants.VFXType.REMOTE_BASE,
+    ["warp"] = Constants.VFXType.WARP_BASE,
     
     -- Utility effects
     ["surge"] = Constants.VFXType.SURGE_BASE,
@@ -36112,6 +37150,20 @@ function VFX.init()
         -- Generic effects
         sparkle = "assets/sprites/sparkle.png",
         impactRing = "assets/sprites/impact-ring.png",
+        
+        -- Bolt effects
+        boltFrames = {
+            "assets/sprites/bolt/bolt1.png",
+            "assets/sprites/bolt/bolt2.png",
+            "assets/sprites/bolt/bolt3.png"
+        },
+        
+        -- Warp effects
+        warpFrames = {
+            "assets/sprites/warp/warp1.png",
+            "assets/sprites/warp/warp2.png",
+            "assets/sprites/warp/warp3.png"
+        },
 
         -- Rune assets for Ward shields (paths only)
         runes = {}
@@ -36151,6 +37203,32 @@ function VFX.init()
     print("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
     
+    -- Preload bolt frames for the bolt effects
+    print("[VFX] Preloading bolt frame assets")
+    VFX.assets.boltFrames = {}
+    for i, boltPath in ipairs(VFX.assetPaths.boltFrames) do
+        print("[VFX] Preloading bolt frame " .. i)
+        local boltImg = AssetCache.getImage(boltPath)
+        if boltImg then
+            table.insert(VFX.assets.boltFrames, boltImg)
+        else
+            print("[VFX] Warning: Failed to preload bolt frame asset: " .. boltPath)
+        end
+    end
+    
+    -- Preload warp frames for the warp effects
+    print("[VFX] Preloading warp frame assets")
+    VFX.assets.warpFrames = {}
+    for i, warpPath in ipairs(VFX.assetPaths.warpFrames) do
+        print("[VFX] Preloading warp frame " .. i)
+        local warpImg = AssetCache.getImage(warpPath)
+        if warpImg then
+            table.insert(VFX.assets.warpFrames, warpImg)
+        else
+            print("[VFX] Warning: Failed to preload warp frame asset: " .. warpPath)
+        end
+    end
+    
     -- Effect definitions keyed by effect name
     VFX.effects = {
         -- Base templates for the rules-driven VFX system
@@ -36172,6 +37250,61 @@ function VFX.init()
             leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
         
+        bolt_base = {
+            type = Constants.AttackType.PROJECTILE,  -- Still uses projectile logic
+            duration = 0.8,               -- Faster than standard projectile
+            particleCount = 20,           -- Fewer particles since we're using sprites
+            startScale = 0.4,
+            endScale = 0.7,
+            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            trailLength = 18,             -- Longer trail for lightning-like effect
+            impactSize = 1.3,             -- Slightly larger impact
+            sound = nil,                  -- No default sound
+            coreDensity = 0.3,            -- Less dense core, since we're using sprites
+            trailDensity = 0.4,           -- Less dense trail, since we're using sprites
+            turbulence = 0.8,             -- More random motion for lightning effect
+            arcHeight = 0,                -- Zero arc height for straight-line trajectory
+            straightLine = true,          -- New: Flag for straight-line movement
+            particleLifespan = 0.5,       -- Shorter particle lifespan for quick flashes
+            leadingIntensity = 1.8,       -- Brighter leading edge
+            flickerRate = 12,             -- Rate at which particles flicker (Hz)
+            flickerIntensity = 0.3,       -- Intensity of the flicker effect (0-1)
+            useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 15,         -- Frames per second for sprite animation
+            spriteRotationOffset = 0.78,  -- Radians to rotate the sprite by default (≈45 degrees)
+            spriteScale = 0.85,           -- Base scale factor for the sprite
+            spriteTint = true,            -- Whether to apply color tinting to sprites
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true,     -- Track target position
+            criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+        
+        warp_base = {
+            type = "remote",               -- Uses remote effect type (action at a distance)
+            duration = 1.0,                -- Standard duration
+            particleCount = 25,            -- Particles for additional effects
+            startScale = 0.5,
+            endScale = 1.0,
+            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            radius = 80,                   -- Radius for particle effects
+            impactSize = 1.5,              -- Slightly larger impact
+            sound = nil,                   -- No default sound
+            pulseRate = 6.0,               -- Rate of pulsing effect
+            useSprites = true,             -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 10,          -- Frames per second for sprite animation
+            spriteScale = 1.0,             -- Base scale factor for the sprite
+            spriteTint = true,             -- Whether to apply color tinting to sprites
+            rotateSprite = true,           -- Whether to rotate the sprite
+            rotationSpeed = 1.2,           -- Rotation speed in radians per second
+            drawAtTarget = true,           -- Draw directly at target position
+            usePulse = true,               -- Use pulsing effect
+            pulseAmount = 0.2,             -- Amount of pulse (scale variation)
+            glowIntensity = 0.7,           -- Intensity of the glow effect
+            particleDensity = 0.6,         -- How dense the particles should be
+            useTargetPosition = true,      -- Track the target's position
+            criticalAssets = {"warpFrames"} -- Mark warp frames as critical assets to preload
+        },
+        
         beam_base = {
             type = "beam",
             duration = 1.2,
@@ -36181,7 +37314,36 @@ function VFX.init()
             endScale = 0.9,
             color = Constants.Color.SMOKE,  -- Default color, will be overridden
             pulseRate = 3,
-            sound = nil
+            sound = nil,
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true      -- Track target position
+        },
+        
+        blast_base = {
+            type = "cone",                -- Cone-shaped blast effect
+            duration = 1.3,               -- Even longer duration for more dramatic impact
+            particleCount = 95,           -- More particles for density and impact
+            startScale = 0.45,            -- Larger starting scale
+            endScale = 1.35,              -- Larger end scale for dramatic growth
+            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            coneAngle = 45,               -- Narrower cone angle (45° instead of 70°)
+            coneLength = 320,             -- Much longer range for dramatic reach
+            waveCount = 5,                -- More waves for increased visual impact
+            waveSpeed = 350,              -- Faster wave propagation 
+            nearRangeIntensity = 2.2,     -- Stronger intensity multiplier at NEAR range
+            matchedElevationIntensity = 1.7, -- Stronger multiplier for matched elevation
+            useSourcePosition = true,     -- Track source (caster) position
+            motionStyle = Constants.MotionStyle.DIRECTIONAL, -- Directional movement for particles
+            waveCrest = true,             -- Enable wave crest visual effect
+            waveCrestSize = 2.2,          -- Even larger wave crests
+            turbulence = 0.35,            -- Slightly reduced turbulence for more focused beam
+            leadingEdgeGlow = true,       -- Add bright leading edge to waves
+            particleSizeVariance = 0.6,   -- Greater size variance for particles
+            wavePersistence = 0.9,        -- How long waves remain visible (new parameter)
+            trailingGlowStrength = 0.8,   -- Strength of glow trail behind waves (new parameter)
+            sound = nil,                  -- No default sound
+            intensityFalloff = 0.65,      -- Control how quickly intensity drops with distance
+            focusedCore = true            -- Concentrate particles in center of cone (new parameter)
         },
         
         zone_base = {
@@ -36210,15 +37372,30 @@ function VFX.init()
         
         surge_base = {
             type = "surge",
-            duration = 1.2,
-            particleCount = 35,
-            startScale = 0.25,
-            endScale = 0.05,
-            color = Constants.Color.SKY,
-            height = 150,
-            spread = 60,
-            pulseRate = 4,
-            sound = "surge"
+            duration = 1.5,                -- Longer duration for buff visual
+            particleCount = 60,            -- More particles for richer effect
+            startScale = 0.3,              -- Larger starting scale
+            endScale = 0.08,               -- Smaller end scale for fade-out
+            color = Constants.Color.SKY,   -- Default color, will be overridden
+            height = 200,                  -- Higher fountain effect
+            spread = 45,                   -- Narrower spread for more focused fountain
+            riseFactor = 1.4,              -- How quickly particles rise (new parameter)
+            gravity = 180,                 -- Gravity effect for natural arc (new parameter)
+            centerGlow = true,             -- Create glowing core at caster (new parameter)
+            centerGlowSize = 50,           -- Size of the center glow
+            centerGlowIntensity = 1.3,     -- Intensity of center glow
+            spiralMotion = true,           -- Add spiral motion to particles (new parameter)
+            spiralTightness = 2.5,         -- How tight the spiral is (new parameter)
+            particleSizeVariance = 0.6,    -- Varied particle sizes
+            riseAcceleration = 1.2,        -- Particles accelerate as they rise (new parameter)
+            bloomEffect = true,            -- Add bloom/glow to particles (new parameter)
+            bloomIntensity = 0.8,          -- Intensity of bloom effect (new parameter)
+            sparkleChance = 0.4,           -- Chance for sparkle effect on particles (new parameter)
+            useSprites = true,             -- Use sprite images
+            spriteFrameRate = 8,           -- Frame rate for sprite animation
+            pulsateParticles = true,       -- Pulsate particle size (new parameter)
+            sound = "surge",               -- Sound effect
+            criticalAssets = {"sparkle"}   -- Required assets
         },
         
         conjure_base = {
@@ -36286,42 +37463,6 @@ function VFX.init()
             sound = nil  -- No default sound
         },
         
-        -- Tidal Force Ground effect - for forcing opponents down from AERIAL to GROUNDED
-        tidal_force_ground = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 25,
-            startScale = 0.5,
-            endScale = 1.2,
-            color = Constants.Color.OCEAN,  -- Blue-ish for water/tidal theme
-            radius = 80,
-            sound = "tidal_wave"
-        },
-        
-        -- Gravity Pin Ground effect - for forcing opponents down from AERIAL to GROUNDED
-        gravity_pin_ground = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 20,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.MAROON,  -- Purple for gravity theme -> MAROON
-            radius = 70,
-            sound = "gravity_slam"
-        },
-        
-        -- Gravity Trap Set effect - when placing a gravity trap
-        gravity_trap_set = {
-            type = "impact",
-            duration = 1.2,
-            particleCount = 30,
-            startScale = 0.4,
-            endScale = 1.2,
-            color = Constants.Color.MAROON,  -- Purple for gravity theme
-            radius = 75,
-            sound = "gravity_trap_deploy"  -- Sound will need to be loaded
-        },
-        
         meteor = {
             type = "meteor",
             duration = 1.4,
@@ -36361,206 +37502,6 @@ function VFX.init()
             pulseRate = 4,
             sound = "release"
         },
-
-        -- Firebolt effect - showcasing the improved projectile system
-        firebolt = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 0.75,               -- Reduced from 1.0 for faster projectile
-            particleCount = 40,            -- Good particle count for rich visuals
-            startScale = 0.5,
-            endScale = 1.0,
-            color = Constants.Color.ORANGE, -- {1, 0.5, 0.2, 1}
-            trailLength = 12,               -- Trail points for calculation
-            impactSize = 1.4,
-            sound = "firebolt",
-            coreDensity = 0.75,             -- More particles at the leading edge
-            trailDensity = 0.5,             -- Fewer trail particles
-            turbulence = 0.8,               -- Higher turbulence for fire feeling
-            arcHeight = 15,                 -- Much shallower arc (more direct flight)
-            particleLifespan = 0.5,         -- Shorter individual particle life
-            leadingIntensity = 1.8,         -- Brighter leading edge for fire
-            motion = Constants.MotionStyle.RISE  -- Use rising motion for fire
-        },
-        
-        -- Mist Veil effect
-        mistveil = {
-            type = "aura",
-            duration = 3.0,
-            particleCount = 30,
-            startScale = 0.2,
-            endScale = 0.8,
-            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.7}
-            radius = 80,
-            pulseRate = 2,
-            sound = "mist",
-            criticalAssets = {"sparkle", "runes"} -- Define assets critical for this effect
-        },
-        
-        -- Emberlift effect
-        emberlift = {
-            type = "vertical",
-            duration = 1.2,
-            particleCount = 25,
-            startScale = 0.3,
-            endScale = 0.1,
-            color = Constants.Color.ORANGE, -- {1, 0.6, 0.2, 0.8}
-            height = 100,
-            sound = "whoosh"
-        },
-        
-        -- Force Blast Up effect (for forcing opponents up to AERIAL)
-        force_blast_up = {
-            type = "vertical",
-            duration = 1.5,
-            particleCount = 35,
-            startScale = 0.4,
-            endScale = 0.2,
-            color = Constants.Color.YELLOW,  -- Blue-ish for force -> YELLOW
-            height = 120,
-            sound = "force_wind"
-        },
-        
-        -- Full Moon Beam effect
-        fullmoonbeam = {
-            type = "beam",
-            duration = 1.8,
-            particleCount = 30,
-            beamWidth = 40,
-            startScale = 0.2,
-            endScale = 1.0,
-            color = Constants.Color.PINK,
-            pulseRate = 3,
-            sound = "moonbeam"
-        },
-        
-        -- Tidal Force effect
-        tidal_force = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 1.2,
-            particleCount = 30,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.OCEAN, -- {0.3, 0.5, 1.0, 0.8} -> Blue-ish for water theme
-            trailLength = 15,
-            impactSize = 1.6,
-            sound = "tidal_wave"
-        },
-        
-        -- Lunar Disjunction effect
-        lunardisjunction = {
-            type = Constants.AttackType.PROJECTILE,
-            duration = 1.0,
-            particleCount = 25,
-            startScale = 0.3,
-            endScale = 0.6,
-            color = Constants.Color.PINK, -- {0.8, 0.6, 1.0, 0.9} -> Purple-blue for moon/cosmic theme -> PINK
-            trailLength = 10,
-            impactSize = 1.8,  -- Bigger impact
-            sound = "lunar_disrupt"
-        },
-        
-        -- Disjoint effect (for cancelling opponent's spell)
-        disjoint_cancel = {
-            type = "impact",
-            duration = 1.2,
-            particleCount = 35,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.PINK, -- {0.9, 0.5, 1.0, 0.9} -> Brighter purple for disruption -> PINK
-            radius = 70,
-            sound = "lunar_disrupt"
-        },
-        
-        -- Conjure Fire effect
-        conjurefire = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.ORANGE, -- {1.0, 0.5, 0.2, 0.9}
-            height = 140,  -- Height to rise toward mana pool
-            spreadRadius = 40, -- Initial spread around the caster
-            sound = "conjure"
-        },
-        
-        -- Conjure Moonlight effect
-        conjuremoonlight = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.SKY, -- {0.7, 0.7, 1.0, 0.9}
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-        
-        -- Conjure Force effect
-        force_conjure = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW, -- {0.3, 0.5, 1.0, 0.9} -> Blue-ish -> YELLOW
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-
-        -- Conjure Star effect
-        star_conjure = {
-            type = "conjure",
-            duration = 1.5,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.8,
-            color = Constants.Color.BONE, -- {0.9, 0.9, 0.2, 0.9} -> Yellow-ish -> BONE
-            height = 140,
-            spreadRadius = 40,
-            sound = "conjure"
-        },
-        
-        -- Volatile Conjuring effect (random mana)
-        volatileconjuring = {
-            type = "conjure",
-            duration = 1.2,
-            particleCount = 25,
-            startScale = 0.2,
-            endScale = 0.6,
-            color = Constants.Color.YELLOW,  -- Yellow base color, will be randomized
-            height = 140,
-            spreadRadius = 55,  -- Wider spread for volatile
-            sound = "conjure"
-        },
-        
-        -- Nova Conjuring effect (Fire, Force, Star)
-        nova_conjure = {
-            type = "conjure",
-            duration = 2.0, -- Slightly longer duration
-            particleCount = 30, -- More particles
-            startScale = 0.4,
-            endScale = 1.0,
-            color = Constants.Color.ORANGE, -- Mixed color base (orange/gold) -> ORANGE
-            height = 140,
-            spreadRadius = 60, -- Wider spread
-            sound = "conjure_nova" -- Assumed sound effect
-        },
-
-        -- Witch Conjuring effect (Moon, Force, Nature)
-        witch_conjure = {
-            type = "conjure",
-            duration = 2.0, -- Slightly longer duration
-            particleCount = 30, -- More particles
-            startScale = 0.4,
-            endScale = 1.0,
-            color = Constants.Color.MAROON, -- Mixed color base (purple/indigo) -> MAROON
-            height = 140,
-            spreadRadius = 60, -- Wider spread
-            sound = "conjure_witch" -- Assumed sound effect
-        },
         
         -- Shield effect (used for barrier or ward shield activation)
         shield = {
@@ -36576,166 +37517,9 @@ function VFX.init()
             criticalAssets = {"sparkle", "runes", "impactRing"}, -- Assets needed for shields
             shieldType = nil -- Will be set at runtime based on the spell
         },
-        
-        -- Additional effects for VFXType constants
-        
-        -- Movement and positioning effects
-        elevation_up = {
-            type = "vertical",
-            duration = 1.0,
-            particleCount = 20,
-            startScale = 0.3,
-            endScale = 0.1,
-            color = Constants.Color.SKY,
-            height = 80,
-            sound = "whoosh"
-        },
-        
-        elevation_down = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 20,
-            startScale = 0.6,
-            endScale = 1.0,
-            color = Constants.Color.SMOKE,
-            radius = 60,
-            sound = "thud"
-        },
-        
-        range_change = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW,
-            radius = 40,
-            sound = nil
-        },
-        
-        force_position = {
-            type = "impact",
-            duration = 0.8,
-            particleCount = 25,
-            startScale = 0.5,
-            endScale = 1.2,
-            color = Constants.Color.OCEAN,
-            radius = 50,
-            sound = "force_wind"
-        },
-        
-        -- Resource effects
-        token_lock = {
-            type = "aura",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.2,
-            endScale = 0.5,
-            color = Constants.Color.MAROON,
-            radius = 20,
-            pulseRate = 4,
-            sound = "lock"
-        },
-        
-        token_shift = {
-            type = "aura",
-            duration = 0.6,
-            particleCount = 12,
-            startScale = 0.2,
-            endScale = 0.4,
-            color = Constants.Color.PINK,
-            radius = 20,
-            pulseRate = 5,
-            sound = "shift"
-        },
-        
-        token_consume = {
-            type = "impact",
-            duration = 0.7,
-            particleCount = 18,
-            startScale = 0.4,
-            endScale = 0.1,
-            color = Constants.Color.CRIMSON,
-            radius = 25,
-            sound = "consume"
-        },
-        
-        -- Defense effects
-        reflect = {
-            type = "aura",
-            duration = 1.2,
-            particleCount = 20,
-            startScale = 0.4,
-            endScale = 0.8,
-            color = Constants.Color.YELLOW,
-            radius = 50,
-            pulseRate = 4,
-            sound = "reflect"
-        },
-        
-        -- Spell timing effects
-        spell_accelerate = {
-            type = "aura",
-            duration = 0.8,
-            particleCount = 15,
-            startScale = 0.2,
-            endScale = 0.5,
-            color = Constants.Color.LIME,
-            radius = 30,
-            pulseRate = 5,
-            sound = "accelerate"
-        },
-        
-        spell_cancel = {
-            type = "impact",
-            duration = 0.7,
-            particleCount = 20,
-            startScale = 0.5,
-            endScale = 0.2,
-            color = Constants.Color.CRIMSON,
-            radius = 40,
-            sound = "cancel"
-        },
-        
-        spell_freeze = {
-            type = "aura",
-            duration = 1.0,
-            particleCount = 18,
-            startScale = 0.3,
-            endScale = 0.6,
-            color = Constants.Color.OCEAN,
-            radius = 35,
-            pulseRate = 3,
-            sound = "freeze"
-        },
-        
-        spell_echo = {
-            type = "aura",
-            duration = 1.0,
-            particleCount = 15,
-            startScale = 0.3,
-            endScale = 0.7,
-            color = Constants.Color.BONE,
-            radius = 40,
-            pulseRate = 4,
-            sound = "echo"
-        }
     }
     
-    -- Initialize sound effects
-    VFX.sounds = {
-        firebolt = nil, -- Sound files will be loaded when available
-        meteor = nil,
-        mist = nil,
-        whoosh = nil,
-        moonbeam = nil,
-        conjure = nil,
-        shield = nil
-    }
-    
-    -- Preload sound effects when they become available
-    -- Example of how to load sounds with AssetCache:
-    -- VFX.sounds.firebolt = AssetCache.getSound("assets/sounds/firebolt.wav")
+    -- TODO: Initialize sound effects
     
     -- Create effect pool - each effect is a container object
     Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
@@ -36915,6 +37699,27 @@ function VFX.resetEffect(effect)
     effect.impactSize = nil
     effect.spreadRadius = nil
     effect.options = nil
+    effect.coreDensity = nil
+    effect.trailDensity = nil
+    effect.turbulence = nil
+    effect.arcHeight = nil
+    effect.particleLifespan = nil
+    effect.leadingIntensity = nil
+    effect.flickerRate = nil
+    effect.flickerIntensity = nil
+    effect.useSprites = nil
+    effect.spriteFrameRate = nil
+    effect.spriteRotationOffset = nil
+    effect.spriteScale = nil
+    effect.spriteTint = nil
+    effect.straightLine = nil
+    effect.rotateSprite = nil
+    effect.rotationSpeed = nil
+    effect.drawAtTarget = nil
+    effect.usePulse = nil
+    effect.pulseAmount = nil
+    effect.glowIntensity = nil
+    effect.particleDensity = nil
     effect.beamProgress = nil
     effect.beamLength = nil
     effect.beamAngle = nil
@@ -36928,7 +37733,12 @@ function VFX.resetEffect(effect)
     effect.elevation = nil
     effect.addons = nil
     effect.spread = nil
-    
+    effect.visualProgress = nil
+    effect.blockTimerStarted = nil
+    effect.blockTimer = nil
+    effect.blockInfo = nil
+    effect.blockLogged = nil
+    effect.impactParticlesCreated = nil
     -- Reset particles array but don't delete it
     effect.particles = {}
     
@@ -37107,15 +37917,34 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.targetX = targetX or sourceX
     effect.targetY = targetY or sourceY
     
-    -- Store target entity for position tracking if provided in options
+    -- Store source and target entities for position tracking if provided in options
+    if options and options.sourceEntity then
+        effect.sourceEntity = options.sourceEntity
+        
+        -- Initialize with source position including offsets if available
+        if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
+            effect.sourceX = effect.sourceEntity.x + effect.sourceEntity.currentXOffset
+            effect.sourceY = effect.sourceEntity.y + effect.sourceEntity.currentYOffset
+        end
+    end
+    
     if options and options.targetEntity then
         effect.targetEntity = options.targetEntity
+        
+        -- Initialize with target position including offsets if available
+        if effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+            effect.targetX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+            effect.targetY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+        end
     end
     
     -- Flag for effects that should use target's actual position including offsets
     effect.trackTargetOffsets = (options and options.trackTargetOffsets) or (template and template.trackTargetOffsets) or false
     
-    -- Flag for effects that should use target position instead of source
+    -- Flag for effects that should use source position tracking
+    effect.useSourcePosition = (options and options.useSourcePosition) or (template and template.useSourcePosition) or false
+    
+    -- Flag for effects that should use target position tracking
     effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
     
     -- Timing
@@ -37213,6 +38042,27 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.impactSize = template.impactSize
     effect.spreadRadius = template.spreadRadius
     effect.spread = template.spread
+    effect.coreDensity = template.coreDensity
+    effect.trailDensity = template.trailDensity
+    effect.turbulence = template.turbulence
+    effect.arcHeight = template.arcHeight
+    effect.particleLifespan = template.particleLifespan
+    effect.leadingIntensity = template.leadingIntensity
+    effect.flickerRate = template.flickerRate
+    effect.flickerIntensity = template.flickerIntensity
+    effect.useSprites = template.useSprites
+    effect.spriteFrameRate = template.spriteFrameRate
+    effect.spriteRotationOffset = template.spriteRotationOffset
+    effect.spriteScale = template.spriteScale
+    effect.spriteTint = template.spriteTint
+    effect.straightLine = template.straightLine
+    effect.rotateSprite = template.rotateSprite
+    effect.rotationSpeed = template.rotationSpeed
+    effect.drawAtTarget = template.drawAtTarget
+    effect.usePulse = template.usePulse
+    effect.pulseAmount = template.pulseAmount
+    effect.glowIntensity = template.glowIntensity
+    effect.particleDensity = template.particleDensity
     
     -- Optional overrides
     effect.options = options or {}
@@ -37221,7 +38071,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     VFX.initializeParticles(effect)
     
     -- Play sound effect if available
-    if effect.sound and VFX.sounds[effect.sound] then
+    if effect.sound and VFX.sounds and VFX.sounds[effect.sound] then
         -- Will play sound when implemented
     end
     
@@ -37389,6 +38239,156 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
         
+    elseif effect.type == "cone" then
+        -- For conical blast effects
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Convert cone angle from degrees to radians
+        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+        local halfConeAngle = coneAngleRad / 2
+        
+        -- Set up wave parameters
+        local waveCount = effect.waveCount or 3
+        
+        -- Calculate effect properties based on range and elevation
+        local intensityMultiplier = 1.0
+        if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
+            intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
+        end
+        
+        -- Create particles for the cone blast
+        for i = 1, effect.particleCount do
+            local particle = Pool.acquire("vfx_particle")
+            
+            -- Determine if this particle is part of a wave or general cone fill
+            local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
+            
+            -- Random position within the cone but with focus toward center if focusedCore enabled
+            local conePos = math.random()
+            local angleOffset
+            
+            if effect.focusedCore then
+                -- Apply quadratic distribution to concentrate particles near center
+                -- Use squared random value to cluster toward cone center
+                local angleRand = math.random()
+                -- Apply bias toward center (squared distribution pushes values toward 0)
+                angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
+                angleOffset = angleRand * halfConeAngle
+            else
+                -- Standard uniform distribution across cone
+                angleOffset = (math.random() * 2 - 1) * halfConeAngle
+            end
+            
+            local angle = baseAngle + angleOffset
+            
+            -- Distance based on position in the cone (closer to edge or center)
+            local maxDistance = effect.coneLength or 320
+            
+            -- For longer cone, we want more particles toward the end
+            local distanceRand
+            if math.random() < 0.6 then
+                -- 60% chance for farther particles
+                distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
+            else
+                -- 40% chance for closer particles
+                distanceRand = math.random() * 0.5 -- 0.0 to 0.5
+            end
+            
+            local distance = maxDistance * distanceRand
+            
+            -- Wave-specific properties
+            if isWaveParticle and effect.waveCrest then
+                -- Assign to a specific wave
+                local waveIndex = math.floor(math.random() * waveCount) + 1
+                particle.waveIndex = waveIndex
+                particle.waveTime = waveIndex / waveCount -- Staggered wave timing
+                particle.isWave = true
+                
+                -- Calculate wave speed and distance based on wave index (later waves move faster)
+                local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15 -- Each wave is faster than the previous
+                particle.distance = maxDistance * 0.95 -- Waves extend almost to max distance
+                particle.speed = (effect.waveSpeed or 350) * speedMultiplier
+                particle.scale = effect.startScale * (1.5 + waveIndex * 0.1) -- Later waves slightly larger
+                particle.alpha = 0.9
+                
+                -- Wave persistence for long-lasting waves (new property)
+                if effect.wavePersistence then
+                    particle.persistenceFactor = effect.wavePersistence
+                end
+                
+                -- For trailing glow effect
+                if effect.trailingGlowStrength then
+                    particle.trailGlow = effect.trailingGlowStrength
+                end
+                
+                -- Wave particles need a more consistent angle within the cone
+                -- Distribute wave particles more densely in the center if focusedCore is enabled
+                local waveAnglePos = math.random()
+                if effect.focusedCore then
+                    -- Apply curve to concentrate in center
+                    waveAnglePos = (waveAnglePos * 2 - 1)
+                    -- Cubic function to keep more particles in center
+                    waveAnglePos = waveAnglePos * waveAnglePos * waveAnglePos
+                    waveAnglePos = (waveAnglePos + 1) / 2 -- Remap to 0-1
+                end
+                angle = baseAngle + (waveAnglePos * 2 - 1) * halfConeAngle * 0.85
+            else
+                -- Regular fill particles
+                particle.distance = distance
+                -- Faster particles for longer cone
+                particle.speed = math.random(100, 250)
+                -- More varied scale based on particleSizeVariance
+                local sizeVariance = effect.particleSizeVariance or 0.6
+                particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
+                particle.alpha = 0.6 + math.random() * 0.4
+                particle.isWave = false
+                
+                -- For focused cone, make particles in the center brighter and larger
+                if effect.focusedCore then
+                    -- Calculate distance from center angle
+                    local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
+                    -- Particles closer to center get enhancements
+                    if angleDiff < 0.4 then
+                        local centerBoost = (1.0 - angleDiff/0.4) * 0.5
+                        particle.scale = particle.scale * (1 + centerBoost)
+                        particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
+                    end
+                end
+            end
+            
+            -- Common properties
+            particle.angle = angle
+            particle.rotation = angle -- Align rotation with direction
+            particle.delay = math.random() * 0.3 -- Staggered start
+            particle.active = false
+            particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
+            particle.intensityMultiplier = intensityMultiplier
+            
+            -- Set position at source
+            particle.x = effect.sourceX
+            particle.y = effect.sourceY
+            
+            -- Additional properties for motion
+            particle.startTime = 0
+            particle.baseX = effect.sourceX
+            particle.baseY = effect.sourceY
+            
+            -- Target destination for the particle
+            particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
+            particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Flag to track which waves have started
+        effect.waveStarted = {}
+        for i = 1, waveCount do
+            effect.waveStarted[i] = false
+        end
+        
     elseif effect.type == "aura" then
         -- For aura effects, create particles that orbit the character
         for i = 1, effect.particleCount do
@@ -37438,6 +38438,77 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
         
+    elseif effect.type == "remote" then
+        -- For remote effects like warp, create particles at the target location
+        -- Use the target position as the center
+        -- Set flags for position tracking
+        effect.useTargetPosition = true  -- This tells the system to use the current target position
+        
+        -- Make sure to use the initial position with offsets if available
+        local centerX = effect.targetX
+        local centerY = effect.targetY
+        
+        -- Initialize with offset if the target entity has position offsets
+        if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+            centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+            centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+            
+            -- Update effect's target position to include offsets
+            effect.targetX = centerX
+            effect.targetY = centerY
+            
+            print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)", 
+                centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
+        end
+        
+        local radius = effect.radius or 60
+        
+        -- Calculate how many particles to create based on density
+        local particlesToCreate = effect.particleCount
+        if effect.particleDensity then
+            particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
+        end
+        
+        for i = 1, particlesToCreate do
+            -- Create particles in a circular pattern around the target
+            local angle = (i / particlesToCreate) * math.pi * 2
+            -- Random distance from center
+            local distance = math.random(10, radius) 
+            -- Random speed for movement
+            local speed = math.random(10, 70) 
+            
+            local particle = Pool.acquire("vfx_particle")
+            -- Start at the center
+            particle.x = centerX
+            particle.y = centerY 
+            -- Target position (for radial movement)
+            particle.targetX = centerX + math.cos(angle) * distance
+            particle.targetY = centerY + math.sin(angle) * distance
+            particle.speed = speed
+            particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
+            particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
+            particle.rotation = angle
+            -- Randomized delay for staggered appearance
+            particle.delay = math.random() * 0.4
+            particle.active = false
+            -- Store motion style and other properties
+            particle.motion = effect.motion
+            particle.angle = angle
+            particle.distance = distance
+            -- Don't store fixed coordinates, just the angle and distance
+            -- This way particles can be positioned relative to the current
+            -- target position, which may change over time
+            -- particle.baseX = centerX
+            -- particle.baseY = centerY
+            
+            table.insert(effect.particles, particle)
+        end
+        
+        -- Initialize sprite rotation angle if needed
+        if effect.rotateSprite then
+            effect.spriteAngle = 0
+        end
+    
     elseif effect.type == "beam" then
         -- For beam effects like fullmoonbeam, create a beam with particles
         -- First create the main beam shape
@@ -37511,25 +38582,107 @@ function VFX.initializeParticles(effect)
             table.insert(effect.particles, particle)
         end
     elseif effect.type == "surge" then
-        -- Initialize particles for fountain surge effect
-        local spread = effect.spread or 60
+        -- Initialize particles for fountain surge effect centered on caster
+        local spread = effect.spread or 45
+        local riseFactor = effect.riseFactor or 1.4
+        local gravity = effect.gravity or 180
+        local particleSizeVariance = effect.particleSizeVariance or 0.6
+        
+        -- Determine if we're using sprites
+        local useSprites = effect.useSprites
+        local spriteFrameCount = 0
+        if useSprites and effect.criticalAssets then
+            -- Count how many sprite frames we have for animation
+            for _, assetName in ipairs(effect.criticalAssets) do
+                if assetName == "sparkle" then
+                    -- Single sprite - no animation frames
+                    spriteFrameCount = 1
+                    break
+                end
+            end
+        end
+        
+        -- Pre-load center particle
+        effect.centerParticleTimer = 0
+        
+        -- Create particles with varied properties
         for i = 1, effect.particleCount do
             local particle = Pool.acquire("vfx_particle")
 
-            -- Start at source position
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
+            -- Start at source position with slight random offset
+            local startOffsetX = math.random(-10, 10)
+            local startOffsetY = math.random(-10, 10)
+            particle.x = effect.sourceX + startOffsetX
+            particle.y = effect.sourceY + startOffsetY
+            
+            -- Store initial position for spiral motion calculations
+            particle.initialX = particle.x
+            particle.initialY = particle.y
 
-            -- Upward velocity with random horizontal
-            particle.speedX = (math.random() - 0.5) * spread
-            particle.speedY = -math.random(180, 260)
-            particle.gravity = 300
-
-            particle.scale = effect.startScale * math.random(0.8, 1.2)
-            particle.alpha = 1.0
+            -- Create upward velocity with variety
+            -- More focused in the center for a fountain effect
+            local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
+            particle.speedX = (math.random() - 0.5) * spread * horizontalBias
+            
+            -- Vertical speed with some variance and acceleration
+            local riseSpeed = math.random(220, 320) * riseFactor
+            if effect.riseAcceleration then
+                -- Some particles have extra acceleration
+                particle.riseAcceleration = math.random() * effect.riseAcceleration
+            end
+            
+            particle.speedY = -riseSpeed
+            particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+            
+            -- Visual properties with variance
+            local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
+            particle.scale = effect.startScale * sizeVariance
+            particle.baseScale = particle.scale -- Store for pulsation
+            
+            particle.alpha = 0.9 + math.random() * 0.1
             particle.rotation = math.random() * math.pi * 2
-            particle.delay = math.random() * 0.3
+            particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+            
+            -- Staggered appearance
+            particle.delay = math.random() * 0.4
             particle.active = false
+            
+            -- Add sprite animation if enabled
+            if useSprites then
+                particle.useSprite = true
+                if spriteFrameCount > 1 then
+                    particle.frameIndex = 1
+                    particle.frameTimer = 0
+                    particle.frameRate = effect.spriteFrameRate or 8
+                end
+            end
+            
+            -- Special properties based on effect template settings
+            if effect.spiralMotion then
+                particle.spiral = true
+                particle.spiralFrequency = 5 + math.random() * 3
+                particle.spiralAmplitude = 10 + math.random() * 20
+                particle.spiralPhase = math.random() * math.pi * 2
+                particle.spiralTightness = effect.spiralTightness or 2.5
+            end
+            
+            if effect.pulsateParticles and math.random() < 0.7 then
+                particle.pulsate = true
+                particle.pulseRate = 3 + math.random() * 5
+                particle.pulseAmount = 0.2 + math.random() * 0.3
+            end
+            
+            -- Chance for special sparkle particles
+            if effect.sparkleChance and math.random() < effect.sparkleChance then
+                particle.sparkle = true
+                particle.sparkleIntensity = 0.7 + math.random() * 0.3
+            end
+            
+            -- Add bloom glow effect
+            if effect.bloomEffect then
+                particle.bloom = true
+                particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
+            end
 
             table.insert(effect.particles, particle)
         end
@@ -37638,6 +38791,27 @@ function VFX.update(dt)
         
         -- Update timer
         effect.timer = effect.timer + dt
+        
+        -- Update positions based on tracked entities
+        -- First check source position updates
+        if effect.useSourcePosition and effect.sourceEntity then
+            -- Check for wizard-specific position offsets
+            if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
+                -- Update source position with offsets
+                effect.sourceX = effect.sourceEntity.x + effect.sourceEntity.currentXOffset
+                effect.sourceY = effect.sourceEntity.y + effect.sourceEntity.currentYOffset
+            end
+        end
+        
+        -- Then check target position updates
+        if effect.useTargetPosition and effect.targetEntity then
+            -- Check for wizard-specific position offsets
+            if effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+                -- Update target position with offsets
+                effect.targetX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+                effect.targetY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+            end
+        end
         
         -- Only calculate progress if duration is valid
         if effect.duration > 0 then
@@ -37772,6 +38946,10 @@ function VFX.update(dt)
             VFX.updateProjectile(effect, dt)
         elseif effect.type == "impact" then
             VFX.updateImpact(effect, dt)
+        elseif effect.type == "cone" then
+            VFX.updateCone(effect, dt)
+        elseif effect.type == "remote" then
+            VFX.updateRemote(effect, dt)
         elseif effect.type == "aura" then
             VFX.updateAura(effect, dt)
         elseif effect.type == "vertical" then
@@ -37842,61 +39020,84 @@ function VFX.updateProjectile(effect, dt)
     end
     
     -- Calculate base projectile position
+    -- Using current source and target positions (which may have been updated for tracking)
     local posX = effect.sourceX + (effect.targetX - effect.sourceX) * baseProgress
     local posY = effect.sourceY + (effect.targetY - effect.sourceY) * baseProgress
     
-    -- Calculate improved trajectory arc with natural physics
-    -- Adjust trajectory based on rangeBand
-    local rangeBandModifier = 1.0
-    if effect.rangeBand == Constants.RangeState.FAR then
-        rangeBandModifier = 1.6  -- Higher arc for far range
-    elseif effect.rangeBand == Constants.RangeState.NEAR then
-        rangeBandModifier = 0.5  -- Lower, flatter arc for near range
-    end
-    
-    -- Adjust trajectory based on elevation with smoother transitions
-    local elevationOffset = 0
-    local arcModifier = 1.0
-    
-    if effect.elevation then
-        if effect.elevation == Constants.ElevationState.AERIAL then
-            -- When target is aerial, use more curved upward trajectory
-            arcModifier = 0.7 -- Less pronounced arc
-            elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
-        elseif effect.elevation == Constants.ElevationState.GROUNDED then
-            -- When target is grounded, use more gravity-influenced downward arc
-            arcModifier = 1.3 -- More pronounced arc
-            elevationOffset = 40 * baseProgress^2 -- Accelerating downward
+    -- For straight-line effects (like bolts), skip the arc calculation
+    if not effect.straightLine then
+        -- Calculate improved trajectory arc with natural physics
+        -- Adjust trajectory based on rangeBand
+        local rangeBandModifier = 1.0
+        if effect.rangeBand == Constants.RangeState.FAR then
+            rangeBandModifier = 1.6  -- Higher arc for far range
+        elseif effect.rangeBand == Constants.RangeState.NEAR then
+            rangeBandModifier = 0.5  -- Lower, flatter arc for near range
+        end
+        
+        -- Adjust trajectory based on elevation with smoother transitions
+        local elevationOffset = 0
+        local arcModifier = 1.0
+        
+        if effect.elevation then
+            if effect.elevation == Constants.ElevationState.AERIAL then
+                -- When target is aerial, use more curved upward trajectory
+                arcModifier = 0.7 -- Less pronounced arc
+                elevationOffset = -50 * math.sin(baseProgress * math.pi) -- Smooth upward curve
+            elseif effect.elevation == Constants.ElevationState.GROUNDED then
+                -- When target is grounded, use more gravity-influenced downward arc
+                arcModifier = 1.3 -- More pronounced arc
+                elevationOffset = 40 * baseProgress^2 -- Accelerating downward
+            end
+        end
+        
+        -- Apply motion style variations to the arc
+        if effect.motion == Constants.MotionStyle.RISE then
+            -- Rising motion: mostly flat but with subtle upward momentum for fire
+            local riseProgress = math.sin(baseProgress * math.pi * 0.4)
+            elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
+            arcModifier = arcModifier * 0.5 -- Reduce arc height further
+        elseif effect.motion == Constants.MotionStyle.FALL then
+            -- Falling motion: starts high, accelerates downward
+            elevationOffset = elevationOffset + 20 * baseProgress^1.5
+            arcModifier = arcModifier * 1.3
+        elseif effect.motion == Constants.MotionStyle.SWIRL then
+            -- Swirl adds a slight sine wave to the path
+            local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
+            posX = posX + swirlFactor
+            posY = posY + swirlFactor * 0.5
+        elseif effect.motion == Constants.MotionStyle.PULSE then
+            -- Pulse adds a throbbing effect to the arc height
+            local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
+            arcModifier = arcModifier * (1 + pulseFactor)
+        end
+        
+        -- Apply dynamic arc - smoother easing function
+        local arcHeight = effect.arcHeight or 60
+        local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
+        local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
+        
+        -- Apply final position
+        posY = posY + verticalOffset + elevationOffset * baseProgress
+    else
+        -- For straight-line effects like bolts, we can still add minor variations
+        -- Add a slight zigzag effect for lightning bolts, if desired
+        if effect.turbulence and effect.turbulence > 0 then
+            local turbAmt = effect.turbulence * 4
+            local zigzag = math.sin(baseProgress * 12) * turbAmt * baseProgress * (1 - baseProgress) * 2
+            -- Apply zigzag perpendicularly to the direction of travel
+            local dx = effect.targetX - effect.sourceX
+            local dy = effect.targetY - effect.sourceY
+            local len = math.sqrt(dx*dx + dy*dy)
+            if len > 0 then
+                -- Normalized perpendicular vector
+                local perpX = -dy / len
+                local perpY = dx / len
+                posX = posX + perpX * zigzag
+                posY = posY + perpY * zigzag
+            end
         end
     end
-    
-    -- Apply motion style variations to the arc
-    if effect.motion == Constants.MotionStyle.RISE then
-        -- Rising motion: mostly flat but with subtle upward momentum for fire
-        local riseProgress = math.sin(baseProgress * math.pi * 0.4)
-        elevationOffset = elevationOffset - 15 * (1 - baseProgress) * riseProgress
-        arcModifier = arcModifier * 0.5 -- Reduce arc height further
-    elseif effect.motion == Constants.MotionStyle.FALL then
-        -- Falling motion: starts high, accelerates downward
-        elevationOffset = elevationOffset + 20 * baseProgress^1.5
-        arcModifier = arcModifier * 1.3
-    elseif effect.motion == Constants.MotionStyle.SWIRL then
-        -- Swirl adds a slight sine wave to the path
-        local swirlFactor = math.sin(baseProgress * math.pi * 4) * 8 -- Faster swirl, smaller amplitude
-        posX = posX + swirlFactor
-        posY = posY + swirlFactor * 0.5
-    elseif effect.motion == Constants.MotionStyle.PULSE then
-        -- Pulse adds a throbbing effect to the arc height
-        local pulseFactor = 0.3 * math.sin(baseProgress * math.pi * 5) -- Faster pulse
-        arcModifier = arcModifier * (1 + pulseFactor)
-    end
-    
-    -- Apply dynamic arc - smoother easing function
-    local arcProgress = baseProgress * (1 - baseProgress) * 4 -- Quadratic ease in/out curve peaking at 0.5
-    local verticalOffset = -arcHeight * rangeBandModifier * arcModifier * arcProgress
-    
-    -- Apply final position
-    posY = posY + verticalOffset + elevationOffset * baseProgress
     
     -- Check for special shield block point
     local blockPoint = effect.options and effect.options.blockPoint
@@ -38383,9 +39584,57 @@ end
 
 -- Update function for beam effects
 function VFX.updateBeam(effect, dt)
-    -- Update beam progress
-    effect.beamProgress = math.min(effect.progress * 2, 1.0) -- Beam reaches full extension halfway through
-    
+    -- Enhanced beam update with shield block handling
+    local Constants = require("core.Constants")
+
+    -- Update beam properties based on current source and target positions
+    -- This ensures the beam adjusts if the wizards move due to range/elevation changes
+    effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
+    effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+
+    -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
+    local baseProgress
+    if effect.options and effect.options.blockPoint and effect.visualProgress then
+        baseProgress = effect.visualProgress -- Use smoothed visual progress when beam can be blocked
+    else
+        baseProgress = effect.progress
+    end
+
+    -- Determine how far the beam is allowed to extend (full length or up to the shield)
+    local extensionTarget = (effect.options and effect.options.blockPoint) or 1.0
+
+    -- Update beam progress – beam extends twice as fast, but never beyond its target length
+    effect.beamProgress = math.min(baseProgress * 2, extensionTarget)
+
+    -- If this beam was blocked, trigger shield-impact visuals once
+    if extensionTarget < 1.0 and effect.blockTimerStarted and not effect.impactParticlesCreated then
+        effect.impactParticlesCreated = true
+
+        -- Calculate impact coordinates at the block point
+        local impactX = effect.sourceX + (effect.targetX - effect.sourceX) * extensionTarget
+        local impactY = effect.sourceY + (effect.targetY - effect.sourceY) * extensionTarget
+
+        -- Resolve shield color based on shieldType / override
+        local shieldColor = {1.0, 1.0, 0.3, 0.7} -- Default barrier yellow
+        if effect.options and effect.options.shieldType == Constants.ShieldType.WARD then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}
+        elseif effect.options and effect.options.shieldType == Constants.ShieldType.FIELD then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}
+        elseif effect.options and effect.options.shieldColor then
+            shieldColor = effect.options.shieldColor
+        end
+
+        -- Spawn the shield hit effect at the impact point
+        local shieldHitOpts = {
+            duration       = 0.5,
+            color          = shieldColor,
+            particleCount  = math.floor((effect.particleCount or 30) * 0.8),
+            shieldType     = effect.options and effect.options.shieldType
+        }
+        VFX.createEffect("shield_hit_base", impactX, impactY, nil, nil, shieldHitOpts)
+    end
+
+    -- === Existing particle update logic ===
     -- Update beam particles
     for i, particle in ipairs(effect.particles) do
         -- Check if particle should be active based on delay
@@ -38514,29 +39763,90 @@ end
 
 -- Update function for surge effects
 function VFX.updateSurge(effect, dt)
-    -- Fountain style upward burst with gravity pull
+    -- Update center glow animation
+    if effect.centerGlow then
+        effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
+    end
+    
+    -- Fountain style upward burst with gravity pull and enhanced effects
     for _, particle in ipairs(effect.particles) do
         if effect.timer > particle.delay then
             particle.active = true
         end
+        
         if particle.active then
-            -- Motion update
+            -- Apply acceleration if enabled
+            if particle.riseAcceleration then
+                -- Boost upward velocity over time
+                local accelerationBoost = -particle.riseAcceleration * 60 * dt
+                particle.speedY = particle.speedY + accelerationBoost
+            end
+            
+            -- Base motion update
             particle.x = particle.x + particle.speedX * dt
             particle.y = particle.y + particle.speedY * dt
             particle.speedY = particle.speedY + particle.gravity * dt
-
-            -- Visual progression
-            local lifeProgress = effect.progress
-            particle.scale = effect.startScale + (effect.endScale - effect.startScale) * lifeProgress
-
-            -- Fade out towards end of effect
-            if lifeProgress > 0.6 then
-                local fade = (lifeProgress - 0.6) / 0.4
+            
+            -- Handle sprite animation if enabled
+            if particle.useSprite and particle.frameIndex and particle.frameRate then
+                particle.frameTimer = (particle.frameTimer or 0) + dt
+                if particle.frameTimer >= 1/particle.frameRate then
+                    particle.frameIndex = particle.frameIndex + 1
+                    if particle.frameIndex > spriteFrameCount then
+                        particle.frameIndex = 1
+                    end
+                    particle.frameTimer = 0
+                end
+            end
+            
+            -- Apply spiral motion if enabled
+            if particle.spiral then
+                local spiralProgress = (effect.timer - particle.delay) * particle.spiralTightness
+                local spiralAngle = spiralProgress * particle.spiralFrequency + particle.spiralPhase
+                local spiralX = math.cos(spiralAngle) * particle.spiralAmplitude
+                local spiralY = math.sin(spiralAngle) * particle.spiralAmplitude
+                
+                -- Apply spiral offset to position
+                particle.x = particle.x + spiralX * dt * 5
+                particle.y = particle.y + spiralY * dt * 5
+            end
+            
+            -- Handle pulsation if enabled
+            if particle.pulsate then
+                local pulseOffset = math.sin(effect.timer * particle.pulseRate) * particle.pulseAmount
+                particle.scale = particle.baseScale * (1 + pulseOffset)
+            else
+                -- Standard scale progression if not pulsating
+                local scaleProgress = effect.progress
+                particle.scale = effect.startScale + (effect.endScale - effect.startScale) * scaleProgress
+            end
+            
+            -- Control sparkle flickering if enabled
+            if particle.sparkle then
+                -- Random flickering for sparkle particles
+                local flicker = 0.7 + math.random() * 0.5
+                particle.sparkleAlpha = flicker * particle.sparkleIntensity
+            end
+            
+            -- Fade out toward end of effect, but with smoother transition
+            if effect.progress > 0.6 then
+                local fadeStart = 0.6
+                local fadeDuration = 0.4
+                local fadeProgress = (effect.progress - fadeStart) / fadeDuration
+                -- Use smooth step function for nicer fade
+                local fade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
                 particle.alpha = 1 - fade
             end
-
-            particle.rotation = particle.rotation + dt * 2
+            
+            -- Apply rotation 
+            particle.rotation = particle.rotation + particle.rotationSpeed * dt
         end
+    end
+    
+    -- Update center glow pulsing if enabled
+    if effect.centerGlow then
+        local pulseSpeed = 5
+        effect.centerGlowPulse = 0.7 + 0.3 * math.sin(effect.centerParticleTimer * pulseSpeed)
     end
 end
 
@@ -38547,6 +39857,10 @@ function VFX.draw()
             VFX.drawProjectile(effect)
         elseif effect.type == "impact" then
             VFX.drawImpact(effect)
+        elseif effect.type == "cone" then
+            VFX.drawCone(effect)
+        elseif effect.type == "remote" then
+            VFX.drawRemote(effect)
         elseif effect.type == "aura" then
             VFX.drawAura(effect)
         elseif effect.type == "vertical" then
@@ -38569,6 +39883,24 @@ function VFX.drawProjectile(effect)
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
     
+    -- Get bolt frames if needed
+    local boltFrames = nil
+    if effect.useSprites then
+        boltFrames = getAssetInternal("boltFrames")
+    end
+    
+    -- Calculate the actual trajectory angle for aimed shots
+    -- This will be used for sprite rotation if it's a bolt
+    local trajectoryAngle = nil
+    if effect.useSourcePosition and effect.useTargetPosition then
+        -- Calculate direction vector from current source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        
+        -- Calculate the angle
+        trajectoryAngle = math.atan2(dirY, dirX)
+    end
+    
     -- Calculate trail points but don't draw central line anymore
     -- We'll keep the trail points for particle positioning
     
@@ -38576,6 +39908,14 @@ function VFX.drawProjectile(effect)
     if #effect.trailPoints > 0 then
         local head = effect.trailPoints[1]
         local leadingIntensity = effect.leadingIntensity or 1.5
+        
+        -- Apply flicker effect for bolt-type projectiles
+        if effect.flickerRate and effect.flickerIntensity then
+            -- Calculate flicker based on time and rate
+            local flickerMod = math.sin(effect.timer * effect.flickerRate) * effect.flickerIntensity
+            -- Apply intensity modification (make it brighter only, not dimmer)
+            leadingIntensity = leadingIntensity * (1 + math.max(0, flickerMod))
+        end
         
         -- Draw multiple layered glows for a more intense effect
         -- Outer glow
@@ -38691,7 +40031,17 @@ function VFX.drawProjectile(effect)
             local g = effect.color[2] * 0.9
             local b = effect.color[3] * 0.9
             
-            love.graphics.setColor(r, g, b, particle.alpha * 0.8)
+            -- Apply flicker effect to trail particles for bolt-type projectiles
+            local trailAlpha = particle.alpha * 0.8
+            if effect.flickerRate and effect.flickerIntensity then
+                -- Calculate unique flicker phase for each particle to create lightning-like effect
+                local particlePhase = effect.timer * effect.flickerRate + particle.x * 0.05
+                local flickerMod = math.sin(particlePhase) * effect.flickerIntensity
+                -- Make particles brighter during flicker but not completely invisible
+                trailAlpha = trailAlpha * (1 + math.max(-0.3, flickerMod))
+            end
+            
+            love.graphics.setColor(r, g, b, trailAlpha)
             love.graphics.draw(
                 particleImage,
                 particle.x, particle.y,
@@ -38707,6 +40057,16 @@ function VFX.drawProjectile(effect)
         if particle.active and particle.alpha > 0 and particle.isCore then
             -- Core particles are brighter
             local leadingIntensity = effect.leadingIntensity or 1.5
+            
+            -- Apply flicker effect to core particles for bolt-type projectiles
+            if effect.flickerRate and effect.flickerIntensity then
+                -- Calculate unique flicker phase for each particle to create lightning-like effect
+                local particlePhase = effect.timer * effect.flickerRate + particle.x * 0.05
+                local flickerMod = math.sin(particlePhase) * effect.flickerIntensity
+                -- Apply intensity modification (make it brighter during flashes)
+                leadingIntensity = leadingIntensity * (1 + math.max(0, flickerMod))
+            end
+            
             local r = math.min(1.0, effect.color[1] * leadingIntensity)
             local g = math.min(1.0, effect.color[2] * leadingIntensity)
             local b = math.min(1.0, effect.color[3] * leadingIntensity)
@@ -38792,6 +40152,87 @@ function VFX.drawProjectile(effect)
                 flashSize / glowImage:getWidth(), flashSize / glowImage:getHeight(),
                 glowImage:getWidth()/2, glowImage:getHeight()/2
             )
+        end
+    end
+    
+    -- Sprite-based rendering for bolt effects
+    if effect.useSprites and boltFrames and #boltFrames > 0 then
+        -- Calculate which frame to use based on animation time
+        local frameRate = effect.spriteFrameRate or 15
+        local totalFrames = #boltFrames
+        local frameIndex = math.floor((effect.timer * frameRate) % totalFrames) + 1
+        local currentFrame = boltFrames[frameIndex]
+        
+        if currentFrame then
+            -- Calculate rotation angle for the sprite
+            local rotationAngle = effect.spriteRotationOffset or 0
+            
+            -- If we have a trajectory angle from source to target (for aimed shots)
+            -- use that instead of the trail points
+            if trajectoryAngle then
+                rotationAngle = trajectoryAngle + (effect.spriteRotationOffset or 0)
+            elseif #effect.trailPoints >= 2 then
+                -- Fallback to using trail points
+                local p1 = effect.trailPoints[1]
+                local p2 = effect.trailPoints[2]
+                
+                -- Get direction vector for trajectory
+                local dirX = p1.x - p2.x
+                local dirY = p1.y - p2.y
+                local len = math.sqrt(dirX*dirX + dirY*dirY)
+                
+                if len > 0 then
+                    -- Calculate rotation angle
+                    rotationAngle = math.atan2(dirY, dirX) + (effect.spriteRotationOffset or 0)
+                end
+            end
+            
+            -- Draw the bolt sprite along the trail
+            local trailSegmentCount = math.min(5, #effect.trailPoints)
+            local segmentSpacing = 1
+            
+            for i = 1, trailSegmentCount, segmentSpacing do
+                local point = effect.trailPoints[i]
+                local alpha = 1.0
+                
+                -- Fade out at the back of the trail
+                if i > 1 then
+                    alpha = (trailSegmentCount - i + 1) / trailSegmentCount
+                end
+                
+                -- Apply flicker effect to bolt sprite
+                if effect.flickerRate and effect.flickerIntensity then
+                    -- Calculate unique flicker phase for each segment
+                    local segmentPhase = effect.timer * effect.flickerRate + i * 0.2
+                    local flickerMod = math.sin(segmentPhase) * effect.flickerIntensity
+                    -- Adjust alpha but keep it visible
+                    alpha = alpha * (1 + math.max(-0.3, flickerMod))
+                end
+                
+                -- Determine scaling based on position in the trail
+                local scale = effect.spriteScale or 0.85
+                if i == 1 then
+                    -- Head of bolt is slightly larger
+                    scale = scale * 1.2
+                end
+                
+                -- Set color with tinting if enabled
+                if effect.spriteTint then
+                    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+                else
+                    -- Pure white with alpha
+                    love.graphics.setColor(1, 1, 1, alpha)
+                end
+                
+                -- Draw sprite
+                love.graphics.draw(
+                    currentFrame,
+                    point.x, point.y,
+                    rotationAngle,
+                    scale, scale,
+                    currentFrame:getWidth()/2, currentFrame:getHeight()/2
+                )
+            end
         end
     end
     
@@ -38941,6 +40382,8 @@ end
 -- Draw function for beam effects
 function VFX.drawBeam(effect)
     local particleImage = getAssetInternal("sparkle")
+    
+    -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
     -- Draw base beam
@@ -39107,14 +40550,76 @@ end
 -- Draw function for surge effects
 function VFX.drawSurge(effect)
     local particleImage = getAssetInternal("sparkle")
-
-    -- Base glow at origin
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+    
+    -- Draw expanding ground effect ring at source
+    if effect.progress < 0.7 then
+        local ringProgress = effect.progress / 0.7
+        local ringSize = 30 + ringProgress * 40 -- Grows from 30 to 70 pixels
+        local ringAlpha = 0.5 * (1 - ringProgress)
+        
+        love.graphics.setColor(effect.color[1] * 0.8, effect.color[2] * 0.8, effect.color[3] * 0.8, ringAlpha)
+        love.graphics.circle("line", effect.sourceX, effect.sourceY, ringSize)
+        
+        -- Add inner filled ring
+        local innerRingSize = ringSize * 0.7
+        love.graphics.setColor(effect.color[1] * 0.6, effect.color[2] * 0.6, effect.color[3] * 0.6, ringAlpha * 0.5)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, innerRingSize)
+    end
+    
+    -- Draw enhanced center glow if enabled
+    if effect.centerGlow then
+        -- Get size and pulse parameters
+        local centerGlowSize = effect.centerGlowSize or 50
+        local glowIntensity = effect.centerGlowIntensity or 1.3
+        local glowPulse = effect.centerGlowPulse or 1.0
+        
+        -- Calculate fade based on progress
+        local glowAlpha
+        if effect.progress < 0.6 then
+            glowAlpha = 0.7  -- Full strength during main part
+        else
+            -- Fade out during last 40% of effect
+            glowAlpha = 0.7 * (1 - (effect.progress - 0.6) / 0.4)
+        end
+        
+        -- Draw outer glow layers
+        love.graphics.setColor(effect.color[1] * 0.5, effect.color[2] * 0.5, effect.color[3] * 0.5, glowAlpha * 0.4)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 1.2 * glowPulse)
+        
+        -- Middle glow layer
+        love.graphics.setColor(effect.color[1] * 0.8, effect.color[2] * 0.8, effect.color[3] * 0.8, glowAlpha * 0.6)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.8 * glowPulse)
+        
+        -- Bright core
+        love.graphics.setColor(effect.color[1] * glowIntensity, effect.color[2] * glowIntensity, 
+                              effect.color[3] * glowIntensity, glowAlpha * 0.8)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.5 * glowPulse)
+        
+        -- White inner core
+        love.graphics.setColor(1, 1, 1, glowAlpha * 0.9 * glowPulse)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, centerGlowSize * 0.2 * glowPulse)
+    else
+        -- Simpler base glow at origin if centerGlow not enabled
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - effect.progress))
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, 35 * (1 - effect.progress))
+    end
+    
+    -- Draw bloom halos first (rendered underneath particles)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.bloom then
+            local bloomIntensity = particle.bloomIntensity or 0.8
+            local bloomAlpha = particle.alpha * 0.6 * bloomIntensity
+            local bloomScale = particle.scale * 2.5
+            
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], bloomAlpha)
+            love.graphics.circle("fill", particle.x, particle.y, particleImage:getWidth()/2 * bloomScale)
+        end
+    end
 
     -- Draw particles
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
+            -- Base particle
             love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
             love.graphics.draw(
                 particleImage,
@@ -39123,6 +40628,35 @@ function VFX.drawSurge(effect)
                 particle.scale, particle.scale,
                 particleImage:getWidth()/2, particleImage:getHeight()/2
             )
+            
+            -- Add sparkle overlay for sparkle particles
+            if particle.sparkle and particle.sparkleAlpha and particle.sparkleAlpha > 0 then
+                -- Draw a bright white overlay
+                love.graphics.setColor(1, 1, 1, particle.sparkleAlpha)
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    particle.rotation,
+                    particle.scale * 0.6, particle.scale * 0.6,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            end
+        end
+    end
+    
+    -- Draw additional radial lines emanating from center for dramatic effect
+    if effect.progress < 0.3 then
+        local lineProgress = effect.progress / 0.3
+        local lineCount = 12
+        local lineLength = 40 * (1 - lineProgress) -- Lines shrink as they dissipate
+        local lineAlpha = 0.4 * (1 - lineProgress)
+        
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], lineAlpha)
+        for i = 1, lineCount do
+            local angle = (i / lineCount) * math.pi * 2
+            local endX = effect.sourceX + math.cos(angle) * lineLength
+            local endY = effect.sourceY + math.sin(angle) * lineLength
+            love.graphics.line(effect.sourceX, effect.sourceY, endX, endY)
         end
     end
 end
@@ -39148,103 +40682,6 @@ function HSVtoRGB(h, s, v)
     end
     
     return r, g, b
-end
-
--- Helper function to create the appropriate effect for a spell
-function VFX.createSpellEffect(spell, caster, target)
-    local Constants = require("core.Constants")
-    
-    -- Get mana pool position for conjuration spells
-    local manaPoolX = caster.manaPool and caster.manaPool.x or 400
-    local manaPoolY = caster.manaPool and caster.manaPool.y or 120
-    
-    -- Determine source and target positions
-    local sourceX, sourceY = caster.x, caster.y
-    print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
-    local targetX, targetY = target.x, target.y
-    print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
-    -- Handle different spell types
-    local spellName = spell.name:lower():gsub("%s+", "") -- Convert to lowercase and remove spaces
-    
-    -- Handle conjuration spells first
-    if spellName == "conjurefire" then
-        return VFX.createEffect(Constants.VFXType.CONJUREFIRE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjuremoonlight" then
-        return VFX.createEffect(Constants.VFXType.CONJUREMOONLIGHT, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjureforce" then
-        return VFX.createEffect(Constants.VFXType.FORCE_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "conjurestars" then
-        return VFX.createEffect(Constants.VFXType.STAR_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "volatileconjuring" then
-        return VFX.createEffect(Constants.VFXType.VOLATILECONJURING, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "novaconjuring" then
-        return VFX.createEffect(Constants.VFXType.NOVA_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    elseif spellName == "witchconjuring" then
-        return VFX.createEffect(Constants.VFXType.WITCH_CONJURE, sourceX, sourceY, nil, nil, {
-            manaPoolX = manaPoolX,
-            manaPoolY = manaPoolY
-        })
-    
-    -- Special handling for other specific spells
-    elseif spellName == "firebolt" then
-        return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY - 20, targetX, targetY - 20)
-    elseif spellName == "meteor" then
-        return VFX.createEffect(Constants.VFXType.METEOR, targetX, targetY - 100, targetX, targetY)
-    elseif spellName == "mistveil" then
-        return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
-    elseif spellName == "emberlift" then
-        return VFX.createEffect(Constants.VFXType.EMBERLIFT, sourceX, sourceY, nil, nil)
-    elseif spellName == "fullmoonbeam" then
-        return VFX.createEffect(Constants.VFXType.FULLMOONBEAM, sourceX, sourceY - 20, targetX, targetY - 20)
-    elseif spellName == "tidalforce" then
-        return VFX.createEffect(Constants.VFXType.TIDAL_FORCE, sourceX, sourceY - 15, targetX, targetY - 15)
-    elseif spellName == "lunardisjunction" then
-        return VFX.createEffect(Constants.VFXType.LUNARDISJUNCTION, sourceX, sourceY - 15, targetX, targetY - 15)
-    elseif spellName == "forceblast" then
-        return VFX.createEffect(Constants.VFXType.FORCE_BLAST, sourceX, sourceY - 15, targetX, targetY - 15)
-    else
-        -- Create a generic effect based on spell type or mana cost
-        if spell.spellType == Constants.AttackType.PROJECTILE then
-            return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
-        else
-            -- Look at spell cost to determine effect type
-            local hasFireMana = false
-            local hasMoonMana = false
-            
-            for _, cost in ipairs(spell.cost or {}) do
-                if cost.type == Constants.TokenType.FIRE then hasFireMana = true end
-                if cost.type == Constants.TokenType.MOON then hasMoonMana = true end
-            end
-            
-            if hasFireMana then
-                return VFX.createEffect(Constants.VFXType.FIREBOLT, sourceX, sourceY, targetX, targetY)
-            elseif hasMoonMana then
-                return VFX.createEffect(Constants.VFXType.MISTVEIL, sourceX, sourceY, nil, nil)
-            else
-                -- Default generic effect if no specific match
-                print("Warning: No specific VFX defined for spell: " .. spell.name .. ". Using generic impact.")
-                return VFX.createEffect(Constants.VFXType.IMPACT, targetX, targetY, nil, nil) -- Default to a simple impact at target
-            end
-        end
-    end
 end
 
 -- Show Pool stats in debug mode
@@ -39278,6 +40715,231 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
 end
 
 -- Update function for meteor effect
+function VFX.updateRemote(effect, dt)
+    -- Target position tracking now handled in main VFX.update
+    
+    -- Update particles for the warp/remote effect
+    for i, particle in ipairs(effect.particles) do
+        -- Activate particles based on delay
+        if effect.timer > particle.delay then
+            particle.active = true
+        end
+        
+        if particle.active then
+            -- Calculate particle progress
+            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
+            
+            -- Check if we have a motion style to apply
+            if particle.motion then
+                -- Use the updateParticle function with motion style
+                VFX.updateParticle(particle, effect, dt, particleProgress)
+            else
+                -- Default behavior: move from center outward with easing
+                local moveProgress = math.min(particleProgress * 1.5, 1.0) -- Move faster than the total duration
+                local easeProgress = math.sin(moveProgress * math.pi / 2) -- Ease out curve
+                
+                -- Get current target position
+                local centerX = effect.targetX
+                local centerY = effect.targetY
+                
+                -- Calculate angle and distance for this particle
+                local angle = particle.angle
+                local distance = particle.distance
+                
+                -- Calculate position directly from center using angle and distance
+                -- This ensures we're always relative to the current target position
+                local moveDistance = distance * easeProgress
+                particle.x = centerX + math.cos(angle) * moveDistance
+                particle.y = centerY + math.sin(angle) * moveDistance
+                
+                -- Fade out near the end
+                if particleProgress > 0.7 then
+                    particle.alpha = (1.0 - particleProgress) / 0.3 -- Fade out in the last 30% of lifetime
+                end
+                
+                -- Scale up then down
+                local scaleProgress = 1.0 - math.abs(particleProgress * 2 - 1.0) -- Peak at the middle
+                particle.scale = effect.startScale + (effect.endScale - effect.startScale) * scaleProgress
+            end
+        end
+    end
+    
+    -- Update sprite rotation if enabled
+    if effect.rotateSprite and effect.rotationSpeed then
+        -- Accumulate rotation over time
+        effect.spriteAngle = (effect.spriteAngle or 0) + effect.rotationSpeed * dt
+    end
+end
+
+-- Update function for cone blast effects
+function VFX.updateCone(effect, dt)
+    -- Calculate the base direction from source to target
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local baseAngle = math.atan2(dirY, dirX)
+    
+    -- Update wave timing
+    local waveCount = effect.waveCount or 3
+    for i = 1, waveCount do
+        -- Calculate when this wave should start
+        local waveStartTime = (i - 1) * effect.duration * 0.3 / waveCount
+        
+        -- Check if this wave should be started
+        if effect.timer >= waveStartTime and (not effect.waveStarted or not effect.waveStarted[i]) then
+            -- Mark this wave as started
+            effect.waveStarted = effect.waveStarted or {}
+            effect.waveStarted[i] = true
+        end
+    end
+    
+    -- Update particles based on their properties
+    for _, particle in ipairs(effect.particles) do
+        -- Initialize particle if delayed start time has been reached
+        if not particle.active and effect.timer >= particle.delay then
+            particle.active = true
+            particle.startTime = 0
+        end
+        
+        -- Only process active particles
+        if particle.active then
+            -- Update particle timing
+            particle.startTime = (particle.startTime or 0) + dt
+            
+            -- Handle wave particles specially
+            if particle.isWave and particle.waveIndex then
+                -- Calculate wave progress
+                local waveDelay = (particle.waveIndex - 1) / waveCount * 0.3
+                local waveProgress = (effect.progress - waveDelay) / 0.7
+                
+                if waveProgress > 0 and waveProgress < 1.0 then
+                    -- Apply wave persistence to extend wave visibility if property exists
+                    local visibleProgress = waveProgress
+                    if particle.persistenceFactor then
+                        -- Scale progress value to make waves fade more slowly
+                        visibleProgress = waveProgress / particle.persistenceFactor
+                    end
+                    
+                    if visibleProgress < 1.0 then
+                        -- Calculate wave position along cone
+                        local distance = (effect.coneLength or 320) * waveProgress * 0.95  -- Extended wave reach
+                        
+                        -- Move particle along its angle
+                        particle.x = effect.sourceX + math.cos(particle.angle) * distance
+                        particle.y = effect.sourceY + math.sin(particle.angle) * distance
+                        
+                        -- Calculate wave intensity - stronger at the front edge
+                        local waveFront = math.max(0, 1 - math.abs(waveProgress - 0.3) * 5) -- Peak around 30% progress
+                        local waveCrestSize = effect.waveCrestSize or 2.2
+                        
+                        -- Apply size increase for wave crest particles
+                        if waveFront > 0.1 then
+                            -- Make particles larger near the wave front
+                            particle.scale = particle.scale * (1 + waveFront * waveCrestSize)
+                        end
+                        
+                        -- Apply glow effect to leading edge if enabled
+                        if effect.leadingEdgeGlow and waveFront > 0.1 then
+                            -- Flag for special rendering in draw function
+                            particle.isLeadingEdge = true
+                            particle.glowIntensity = waveFront
+                            
+                            -- Create trailing glow if enabled
+                            if particle.trailGlow and particle.trailGlow > 0 then
+                                particle.drawTrail = true
+                                particle.trailLength = distance * 0.2 * particle.trailGlow -- 20% of distance back
+                                particle.trailWidth = waveFront * 10 * particle.trailGlow -- Width based on wave front
+                            end
+                        end
+                    
+                    -- Apply intensity falloff with distance if specified
+                    local falloff = 1.0
+                    if effect.intensityFalloff then
+                        -- Calculate distance from source as a percentage of total cone length
+                        local distancePercent = distance / (effect.coneLength or 320)
+                        -- Apply non-linear falloff (more dramatic at edges)
+                        falloff = 1.0 - (distancePercent * effect.intensityFalloff)
+                        falloff = math.max(0.15, falloff) -- Higher minimum intensity
+                    end
+                    
+                    -- Adjust alpha based on wave progress with pulsing effect
+                    local pulseEffect = 1.0 + 0.3 * math.sin(waveProgress * math.pi * 8)
+                    -- Slower fade for longer persistence
+                    local fadeRate = particle.persistenceFactor and 0.8 or 1.0
+                    particle.alpha = math.min(1.0, 1.1 * (1 - visibleProgress * fadeRate) * pulseEffect * falloff)
+                    
+                    -- Add wave-specific motion effects based on spell properties and wave index
+                    if particle.waveIndex and particle.waveIndex > 1 then
+                        -- Later waves can have additional motion effects
+                        local wiggle = math.sin(effect.timer * (8 + particle.waveIndex * 2) + particle.x * 0.02) * 2
+                        particle.x = particle.x + wiggle * (particle.waveIndex * 0.5)
+                    end
+                else
+                    -- Wave not visible due to progress
+                    particle.alpha = 0
+                end
+            else
+                -- Wave not visible yet or has passed
+                particle.alpha = 0
+            end
+            else
+                -- Regular fill particles
+                -- Calculate progress for this particle
+                local particleProgress = math.min(particle.startTime / (effect.duration * 0.8), 1.0)
+                
+                -- Move particle from source toward target position - faster for more dramatic movement
+                local moveProgress = math.min(particleProgress * 1.7, 1.0) -- Even faster movement for dramatic effect
+                
+                particle.x = effect.sourceX + (particle.targetX - effect.sourceX) * moveProgress
+                particle.y = effect.sourceY + (particle.targetY - effect.sourceY) * moveProgress
+                
+                -- Add more chaotic turbulence for background particles
+                local turbulence = effect.turbulence or 0.4
+                -- Scale jitter with distance from center of cone for more chaotic edges
+                local dirX = particle.targetX - effect.sourceX
+                local dirY = particle.targetY - effect.sourceY
+                local angle = math.atan2(dirY, dirX)
+                local coneDir = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+                local angleDiff = math.abs(angle - coneDir)
+                -- More jitter at the edges of the cone
+                local edgeFactor = math.min(1.0, angleDiff / (math.rad(effect.coneAngle or 70) / 2))
+                local jitterScale = 8 * turbulence * (1 - moveProgress) * (1 + edgeFactor)
+                
+                particle.x = particle.x + math.cos(particle.startTime * 5) * jitterScale
+                particle.y = particle.y + math.sin(particle.startTime * 5) * jitterScale
+                
+                -- Calculate particle size variance based on template parameter
+                local sizeVariance = effect.particleSizeVariance or 0.2
+                local sizeMultiplier = 1.0 + (math.random() * 2 - 1) * sizeVariance
+                
+                -- Apply scale changes with size variance
+                particle.scale = (effect.startScale + (effect.endScale - effect.startScale) * particleProgress) * sizeMultiplier
+                
+                -- Adjust alpha for more dramatic falloff and occasional flicker
+                if moveProgress > 0.5 then
+                    -- Base falloff
+                    local alphaFalloff = (1 - (moveProgress - 0.5) / 0.5)
+                    -- Add subtle flicker
+                    local flicker = 1.0 + 0.2 * math.sin(particle.startTime * 12 + particle.x * 0.05)
+                    particle.alpha = particle.alpha * alphaFalloff * flicker
+                end
+                
+                -- Faster rotation for more energetic appearance
+                particle.rotation = particle.rotation + dt * (3 + math.random() * 2)
+            end
+        end
+    end
+    
+    -- Apply intensity based on range/elevation if not already handled
+    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity and not effect.currentIntensityMultiplier then
+        effect.currentIntensityMultiplier = effect.nearRangeIntensity
+    end
+    
+    if effect.elevation == Constants.ElevationState.GROUNDED and effect.matchedElevationIntensity and not effect.currentIntensityMultiplier then
+        effect.currentIntensityMultiplier = effect.currentIntensityMultiplier or 1.0
+        effect.currentIntensityMultiplier = effect.currentIntensityMultiplier * effect.matchedElevationIntensity
+    end
+end
+
 function VFX.updateMeteor(effect, dt)
     -- Process all particles
     for i, particle in ipairs(effect.particles) do
@@ -39371,7 +41033,388 @@ function VFX.updateMeteor(effect, dt)
     end
 end
 
--- Draw function for meteor effect
+-- Draw function for cone blast effects
+function VFX.drawCone(effect)
+    local particleImage = getAssetInternal("sparkle")
+    local glowImage = getAssetInternal("fireGlow") -- For enhanced glow effects
+    
+    -- Get intensity multiplier for range-based effects
+    local intensityMult = effect.currentIntensityMultiplier or 1.0
+    
+    -- Draw background glow for the entire cone area at the beginning
+    if effect.progress < 0.5 then
+        -- Calculate cone properties
+        local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
+        local coneLength = effect.coneLength or 240
+        local halfConeLength = coneLength * 0.7 * (1 - effect.progress * 0.8) -- Fades with progress
+        
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Draw a subtle background glow using triangles
+        local numSegments = 12
+        love.graphics.setColor(effect.color[1] * 0.7, effect.color[2] * 0.7, effect.color[3] * 0.7, 
+                             0.2 * (1 - effect.progress) * intensityMult)
+        
+        for j = 1, numSegments - 1 do
+            local angle1 = baseAngle - coneAngleRad/2 + (j-1) * coneAngleRad / (numSegments-1)
+            local angle2 = baseAngle - coneAngleRad/2 + j * coneAngleRad / (numSegments-1)
+            
+            local x1 = effect.sourceX + math.cos(angle1) * halfConeLength
+            local y1 = effect.sourceY + math.sin(angle1) * halfConeLength
+            local x2 = effect.sourceX + math.cos(angle2) * halfConeLength
+            local y2 = effect.sourceY + math.sin(angle2) * halfConeLength
+            
+            -- Draw triangle from source to arc segment
+            love.graphics.polygon("fill", effect.sourceX, effect.sourceY, x1, y1, x2, y2)
+        end
+    end
+    
+    -- Draw wave fronts (for wave particles)
+    for i = 1, effect.waveCount or 4 do
+        -- Only draw if the wave has started
+        if effect.waveStarted and effect.waveStarted[i] then
+            -- Calculate wave progress based on wave index
+            local waveDelay = (i - 1) / (effect.waveCount or 4) * 0.4 -- Spread waves out more
+            local waveProgress = (effect.progress - waveDelay) / 0.6
+            
+            if waveProgress > 0 and waveProgress < 1.0 then
+                -- Calculate cone properties
+                local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
+                local coneLength = effect.coneLength or 240
+                local waveDistance = coneLength * waveProgress * 0.95  -- Extended wave reach
+                
+                -- Calculate the base direction from source to target
+                local dirX = effect.targetX - effect.sourceX
+                local dirY = effect.targetY - effect.sourceY
+                local baseAngle = math.atan2(dirY, dirX)
+                
+                -- Calculate wave arc points
+                local numPoints = 16  -- More points for smoother arc
+                local waveFront = math.max(0, 1 - math.abs(waveProgress - 0.3) * 5) -- Peak around 30% progress
+                local waveThickness = (4 + waveFront * 3) * intensityMult -- Thicker at wave front
+                
+                -- Calculate wave color with leading edge glow
+                local r, g, b = effect.color[1], effect.color[2], effect.color[3]
+                if waveFront > 0.1 and effect.leadingEdgeGlow then
+                    -- Brighter color at wave front
+                    r = r * (1 + waveFront * 0.5)
+                    g = g * (1 + waveFront * 0.5)
+                    b = b * (1 + waveFront * 0.5)
+                end
+                
+                -- Draw wave arc
+                love.graphics.setLineWidth(waveThickness)
+                love.graphics.setColor(r, g, b, (0.7 + waveFront * 0.3) * (1 - waveProgress * 0.7) * intensityMult)
+                
+                -- Draw arc segments
+                for j = 1, numPoints - 1 do
+                    local angle1 = baseAngle - coneAngleRad/2 + (j-1) * coneAngleRad / (numPoints-1)
+                    local angle2 = baseAngle - coneAngleRad/2 + j * coneAngleRad / (numPoints-1)
+                    
+                    local x1 = effect.sourceX + math.cos(angle1) * waveDistance
+                    local y1 = effect.sourceY + math.sin(angle1) * waveDistance
+                    local x2 = effect.sourceX + math.cos(angle2) * waveDistance
+                    local y2 = effect.sourceY + math.sin(angle2) * waveDistance
+                    
+                    love.graphics.line(x1, y1, x2, y2)
+                    
+                    -- Add extra glow points at wave crest
+                    if waveFront > 0.2 and j % 3 == 1 then
+                        local glowSize = waveFront * (effect.waveCrestSize or 1.0) * 15
+                        love.graphics.setColor(r, g, b, waveFront * 0.7)
+                        love.graphics.circle("fill", (x1 + x2)/2, (y1 + y2)/2, glowSize * intensityMult)
+                    end
+                end
+                
+                -- Reset line width
+                love.graphics.setLineWidth(1)
+            end
+        end
+    end
+    
+    -- Draw source effect with enhanced glow
+    local sourceGlowSize = 40 * (1 - effect.progress * 0.6) * intensityMult
+    if sourceGlowSize > 0 then
+        -- Draw outer glow
+        love.graphics.setColor(effect.color[1] * 0.6, effect.color[2] * 0.6, effect.color[3] * 0.6, 
+                             0.4 * (1 - effect.progress * 0.5) * intensityMult)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 1.5)
+        
+        -- Draw inner brighter glow
+        love.graphics.setColor(effect.color[1] * 1.2, effect.color[2] * 1.2, effect.color[3] * 1.2, 
+                              0.7 * (1 - effect.progress * 0.5) * intensityMult)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 0.7)
+        
+        -- Draw bright core (pulsing)
+        local pulseEffect = 1.0 + 0.2 * math.sin(effect.timer * 12)
+        love.graphics.setColor(1, 1, 1, 0.8 * (1 - effect.progress * 0.7) * pulseEffect)
+        love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize * 0.3 * pulseEffect)
+    end
+    
+    -- Draw particles (draw regular particles first, then wave particles on top for better layering)
+    
+    -- First pass: draw regular particles (background fill)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and not particle.isWave then
+            -- Apply intensity multiplier to particle alpha and scale for range-based effects
+            local adjustedAlpha = particle.alpha * (particle.intensityMultiplier or intensityMult)
+            local adjustedScale = particle.scale * (particle.intensityMultiplier or intensityMult)
+            
+            -- Regular particles
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], adjustedAlpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                adjustedScale, adjustedScale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+    
+    -- Second pass: draw wave particles (they should appear on top)
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 and particle.isWave then
+            -- Apply intensity multiplier to particle alpha and scale for range-based effects
+            local adjustedAlpha = particle.alpha * (particle.intensityMultiplier or intensityMult)
+            local adjustedScale = particle.scale * (particle.intensityMultiplier or intensityMult)
+            
+            -- Draw trail if enabled for this particle
+            if particle.drawTrail and particle.trailLength and particle.trailWidth then
+                -- Calculate trail endpoints
+                local trailAngle = math.atan2(effect.sourceY - particle.y, effect.sourceX - particle.x)
+                local trailEndX = particle.x + math.cos(trailAngle) * particle.trailLength
+                local trailEndY = particle.y + math.sin(trailAngle) * particle.trailLength
+                
+                -- Draw gradient trail with higher brightness at particle position
+                love.graphics.setLineWidth(particle.trailWidth)
+                
+                -- Use polygon to draw trail with gradient
+                local perpX = -math.sin(trailAngle) * (particle.trailWidth * 0.5)
+                local perpY = math.cos(trailAngle) * (particle.trailWidth * 0.5)
+                
+                -- Calculate trail vertices
+                local x1 = particle.x + perpX
+                local y1 = particle.y + perpY
+                local x2 = particle.x - perpX
+                local y2 = particle.y - perpY
+                local x3 = trailEndX - perpX * 0.5 -- narrow at the end
+                local y3 = trailEndY - perpY * 0.5
+                local x4 = trailEndX + perpX * 0.5
+                local y4 = trailEndY + perpY * 0.5
+                
+                -- Draw trail with gradient alpha
+                love.graphics.setColor(effect.color[1] * 1.5, effect.color[2] * 1.5, effect.color[3] * 1.5, adjustedAlpha * 0.7)
+                love.graphics.polygon("fill", x1, y1, x2, y2, x3, y3, x4, y4)
+            end
+            
+            -- Choose image based on whether it's a leading edge particle
+            local imgToDraw = particleImage
+            if particle.isLeadingEdge and particle.glowIntensity and particle.glowIntensity > 0.1 then
+                imgToDraw = glowImage -- Use glow image for leading edge particles
+                -- Draw halo effect for leading wave particles
+                love.graphics.setColor(effect.color[1] * 1.7, effect.color[2] * 1.7, effect.color[3] * 1.7, 
+                                     adjustedAlpha * 0.8 * particle.glowIntensity)
+                love.graphics.circle("fill", particle.x, particle.y, adjustedScale * 15 * particle.glowIntensity)
+            end
+            
+            -- Draw the main particle
+            love.graphics.setColor(effect.color[1] * 1.5, effect.color[2] * 1.5, effect.color[3] * 1.5, adjustedAlpha * 1.3)
+            love.graphics.draw(
+                imgToDraw,
+                particle.x, particle.y,
+                particle.rotation,
+                adjustedScale * 1.7, adjustedScale * 1.7, -- Even bigger wave particles
+                imgToDraw:getWidth()/2, imgToDraw:getHeight()/2
+            )
+            
+            -- Add extra bright core for wave particles
+            if math.random() < 0.3 then
+                love.graphics.setColor(1, 1, 1, adjustedAlpha * 0.8)
+                love.graphics.circle("fill", particle.x, particle.y, adjustedScale * 3.5 * math.random())
+            end
+            
+            -- Add burst effect for leading edge particles
+            if particle.isLeadingEdge and particle.glowIntensity and particle.glowIntensity > 0.5 and math.random() < 0.4 then
+                -- Occasional bursts of energy at leading edge
+                local burstSize = adjustedScale * 8 * particle.glowIntensity * math.random()
+                love.graphics.setColor(1, 1, 1, adjustedAlpha * 0.9)
+                love.graphics.circle("fill", 
+                    particle.x + math.random(-3, 3), 
+                    particle.y + math.random(-3, 3),
+                    burstSize)
+            end
+        end
+    end
+    
+    -- Draw subtle cone outline at the beginning of the effect
+    if effect.progress < 0.3 then
+        -- Calculate cone properties
+        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+        local coneLength = (effect.coneLength or 160) * (1 - effect.progress)
+        
+        -- Calculate the base direction from source to target
+        local dirX = effect.targetX - effect.sourceX
+        local dirY = effect.targetY - effect.sourceY
+        local baseAngle = math.atan2(dirY, dirX)
+        
+        -- Calculate cone edges
+        local leftAngle = baseAngle - coneAngleRad/2
+        local rightAngle = baseAngle + coneAngleRad/2
+        
+        local leftX = effect.sourceX + math.cos(leftAngle) * coneLength
+        local leftY = effect.sourceY + math.sin(leftAngle) * coneLength
+        local rightX = effect.sourceX + math.cos(rightAngle) * coneLength
+        local rightY = effect.sourceY + math.sin(rightAngle) * coneLength
+        
+        -- Draw cone outline
+        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 
+                              0.2 * (1 - effect.progress/0.3) * intensityMult)
+        love.graphics.line(effect.sourceX, effect.sourceY, leftX, leftY)
+        love.graphics.line(effect.sourceX, effect.sourceY, rightX, rightY)
+        
+        -- Draw arc connecting the edges
+        local numPoints = 10
+        love.graphics.setLineWidth(1)
+        for j = 1, numPoints - 1 do
+            local angle1 = leftAngle + (j-1) * (rightAngle - leftAngle) / (numPoints-1)
+            local angle2 = leftAngle + j * (rightAngle - leftAngle) / (numPoints-1)
+            
+            local x1 = effect.sourceX + math.cos(angle1) * coneLength
+            local y1 = effect.sourceY + math.sin(angle1) * coneLength
+            local x2 = effect.sourceX + math.cos(angle2) * coneLength
+            local y2 = effect.sourceY + math.sin(angle2) * coneLength
+            
+            love.graphics.line(x1, y1, x2, y2)
+        end
+    end
+end
+
+-- Draw function for remote effect
+function VFX.drawRemote(effect)
+    local particleImage = getAssetInternal("sparkle")
+    local glowImage = getAssetInternal("fireGlow")
+    local impactImage = getAssetInternal("impactRing")
+    
+    -- Get warp frames if needed
+    local warpFrames = nil
+    if effect.useSprites then
+        warpFrames = getAssetInternal("warpFrames")
+    end
+    
+    -- Center position is at the current target position
+    -- This will automatically reflect any position updates from updateRemote
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+    
+    -- Draw base glow at the center
+    local glowAlpha = 0.5 * (1 - 0.5 * math.abs(effect.progress * 2 - 1)) -- Peak at the middle
+    local glowIntensity = effect.glowIntensity or 0.7
+    glowAlpha = glowAlpha * glowIntensity
+    
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], glowAlpha)
+    local glowScale = 0.5 + effect.progress * 0.5 -- Grow slightly over time
+    
+    -- Add pulsing if enabled
+    if effect.usePulse then
+        local pulseAmount = effect.pulseAmount or 0.2
+        local pulseRate = effect.pulseRate or 6.0
+        glowScale = glowScale * (1 + math.sin(effect.timer * pulseRate) * pulseAmount)
+    end
+    
+    -- Draw the glow
+    love.graphics.draw(
+        glowImage,
+        centerX, centerY,
+        0,
+        glowScale * 4, glowScale * 4, -- Larger glow
+        glowImage:getWidth()/2, glowImage:getHeight()/2
+    )
+    
+    -- Draw expanding circle
+    local ringProgress = math.min(effect.progress * 1.2, 1.0)
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.3 * (1 - ringProgress))
+    local ringScale = (effect.radius or 60) * 0.02 * ringProgress
+    love.graphics.draw(
+        impactImage,
+        centerX, centerY,
+        0,
+        ringScale, ringScale,
+        impactImage:getWidth()/2, impactImage:getHeight()/2
+    )
+    
+    -- Draw sprite animation if enabled
+    if effect.useSprites and warpFrames and #warpFrames > 0 then
+        -- Calculate which frame to use based on animation time
+        local frameRate = effect.spriteFrameRate or 10
+        local totalFrames = #warpFrames
+        local frameIndex = math.floor((effect.timer * frameRate) % totalFrames) + 1
+        local currentFrame = warpFrames[frameIndex]
+        
+        if currentFrame then
+            -- Calculate scale with pulsing effect if enabled
+            local spriteScale = effect.spriteScale or 1.0
+            
+            -- Apply pulse if enabled
+            if effect.usePulse then
+                local pulseAmount = effect.pulseAmount or 0.2
+                local pulseRate = effect.pulseRate or 6.0
+                spriteScale = spriteScale * (1 + math.sin(effect.timer * pulseRate) * pulseAmount)
+            end
+            
+            -- Calculate opacity curve (fade in, stay visible, fade out)
+            local alpha = 1.0
+            if effect.progress < 0.2 then
+                -- Fade in during the first 20%
+                alpha = effect.progress / 0.2
+            elseif effect.progress > 0.8 then
+                -- Fade out during the last 20%
+                alpha = (1.0 - effect.progress) / 0.2
+            end
+            
+            -- Set color with tinting if enabled
+            if effect.spriteTint then
+                love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], alpha)
+            else
+                -- Pure white with alpha
+                love.graphics.setColor(1, 1, 1, alpha)
+            end
+            
+            -- Calculate rotation angle if needed
+            local rotation = 0
+            if effect.rotateSprite then
+                rotation = effect.spriteAngle or 0
+            end
+            
+            -- Draw the sprite at the center
+            love.graphics.draw(
+                currentFrame,
+                centerX, centerY,
+                rotation,
+                spriteScale, spriteScale,
+                currentFrame:getWidth()/2, currentFrame:getHeight()/2
+            )
+        end
+    end
+    
+    -- Draw particles
+    for _, particle in ipairs(effect.particles) do
+        if particle.active and particle.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
+            love.graphics.draw(
+                particleImage,
+                particle.x, particle.y,
+                particle.rotation,
+                particle.scale, particle.scale,
+                particleImage:getWidth()/2, particleImage:getHeight()/2
+            )
+        end
+    end
+end
+
 function VFX.drawMeteor(effect)
     love.graphics.setBlendMode("add")
     
@@ -40864,6 +42907,31 @@ This report shows the current VFX setup for each spell and recommendations for i
    lua tools/test_vfx_events.lua
    ```
 
+## docs/VerticalSliceMustHaves.md
+Polished spell templates:
+* ORB
+* BEAM
+* WARP
+* BLAST
+* METEOR
+* FOUNTAIN
+
+Polished mechanical templates:
+* WARD
+* BARRIER
+* TRAP
+
+SFX:
+* Figure this out!
+
+Character animation:
+* Absolute bare minimum: 2-frame idles
+* Ideally: 4-frame idles _per position_.
+* 1-frame Cast per-position
+* Flash/shake on-hit
+* Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
+* 
+
 ## docs/Visual_Language.md
 # Visual Language Reference
 
@@ -42270,22 +44338,79 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Development Status
 
-This is an early prototype with basic functionality:
+This is a late prototype with basic full engine functionality:
 - Two opposing wizards with health bars
 - Shared mana pool with floating tokens
 - Three spell slots per wizard with visual feedback
-- Basic state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Simple spatial state representation (NEAR/FAR, GROUNDED/AERIAL)
+- Data-driven VFX engine (actual visuals are still rough)
+- Various spell types with unique mechanics: Attack, Utility, Shield, Trap (with various subtypes of each)
+- Various spell keywords with rigorously defined mechanics.
+- "Triune Spell Engine" custom DSL/data-driven format for defining spells in terms of keywords. Spells are "compiled" at runtime from keyword-based definitions which can be authored using any convenient tool.
 
 ## Next Steps
 
-- Connect mana tokens to spell queueing
-- Implement actual spell effects
-- Add position changes
-- Create proper spell descriptions
-- Add collision detection
-- Add visual effects
+- Polish VFX and add SFX. Use consistent design language driven by TSE spell definitions.
+- Add basic main menu, mode select, control customization.
+- Add AI opponent (strategy design pattern).
+- Add content. Lots of content. Lots and lots and lots of content.
 
 ## ./manastorm_codebase_dump.md
+
+## Tickets/Backlog/dynamic-block-points.md
+Ticket ID: VFX-P1 (Visual Polish)
+Title: VFX: Implement Dynamic Shield Block Point Calculation
+Goal: Enhance visual realism by making blocked projectiles visually stop at the calculated intersection point with the defender's shield orbit, rather than at a fixed percentage along the trajectory.
+Problem: Currently, blockPoint is hardcoded to 0.75 in Wizard:castSpell. This causes visual inconsistencies where the projectile might appear to stop too early (FAR range) or too late/behind the target (NEAR range), breaking immersion.
+Tasks:
+Modify Wizard:castSpell (wizard.lua):
+Locate the if blockInfo.blockable then block.
+Replace blockInfo.blockPoint = 0.75.
+Calculate dynamic blockPoint:
+Get caster position (self.x, self.y including currentX/YOffset).
+Get defender position (target.x, target.y including currentX/YOffset).
+Calculate total distance (casterDist) between them.
+Approximate the shield's visual radius based on blockInfo.blockingSlot (using radii from WizardVisuals as a reference, e.g., local shieldRadius = WizardVisuals.slotRadii.h[blockInfo.blockingSlot] or 70).
+Calculate the distance from the caster to the impact point: local impactDistance = casterDist - shieldRadius.
+Calculate the ratio: local pointRatio = impactDistance / casterDist.
+Set blockInfo.blockPoint = math.max(0.05, math.min(0.95, pointRatio)) (clamp to prevent edge cases).
+Verify Propagation: Ensure the calculated blockInfo.blockPoint is correctly passed through blockedResults, BLOCKED_DAMAGE event conversion, EFFECT event generation, and finally arrives in the opts table for VFX.createEffect.
+Acceptance Criteria:
+When a spell is blocked, the blockPoint value passed to VFX.createEffect is calculated dynamically based on caster/defender positions and the blocking slot's radius.
+Visually, blocked projectiles stop noticeably closer to the defender when NEAR compared to when FAR.
+The visual stop point roughly corresponds to the outer edge of the defender's shield orbit animation for the blocking slot.
+System remains stable, no new errors introduced.
+Notes:
+This is primarily a visual polish ticket.
+The shield radius approximation can be refined later, especially if shield visuals become non-elliptical.
+Depends on the core blocking logic and event system being stable.
+Priority: Low (Post-Demo)
+
+## Tickets/Backlog/simplify-projectile-shield-block-animation-logic.md
+Ticket ID: VFX-R7 (Refactor)
+Title: VFX: Simplify Projectile Shield Block Animation Logic
+Goal: Refactor the projectile blocking visual logic within VFX:updateProjectile for increased clarity, reliability, and maintainability, while ensuring a clear "stop and shatter" visual.
+Problem: The current logic in VFX:updateProjectile for handling blocked effects (if isBlocked...) is complex, involving multiple flags (blockTimerStarted, impactParticlesCreated, blockLogged), potentially racy timers, and spawning secondary effects (shield_hit_base). This complexity can lead to inconsistent visuals (partial animations, effect ending prematurely) and is hard to debug.
+Tasks:
+Modify VFX:updateProjectile (vfx.lua):
+Locate the if isBlocked then ... end block.
+Simplify State: Rely primarily on detecting effect.visualProgress >= effect.options.blockPoint. Remove blockTimerStarted and potentially impactParticlesCreated if the impact visual can be integrated.
+Integrate Impact Visual: Instead of creating a separate shield_hit_base effect, consider adding a short-lived "impact particle group" directly to the current effect instance when the block occurs. These particles would handle the "shatter" flash at the blockX, blockY point. Alternatively, ensure the EFFECT event generated by EventRunner for the BLOCKED_DAMAGE only triggers the shield_hit_base effect, and updateProjectile focuses solely on stopping/scattering its own particles.
+Simplify Particle Scattering: When the block is detected:
+Immediately stop the forward motion of core particles (set speedX/Y = 0 or apply strong opposing force).
+Initiate a consistent scattering/fading animation for all particles (core and trail) originating from the blockX, blockY point. This could reuse or adapt the existing deflect* logic but trigger it more deterministically.
+Standardize Cleanup: When the block occurs, set a fixed additional duration for the effect (e.g., effect.duration = effect.timer + 0.5) to allow the scatter/fade animation to complete reliably before the effect is removed by the main VFX.update loop. Remove any logic that artificially speeds up effect.timer after a block.
+Acceptance Criteria:
+The visual sequence for a blocked projectile (stop -> impact flash -> particle scatter -> fade) is clear and consistent across different ranges and block timings.
+The code within VFX:updateProjectile's blocking section is simpler and easier to follow.
+The reliance on multiple boolean flags for state tracking within the block sequence is reduced.
+Blocked effects reliably clean themselves up after the scatter/fade animation completes.
+No VFX objects or particles are leaked (verify with pool stats).
+Notes:
+This focuses on reliability and maintainability of the blocking visual.
+It might involve choosing between integrating the impact flash into the main effect vs. ensuring the separately spawned shield_hit_base effect works reliably. Integrating might be cleaner if feasible.
+Depends on VFX-P1 (Dynamic Block Point) for the most accurate visual positioning, but can be done independently focusing purely on the animation logic after a block is detected.
+Priority: Medium (Post-Demo, improves stability)
 
 ## Tickets/S1_CoreGameplay/1-1-setup-new-files.md
 Ticket #1: Setup Keyword & Compiler Files
