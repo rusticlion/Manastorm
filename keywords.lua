@@ -212,8 +212,9 @@ Keywords.damage = {
             -- Determine if we should delay damage display for visual sync
             local delayDamage = false
             
-            -- For projectile spells, we want to delay damage until visual completes
-            if spell and spell.attackType == "projectile" then
+            -- For projectile and meteor spells, we want to delay damage until visual completes
+            if spell and (spell.attackType == "projectile" or spell.attackType == "meteor" or
+                          spell.visualShape == "meteor") then
                 delayDamage = true
             end
             

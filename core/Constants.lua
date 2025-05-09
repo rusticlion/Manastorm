@@ -111,6 +111,21 @@ Constants.AttackType = {
     UTILITY = "utility"         -- Non-damaging effect, can't be blocked
 }
 
+Constants.VisualShape = {
+    BOLT = "bolt",
+    BEAM = "beam",
+    BLAST = "blast",
+    CONE = "cone",
+    REMOTE = "remote",
+    METEOR = "meteor",
+    CONJURE_BASE = "conjure",
+    SURGE = "surge",
+    AURA = "aura",
+    VORTEX = "vortex",
+    TORNADO = "tornado",
+    WAVE = "wave",
+}
+
 Constants.CastSpeed = {
     VERY_SLOW = 12,
     SLOW = 8,

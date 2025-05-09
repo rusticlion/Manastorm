@@ -199,6 +199,10 @@ function love.load()
     -- Initialize VFX system
     game.vfx = VFX.init()
     
+    -- Make screen shake and hitstop functions directly available to VFX module
+    VFX.triggerShake = triggerShake
+    VFX.triggerHitstop = triggerHitstop
+    
     -- Precompile all spells for better performance
     print("Precompiling all spells...")
     

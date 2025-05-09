@@ -533,7 +533,10 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Copy block info for visual effects - ensure it's always present
             blockInfo = event.blockInfo,
-            blockPoint = event.blockPoint or 0.75
+            blockPoint = event.blockPoint or 0.75,
+            
+            -- Add the amount of damage for screen shake calculation
+            amount = event.amount or 10
         }
         
         -- Debug log the generated EFFECT event
@@ -1604,10 +1607,23 @@ EventRunner.EVENT_HANDLERS = {
                    caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.visualShape then
                     vfxOpts.visualShape = caster.spellSlots[spellSlot].spell.visualShape
                 end
+                
+                -- Make sure to pass the damage amount for determining shake intensity
+                vfxOpts.amount = event.amount or vfxOpts.amount or 10
+                
+                -- Debug entity references
+                print(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
             end
             if target and target.name then
                 vfxOpts.target = target.name
                 vfxOpts.targetEntity = target
+                print(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
+            end
+            
+            -- For SHIELD_BLOCKED events, make sure we have all needed references
+            if event.tags and event.tags.SHIELD_BLOCKED then
+                print("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
+                vfxOpts.gameState = caster.gameState
             end
             
             -- Handle shield blocked effects
