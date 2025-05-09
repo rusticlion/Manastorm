@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri May  9 12:22:17 CDT 2025
+Generated: Fri May  9 16:32:37 CDT 2025
 
 # Source Code
 
@@ -1088,23 +1088,42 @@ Constants.ElevationState = {
 }
 
 -- Color Palette (RGBA, 0-1 range)
+-- Constants.Color = {
+--     BLACK = {0, 0, 0, 1},                    -- #000000
+--     MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+--     FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+--     OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+--     SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+--     CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+--     LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+--     SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+--     SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+--     OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+--     ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+--     PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+--     BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+--     YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+--     MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+--     PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+-- }
+
 Constants.Color = {
-    BLACK = {0, 0, 0, 1},                    -- #000000
-    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
-    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
-    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
-    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
-    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
-    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
-    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
-    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
-    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
-    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
-    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
-    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
-    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
-    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
-    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+    BLACK          = {0.000, 0.000, 0.000, 1}, -- #000000
+    VOID           = {0.102, 0.043, 0.118, 1}, -- #1a0b1e
+    GRAY           = {0.620, 0.620, 0.620, 1}, -- #9e9e9e
+    WHITE          = {1.000, 1.000, 1.000, 1}, -- #ffffff
+    RED_HERO       = {1.000, 0.290, 0.141, 1}, -- #ff4a24
+    RED_SHADE      = {0.765, 0.212, 0.094, 1}, -- #c33618
+    GREEN_HERO     = {0.651, 0.871, 0.000, 1}, -- #a6de00
+    GREEN_SHADE    = {0.275, 0.400, 0.000, 1}, -- #466600
+    BLUE_HERO      = {0.000, 0.573, 0.875, 1}, -- #0092df
+    BLUE_SHADE     = {0.000, 0.322, 0.600, 1}, -- #005299
+    YELLOW_HERO    = {1.000, 0.843, 0.000, 1}, -- #ffd700
+    YELLOW_SHADE   = {0.784, 0.651, 0.000, 1}, -- #c8a600
+    LAVENDER_HERO  = {0.788, 0.722, 1.000, 1}, -- #c9b8ff
+    LAVENDER_SHADE = {0.478, 0.424, 0.769, 1}, -- #7a6cc4
+    PURPLE_HERO    = {0.353, 0.204, 0.769, 1}, -- #5a34c4
+    MAGENTA_HERO   = {0.820, 0.145, 0.659, 1}, -- #d125a8
 }
 
 -- Default color for unknown types
@@ -1113,15 +1132,15 @@ Constants.Color.DEFAULT = Constants.Color.SMOKE
 -- Helper function to get color based on token type
 -- Added mappings for types found in manapool.lua (Nature, Force)
 function Constants.getColorForTokenType(tokenType)
-    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
-    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
-    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
-    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
-    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
-    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
-    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
-    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
-    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.RED_HERO
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.BLUE_HERO
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.GRAY
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.LAVENDER_HERO
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.GREEN_HERO
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.MAGENTA_HERO
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.WHITE
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
@@ -7163,9 +7182,9 @@ FireSpells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 12
+                    return 9
                 end
-                return 7
+                return 5
             end,
             type = Constants.DamageType.FIRE
         },
@@ -8201,7 +8220,7 @@ SunSpells.meteor = {
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "meteor",
-    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.SUN, Constants.TokenType.FIRE},
     keywords = {
         damage = {
             amount = function(caster, target)
@@ -8378,6 +8397,7 @@ WaterSpells.watergun = {
     description = "Quick ranged hit, more damage against NEAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.BOLT,
     cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -11896,15 +11916,15 @@ local BASE_BY_ATTACK = {
 
 -- Map affinities (token types) to colors
 local COLOR_BY_AFF = {
-    [Constants.TokenType.FIRE] = Constants.Color.CRIMSON,
-    [Constants.TokenType.WATER] = Constants.Color.OCEAN,
-    [Constants.TokenType.SALT] = Constants.Color.SAND,
-    [Constants.TokenType.SUN] = Constants.Color.ORANGE,
-    [Constants.TokenType.MOON] = Constants.Color.SKY,
-    [Constants.TokenType.STAR] = Constants.Color.YELLOW,
-    [Constants.TokenType.LIFE] = Constants.Color.LIME,
-    [Constants.TokenType.MIND] = Constants.Color.PINK,
-    [Constants.TokenType.VOID] = Constants.Color.BONE
+    [Constants.TokenType.FIRE] = Constants.getColorForTokenType(Constants.TokenType.FIRE),
+    [Constants.TokenType.WATER] = Constants.getColorForTokenType(Constants.TokenType.WATER),
+    [Constants.TokenType.SALT] = Constants.getColorForTokenType(Constants.TokenType.SALT),
+    [Constants.TokenType.SUN] = Constants.getColorForTokenType(Constants.TokenType.SUN),
+    [Constants.TokenType.MOON] = Constants.getColorForTokenType(Constants.TokenType.MOON),
+    [Constants.TokenType.STAR] = Constants.getColorForTokenType(Constants.TokenType.STAR),
+    [Constants.TokenType.LIFE] = Constants.getColorForTokenType(Constants.TokenType.LIFE),
+    [Constants.TokenType.MIND] = Constants.getColorForTokenType(Constants.TokenType.MIND),
+    [Constants.TokenType.VOID] = Constants.getColorForTokenType(Constants.TokenType.VOID)
 }
 
 -- Map specific tags to overlay visual effects
@@ -15383,12 +15403,12 @@ function VFX.init()
     VFX.effects = {
         -- Base templates for the rules-driven VFX system
         proj_base = {
-            type = Constants.AttackType.PROJECTILE,
+            type = "proj_base",
             duration = 1.0,
             particleCount = 30,           -- Increased from 20 for richer visuals
             startScale = 0.5,
             endScale = 0.8,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             trailLength = 15,             -- Slightly longer trail
             impactSize = 1.2,
             sound = nil,                  -- No default sound
@@ -15399,14 +15419,14 @@ function VFX.init()
             particleLifespan = 0.6,       -- How long individual particles last (as fraction of total duration)
             leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
-        
+
         bolt_base = {
-            type = Constants.AttackType.PROJECTILE,  -- Still uses projectile logic
+            type = "bolt_base",  -- Template name as type
             duration = 0.8,               -- Faster than standard projectile
             particleCount = 20,           -- Fewer particles since we're using sprites
             startScale = 0.4,
             endScale = 0.7,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             trailLength = 18,             -- Longer trail for lightning-like effect
             impactSize = 1.3,             -- Slightly larger impact
             sound = nil,                  -- No default sound
@@ -15428,14 +15448,14 @@ function VFX.init()
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
         },
-        
+
         warp_base = {
-            type = "remote",               -- Uses remote effect type (action at a distance)
+            type = "warp_base",           -- Template name as type
             duration = 1.0,                -- Standard duration
             particleCount = 25,            -- Particles for additional effects
             startScale = 0.5,
             endScale = 1.0,
-            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            color = Constants.Color.GRAY, -- Default color, will be overridden
             radius = 80,                   -- Radius for particle effects
             impactSize = 1.5,              -- Slightly larger impact
             sound = nil,                   -- No default sound
@@ -15454,32 +15474,32 @@ function VFX.init()
             useTargetPosition = true,      -- Track the target's position
             criticalAssets = {"warpFrames"} -- Mark warp frames as critical assets to preload
         },
-        
+
         beam_base = {
-            type = "beam",
+            type = "beam_base",           -- Template name as type
             duration = 1.2,
             particleCount = 25,
             beamWidth = 30,
             startScale = 0.3,
             endScale = 0.9,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             pulseRate = 3,
             sound = nil,
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true      -- Track target position
         },
-        
+
         blast_base = {
-            type = "cone",                -- Cone-shaped blast effect
+            type = "blast_base",          -- Template name as type
             duration = 1.3,               -- Even longer duration for more dramatic impact
             particleCount = 95,           -- More particles for density and impact
             startScale = 0.45,            -- Larger starting scale
             endScale = 1.35,              -- Larger end scale for dramatic growth
-            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            color = Constants.Color.GRAY, -- Default color, will be overridden
             coneAngle = 45,               -- Narrower cone angle (45° instead of 70°)
             coneLength = 320,             -- Much longer range for dramatic reach
             waveCount = 5,                -- More waves for increased visual impact
-            waveSpeed = 350,              -- Faster wave propagation 
+            waveSpeed = 350,              -- Faster wave propagation
             nearRangeIntensity = 2.2,     -- Stronger intensity multiplier at NEAR range
             matchedElevationIntensity = 1.7, -- Stronger multiplier for matched elevation
             useSourcePosition = true,     -- Track source (caster) position
@@ -15495,38 +15515,38 @@ function VFX.init()
             intensityFalloff = 0.65,      -- Control how quickly intensity drops with distance
             focusedCore = true            -- Concentrate particles in center of cone (new parameter)
         },
-        
+
         zone_base = {
-            type = "aura",
+            type = "zone_base",           -- Template name as type
             duration = 1.0,
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.0,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 80,
             pulseRate = 3,
             sound = nil
         },
-        
+
         util_base = {
-            type = "aura",
+            type = "util_base",           -- Template name as type
             duration = 0.8,
             particleCount = 15,
             startScale = 0.3,
             endScale = 0.7,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 60,
             pulseRate = 4,
             sound = nil
         },
-        
+
         surge_base = {
-            type = "surge",
+            type = "surge_base",          -- Template name as type
             duration = 1.5,                -- Longer duration for buff visual
             particleCount = 60,            -- More particles for richer effect
             startScale = 0.3,              -- Larger starting scale
             endScale = 0.08,               -- Smaller end scale for fade-out
-            color = Constants.Color.SKY,   -- Default color, will be overridden
+            color = Constants.Color.YELLOW_HERO,   -- Default color, will be overridden
             height = 200,                  -- Higher fountain effect
             spread = 45,                   -- Narrower spread for more focused fountain
             riseFactor = 1.4,              -- How quickly particles rise (new parameter)
@@ -15547,39 +15567,39 @@ function VFX.init()
             sound = "surge",               -- Sound effect
             criticalAssets = {"sparkle"}   -- Required assets
         },
-        
+
         conjure_base = {
-            type = "conjure",
+            type = "conjure_base",        -- Template name as type
             duration = 0.8,
             particleCount = 35,
             startScale = 0.3,
             endScale = 0.9,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden by VisualResolver
+            color = Constants.Color.GRAY,  -- Default color, will be overridden by VisualResolver
             radius = 70,
             height = 120,
             pulseRate = 3,
             sound = nil,
             defaultParticleAsset = "sparkle"
         },
-        
+
         impact_base = {
-            type = "impact",
+            type = "impact_base",         -- Template name as type
             duration = 0.5,
             particleCount = 20,
             startScale = 0.6,
             endScale = 0.3,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 40,
             sound = nil
         },
-        
+
         remote_base = {
-            type = "impact",
+            type = "remote_base",         -- Template name as type
             duration = 0.7,
             particleCount = 35,
             startScale = 0.2,
             endScale = 1.0,              -- Larger ending scale for a flash effect
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 60,                 -- Larger radius than impact
             pulseRate = 2,               -- Add pulse for dynamic flash effect
             intensityMultiplier = 1.8,   -- Brighter than normal effects
@@ -15587,14 +15607,14 @@ function VFX.init()
             trackTargetOffsets = true,   -- Track target's current position including offsets
             sound = nil
         },
-        
+
         shield_hit_base = {
-            type = "impact",
+            type = "shield_hit_base",     -- Template name as type
             duration = 0.8,  -- Slightly longer impact duration
             particleCount = 30, -- More particles
             startScale = 0.5,
             endScale = 1.3,  -- Larger end scale
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 70,     -- Increased radius
             sound = "shield", -- Use shield sound
             criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
@@ -15603,23 +15623,23 @@ function VFX.init()
         -- Existing effects
         -- General impact effect (used for many spell interactions)
         impact = {
-            type = "impact",
+            type = "impact",              -- Effect name as type
             duration = 0.5,  -- Half second by default
             particleCount = 15,
             startScale = 0.8,
             endScale = 0.2,
-            color = Constants.Color.SMOKE,  -- Default white -> SMOKE
+            color = Constants.Color.GRAY,
             radius = 30,
             sound = nil  -- No default sound
         },
-        
+
         meteor = {
-            type = "meteor",
+            type = "meteor",              -- Effect name as type
             duration = 1.4,
             particleCount = 45,
             startScale = 0.6,
             endScale = 1.2,
-            color = Constants.Color.CRIMSON,  -- Crimson red for meteor
+            color = Constants.Color.RED_HERO,  -- Crimson red for meteor
             radius = 90,         -- Impact explosion radius
             height = 300,        -- Height from which meteor falls
             spread = 20,         -- Spread of the meteor cluster
@@ -15628,45 +15648,95 @@ function VFX.init()
             sound = "meteor_impact",
             defaultParticleAsset = "fireParticle"
         },
-        
+
         force_blast = {
-            type = "impact",
+            type = "force_blast",         -- Effect name as type
             duration = 1.0,
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.5,
-            color = Constants.Color.YELLOW,  -- Blue-ish for force theme -> YELLOW
+            color = Constants.Color.YELLOW_HERO,
             radius = 90,
             sound = "force_wind"
         },
-        
-        -- Free Mana - special effect when freeing all spells
+
         free_mana = {
-            type = "aura",
+            type = "free_mana",           -- Effect name as type
             duration = 1.2,
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = Constants.Color.BONE,  -- Bright blue for freeing mana -> SKY
+            color = Constants.Color.WHITE,
             radius = 100,
             pulseRate = 4,
             sound = "release"
         },
-        
-        -- Shield effect (used for barrier or ward shield activation)
+
         shield = {
-            type = "aura",
+            type = "shield",              -- Effect name as type
             duration = 1.0,
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = Constants.Color.SKY,  -- Default blue-ish -> SKY
+            color = Constants.Color.BLUE_HERO,
             radius = 60,
             pulseRate = 3,
             sound = "shield",
             criticalAssets = {"sparkle", "runes", "impactRing"}, -- Assets needed for shields
             shieldType = nil -- Will be set at runtime based on the spell
         },
+
+        -- Emberlift spell effects
+        emberlift = {
+            type = "emberlift",           -- Effect name as type
+            duration = 1.2,
+            particleCount = 60,            -- More particles for richer effect
+            startScale = 0.3,              -- Larger starting scale
+            endScale = 0.08,               -- Smaller end scale for fade-out
+            color = Constants.Color.RED_HERO,
+            height = 160,                  -- Height for fountain effect
+            spread = 45,                   -- Spread for the fountain
+            riseFactor = 1.4,              -- How quickly particles rise
+            gravity = 180,                 -- Gravity effect for natural arc
+            centerGlow = true,             -- Create glowing core at caster
+            centerGlowSize = 50,           -- Size of the center glow
+            centerGlowIntensity = 1.3,     -- Intensity of center glow
+            spiralMotion = true,           -- Add spiral motion to particles
+            spiralTightness = 2.5,         -- How tight the spiral is
+            particleSizeVariance = 0.6,    -- Varied particle sizes
+            riseAcceleration = 1.2,        -- Particles accelerate as they rise
+            bloomEffect = true,            -- Add bloom/glow to particles
+            bloomIntensity = 0.8,          -- Intensity of bloom effect
+            sparkleChance = 0.4,           -- Chance for sparkle effect on particles
+            useSprites = true,             -- Use sprite images
+            spriteFrameRate = 8,           -- Frame rate for sprite animation
+            pulsateParticles = true,       -- Pulsate particle size
+            sound = "surge",
+            criticalAssets = {"sparkle", "fireParticle"}
+        },
+
+        range_change = {
+            type = "range_change",         -- Effect name as type
+            duration = 1.1,
+            particleCount = 50,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.YELLOW_HERO,
+            height = 120,
+            spread = 60,
+            riseFactor = 1.2,
+            gravity = 150,
+            centerGlow = true,
+            centerGlowSize = 40,
+            spiralMotion = true,
+            spiralTightness = 2.0,
+            particleSizeVariance = 0.5,
+            useSprites = true,
+            spriteFrameRate = 8,
+            sound = "range_shift"
+        },
+
+        -- Note: conjurefire will fall through to use the default conjure_base template
     }
     
     -- TODO: Initialize sound effects
@@ -16707,35 +16777,59 @@ local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
 
 -- Initialize the updaters table with update functions
--- TODO - retrofit all the "projectile" defaults to use the new "visual shape" subtype system
+-- Map each template name/type to the appropriate handler
+VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
+VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
+VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
+VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
+VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
+VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
+VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
+VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
+VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
+VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
+VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
+VFX.updaters["shield_hit_base"] = ImpactEffect.update -- Shield hit template
+
+-- Specific effect templates
+VFX.updaters["meteor"] = MeteorEffect.update         -- Meteor effect
+VFX.updaters["impact"] = ImpactEffect.update         -- Generic impact
+VFX.updaters["force_blast"] = ImpactEffect.update    -- Force blast uses impact logic
+VFX.updaters["free_mana"] = AuraEffect.update        -- Free mana uses aura logic
+VFX.updaters["shield"] = AuraEffect.update           -- Shield uses aura logic
+VFX.updaters["emberlift"] = SurgeEffect.update       -- Emberlift uses surge logic
+VFX.updaters["range_change"] = SurgeEffect.update    -- Range change uses surge logic
+
+-- Add backward compatibility for critical legacy code paths
+-- These keys will be removed in a future update
 VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
-VFX.updaters["impact"] = ImpactEffect.update
-VFX.updaters[Constants.VisualShape.BEAM] = BeamEffect.update
-VFX.updaters[Constants.VisualShape.BLAST] = ImpactEffect.update
-VFX.updaters[Constants.VisualShape.CONE] = ConeEffect.update
-VFX.updaters[Constants.VisualShape.REMOTE] = RemoteEffect.update
-VFX.updaters[Constants.VisualShape.METEOR] = MeteorEffect.update
-VFX.updaters[Constants.VisualShape.CONJURE_BASE] = ConjureEffect.update
-VFX.updaters[Constants.VisualShape.SURGE] = SurgeEffect.update
-VFX.updaters[Constants.VisualShape.AURA] = AuraEffect.update
--- VFX.updaters[Constants.VisualShape.VORTEX] = VortexEffect.update
--- VFX.updaters[Constants.VisualShape.TORNADO] = TornadoEffect.update
--- VFX.updaters[Constants.VisualShape.WAVE] = WaveEffect.update
 
 -- Initialize the drawers table with draw functions
+VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
+VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
+VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
+VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
+VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
+VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
+VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
+VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
+VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
+VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
+VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
+VFX.drawers["shield_hit_base"] = ImpactEffect.draw  -- Shield hit template
+
+-- Specific effect templates
+VFX.drawers["meteor"] = MeteorEffect.draw           -- Meteor effect
+VFX.drawers["impact"] = ImpactEffect.draw           -- Generic impact
+VFX.drawers["force_blast"] = ImpactEffect.draw      -- Force blast uses impact logic
+VFX.drawers["free_mana"] = AuraEffect.draw          -- Free mana uses aura logic
+VFX.drawers["shield"] = AuraEffect.draw             -- Shield uses aura logic
+VFX.drawers["emberlift"] = SurgeEffect.draw         -- Emberlift uses surge logic
+VFX.drawers["range_change"] = SurgeEffect.draw      -- Range change uses surge logic
+
+-- Add backward compatibility for critical legacy code paths
+-- These keys will be removed in a future update
 VFX.drawers[Constants.AttackType.PROJECTILE] = ProjectileEffect.draw
-VFX.drawers["impact"] = ImpactEffect.draw
-VFX.drawers[Constants.VisualShape.BEAM] = BeamEffect.draw
-VFX.drawers[Constants.VisualShape.BLAST] = ImpactEffect.draw
-VFX.drawers[Constants.VisualShape.CONE] = ConeEffect.draw
-VFX.drawers[Constants.VisualShape.REMOTE] = RemoteEffect.draw
-VFX.drawers[Constants.VisualShape.METEOR] = MeteorEffect.draw
-VFX.drawers[Constants.VisualShape.CONJURE_BASE] = ConjureEffect.draw
-VFX.drawers[Constants.VisualShape.SURGE] = SurgeEffect.draw
-VFX.drawers[Constants.VisualShape.AURA] = AuraEffect.draw
--- VFX.drawers[Constants.VisualShape.VORTEX] = VortexEffect.draw
--- VFX.drawers[Constants.VisualShape.TORNADO] = TornadoEffect.draw
--- VFX.drawers[Constants.VisualShape.WAVE] = WaveEffect.draw
 
 return VFX```
 
@@ -20316,36 +20410,70 @@ local Constants = require("core.Constants")
 local function initializeParticles(effect)
     -- Import the appropriate effect module
     local effectModule
-    
-    -- Different initialization based on effect type
-    if effect.type == Constants.AttackType.PROJECTILE then
-        effectModule = require("vfx.effects.projectile")
-    elseif effect.type == "impact" then
-        effectModule = require("vfx.effects.impact")
-    elseif effect.type == "cone" then
-        effectModule = require("vfx.effects.cone")
-    elseif effect.type == "aura" then
-        effectModule = require("vfx.effects.aura")
-    elseif effect.type == "remote" then
-        effectModule = require("vfx.effects.remote")
-    elseif effect.type == "beam" then
-        effectModule = require("vfx.effects.beam")
-    elseif effect.type == "conjure" then
-        effectModule = require("vfx.effects.conjure")
-    elseif effect.type == "surge" then
-        effectModule = require("vfx.effects.surge")
-    elseif effect.type == "meteor" then
-        effectModule = require("vfx.effects.meteor")
-    else
-        print("[VFX] Warning: Unknown effect type: " .. tostring(effect.type))
-        return
+
+    -- Extract the base effect type for loading the proper module
+    local effectType = effect.type
+
+    -- Map template names directly to module paths
+    local typeToModuleMap = {
+        -- Base templates
+        ["proj_base"] = "projectile",
+        ["bolt_base"] = "projectile",
+        ["impact_base"] = "impact",
+        ["beam_base"] = "beam",
+        ["blast_base"] = "cone",
+        ["zone_base"] = "aura",
+        ["util_base"] = "aura",
+        ["surge_base"] = "surge",
+        ["conjure_base"] = "conjure",
+        ["remote_base"] = "remote",
+        ["warp_base"] = "remote",
+        ["shield_hit_base"] = "impact",
+
+        -- Specific effect templates
+        ["meteor"] = "meteor",
+        ["impact"] = "impact",
+        ["force_blast"] = "impact",
+        ["free_mana"] = "aura",
+        ["shield"] = "aura",
+        ["emberlift"] = "surge",
+        ["range_change"] = "surge",
+
+        -- Critical backward compatibility (to be removed in future)
+        [Constants.AttackType.PROJECTILE] = "projectile"
+    }
+
+    local moduleName = typeToModuleMap[effectType]
+
+    -- If type isn't in our map, attempt a direct match with module name
+    if not moduleName then
+        -- Try using type as direct module name
+        if effectType and (effectType == "projectile" or
+                         effectType == "impact" or
+                         effectType == "beam" or
+                         effectType == "cone" or
+                         effectType == "aura" or
+                         effectType == "remote" or
+                         effectType == "meteor" or
+                         effectType == "surge" or
+                         effectType == "conjure") then
+            moduleName = effectType
+            print(string.format("[VFX] Using effect.type '%s' directly as module name", effectType))
+        else
+            -- Last fallback to avoid crashes - default to impact effect
+            print(string.format("[VFX] Warning: Unknown effect type: '%s' - falling back to impact", tostring(effectType)))
+            moduleName = "impact"
+        end
     end
-    
+
+    -- Load the module based on name
+    effectModule = require("vfx.effects." .. moduleName)
+
     -- Call the module's initialize function if it exists
     if effectModule and effectModule.initialize then
         effectModule.initialize(effect)
     else
-        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effect.type))
+        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effectType))
     end
 end
 
@@ -20504,7 +20632,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.infiniteprocession,
+            ["12"] = Spells.watergun,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -23233,7 +23361,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri May  9 12:22:17 CDT 2025
+Generated: Fri May  9 16:32:37 CDT 2025
 
 # Source Code
 
@@ -24322,23 +24450,42 @@ Constants.ElevationState = {
 }
 
 -- Color Palette (RGBA, 0-1 range)
+-- Constants.Color = {
+--     BLACK = {0, 0, 0, 1},                    -- #000000
+--     MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+--     FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+--     OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+--     SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+--     CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+--     LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+--     SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+--     SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+--     OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+--     ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+--     PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+--     BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+--     YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+--     MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+--     PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+-- }
+
 Constants.Color = {
-    BLACK = {0, 0, 0, 1},                    -- #000000
-    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
-    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
-    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
-    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
-    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
-    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
-    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
-    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
-    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
-    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
-    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
-    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
-    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
-    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
-    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+    BLACK          = {0.000, 0.000, 0.000, 1}, -- #000000
+    VOID           = {0.102, 0.043, 0.118, 1}, -- #1a0b1e
+    GRAY           = {0.620, 0.620, 0.620, 1}, -- #9e9e9e
+    WHITE          = {1.000, 1.000, 1.000, 1}, -- #ffffff
+    RED_HERO       = {1.000, 0.290, 0.141, 1}, -- #ff4a24
+    RED_SHADE      = {0.765, 0.212, 0.094, 1}, -- #c33618
+    GREEN_HERO     = {0.651, 0.871, 0.000, 1}, -- #a6de00
+    GREEN_SHADE    = {0.275, 0.400, 0.000, 1}, -- #466600
+    BLUE_HERO      = {0.000, 0.573, 0.875, 1}, -- #0092df
+    BLUE_SHADE     = {0.000, 0.322, 0.600, 1}, -- #005299
+    YELLOW_HERO    = {1.000, 0.843, 0.000, 1}, -- #ffd700
+    YELLOW_SHADE   = {0.784, 0.651, 0.000, 1}, -- #c8a600
+    LAVENDER_HERO  = {0.788, 0.722, 1.000, 1}, -- #c9b8ff
+    LAVENDER_SHADE = {0.478, 0.424, 0.769, 1}, -- #7a6cc4
+    PURPLE_HERO    = {0.353, 0.204, 0.769, 1}, -- #5a34c4
+    MAGENTA_HERO   = {0.820, 0.145, 0.659, 1}, -- #d125a8
 }
 
 -- Default color for unknown types
@@ -24347,15 +24494,15 @@ Constants.Color.DEFAULT = Constants.Color.SMOKE
 -- Helper function to get color based on token type
 -- Added mappings for types found in manapool.lua (Nature, Force)
 function Constants.getColorForTokenType(tokenType)
-    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
-    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
-    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
-    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
-    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
-    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
-    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
-    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
-    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.RED_HERO
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.BLUE_HERO
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.GRAY
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.LAVENDER_HERO
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.GREEN_HERO
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.MAGENTA_HERO
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.WHITE
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
@@ -30397,9 +30544,9 @@ FireSpells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 12
+                    return 9
                 end
-                return 7
+                return 5
             end,
             type = Constants.DamageType.FIRE
         },
@@ -31435,7 +31582,7 @@ SunSpells.meteor = {
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
     visualShape = "meteor",
-    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
+    cost = {Constants.TokenType.SUN, Constants.TokenType.FIRE, Constants.TokenType.SUN, Constants.TokenType.FIRE},
     keywords = {
         damage = {
             amount = function(caster, target)
@@ -31612,6 +31759,7 @@ WaterSpells.watergun = {
     description = "Quick ranged hit, more damage against NEAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.BOLT,
     cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -35130,15 +35278,15 @@ local BASE_BY_ATTACK = {
 
 -- Map affinities (token types) to colors
 local COLOR_BY_AFF = {
-    [Constants.TokenType.FIRE] = Constants.Color.CRIMSON,
-    [Constants.TokenType.WATER] = Constants.Color.OCEAN,
-    [Constants.TokenType.SALT] = Constants.Color.SAND,
-    [Constants.TokenType.SUN] = Constants.Color.ORANGE,
-    [Constants.TokenType.MOON] = Constants.Color.SKY,
-    [Constants.TokenType.STAR] = Constants.Color.YELLOW,
-    [Constants.TokenType.LIFE] = Constants.Color.LIME,
-    [Constants.TokenType.MIND] = Constants.Color.PINK,
-    [Constants.TokenType.VOID] = Constants.Color.BONE
+    [Constants.TokenType.FIRE] = Constants.getColorForTokenType(Constants.TokenType.FIRE),
+    [Constants.TokenType.WATER] = Constants.getColorForTokenType(Constants.TokenType.WATER),
+    [Constants.TokenType.SALT] = Constants.getColorForTokenType(Constants.TokenType.SALT),
+    [Constants.TokenType.SUN] = Constants.getColorForTokenType(Constants.TokenType.SUN),
+    [Constants.TokenType.MOON] = Constants.getColorForTokenType(Constants.TokenType.MOON),
+    [Constants.TokenType.STAR] = Constants.getColorForTokenType(Constants.TokenType.STAR),
+    [Constants.TokenType.LIFE] = Constants.getColorForTokenType(Constants.TokenType.LIFE),
+    [Constants.TokenType.MIND] = Constants.getColorForTokenType(Constants.TokenType.MIND),
+    [Constants.TokenType.VOID] = Constants.getColorForTokenType(Constants.TokenType.VOID)
 }
 
 -- Map specific tags to overlay visual effects
@@ -38617,12 +38765,12 @@ function VFX.init()
     VFX.effects = {
         -- Base templates for the rules-driven VFX system
         proj_base = {
-            type = Constants.AttackType.PROJECTILE,
+            type = "proj_base",
             duration = 1.0,
             particleCount = 30,           -- Increased from 20 for richer visuals
             startScale = 0.5,
             endScale = 0.8,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             trailLength = 15,             -- Slightly longer trail
             impactSize = 1.2,
             sound = nil,                  -- No default sound
@@ -38633,14 +38781,14 @@ function VFX.init()
             particleLifespan = 0.6,       -- How long individual particles last (as fraction of total duration)
             leadingIntensity = 1.5        -- Brightness multiplier for the leading edge
         },
-        
+
         bolt_base = {
-            type = Constants.AttackType.PROJECTILE,  -- Still uses projectile logic
+            type = "bolt_base",  -- Template name as type
             duration = 0.8,               -- Faster than standard projectile
             particleCount = 20,           -- Fewer particles since we're using sprites
             startScale = 0.4,
             endScale = 0.7,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             trailLength = 18,             -- Longer trail for lightning-like effect
             impactSize = 1.3,             -- Slightly larger impact
             sound = nil,                  -- No default sound
@@ -38662,14 +38810,14 @@ function VFX.init()
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
         },
-        
+
         warp_base = {
-            type = "remote",               -- Uses remote effect type (action at a distance)
+            type = "warp_base",           -- Template name as type
             duration = 1.0,                -- Standard duration
             particleCount = 25,            -- Particles for additional effects
             startScale = 0.5,
             endScale = 1.0,
-            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            color = Constants.Color.GRAY, -- Default color, will be overridden
             radius = 80,                   -- Radius for particle effects
             impactSize = 1.5,              -- Slightly larger impact
             sound = nil,                   -- No default sound
@@ -38688,32 +38836,32 @@ function VFX.init()
             useTargetPosition = true,      -- Track the target's position
             criticalAssets = {"warpFrames"} -- Mark warp frames as critical assets to preload
         },
-        
+
         beam_base = {
-            type = "beam",
+            type = "beam_base",           -- Template name as type
             duration = 1.2,
             particleCount = 25,
             beamWidth = 30,
             startScale = 0.3,
             endScale = 0.9,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             pulseRate = 3,
             sound = nil,
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true      -- Track target position
         },
-        
+
         blast_base = {
-            type = "cone",                -- Cone-shaped blast effect
+            type = "blast_base",          -- Template name as type
             duration = 1.3,               -- Even longer duration for more dramatic impact
             particleCount = 95,           -- More particles for density and impact
             startScale = 0.45,            -- Larger starting scale
             endScale = 1.35,              -- Larger end scale for dramatic growth
-            color = Constants.Color.SMOKE, -- Default color, will be overridden
+            color = Constants.Color.GRAY, -- Default color, will be overridden
             coneAngle = 45,               -- Narrower cone angle (45° instead of 70°)
             coneLength = 320,             -- Much longer range for dramatic reach
             waveCount = 5,                -- More waves for increased visual impact
-            waveSpeed = 350,              -- Faster wave propagation 
+            waveSpeed = 350,              -- Faster wave propagation
             nearRangeIntensity = 2.2,     -- Stronger intensity multiplier at NEAR range
             matchedElevationIntensity = 1.7, -- Stronger multiplier for matched elevation
             useSourcePosition = true,     -- Track source (caster) position
@@ -38729,38 +38877,38 @@ function VFX.init()
             intensityFalloff = 0.65,      -- Control how quickly intensity drops with distance
             focusedCore = true            -- Concentrate particles in center of cone (new parameter)
         },
-        
+
         zone_base = {
-            type = "aura",
+            type = "zone_base",           -- Template name as type
             duration = 1.0,
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.0,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 80,
             pulseRate = 3,
             sound = nil
         },
-        
+
         util_base = {
-            type = "aura",
+            type = "util_base",           -- Template name as type
             duration = 0.8,
             particleCount = 15,
             startScale = 0.3,
             endScale = 0.7,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 60,
             pulseRate = 4,
             sound = nil
         },
-        
+
         surge_base = {
-            type = "surge",
+            type = "surge_base",          -- Template name as type
             duration = 1.5,                -- Longer duration for buff visual
             particleCount = 60,            -- More particles for richer effect
             startScale = 0.3,              -- Larger starting scale
             endScale = 0.08,               -- Smaller end scale for fade-out
-            color = Constants.Color.SKY,   -- Default color, will be overridden
+            color = Constants.Color.YELLOW_HERO,   -- Default color, will be overridden
             height = 200,                  -- Higher fountain effect
             spread = 45,                   -- Narrower spread for more focused fountain
             riseFactor = 1.4,              -- How quickly particles rise (new parameter)
@@ -38781,39 +38929,39 @@ function VFX.init()
             sound = "surge",               -- Sound effect
             criticalAssets = {"sparkle"}   -- Required assets
         },
-        
+
         conjure_base = {
-            type = "conjure",
+            type = "conjure_base",        -- Template name as type
             duration = 0.8,
             particleCount = 35,
             startScale = 0.3,
             endScale = 0.9,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden by VisualResolver
+            color = Constants.Color.GRAY,  -- Default color, will be overridden by VisualResolver
             radius = 70,
             height = 120,
             pulseRate = 3,
             sound = nil,
             defaultParticleAsset = "sparkle"
         },
-        
+
         impact_base = {
-            type = "impact",
+            type = "impact_base",         -- Template name as type
             duration = 0.5,
             particleCount = 20,
             startScale = 0.6,
             endScale = 0.3,
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 40,
             sound = nil
         },
-        
+
         remote_base = {
-            type = "impact",
+            type = "remote_base",         -- Template name as type
             duration = 0.7,
             particleCount = 35,
             startScale = 0.2,
             endScale = 1.0,              -- Larger ending scale for a flash effect
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 60,                 -- Larger radius than impact
             pulseRate = 2,               -- Add pulse for dynamic flash effect
             intensityMultiplier = 1.8,   -- Brighter than normal effects
@@ -38821,14 +38969,14 @@ function VFX.init()
             trackTargetOffsets = true,   -- Track target's current position including offsets
             sound = nil
         },
-        
+
         shield_hit_base = {
-            type = "impact",
+            type = "shield_hit_base",     -- Template name as type
             duration = 0.8,  -- Slightly longer impact duration
             particleCount = 30, -- More particles
             startScale = 0.5,
             endScale = 1.3,  -- Larger end scale
-            color = Constants.Color.SMOKE,  -- Default color, will be overridden
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
             radius = 70,     -- Increased radius
             sound = "shield", -- Use shield sound
             criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
@@ -38837,23 +38985,23 @@ function VFX.init()
         -- Existing effects
         -- General impact effect (used for many spell interactions)
         impact = {
-            type = "impact",
+            type = "impact",              -- Effect name as type
             duration = 0.5,  -- Half second by default
             particleCount = 15,
             startScale = 0.8,
             endScale = 0.2,
-            color = Constants.Color.SMOKE,  -- Default white -> SMOKE
+            color = Constants.Color.GRAY,
             radius = 30,
             sound = nil  -- No default sound
         },
-        
+
         meteor = {
-            type = "meteor",
+            type = "meteor",              -- Effect name as type
             duration = 1.4,
             particleCount = 45,
             startScale = 0.6,
             endScale = 1.2,
-            color = Constants.Color.CRIMSON,  -- Crimson red for meteor
+            color = Constants.Color.RED_HERO,  -- Crimson red for meteor
             radius = 90,         -- Impact explosion radius
             height = 300,        -- Height from which meteor falls
             spread = 20,         -- Spread of the meteor cluster
@@ -38862,45 +39010,95 @@ function VFX.init()
             sound = "meteor_impact",
             defaultParticleAsset = "fireParticle"
         },
-        
+
         force_blast = {
-            type = "impact",
+            type = "force_blast",         -- Effect name as type
             duration = 1.0,
             particleCount = 30,
             startScale = 0.4,
             endScale = 1.5,
-            color = Constants.Color.YELLOW,  -- Blue-ish for force theme -> YELLOW
+            color = Constants.Color.YELLOW_HERO,
             radius = 90,
             sound = "force_wind"
         },
-        
-        -- Free Mana - special effect when freeing all spells
+
         free_mana = {
-            type = "aura",
+            type = "free_mana",           -- Effect name as type
             duration = 1.2,
             particleCount = 40,
             startScale = 0.4,
             endScale = 0.8,
-            color = Constants.Color.BONE,  -- Bright blue for freeing mana -> SKY
+            color = Constants.Color.WHITE,
             radius = 100,
             pulseRate = 4,
             sound = "release"
         },
-        
-        -- Shield effect (used for barrier or ward shield activation)
+
         shield = {
-            type = "aura",
+            type = "shield",              -- Effect name as type
             duration = 1.0,
             particleCount = 25,
             startScale = 0.5,
             endScale = 1.2,
-            color = Constants.Color.SKY,  -- Default blue-ish -> SKY
+            color = Constants.Color.BLUE_HERO,
             radius = 60,
             pulseRate = 3,
             sound = "shield",
             criticalAssets = {"sparkle", "runes", "impactRing"}, -- Assets needed for shields
             shieldType = nil -- Will be set at runtime based on the spell
         },
+
+        -- Emberlift spell effects
+        emberlift = {
+            type = "emberlift",           -- Effect name as type
+            duration = 1.2,
+            particleCount = 60,            -- More particles for richer effect
+            startScale = 0.3,              -- Larger starting scale
+            endScale = 0.08,               -- Smaller end scale for fade-out
+            color = Constants.Color.RED_HERO,
+            height = 160,                  -- Height for fountain effect
+            spread = 45,                   -- Spread for the fountain
+            riseFactor = 1.4,              -- How quickly particles rise
+            gravity = 180,                 -- Gravity effect for natural arc
+            centerGlow = true,             -- Create glowing core at caster
+            centerGlowSize = 50,           -- Size of the center glow
+            centerGlowIntensity = 1.3,     -- Intensity of center glow
+            spiralMotion = true,           -- Add spiral motion to particles
+            spiralTightness = 2.5,         -- How tight the spiral is
+            particleSizeVariance = 0.6,    -- Varied particle sizes
+            riseAcceleration = 1.2,        -- Particles accelerate as they rise
+            bloomEffect = true,            -- Add bloom/glow to particles
+            bloomIntensity = 0.8,          -- Intensity of bloom effect
+            sparkleChance = 0.4,           -- Chance for sparkle effect on particles
+            useSprites = true,             -- Use sprite images
+            spriteFrameRate = 8,           -- Frame rate for sprite animation
+            pulsateParticles = true,       -- Pulsate particle size
+            sound = "surge",
+            criticalAssets = {"sparkle", "fireParticle"}
+        },
+
+        range_change = {
+            type = "range_change",         -- Effect name as type
+            duration = 1.1,
+            particleCount = 50,
+            startScale = 0.3,
+            endScale = 0.7,
+            color = Constants.Color.YELLOW_HERO,
+            height = 120,
+            spread = 60,
+            riseFactor = 1.2,
+            gravity = 150,
+            centerGlow = true,
+            centerGlowSize = 40,
+            spiralMotion = true,
+            spiralTightness = 2.0,
+            particleSizeVariance = 0.5,
+            useSprites = true,
+            spriteFrameRate = 8,
+            sound = "range_shift"
+        },
+
+        -- Note: conjurefire will fall through to use the default conjure_base template
     }
     
     -- TODO: Initialize sound effects
@@ -39941,35 +40139,59 @@ local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
 
 -- Initialize the updaters table with update functions
--- TODO - retrofit all the "projectile" defaults to use the new "visual shape" subtype system
+-- Map each template name/type to the appropriate handler
+VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
+VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
+VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
+VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
+VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
+VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
+VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
+VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
+VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
+VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
+VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
+VFX.updaters["shield_hit_base"] = ImpactEffect.update -- Shield hit template
+
+-- Specific effect templates
+VFX.updaters["meteor"] = MeteorEffect.update         -- Meteor effect
+VFX.updaters["impact"] = ImpactEffect.update         -- Generic impact
+VFX.updaters["force_blast"] = ImpactEffect.update    -- Force blast uses impact logic
+VFX.updaters["free_mana"] = AuraEffect.update        -- Free mana uses aura logic
+VFX.updaters["shield"] = AuraEffect.update           -- Shield uses aura logic
+VFX.updaters["emberlift"] = SurgeEffect.update       -- Emberlift uses surge logic
+VFX.updaters["range_change"] = SurgeEffect.update    -- Range change uses surge logic
+
+-- Add backward compatibility for critical legacy code paths
+-- These keys will be removed in a future update
 VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
-VFX.updaters["impact"] = ImpactEffect.update
-VFX.updaters[Constants.VisualShape.BEAM] = BeamEffect.update
-VFX.updaters[Constants.VisualShape.BLAST] = ImpactEffect.update
-VFX.updaters[Constants.VisualShape.CONE] = ConeEffect.update
-VFX.updaters[Constants.VisualShape.REMOTE] = RemoteEffect.update
-VFX.updaters[Constants.VisualShape.METEOR] = MeteorEffect.update
-VFX.updaters[Constants.VisualShape.CONJURE_BASE] = ConjureEffect.update
-VFX.updaters[Constants.VisualShape.SURGE] = SurgeEffect.update
-VFX.updaters[Constants.VisualShape.AURA] = AuraEffect.update
--- VFX.updaters[Constants.VisualShape.VORTEX] = VortexEffect.update
--- VFX.updaters[Constants.VisualShape.TORNADO] = TornadoEffect.update
--- VFX.updaters[Constants.VisualShape.WAVE] = WaveEffect.update
 
 -- Initialize the drawers table with draw functions
+VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
+VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
+VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
+VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
+VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
+VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
+VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
+VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
+VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
+VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
+VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
+VFX.drawers["shield_hit_base"] = ImpactEffect.draw  -- Shield hit template
+
+-- Specific effect templates
+VFX.drawers["meteor"] = MeteorEffect.draw           -- Meteor effect
+VFX.drawers["impact"] = ImpactEffect.draw           -- Generic impact
+VFX.drawers["force_blast"] = ImpactEffect.draw      -- Force blast uses impact logic
+VFX.drawers["free_mana"] = AuraEffect.draw          -- Free mana uses aura logic
+VFX.drawers["shield"] = AuraEffect.draw             -- Shield uses aura logic
+VFX.drawers["emberlift"] = SurgeEffect.draw         -- Emberlift uses surge logic
+VFX.drawers["range_change"] = SurgeEffect.draw      -- Range change uses surge logic
+
+-- Add backward compatibility for critical legacy code paths
+-- These keys will be removed in a future update
 VFX.drawers[Constants.AttackType.PROJECTILE] = ProjectileEffect.draw
-VFX.drawers["impact"] = ImpactEffect.draw
-VFX.drawers[Constants.VisualShape.BEAM] = BeamEffect.draw
-VFX.drawers[Constants.VisualShape.BLAST] = ImpactEffect.draw
-VFX.drawers[Constants.VisualShape.CONE] = ConeEffect.draw
-VFX.drawers[Constants.VisualShape.REMOTE] = RemoteEffect.draw
-VFX.drawers[Constants.VisualShape.METEOR] = MeteorEffect.draw
-VFX.drawers[Constants.VisualShape.CONJURE_BASE] = ConjureEffect.draw
-VFX.drawers[Constants.VisualShape.SURGE] = SurgeEffect.draw
-VFX.drawers[Constants.VisualShape.AURA] = AuraEffect.draw
--- VFX.drawers[Constants.VisualShape.VORTEX] = VortexEffect.draw
--- VFX.drawers[Constants.VisualShape.TORNADO] = TornadoEffect.draw
--- VFX.drawers[Constants.VisualShape.WAVE] = WaveEffect.draw
 
 return VFX```
 
@@ -43550,36 +43772,70 @@ local Constants = require("core.Constants")
 local function initializeParticles(effect)
     -- Import the appropriate effect module
     local effectModule
-    
-    -- Different initialization based on effect type
-    if effect.type == Constants.AttackType.PROJECTILE then
-        effectModule = require("vfx.effects.projectile")
-    elseif effect.type == "impact" then
-        effectModule = require("vfx.effects.impact")
-    elseif effect.type == "cone" then
-        effectModule = require("vfx.effects.cone")
-    elseif effect.type == "aura" then
-        effectModule = require("vfx.effects.aura")
-    elseif effect.type == "remote" then
-        effectModule = require("vfx.effects.remote")
-    elseif effect.type == "beam" then
-        effectModule = require("vfx.effects.beam")
-    elseif effect.type == "conjure" then
-        effectModule = require("vfx.effects.conjure")
-    elseif effect.type == "surge" then
-        effectModule = require("vfx.effects.surge")
-    elseif effect.type == "meteor" then
-        effectModule = require("vfx.effects.meteor")
-    else
-        print("[VFX] Warning: Unknown effect type: " .. tostring(effect.type))
-        return
+
+    -- Extract the base effect type for loading the proper module
+    local effectType = effect.type
+
+    -- Map template names directly to module paths
+    local typeToModuleMap = {
+        -- Base templates
+        ["proj_base"] = "projectile",
+        ["bolt_base"] = "projectile",
+        ["impact_base"] = "impact",
+        ["beam_base"] = "beam",
+        ["blast_base"] = "cone",
+        ["zone_base"] = "aura",
+        ["util_base"] = "aura",
+        ["surge_base"] = "surge",
+        ["conjure_base"] = "conjure",
+        ["remote_base"] = "remote",
+        ["warp_base"] = "remote",
+        ["shield_hit_base"] = "impact",
+
+        -- Specific effect templates
+        ["meteor"] = "meteor",
+        ["impact"] = "impact",
+        ["force_blast"] = "impact",
+        ["free_mana"] = "aura",
+        ["shield"] = "aura",
+        ["emberlift"] = "surge",
+        ["range_change"] = "surge",
+
+        -- Critical backward compatibility (to be removed in future)
+        [Constants.AttackType.PROJECTILE] = "projectile"
+    }
+
+    local moduleName = typeToModuleMap[effectType]
+
+    -- If type isn't in our map, attempt a direct match with module name
+    if not moduleName then
+        -- Try using type as direct module name
+        if effectType and (effectType == "projectile" or
+                         effectType == "impact" or
+                         effectType == "beam" or
+                         effectType == "cone" or
+                         effectType == "aura" or
+                         effectType == "remote" or
+                         effectType == "meteor" or
+                         effectType == "surge" or
+                         effectType == "conjure") then
+            moduleName = effectType
+            print(string.format("[VFX] Using effect.type '%s' directly as module name", effectType))
+        else
+            -- Last fallback to avoid crashes - default to impact effect
+            print(string.format("[VFX] Warning: Unknown effect type: '%s' - falling back to impact", tostring(effectType)))
+            moduleName = "impact"
+        end
     end
-    
+
+    -- Load the module based on name
+    effectModule = require("vfx.effects." .. moduleName)
+
     -- Call the module's initialize function if it exists
     if effectModule and effectModule.initialize then
         effectModule.initialize(effect)
     else
-        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effect.type))
+        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effectType))
     end
 end
 
@@ -43738,7 +43994,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.infiniteprocession,
+            ["12"] = Spells.watergun,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             

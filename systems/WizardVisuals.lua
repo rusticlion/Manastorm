@@ -856,76 +856,82 @@ function WizardVisuals.drawWizard(wizard)
     if wizard.sprite then
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
-        
+
+        -- Determine which sprite to draw (normal or cast frame)
+        local spriteToDraw = wizard.sprite
+        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
+            spriteToDraw = wizard.castFrameSprite
+        end
+
         -- Draw shadow first (when not AERIAL)
         if wizard.elevation == Constants.ElevationState.GROUNDED then
             love.graphics.setColor(0, 0, 0, 0.2)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
                 wizard.y + 40, -- Shadow on ground
                 0, -- No rotation
                 adjustedScale * 0.8, -- Slightly smaller shadow
                 wizard.scale * 0.3, -- Flatter shadow
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
         end
-        
+
         -- Draw the actual wizard with the appropriate color based on state
-        
+
         -- For hit flash, we use a special blend mode and draw the sprite twice
         if wizard.hitFlashTimer > 0 then
             -- First draw the normal sprite
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Save current blend mode
             local prevBlendMode = love.graphics.getBlendMode()
-            
+
             -- Set additive blend mode for glow effect
             love.graphics.setBlendMode("add")
-            
+
             -- Draw the bright overlay
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
-            
+
             -- Then overdraw with bright additive color
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Restore previous blend mode
             love.graphics.setBlendMode(prevBlendMode)
         else
             -- Normal drawing
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
             love.graphics.draw(
-            wizard.sprite, 
-            wizard.x + xOffset, 
-            wizard.y + yOffset, 
-            0, -- No rotation
-            adjustedScale * 2, -- Double scale
-            wizard.scale * 2, -- Double scale
-            wizard.sprite:getWidth() / 2, 
-            wizard.sprite:getHeight() / 2
-        )
-        
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
+                0, -- No rotation
+                adjustedScale * 2, -- Double scale
+                wizard.scale * 2, -- Double scale
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
+            )
+
         end -- End of if wizard.hitFlashTimer > 0 block
         
         -- Reset color back to default after drawing wizard
@@ -934,7 +940,7 @@ function WizardVisuals.drawWizard(wizard)
         -- Draw AERIAL cloud effect after wizard for proper layering
         if wizard.elevation == Constants.ElevationState.AERIAL then
             love.graphics.setColor(0.8, 0.8, 1.0, 0.3)
-            
+
             -- Draw more numerous, smaller animated cloud particles
             for i = 1, 8 do
                 -- Calculate wobble in both x and y directions
@@ -942,11 +948,11 @@ function WizardVisuals.drawWizard(wizard)
                 local angle = (i / 8) * math.pi * 2 + time
                 local xWobble = math.sin(time * 2 + i * 1.5) * 15
                 local yWobble = math.cos(time * 1.8 + i * 1.7) * 10
-                
+
                 -- Vary sizes for more natural look
                 local width = 20 + math.sin(time + i) * 5
                 local height = 6 + math.cos(time + i) * 2
-                
+
                 love.graphics.ellipse(
                     "fill",
                     wizard.x + xOffset + xWobble,

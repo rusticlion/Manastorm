@@ -95,7 +95,12 @@ function Wizard.new(name, x, y, color)
     
     -- Hit flash effect
     self.hitFlashTimer = 0
-    
+
+    -- Cast frame animation properties
+    self.castFrameSprite = nil
+    self.castFrameTimer = 0
+    self.castFrameDuration = 0.25 -- Show cast frame for 0.25 seconds
+
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
     
@@ -184,7 +189,7 @@ function Wizard.new(name, x, y, color)
     local success, result = pcall(function()
         return love.graphics.newImage(spritePath)
     end)
-    
+
     if success then
         self.sprite = result
         print("Loaded wizard sprite: " .. spritePath)
@@ -193,6 +198,21 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load sprite " .. spritePath .. ". Using default wizard.png instead.")
         self.sprite = love.graphics.newImage("assets/sprites/wizard.png")
     end
+
+    -- Load cast frame sprite with fallback
+    local castFramePath = "assets/sprites/" .. string.lower(name) .. "-cast.png"
+    local castSuccess, castResult = pcall(function()
+        return love.graphics.newImage(castFramePath)
+    end)
+
+    if castSuccess then
+        self.castFrameSprite = castResult
+        print("Loaded wizard cast frame: " .. castFramePath)
+    else
+        -- No fallback for cast frame, just leave it nil
+        print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
+    end
+
     self.scale = 1.0
     
     -- Keep references
@@ -218,6 +238,11 @@ function Wizard:update(dt)
     -- Update hit flash timer
     if self.hitFlashTimer > 0 then
         self.hitFlashTimer = math.max(0, self.hitFlashTimer - dt)
+    end
+
+    -- Update cast frame timer
+    if self.castFrameTimer > 0 then
+        self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
     end
     
     -- Update position animation
@@ -884,8 +909,13 @@ function Wizard:castSpell(spellSlot)
     
     -- Set the flag to indicate a spell was cast this frame (for trap triggers)
     self.justCastSpellThisFrame = true
-    
+
     print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
+
+    -- Activate cast frame animation if sprite is available
+    if self.castFrameSprite then
+        self.castFrameTimer = self.castFrameDuration
+    end
     
     -- Create a temporary visual notification for spell casting
     self.spellCastNotification = {

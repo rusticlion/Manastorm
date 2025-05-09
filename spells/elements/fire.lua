@@ -58,9 +58,9 @@ FireSpells.firebolt = {
         damage = {
             amount = function(caster, target)
                 if target and target.gameState.rangeState == Constants.RangeState.FAR then
-                    return 12
+                    return 9
                 end
-                return 7
+                return 5
             end,
             type = Constants.DamageType.FIRE
         },

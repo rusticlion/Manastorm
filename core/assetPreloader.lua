@@ -36,7 +36,11 @@ function AssetPreloader.preloadAllAssets()
             
             -- Game entity assets
             "assets/sprites/wizard.png",
-            
+            "assets/sprites/ashgar.png",
+            "assets/sprites/ashgar-cast.png",
+            "assets/sprites/selene.png",
+            "assets/sprites/selene-cast.png",
+
             "assets/sprites/grounded-circle.png"
         },
         
