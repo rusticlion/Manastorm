@@ -90,6 +90,5 @@ The particle system has several main effect types that produce different visual 
 - `projectile`: Moves from source to target with trailing particles
 - `impact`: Creates a radial burst of particles from a central point
 - `aura`: Generates particles orbiting around a central point
-- `vertical`: Creates particles that move upward from a source point
 - `beam`: Creates a solid beam with particle effects along its length
 - `conjure`: Creates particles that rise toward the mana pool

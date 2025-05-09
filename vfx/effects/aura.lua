@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -168,8 +169,37 @@ local function drawAura(effect)
     end
 end
 
+-- Initialize function for aura effects
+local function initializeAura(effect)
+    -- For aura effects, create particles that orbit the character using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local orbitId = math.ceil(i / (effect.particleCount / (effect.orbitCount or 2)))
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createAuraParticle(effect, angle, orbitId)
+
+        -- Add motion information
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Add additional properties for special motion
+        particle.startTime = 0
+
+        -- Calculate distance and orbitalSpeed for legacy code compatibility
+        local distance = particle.distance or (effect.radius * 0.8)
+        local orbitalSpeed = particle.orbitalSpeed or 1.5
+
+        particle.targetX = effect.sourceX + math.cos(angle) * distance
+        particle.targetY = effect.sourceY + math.sin(angle) * distance
+        particle.speed = orbitalSpeed * 30
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeAura,
     update = updateAura,
     draw = drawAura
 }

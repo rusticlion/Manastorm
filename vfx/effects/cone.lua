@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -350,8 +351,100 @@ local function drawCone(effect)
     end
 end
 
+-- Initialize function for cone effects
+local function initializeCone(effect)
+    -- For conical blast effects
+    -- Calculate the base direction from source to target
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Convert cone angle from degrees to radians
+    local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+    local halfConeAngle = coneAngleRad / 2
+
+    -- Set up wave parameters
+    local waveCount = effect.waveCount or 3
+
+    -- Calculate effect properties based on range and elevation
+    local intensityMultiplier = 1.0
+    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
+        intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
+    end
+
+    -- Create particles for the cone blast
+    for i = 1, effect.particleCount do
+        -- Determine if this particle is part of a wave or general cone fill
+        local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
+
+        -- Random position within the cone but with focus toward center if focusedCore enabled
+        local angleOffset
+
+        if effect.focusedCore then
+            -- Apply quadratic distribution to concentrate particles near center
+            -- Use squared random value to cluster toward cone center
+            local angleRand = math.random()
+            -- Apply bias toward center (squared distribution pushes values toward 0)
+            angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
+            angleOffset = angleRand * halfConeAngle
+        else
+            -- Standard uniform distribution across cone
+            angleOffset = (math.random() * 2 - 1) * halfConeAngle
+        end
+
+        local angle = baseAngle + angleOffset
+
+        -- Distance based on position in the cone (closer to edge or center)
+        local maxDistance = effect.coneLength or 320
+
+        -- For longer cone, we want more particles toward the end
+        local distanceRand
+        if math.random() < 0.6 then
+            -- 60% chance for farther particles
+            distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
+        else
+            -- 40% chance for closer particles
+            distanceRand = math.random() * 0.5 -- 0.0 to 0.5
+        end
+
+        local distance = maxDistance * distanceRand
+
+        -- Create the particle using ParticleManager
+        local waveIndex = 0
+        if isWaveParticle and effect.waveCrest then
+            waveIndex = math.floor(math.random() * waveCount) + 1
+        end
+
+        local particle = ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
+
+        -- For focused cone, make particles in the center brighter and larger
+        if effect.focusedCore and not isWaveParticle then
+            -- Calculate distance from center angle
+            local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
+            -- Particles closer to center get enhancements
+            if angleDiff < 0.4 then
+                local centerBoost = (1.0 - angleDiff/0.4) * 0.5
+                particle.scale = particle.scale * (1 + centerBoost)
+                particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
+            end
+        end
+
+        -- Apply intensity multiplier
+        particle.intensityMultiplier = intensityMultiplier
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Flag to track which waves have started
+    effect.waveStarted = {}
+    for i = 1, waveCount do
+        effect.waveStarted[i] = false
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeCone,
     update = updateCone,
     draw = drawCone
 }

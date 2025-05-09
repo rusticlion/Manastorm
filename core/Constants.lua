@@ -232,22 +232,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
-
--- Spell metadata field constants
-Constants.SpellMetadata = {
-    DESCRIPTION = "description",  -- Textual description of the spell
-    ZONE = "zone",                -- Zone information for positioning
-    ID = "id",                    -- Unique identifier
-    NAME = "name",                -- Display name
-    KEYWORDS = "keywords",        -- Array of keyword behaviors
-    MANA_COST = "manaCost",       -- Token cost structure
-    ATTACK_TYPE = "attackType",   -- How the spell is delivered
-    CAST_TIME = "castTime",       -- Base casting duration
-    VFX = "vfx",                  -- Visual effects configuration
-    DAMAGE = "damage",            -- Damage information
-    AFFINITY = "affinity"         -- Elemental affinity
-}
-
 -- Utility function to get all spell metadata fields
 function Constants.getAllSpellMetadataFields()
     local fields = {}
@@ -368,7 +352,6 @@ Constants.VFXType = {
     FORCE_BLAST = "force_blast",
     
     -- Special fire effects
-    METEOR = "meteor",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",

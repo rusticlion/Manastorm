@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -153,18 +154,8 @@ local function updateProjectile(effect, dt)
         -- Add new particles at the current head position
         local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
         if math.random() < particleRate then
-            -- Create a new particle
-            local particle = {
-                x = head.x,
-                y = head.y,
-                xVel = math.random(-30, 30),
-                yVel = math.random(-30, 30),
-                size = math.random(5, 15) * (effect.size or 1.0),
-                alpha = math.random() * 0.5 + 0.5,
-                life = 0,
-                maxLife = math.random() * 0.3 + 0.1,
-                color = effect.color or {1, 1, 1} -- Default to white if no color specified
-            }
+            -- Create a new particle using specialized helper
+            local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -199,6 +190,8 @@ local function updateProjectile(effect, dt)
             
             -- Remove dead particles
             if particle.life >= particle.maxLife then
+                -- Release particle back to pool
+                ParticleManager.releaseParticle(particle)
                 table.remove(effect.particles, i)
             else
                 i = i + 1
@@ -495,8 +488,15 @@ local function drawProjectile(effect)
                 -- Shield-specific visualization
                 local runeImages = getAssetInternal("runes")
                 if runeImages and #runeImages > 0 then
-                    -- Get a random rune
-                    local runeIndex = (effect.id % #runeImages) + 1
+                    -- Get a deterministic or random rune
+                    local runeIndex
+                    if effect.id then
+                        runeIndex = (effect.id % #runeImages) + 1
+                    else
+                        -- Calculate a stable index from the positions
+                        local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                        runeIndex = (posHash % #runeImages) + 1
+                    end
                     local runeImage = runeImages[runeIndex]
                     
                     -- Draw the rune
@@ -522,8 +522,57 @@ local function drawProjectile(effect)
     end
 end
 
+-- Initialize function for projectile effects
+local function initializeProjectile(effect)
+    -- Calculate base trajectory properties
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local distance = math.sqrt(dirX*dirX + dirY*dirY)
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[PROJECTILE INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Get turbulence factor or use default
+    local turbulence = effect.turbulence or 0.5
+    local coreDensity = effect.coreDensity or 0.6
+    local trailDensity = effect.trailDensity or 0.4
+
+    -- Core particles (at the leading edge of the projectile)
+    local coreCount = math.floor(effect.particleCount * coreDensity)
+    local trailCount = effect.particleCount - coreCount
+
+    -- Create core/leading particles using ParticleManager
+    for i = 1, coreCount do
+        local particle = ParticleManager.createProjectileCoreParticle(effect, baseAngle, turbulence)
+
+        -- Apply motion style variations
+        if effect.motion == Constants.MotionStyle.SWIRL then
+            particle.swirlRadius = math.random(5, 15)
+            particle.swirlSpeed = math.random(3, 8)
+        elseif effect.motion == Constants.MotionStyle.PULSE then
+            particle.pulseFreq = math.random(3, 7)
+            particle.pulseAmplitude = 0.2 + math.random() * 0.3
+        end
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Create trail particles using ParticleManager
+    for i = 1, trailCount do
+        local particle = ParticleManager.createProjectileFullTrailParticle(effect, baseAngle, turbulence, i, trailCount)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeProjectile,
     update = updateProjectile,
     draw = drawProjectile
 }

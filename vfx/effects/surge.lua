@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -225,8 +226,21 @@ local function drawSurge(effect)
     end
 end
 
+-- Initialize function for surge effects
+local function initializeSurge(effect)
+    -- Pre-load center particle
+    effect.centerParticleTimer = 0
+
+    -- Create particles with varied properties using ParticleManager
+    for i = 1, effect.particleCount do
+        local particle = ParticleManager.createSurgeParticle(effect)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeSurge,
     update = updateSurge,
     draw = drawSurge
 }

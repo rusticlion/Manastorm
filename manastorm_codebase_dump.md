@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri May  9 10:41:06 CDT 2025
+Generated: Fri May  9 12:22:17 CDT 2025
 
 # Source Code
 
@@ -1266,22 +1266,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
-
--- Spell metadata field constants
-Constants.SpellMetadata = {
-    DESCRIPTION = "description",  -- Textual description of the spell
-    ZONE = "zone",                -- Zone information for positioning
-    ID = "id",                    -- Unique identifier
-    NAME = "name",                -- Display name
-    KEYWORDS = "keywords",        -- Array of keyword behaviors
-    MANA_COST = "manaCost",       -- Token cost structure
-    ATTACK_TYPE = "attackType",   -- How the spell is delivered
-    CAST_TIME = "castTime",       -- Base casting duration
-    VFX = "vfx",                  -- Visual effects configuration
-    DAMAGE = "damage",            -- Damage information
-    AFFINITY = "affinity"         -- Elemental affinity
-}
-
 -- Utility function to get all spell metadata fields
 function Constants.getAllSpellMetadataFields()
     local fields = {}
@@ -1402,7 +1386,6 @@ Constants.VFXType = {
     FORCE_BLAST = "force_blast",
     
     -- Special fire effects
-    METEOR = "meteor",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",
@@ -13982,6 +13965,134 @@ end
 -- Return success
 return true```
 
+## ./tools/test_particle_manager.lua
+```lua
+-- test_particle_manager.lua
+-- A script to test ParticleManager integration with vfx.lua
+
+local Pool = require("core.Pool")
+local ParticleManager = require("vfx.ParticleManager")
+local VFX = require("vfx")
+
+-- Initialize the VFX system
+VFX.init()
+
+-- Count the total particles created and returned to pool
+local function testParticlePooling()
+    print("\n=== TESTING PARTICLE POOLING ===")
+    
+    -- Get initial stats
+    local initialStats = ParticleManager.getStats()
+    print(string.format("Initial pool: %d total (%d active, %d available)", 
+        initialStats.poolSize, initialStats.active, initialStats.available))
+    
+    -- Create effects with different types
+    local effects = {}
+    
+    print("\nCreating test effects...")
+    
+    -- Test a projectile effect
+    local projectile = VFX.createEffect("proj_base", 100, 100, 500, 300, {
+        color = {1, 0, 0, 1}, -- Red
+    })
+    table.insert(effects, projectile)
+    print("Created projectile effect with " .. #projectile.particles .. " particles")
+    
+    -- Test an impact effect
+    local impact = VFX.createEffect("impact_base", 300, 300, 300, 300, {
+        color = {0, 1, 0, 1}, -- Green
+    })
+    table.insert(effects, impact)
+    print("Created impact effect with " .. #impact.particles .. " particles")
+    
+    -- Test a cone effect
+    local cone = VFX.createEffect("blast_base", 200, 400, 500, 200, {
+        color = {0, 0, 1, 1}, -- Blue
+    })
+    table.insert(effects, cone)
+    print("Created cone effect with " .. #cone.particles .. " particles")
+    
+    -- Test a beam effect
+    local beam = VFX.createEffect("beam_base", 100, 400, 600, 400, {
+        color = {1, 1, 0, 1}, -- Yellow
+    })
+    table.insert(effects, beam)
+    print("Created beam effect with " .. #beam.particles .. " particles")
+    
+    -- Test an aura effect
+    local aura = VFX.createEffect("zone_base", 400, 300, 400, 300, {
+        color = {1, 0, 1, 1}, -- Purple
+    })
+    table.insert(effects, aura)
+    print("Created aura effect with " .. #aura.particles .. " particles")
+    
+    -- Test a remote effect
+    local remote = VFX.createEffect("remote_base", 300, 100, 300, 100, {
+        color = {0, 1, 1, 1}, -- Cyan
+    })
+    table.insert(effects, remote)
+    print("Created remote effect with " .. #remote.particles .. " particles")
+    
+    -- Test a surge effect
+    local surge = VFX.createEffect("surge_base", 500, 500, 500, 500, {
+        color = {1, 0.5, 0, 1}, -- Orange
+    })
+    table.insert(effects, surge)
+    print("Created surge effect with " .. #surge.particles .. " particles")
+    
+    -- Test a conjure effect
+    local conjure = VFX.createEffect("conjure_base", 200, 500, 200, 500, {
+        color = {0.5, 0.5, 1, 1}, -- Light blue
+    })
+    table.insert(effects, conjure)
+    print("Created conjure effect with " .. #conjure.particles .. " particles")
+    
+    -- Get stats after creating effects
+    local afterCreateStats = ParticleManager.getStats()
+    print(string.format("\nAfter creating effects: %d total (%d active, %d available)", 
+        afterCreateStats.poolSize, afterCreateStats.active, afterCreateStats.available))
+    
+    -- Count total particles created
+    local totalParticles = 0
+    for _, effect in ipairs(effects) do
+        totalParticles = totalParticles + #effect.particles
+    end
+    print("Total particles created: " .. totalParticles)
+    
+    -- Release all effects and their particles
+    print("\nReleasing all effects and particles...")
+    for i, effect in ipairs(effects) do
+        print("Releasing effect " .. i .. " with " .. #effect.particles .. " particles")
+        -- First release all particles
+        for _, particle in ipairs(effect.particles) do
+            ParticleManager.releaseParticle(particle)
+        end
+        -- Then release the effect
+        Pool.release("vfx_effect", effect)
+    end
+    
+    -- Get final stats
+    local finalStats = ParticleManager.getStats()
+    print(string.format("\nFinal pool: %d total (%d active, %d available)", 
+        finalStats.poolSize, finalStats.active, finalStats.available))
+    
+    -- Verify all particles were returned to the pool
+    if finalStats.active == 0 and finalStats.available == finalStats.poolSize then
+        print("\n✓ SUCCESS: All particles were returned to the pool!")
+    else
+        print("\n✗ FAILURE: Not all particles were returned to the pool.")
+        print("  Expected active=0, got " .. finalStats.active)
+        print("  Expected available=" .. finalStats.poolSize .. ", got " .. finalStats.available)
+    end
+end
+
+-- Run the test
+testParticlePooling()
+
+return {
+    testParticlePooling = testParticlePooling
+}```
+
 ## ./tools/test_vfx_events.lua
 ```lua
 -- test_vfx_events.lua
@@ -15107,6 +15218,8 @@ VFX.__index = VFX
 local Pool = require("core.Pool")
 local Constants = require("core.Constants")
 local AssetCache = require("core.AssetCache")
+local ParticleManager = require("vfx.ParticleManager")
+local initializeParticlesModule = require("vfx.initializeParticles")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -15560,7 +15673,10 @@ function VFX.init()
     
     -- Create effect pool - each effect is a container object
     Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
-    
+
+    -- Run the diagnostic to ensure the particle pool is healthy
+    VFX.runParticlePoolDiagnostic()
+
     -- Return the VFX table itself
     return VFX
 end
@@ -15708,19 +15824,8 @@ end
 function VFX.resetEffect(effect)
     -- Only release particles if effect has particles field
     if effect.particles then
-        -- Safely release all particles back to their pool
-        for i = #effect.particles, 1, -1 do
-            local particle = effect.particles[i]
-            if particle then
-                -- Some particles might be created in effect modules without using Pool.acquire
-                -- Only try to release if the particle seems to be from the pool
-                local success = Pool.release("vfx_particle", particle)
-                if not success then
-                    print("[VFX] Warning: Failed to release particle, likely not from pool. Fix the effect module.")
-                end
-            end
-            effect.particles[i] = nil -- Clear reference regardless
-        end
+        -- Use ParticleManager to safely release all particles
+        ParticleManager.releaseAllParticles(effect.particles)
     end
 
     -- Clear all fields except particles
@@ -16146,603 +16251,8 @@ function VFX.ensureParticleDefaults(particle)
 end
 
 function VFX.initializeParticles(effect)
-    
-    -- Different initialization based on effect type
-    if effect.type == Constants.AttackType.PROJECTILE then
-        -- For projectiles, create core and trailing particles
-        -- Calculate base trajectory properties
-        local dirX = effect.targetX - effect.sourceX
-        local dirY = effect.targetY - effect.sourceY
-        local distance = math.sqrt(dirX*dirX + dirY*dirY)
-        local baseAngle = math.atan2(dirY, dirX)
-        
-        -- Get turbulence factor or use default
-        local turbulence = effect.turbulence or 0.5
-        local coreDensity = effect.coreDensity or 0.6
-        local trailDensity = effect.trailDensity or 0.4
-        
-        -- Core particles (at the leading edge of the projectile)
-        local coreCount = math.floor(effect.particleCount * coreDensity)
-        local trailCount = effect.particleCount - coreCount
-        
-        -- Create core/leading particles
-        for i = 1, coreCount do
-            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
-            -- Random position near the projectile core (tighter cluster)
-            local spreadFactor = 4 * turbulence
-            local offsetX = math.random(-spreadFactor, spreadFactor)
-            local offsetY = math.random(-spreadFactor, spreadFactor)
-            
-            -- Set initial state
-            particle.x = effect.sourceX + offsetX
-            particle.y = effect.sourceY + offsetY
-            particle.scale = effect.startScale * math.random(0.9, 1.4) -- Slightly larger scales
-            particle.alpha = 1.0
-            particle.rotation = math.random() * math.pi * 2
-            
-            -- Create leading-edge cluster with even less delay for faster appearance
-            particle.delay = math.random() * 0.05 -- Minimal delay
-            particle.active = false
-            particle.isCore = true -- Mark as core particle for special rendering
-            particle.motion = effect.motion -- Store motion style
-            
-            -- Motion properties
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.targetX
-            particle.targetY = effect.targetY
-            
-            -- Add less randomness to motion for more focused projectile
-            local angleVar = (math.random() - 0.5) * 0.2 * turbulence
-            particle.angle = baseAngle + angleVar
-            particle.speed = math.random(200, 260) -- Significantly faster speeds
-            
-            -- Life cycle control
-            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
-            particle.timeOffset = math.random() * 0.1
-            particle.turbulence = turbulence
-            
-            -- Apply motion style variations 
-            if effect.motion == Constants.MotionStyle.SWIRL then
-                particle.swirlRadius = math.random(5, 15)
-                particle.swirlSpeed = math.random(3, 8)
-            elseif effect.motion == Constants.MotionStyle.PULSE then
-                particle.pulseFreq = math.random(3, 7)
-                particle.pulseAmplitude = 0.2 + math.random() * 0.3
-            end
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Create trail particles
-        for i = 1, trailCount do
-            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
-            
-            -- Trail particles start closer to the core
-            local spreadRadius = 6 * trailDensity * turbulence -- Tighter spread
-            local spreadAngle = math.random() * math.pi * 2
-            local spreadDist = math.random() * spreadRadius
-            
-            -- Set initial state - more directional alignment
-            particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
-            particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
-            particle.scale = effect.startScale * math.random(0.7, 0.9) -- Slightly smaller
-            particle.alpha = 0.7 -- Lower alpha for less visibility
-            particle.rotation = math.random() * math.pi * 2
-            
-            -- Much shorter staggered delay for trail particles
-            particle.delay = (i / trailCount) * 0.15 -- Cut delay in half for faster response
-            particle.active = false
-            particle.isCore = false -- Mark as trail particle
-            particle.motion = effect.motion
-            
-            -- Motion properties
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.targetX
-            particle.targetY = effect.targetY
-            
-            -- Reduce trail spread angle for more directional appearance
-            local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
-            particle.angle = baseAngle + angleVar
-            particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
-            
-            -- Trail particles have shorter lifespans for smoother fade
-            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
-            particle.timeOffset = math.random() * 0.2
-            particle.turbulence = turbulence
-            
-            -- Which segment of the trail this particle belongs to
-            particle.trailSegment = math.random()
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "impact" then
-        -- For impact effects, create a radial explosion
-        for i = 1, effect.particleCount do
-            local angle = (i / effect.particleCount) * math.pi * 2
-            local distance = math.random(10, effect.radius)
-            local speed = math.random(50, 200)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.targetX
-            particle.y = effect.targetY
-            particle.targetX = effect.targetX + math.cos(angle) * distance
-            particle.targetY = effect.targetY + math.sin(angle) * distance
-            particle.speed = speed
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = angle
-            particle.delay = math.random() * 0.2 -- Slight random delay
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
-            
-            -- Additional properties for special motion
-            particle.startTime = 0
-            particle.baseX = effect.targetX
-            particle.baseY = effect.targetY
-            particle.angle = angle
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "cone" then
-        -- For conical blast effects
-        -- Calculate the base direction from source to target
-        local dirX = effect.targetX - effect.sourceX
-        local dirY = effect.targetY - effect.sourceY
-        local baseAngle = math.atan2(dirY, dirX)
-        
-        -- Convert cone angle from degrees to radians
-        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
-        local halfConeAngle = coneAngleRad / 2
-        
-        -- Set up wave parameters
-        local waveCount = effect.waveCount or 3
-        
-        -- Calculate effect properties based on range and elevation
-        local intensityMultiplier = 1.0
-        if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
-            intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
-        end
-        
-        -- Create particles for the cone blast
-        for i = 1, effect.particleCount do
-            local particle = Pool.acquire("vfx_particle")
-            
-            -- Determine if this particle is part of a wave or general cone fill
-            local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
-            
-            -- Random position within the cone but with focus toward center if focusedCore enabled
-            local conePos = math.random()
-            local angleOffset
-            
-            if effect.focusedCore then
-                -- Apply quadratic distribution to concentrate particles near center
-                -- Use squared random value to cluster toward cone center
-                local angleRand = math.random()
-                -- Apply bias toward center (squared distribution pushes values toward 0)
-                angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
-                angleOffset = angleRand * halfConeAngle
-            else
-                -- Standard uniform distribution across cone
-                angleOffset = (math.random() * 2 - 1) * halfConeAngle
-            end
-            
-            local angle = baseAngle + angleOffset
-            
-            -- Distance based on position in the cone (closer to edge or center)
-            local maxDistance = effect.coneLength or 320
-            
-            -- For longer cone, we want more particles toward the end
-            local distanceRand
-            if math.random() < 0.6 then
-                -- 60% chance for farther particles
-                distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
-            else
-                -- 40% chance for closer particles
-                distanceRand = math.random() * 0.5 -- 0.0 to 0.5
-            end
-            
-            local distance = maxDistance * distanceRand
-            
-            -- Wave-specific properties
-            if isWaveParticle and effect.waveCrest then
-                -- Assign to a specific wave
-                local waveIndex = math.floor(math.random() * waveCount) + 1
-                particle.waveIndex = waveIndex
-                particle.waveTime = waveIndex / waveCount -- Staggered wave timing
-                particle.isWave = true
-                
-                -- Calculate wave speed and distance based on wave index (later waves move faster)
-                local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15 -- Each wave is faster than the previous
-                particle.distance = maxDistance * 0.95 -- Waves extend almost to max distance
-                particle.speed = (effect.waveSpeed or 350) * speedMultiplier
-                particle.scale = effect.startScale * (1.5 + waveIndex * 0.1) -- Later waves slightly larger
-                particle.alpha = 0.9
-                
-                -- Wave persistence for long-lasting waves (new property)
-                if effect.wavePersistence then
-                    particle.persistenceFactor = effect.wavePersistence
-                end
-                
-                -- For trailing glow effect
-                if effect.trailingGlowStrength then
-                    particle.trailGlow = effect.trailingGlowStrength
-                end
-                
-                -- Wave particles need a more consistent angle within the cone
-                -- Distribute wave particles more densely in the center if focusedCore is enabled
-                local waveAnglePos = math.random()
-                if effect.focusedCore then
-                    -- Apply curve to concentrate in center
-                    waveAnglePos = (waveAnglePos * 2 - 1)
-                    -- Cubic function to keep more particles in center
-                    waveAnglePos = waveAnglePos * waveAnglePos * waveAnglePos
-                    waveAnglePos = (waveAnglePos + 1) / 2 -- Remap to 0-1
-                end
-                angle = baseAngle + (waveAnglePos * 2 - 1) * halfConeAngle * 0.85
-            else
-                -- Regular fill particles
-                particle.distance = distance
-                -- Faster particles for longer cone
-                particle.speed = math.random(100, 250)
-                -- More varied scale based on particleSizeVariance
-                local sizeVariance = effect.particleSizeVariance or 0.6
-                particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
-                particle.alpha = 0.6 + math.random() * 0.4
-                particle.isWave = false
-                
-                -- For focused cone, make particles in the center brighter and larger
-                if effect.focusedCore then
-                    -- Calculate distance from center angle
-                    local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
-                    -- Particles closer to center get enhancements
-                    if angleDiff < 0.4 then
-                        local centerBoost = (1.0 - angleDiff/0.4) * 0.5
-                        particle.scale = particle.scale * (1 + centerBoost)
-                        particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
-                    end
-                end
-            end
-            
-            -- Common properties
-            particle.angle = angle
-            particle.rotation = angle -- Align rotation with direction
-            particle.delay = math.random() * 0.3 -- Staggered start
-            particle.active = false
-            particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
-            particle.intensityMultiplier = intensityMultiplier
-            
-            -- Set position at source
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
-            
-            -- Additional properties for motion
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            
-            -- Target destination for the particle
-            particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
-            particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Flag to track which waves have started
-        effect.waveStarted = {}
-        for i = 1, waveCount do
-            effect.waveStarted[i] = false
-        end
-        
-    elseif effect.type == "aura" then
-        -- For aura effects, create particles that orbit the character
-        for i = 1, effect.particleCount do
-            local angle = (i / effect.particleCount) * math.pi * 2
-            local distance = math.random(effect.radius * 0.6, effect.radius)
-            local orbitalSpeed = math.random(0.5, 2.0)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.angle = angle
-            particle.distance = distance
-            particle.orbitalSpeed = orbitalSpeed
-            particle.scale = effect.startScale
-            particle.alpha = 0 -- Start invisible and fade in
-            particle.rotation = 0
-            particle.delay = i / effect.particleCount * 0.5
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
-            
-            -- Additional properties for special motion
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.sourceX + math.cos(angle) * distance
-            particle.targetY = effect.sourceY + math.sin(angle) * distance
-            particle.speed = orbitalSpeed * 30
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "vertical" then
-        -- For vertical effects like emberlift, particles rise upward
-        for i = 1, effect.particleCount do
-            local offsetX = math.random(-30, 30)
-            local startY = math.random(0, 40)
-            local speed = math.random(70, 150)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.sourceX + offsetX
-            particle.y = effect.sourceY + startY
-            particle.speed = speed
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = math.random() * math.pi * 2
-            particle.delay = i / effect.particleCount * 0.8
-            particle.active = false
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "remote" then
-        -- For remote effects like warp, create particles at the target location
-        -- Use the target position as the center
-        -- Set flags for position tracking
-        effect.useTargetPosition = true  -- This tells the system to use the current target position
-        
-        -- Make sure to use the initial position with offsets if available
-        local centerX = effect.targetX
-        local centerY = effect.targetY
-        
-        -- Initialize with offset if the target entity has position offsets
-        if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
-            centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
-            centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
-            
-            -- Update effect's target position to include offsets
-            effect.targetX = centerX
-            effect.targetY = centerY
-            
-            print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)", 
-                centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
-        end
-        
-        local radius = effect.radius or 60
-        
-        -- Calculate how many particles to create based on density
-        local particlesToCreate = effect.particleCount
-        if effect.particleDensity then
-            particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
-        end
-        
-        for i = 1, particlesToCreate do
-            -- Create particles in a circular pattern around the target
-            local angle = (i / particlesToCreate) * math.pi * 2
-            -- Random distance from center
-            local distance = math.random(10, radius) 
-            -- Random speed for movement
-            local speed = math.random(10, 70) 
-            
-            local particle = Pool.acquire("vfx_particle")
-            -- Start at the center
-            particle.x = centerX
-            particle.y = centerY 
-            -- Target position (for radial movement)
-            particle.targetX = centerX + math.cos(angle) * distance
-            particle.targetY = centerY + math.sin(angle) * distance
-            particle.speed = speed
-            particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
-            particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
-            particle.rotation = angle
-            -- Randomized delay for staggered appearance
-            particle.delay = math.random() * 0.4
-            particle.active = false
-            -- Store motion style and other properties
-            particle.motion = effect.motion
-            particle.angle = angle
-            particle.distance = distance
-            -- Don't store fixed coordinates, just the angle and distance
-            -- This way particles can be positioned relative to the current
-            -- target position, which may change over time
-            -- particle.baseX = centerX
-            -- particle.baseY = centerY
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Initialize sprite rotation angle if needed
-        if effect.rotateSprite then
-            effect.spriteAngle = 0
-        end
-    
-    elseif effect.type == "beam" then
-        -- For beam effects like fullmoonbeam, create a beam with particles
-        -- First create the main beam shape
-        effect.beamProgress = 0
-        effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
-        effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
-        
-        -- Then add particles along the beam
-        for i = 1, effect.particleCount do
-            local position = math.random()
-            local offset = math.random(-10, 10)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.position = position -- 0 to 1 along beam
-            particle.offset = offset -- Perpendicular to beam
-            particle.scale = effect.startScale * math.random(0.7, 1.3)
-            particle.alpha = 0.8
-            particle.rotation = math.random() * math.pi * 2
-            particle.delay = math.random() * 0.3
-            particle.active = false
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "conjure" then
-        -- For conjuration spells, create particles that rise from caster toward mana pool
-        -- Set the mana pool position (typically at top center)
-        effect.manaPoolX = effect.options and effect.options.manaPoolX or 400 -- Screen center X
-        effect.manaPoolY = effect.options and effect.options.manaPoolY or 120 -- Near top of screen
-        
-        -- Ensure spreadRadius has a default value
-        effect.spreadRadius = effect.spreadRadius or 40
-        
-        -- Calculate direction vector toward mana pool
-        local dirX = effect.manaPoolX - effect.sourceX
-        local dirY = effect.manaPoolY - effect.sourceY
-        local len = math.sqrt(dirX * dirX + dirY * dirY)
-        dirX = dirX / len
-        dirY = dirY / len
-        
-        for i = 1, effect.particleCount do
-            -- Create a spread of particles around the caster
-            local spreadAngle = math.random() * math.pi * 2
-            local spreadDist = math.random() * effect.spreadRadius
-            local startX = effect.sourceX + math.cos(spreadAngle) * spreadDist
-            local startY = effect.sourceY + math.sin(spreadAngle) * spreadDist
-            
-            -- Randomize particle properties
-            local speed = math.random(80, 180)
-            local delay = i / effect.particleCount * 0.7
-            
-            -- Add some variance to path
-            local pathVariance = math.random(-20, 20)
-            local pathDirX = dirX + pathVariance / 100
-            local pathDirY = dirY + pathVariance / 100
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = startX
-            particle.y = startY
-            particle.speedX = pathDirX * speed
-            particle.speedY = pathDirY * speed
-            particle.scale = effect.startScale
-            particle.alpha = 0 -- Start transparent and fade in
-            particle.rotation = math.random() * math.pi * 2
-            particle.rotSpeed = math.random(-3, 3)
-            particle.delay = delay
-            particle.active = false
-            particle.finalPulse = false
-            particle.finalPulseTime = 0
-            
-            table.insert(effect.particles, particle)
-        end
-    elseif effect.type == "surge" then
-        -- Initialize particles for fountain surge effect centered on caster
-        local spread = effect.spread or 45
-        local riseFactor = effect.riseFactor or 1.4
-        local gravity = effect.gravity or 180
-        local particleSizeVariance = effect.particleSizeVariance or 0.6
-        
-        -- Determine if we're using sprites
-        local useSprites = effect.useSprites
-        local spriteFrameCount = 0
-        if useSprites and effect.criticalAssets then
-            -- Count how many sprite frames we have for animation
-            for _, assetName in ipairs(effect.criticalAssets) do
-                if assetName == "sparkle" then
-                    -- Single sprite - no animation frames
-                    spriteFrameCount = 1
-                    break
-                end
-            end
-        end
-        
-        -- Pre-load center particle
-        effect.centerParticleTimer = 0
-        
-        -- Create particles with varied properties
-        for i = 1, effect.particleCount do
-            local particle = Pool.acquire("vfx_particle")
-
-            -- Start at source position with slight random offset
-            local startOffsetX = math.random(-10, 10)
-            local startOffsetY = math.random(-10, 10)
-            particle.x = effect.sourceX + startOffsetX
-            particle.y = effect.sourceY + startOffsetY
-            
-            -- Store initial position for spiral motion calculations
-            particle.initialX = particle.x
-            particle.initialY = particle.y
-
-            -- Create upward velocity with variety
-            -- More focused in the center for a fountain effect
-            local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
-            particle.speedX = (math.random() - 0.5) * spread * horizontalBias
-            
-            -- Vertical speed with some variance and acceleration
-            local riseSpeed = math.random(220, 320) * riseFactor
-            if effect.riseAcceleration then
-                -- Some particles have extra acceleration
-                particle.riseAcceleration = math.random() * effect.riseAcceleration
-            end
-            
-            particle.speedY = -riseSpeed
-            particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
-            
-            -- Visual properties with variance
-            local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
-            particle.scale = effect.startScale * sizeVariance
-            particle.baseScale = particle.scale -- Store for pulsation
-            
-            particle.alpha = 0.9 + math.random() * 0.1
-            particle.rotation = math.random() * math.pi * 2
-            particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
-            
-            -- Staggered appearance
-            particle.delay = math.random() * 0.4
-            particle.active = false
-            
-            -- Add sprite animation if enabled
-            if useSprites then
-                particle.useSprite = true
-                if spriteFrameCount > 1 then
-                    particle.frameIndex = 1
-                    particle.frameTimer = 0
-                    particle.frameRate = effect.spriteFrameRate or 8
-                end
-            end
-            
-            -- Special properties based on effect template settings
-            if effect.spiralMotion then
-                particle.spiral = true
-                particle.spiralFrequency = 5 + math.random() * 3
-                particle.spiralAmplitude = 10 + math.random() * 20
-                particle.spiralPhase = math.random() * math.pi * 2
-                particle.spiralTightness = effect.spiralTightness or 2.5
-            end
-            
-            if effect.pulsateParticles and math.random() < 0.7 then
-                particle.pulsate = true
-                particle.pulseRate = 3 + math.random() * 5
-                particle.pulseAmount = 0.2 + math.random() * 0.3
-            end
-            
-            -- Chance for special sparkle particles
-            if effect.sparkleChance and math.random() < effect.sparkleChance then
-                particle.sparkle = true
-                particle.sparkleIntensity = 0.7 + math.random() * 0.3
-            end
-            
-            -- Add bloom glow effect
-            if effect.bloomEffect then
-                particle.bloom = true
-                particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
-            end
-
-            table.insert(effect.particles, particle)
-        end
-    elseif effect.type == "meteor" then
-        -- DEPRECATED: This meteor initialization code has been moved to the meteor.lua module
-        -- This branch is left empty to ensure compatibility while the refactoring is completed
-        print("[VFX] Using modular meteor effect implementation from vfx.effects.meteor")
-    end
+    return initializeParticlesModule(effect)
 end
-
 -- Update all active effects
 function VFX.update(dt)
     local i = 1
@@ -16801,10 +16311,16 @@ function VFX.update(dt)
         
         -- Handle shield block effects with improved safeguards
         local isBlocked = effect.options and effect.options.blockPoint
-        
+
+        -- Mark effect as blocked if necessary
+        if isBlocked and not effect.isBlocked then
+            effect.isBlocked = true
+            print("[VFX] Setting effect.isBlocked = true for projectile")
+        end
+
         -- Debug to verify blocked effect tracking
         if isBlocked and effect.timer == dt then  -- First update frame
-            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f", 
+            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f",
                 effect.name or "unknown", effect.options.blockPoint))
         end
         
@@ -16993,7 +16509,14 @@ function VFX.update(dt)
         local effectType = effect.type
         local updater = VFX.updaters[effectType]
         if updater then
-            updater(effect, dt)
+            -- Add safety pcall to prevent crashes
+            local success, err = pcall(function()
+                updater(effect, dt)
+            end)
+
+            if not success then
+                print(string.format("[VFX] Error updating effect type '%s': %s", tostring(effectType), tostring(err)))
+            end
         else
             -- Fallback or warning for unhandled types
             print("[VFX] Warning: No updater found for VFX type: " .. tostring(effectType))
@@ -17031,7 +16554,14 @@ function VFX.draw()
         local effectType = effect.type
         local drawer = VFX.drawers[effectType]
         if drawer then
-            drawer(effect)
+            -- Add safety pcall to prevent crashes
+            local success, err = pcall(function()
+                drawer(effect)
+            end)
+
+            if not success then
+                print(string.format("[VFX] Error drawing effect type '%s': %s", tostring(effectType), tostring(err)))
+            end
         else
             -- Fallback or warning for unhandled types
             print("[VFX] Warning: No drawer found for VFX type: " .. tostring(effectType))
@@ -17065,10 +16595,45 @@ end
 function VFX.showPoolStats()
     print("\n=== VFX POOLS STATS ===")
     print(string.format("Active Effects: %d", #VFX.activeEffects))
-    print(string.format("Particle Pool Size: %d (Available: %d, Active: %d)", 
+    print(string.format("Particle Pool Size: %d (Available: %d, Active: %d)",
         Pool.size("vfx_particle"), Pool.available("vfx_particle"), Pool.activeCount("vfx_particle")))
     print(string.format("Effect Pool Size: %d (Available: %d, Active: %d)",
         Pool.size("vfx_effect"), Pool.available("vfx_effect"), Pool.activeCount("vfx_effect")))
+
+    -- Check for potential issues
+    local particlePoolActiveCount = Pool.activeCount("vfx_particle")
+    local activeParticlesCount = 0
+
+    -- Count actual particles in active effects
+    for _, effect in ipairs(VFX.activeEffects) do
+        if effect.particles then
+            activeParticlesCount = activeParticlesCount + #effect.particles
+        end
+    end
+
+    -- Report if there's a mismatch
+    if particlePoolActiveCount > activeParticlesCount then
+        print(string.format("WARNING: Pool reports %d active particles but only %d found in effects",
+            particlePoolActiveCount, activeParticlesCount))
+        print("This suggests particles are not being properly released back to the pool")
+    elseif particlePoolActiveCount < activeParticlesCount then
+        print(string.format("WARNING: Found %d particles in effects but pool only reports %d active",
+            activeParticlesCount, particlePoolActiveCount))
+        print("This suggests particles are being created without using Pool.acquire")
+    end
+
+    -- Check particle creation and usage rate
+    local creates = Pool.stats.creates["vfx_particle"] or 0
+    local acquires = Pool.stats.acquires["vfx_particle"] or 0
+
+    if creates > 0 and acquires > 0 then
+        local reuseRate = (acquires - creates) / acquires * 100
+        print(string.format("Particle Reuse Rate: %.1f%% (Lower is worse)", reuseRate))
+
+        if reuseRate < 50 then
+            print("WARNING: Low particle reuse rate suggests pool is too small or particles aren't being released properly")
+        end
+    end
 end
 
 -- Create an effect with async callback support
@@ -17091,6 +16656,45 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
     }
 end
 
+-- Diagnostic function to run on game startup to detect and fix particle pool issues
+function VFX.runParticlePoolDiagnostic()
+    print("\n=== VFX PARTICLE POOL DIAGNOSTIC ===")
+    local stats = ParticleManager.getStats()
+    print(string.format("Particle Pool: %d total (%d active, %d available)",
+        stats.poolSize, stats.active, stats.available))
+
+    -- Check for active particles that aren't in use
+    if stats.active > 0 and #VFX.activeEffects == 0 then
+        print("WARNING: Pool reports active particles but no active effects exist")
+        print("This suggests particles weren't released properly in a previous session")
+
+        -- Force reset the pool
+        print("Resetting particle pool to fix the issue...")
+        Pool.clear("vfx_particle")
+
+        -- Recreate with initial size
+        Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
+
+        print("Pool reset complete")
+    end
+
+    -- Test particle acquisition and release
+    print("Testing particle acquisition and release...")
+    local testParticle = ParticleManager.createParticle()
+    if testParticle then
+        print("Successfully acquired test particle from pool")
+        if ParticleManager.releaseParticle(testParticle) then
+            print("Successfully released test particle back to pool")
+        else
+            print("ERROR: Failed to release test particle")
+        end
+    else
+        print("ERROR: Failed to acquire test particle from pool")
+    end
+
+    print("Diagnostic complete!")
+end
+
 -- Import effect modules
 local ProjectileEffect = require("vfx.effects.projectile")
 local ImpactEffect = require("vfx.effects.impact")
@@ -17105,6 +16709,7 @@ local MeteorEffect = require("vfx.effects.meteor")
 -- Initialize the updaters table with update functions
 -- TODO - retrofit all the "projectile" defaults to use the new "visual shape" subtype system
 VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
+VFX.updaters["impact"] = ImpactEffect.update
 VFX.updaters[Constants.VisualShape.BEAM] = BeamEffect.update
 VFX.updaters[Constants.VisualShape.BLAST] = ImpactEffect.update
 VFX.updaters[Constants.VisualShape.CONE] = ConeEffect.update
@@ -17119,6 +16724,7 @@ VFX.updaters[Constants.VisualShape.AURA] = AuraEffect.update
 
 -- Initialize the drawers table with draw functions
 VFX.drawers[Constants.AttackType.PROJECTILE] = ProjectileEffect.draw
+VFX.drawers["impact"] = ImpactEffect.draw
 VFX.drawers[Constants.VisualShape.BEAM] = BeamEffect.draw
 VFX.drawers[Constants.VisualShape.BLAST] = ImpactEffect.draw
 VFX.drawers[Constants.VisualShape.CONE] = ConeEffect.draw
@@ -17139,6 +16745,7 @@ return VFX```
 -- Centralized system for managing VFX particles using the Pool system
 
 local Pool = require("core.Pool")
+local Constants = require("core.Constants")
 local ParticleManager = {}
 
 -- Create a new particle from the pool
@@ -17254,7 +16861,7 @@ end
 -- Create a meteor impact particle
 function ParticleManager.createMeteorImpactParticle(effect, angle)
     local particle = ParticleManager.createParticle()
-    
+
     -- Set impact-specific properties
     particle.type = "impact"
     particle.angle = angle
@@ -17269,7 +16876,368 @@ function ParticleManager.createMeteorImpactParticle(effect, angle)
     particle.lifespan = 0.4 + math.random() * 0.2
     particle.assetId = "sparkle"
     particle.color = effect.color
-    
+
+    return particle
+end
+
+-- Create a projectile trail particle
+function ParticleManager.createProjectileTrailParticle(effect, headX, headY)
+    local particle = ParticleManager.createParticle()
+
+    -- Set trail-specific properties
+    particle.x = headX
+    particle.y = headY
+    particle.xVel = math.random(-30, 30)
+    particle.yVel = math.random(-30, 30)
+    particle.size = math.random(5, 15) * (effect.size or 1.0)
+    particle.alpha = math.random() * 0.5 + 0.5
+    particle.life = 0
+    particle.maxLife = math.random() * 0.3 + 0.1
+    particle.color = effect.color or {1, 1, 1}
+
+    return particle
+end
+
+-- Create an impact particle
+function ParticleManager.createImpactParticle(effect, angle, delay)
+    local particle = ParticleManager.createParticle()
+
+    -- Set impact-specific properties
+    particle.baseX = effect.targetX
+    particle.baseY = effect.targetY
+    particle.x = effect.targetX
+    particle.y = effect.targetY
+    particle.angle = angle
+    particle.delay = delay or 0
+    particle.active = false
+    particle.animType = "expand"
+    particle.maxDist = effect.radius * (0.5 + math.random() * 0.5)
+    particle.baseScale = 0.5 + math.random() * 0.5
+    particle.scale = particle.baseScale
+    particle.alpha = 1.0
+
+    return particle
+end
+
+-- Create an aura particle
+function ParticleManager.createAuraParticle(effect, angle, orbitId)
+    local particle = ParticleManager.createParticle()
+
+    -- Set aura-specific properties
+    local distance = effect.radius * (0.6 + math.random() * 0.4)
+    local orbitalSpeed = 0.5 + math.random() * 1.5
+
+    particle.angle = angle
+    particle.distance = distance
+    particle.orbitalSpeed = orbitalSpeed
+    particle.scale = effect.startScale
+    particle.baseScale = effect.startScale
+    particle.alpha = 0 -- Start invisible and fade in
+    particle.baseAlpha = 1.0
+    particle.rotation = 0
+    particle.delay = (angle / (2 * math.pi)) * 0.5
+    particle.active = false
+    particle.orbitId = orbitId or math.random(1, effect.orbitCount or 2)
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+
+    return particle
+end
+
+-- Create a beam particle
+function ParticleManager.createBeamParticle(effect, position, offset)
+    local particle = ParticleManager.createParticle()
+
+    -- Set beam-specific properties
+    particle.position = position -- 0 to 1 along beam
+    particle.offset = offset -- Perpendicular to beam
+    particle.scale = effect.startScale * (0.7 + math.random() * 0.6)
+    particle.alpha = 0.8
+    particle.rotation = math.random() * math.pi * 2
+    particle.delay = math.random() * 0.3
+    particle.active = false
+
+    return particle
+end
+
+-- Create a cone particle
+function ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
+    local particle = ParticleManager.createParticle()
+
+    -- Common properties
+    particle.angle = angle
+    particle.rotation = angle -- Align rotation with direction
+    particle.delay = math.random() * 0.3 -- Staggered start
+    particle.active = false
+    particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
+    particle.intensityMultiplier = 1.0
+
+    -- Set position at source
+    particle.x = effect.sourceX
+    particle.y = effect.sourceY
+
+    -- Additional properties for motion
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+
+    -- Wave-specific properties
+    if isWaveParticle then
+        particle.isWave = true
+        particle.waveIndex = waveIndex
+        particle.waveTime = waveIndex / (effect.waveCount or 3) -- Staggered wave timing
+
+        -- Calculate wave speed and distance based on wave index
+        local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15
+        particle.distance = (effect.coneLength or 320) * 0.95 -- Waves extend almost to max distance
+        particle.speed = (effect.waveSpeed or 350) * speedMultiplier
+        particle.scale = effect.startScale * (1.5 + waveIndex * 0.1)
+        particle.alpha = 0.9
+
+        -- Special effects
+        if effect.wavePersistence then
+            particle.persistenceFactor = effect.wavePersistence
+        end
+
+        if effect.trailingGlowStrength then
+            particle.trailGlow = effect.trailingGlowStrength
+        end
+    else
+        -- Regular fill particles
+        particle.distance = distance
+        particle.speed = math.random(100, 250)
+
+        -- Size variance
+        local sizeVariance = effect.particleSizeVariance or 0.6
+        particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
+        particle.alpha = 0.6 + math.random() * 0.4
+        particle.isWave = false
+    end
+
+    -- Target destination for the particle
+    particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
+    particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
+
+    return particle
+end
+
+-- Create a remote effect particle
+function ParticleManager.createRemoteParticle(effect, angle, distance, speed)
+    local particle = ParticleManager.createParticle()
+
+    -- Calculate center position
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+
+    -- Set remote-specific properties
+    particle.x = centerX
+    particle.y = centerY
+    particle.targetX = centerX + math.cos(angle) * distance
+    particle.targetY = centerY + math.sin(angle) * distance
+    particle.speed = speed
+    particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
+    particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
+    particle.rotation = angle
+    particle.delay = math.random() * 0.4
+    particle.active = false
+    particle.motion = effect.motion
+    particle.angle = angle
+    particle.distance = distance
+
+    return particle
+end
+
+-- Create a conjure particle
+function ParticleManager.createConjureParticle(effect, startX, startY, dirX, dirY, speed, delay)
+    local particle = ParticleManager.createParticle()
+
+    -- Set conjure-specific properties
+    particle.x = startX
+    particle.y = startY
+    particle.speedX = dirX * speed
+    particle.speedY = dirY * speed
+    particle.scale = effect.startScale
+    particle.alpha = 0 -- Start transparent and fade in
+    particle.rotation = math.random() * math.pi * 2
+    particle.rotSpeed = math.random(-3, 3)
+    particle.delay = delay
+    particle.active = false
+    particle.finalPulse = false
+    particle.finalPulseTime = 0
+
+    return particle
+end
+
+-- Create a surge particle
+function ParticleManager.createSurgeParticle(effect)
+    local particle = ParticleManager.createParticle()
+
+    -- Get effect properties
+    local spread = effect.spread or 45
+    local riseFactor = effect.riseFactor or 1.4
+    local gravity = effect.gravity or 180
+    local particleSizeVariance = effect.particleSizeVariance or 0.6
+    local useSprites = effect.useSprites
+
+    -- Start at source position with slight random offset
+    local startOffsetX = math.random(-10, 10)
+    local startOffsetY = math.random(-10, 10)
+    particle.x = effect.sourceX + startOffsetX
+    particle.y = effect.sourceY + startOffsetY
+
+    -- Store initial position for spiral motion calculations
+    particle.initialX = particle.x
+    particle.initialY = particle.y
+
+    -- Create upward velocity with variety
+    -- More focused in the center for a fountain effect
+    local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
+    particle.speedX = (math.random() - 0.5) * spread * horizontalBias
+
+    -- Vertical speed with some variance and acceleration
+    local riseSpeed = math.random(220, 320) * riseFactor
+    if effect.riseAcceleration then
+        particle.riseAcceleration = math.random() * effect.riseAcceleration
+    end
+
+    particle.speedY = -riseSpeed
+    particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+
+    -- Visual properties with variance
+    local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
+    particle.scale = effect.startScale * sizeVariance
+    particle.baseScale = particle.scale -- Store for pulsation
+
+    particle.alpha = 0.9 + math.random() * 0.1
+    particle.rotation = math.random() * math.pi * 2
+    particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+
+    -- Staggered appearance
+    particle.delay = math.random() * 0.4
+    particle.active = false
+
+    -- Add sprite animation if enabled
+    if useSprites then
+        particle.useSprite = true
+        particle.frameIndex = 1
+        particle.frameTimer = 0
+        particle.frameRate = effect.spriteFrameRate or 8
+    end
+
+    -- Special properties based on effect template settings
+    if effect.spiralMotion then
+        particle.spiral = true
+        particle.spiralFrequency = 5 + math.random() * 3
+        particle.spiralAmplitude = 10 + math.random() * 20
+        particle.spiralPhase = math.random() * math.pi * 2
+        particle.spiralTightness = effect.spiralTightness or 2.5
+    end
+
+    if effect.pulsateParticles and math.random() < 0.7 then
+        particle.pulsate = true
+        particle.pulseRate = 3 + math.random() * 5
+        particle.pulseAmount = 0.2 + math.random() * 0.3
+    end
+
+    -- Chance for special sparkle particles
+    if effect.sparkleChance and math.random() < effect.sparkleChance then
+        particle.sparkle = true
+        particle.sparkleIntensity = 0.7 + math.random() * 0.3
+    end
+
+    -- Add bloom glow effect
+    if effect.bloomEffect then
+        particle.bloom = true
+        particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
+    end
+
+    return particle
+end
+
+-- Create a projectile core particle
+function ParticleManager.createProjectileCoreParticle(effect, baseAngle, turbulence)
+    local particle = ParticleManager.createParticle()
+
+    -- Random position near the projectile core
+    local spreadFactor = 4 * turbulence
+    local offsetX = math.random(-spreadFactor, spreadFactor)
+    local offsetY = math.random(-spreadFactor, spreadFactor)
+
+    -- Set initial state
+    particle.x = effect.sourceX + offsetX
+    particle.y = effect.sourceY + offsetY
+    particle.scale = effect.startScale * (0.9 + math.random() * 0.5) -- Slightly larger scales
+    particle.alpha = 1.0
+    particle.rotation = math.random() * math.pi * 2
+
+    -- Create leading-edge cluster with minimal delay
+    particle.delay = math.random() * 0.05
+    particle.active = false
+    particle.isCore = true -- Mark as core particle for special rendering
+    particle.motion = effect.motion -- Store motion style
+
+    -- Motion properties
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+    particle.targetX = effect.targetX
+    particle.targetY = effect.targetY
+
+    -- Add less randomness to motion for more focused projectile
+    local angleVar = (math.random() - 0.5) * 0.2 * turbulence
+    particle.angle = baseAngle + angleVar
+    particle.speed = math.random(200, 260) -- Significantly faster speeds
+
+    -- Life cycle control
+    particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
+    particle.timeOffset = math.random() * 0.1
+    particle.turbulence = turbulence
+
+    return particle
+end
+
+-- Create a projectile trail particle (using core system, not the same as createProjectileTrailParticle)
+function ParticleManager.createProjectileFullTrailParticle(effect, baseAngle, turbulence, trailIndex, trailCount)
+    local particle = ParticleManager.createParticle()
+
+    -- Trail particles start closer to the core
+    local spreadRadius = 6 * (effect.trailDensity or 0.4) * turbulence -- Tighter spread
+    local spreadAngle = math.random() * math.pi * 2
+    local spreadDist = math.random() * spreadRadius
+
+    -- Set initial state - more directional alignment
+    particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
+    particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
+    particle.scale = effect.startScale * (0.7 + math.random() * 0.2) -- Slightly smaller
+    particle.alpha = 0.7 -- Lower alpha for less visibility
+    particle.rotation = math.random() * math.pi * 2
+
+    -- Much shorter staggered delay for trail particles
+    particle.delay = (trailIndex / trailCount) * 0.15 -- Cut delay in half for faster response
+    particle.active = false
+    particle.isCore = false -- Mark as trail particle
+    particle.motion = effect.motion
+
+    -- Motion properties
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+    particle.targetX = effect.targetX
+    particle.targetY = effect.targetY
+
+    -- Reduce trail spread angle for more directional appearance
+    local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
+    particle.angle = baseAngle + angleVar
+    particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
+
+    -- Trail particles have shorter lifespans for smoother fade
+    particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
+    particle.timeOffset = math.random() * 0.2
+    particle.turbulence = turbulence
+
+    -- Which segment of the trail this particle belongs to
+    particle.trailSegment = math.random()
+
     return particle
 end
 
@@ -17298,6 +17266,7 @@ return ParticleManager```
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -17463,8 +17432,37 @@ local function drawAura(effect)
     end
 end
 
+-- Initialize function for aura effects
+local function initializeAura(effect)
+    -- For aura effects, create particles that orbit the character using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local orbitId = math.ceil(i / (effect.particleCount / (effect.orbitCount or 2)))
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createAuraParticle(effect, angle, orbitId)
+
+        -- Add motion information
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Add additional properties for special motion
+        particle.startTime = 0
+
+        -- Calculate distance and orbitalSpeed for legacy code compatibility
+        local distance = particle.distance or (effect.radius * 0.8)
+        local orbitalSpeed = particle.orbitalSpeed or 1.5
+
+        particle.targetX = effect.sourceX + math.cos(angle) * distance
+        particle.targetY = effect.sourceY + math.sin(angle) * distance
+        particle.speed = orbitalSpeed * 30
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeAura,
     update = updateAura,
     draw = drawAura
 }```
@@ -17476,6 +17474,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -17547,14 +17546,89 @@ local function updateBeam(effect, dt)
 
     -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
     local baseProgress = effect.visualProgress or effect.progress
-    
+
     -- Apply pulsing effect
     effect.pulseTimer = (effect.pulseTimer or 0) + dt * 10
     effect.pulseFactor = 0.7 + 0.3 * math.sin(effect.pulseTimer)
-    
+
     -- Handle beam progress for blocked beams
     local blockPoint = effect.blockPoint or 1.0
-    
+
+    -- Handle shield block specific effects
+    if effect.isBlocked and not effect.impactEffectCreated and baseProgress >= blockPoint then
+        -- Create shield impact effect
+        effect.impactEffectCreated = true
+
+        -- Calculate impact position
+        local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * blockPoint)
+        local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * blockPoint)
+
+        print(string.format("[BEAM] Creating shield impact effect at (%.1f, %.1f)", impactX, impactY))
+
+        -- Get the VFX module (should be loaded by now)
+        if not VFX then VFX = require("vfx") end
+
+        -- Determine shield color based on shield type
+        local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
+        local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+        elseif shieldType == "field" then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+        end
+
+        -- Create shield impact effect
+        if VFX.createEffect then
+            -- Impact flash effect
+            local flashParams = {
+                duration = 0.3,
+                scale = (effect.startScale or 1.0) * 1.5,
+                color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.9},
+                particleCount = 8
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, flashParams)
+
+            -- Particle burst effect
+            local burstParams = {
+                duration = 0.8,
+                scale = (effect.startScale or 1.0) * 1.2,
+                color = shieldColor,
+                particleCount = 30
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, burstParams)
+        end
+
+        -- Trigger screen shake for beam impact
+        local gameState = nil
+
+        -- Try to find the game state through various references
+        if effect.options and effect.options.gameState then
+            gameState = effect.options.gameState
+        elseif effect.options and effect.options.sourceEntity and effect.options.sourceEntity.gameState then
+            gameState = effect.options.sourceEntity.gameState
+        elseif effect.options and effect.options.targetEntity and effect.options.targetEntity.gameState then
+            gameState = effect.options.targetEntity.gameState
+        elseif _G.game then
+            gameState = _G.game
+        elseif VFX.gameState then
+            gameState = VFX.gameState
+        end
+
+        -- Determine impact amount for shake intensity
+        local amount = effect.options and effect.options.amount or 12  -- Beams are powerful
+        local intensity = math.min(5, 2.5 + (amount / 20))  -- Slightly more intense than projectiles
+        local shakeDuration = 0.25  -- Longer duration for beam
+
+        -- Trigger shake if we have access to game state
+        if gameState and gameState.triggerShake then
+            gameState.triggerShake(shakeDuration, intensity)
+            print(string.format("[BEAM] Shield block impact! Triggered shake (%.2f, %.2f) at blockPoint=%.2f",
+                shakeDuration, intensity, blockPoint))
+        elseif VFX.triggerShake then
+            VFX.triggerShake(shakeDuration, intensity)
+        end
+    end
+
     -- If beam is blocked, it should stop at the block point
     if effect.isBlocked and baseProgress > blockPoint then
         effect.beamProgress = blockPoint
@@ -17735,35 +17809,69 @@ local function drawBeam(effect)
         -- Calculate impact point
         local blockX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
         local blockY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
-        
+
         -- Calculate impact flash size and alpha
         local impactProgress = (effect.progress - effect.blockPoint) / (1 - effect.blockPoint)
         local flashSize = 40 * (1.0 - impactProgress) * effect.pulseFactor
         local flashAlpha = 0.7 * (1.0 - impactProgress)
-        
+
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
-        
+
         -- Draw impact flash
         love.graphics.setColor(1, 1, 1, flashAlpha)
         love.graphics.circle("fill", blockX, blockY, flashSize)
-        
-        -- Draw shield specific effects if applicable
+
+        -- Get shield color based on type for distinctive visuals
+        local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
         local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldR, shieldG, shieldB = 0.3, 0.3, 1.0 -- Blue for wards
+        elseif shieldType == "field" then
+            shieldR, shieldG, shieldB = 0.3, 1.0, 0.3 -- Green for fields
+        end
+
+        -- Draw colored shield impact ring
+        love.graphics.setColor(shieldR, shieldG, shieldB, flashAlpha * 0.9)
+        local ringSize = flashSize * 1.2
+        local ringWidth = 3
+        love.graphics.setLineWidth(ringWidth)
+        love.graphics.circle("line", blockX, blockY, ringSize)
+
+        -- Draw radial beams emanating from impact point
+        local beamCount = 8
+        for i = 1, beamCount do
+            local angle = (i / beamCount) * math.pi * 2 + (effect.progress * 3)
+            local rayLength = ringSize * (0.8 + 0.4 * math.sin(impactProgress * math.pi * 6))
+            local x2 = blockX + math.cos(angle) * rayLength
+            local y2 = blockY + math.sin(angle) * rayLength
+
+            love.graphics.setLineWidth(ringWidth * 0.6)
+            love.graphics.line(blockX, blockY, x2, y2)
+        end
+
+        -- Draw shield specific effects if applicable
         if shieldType and (shieldType == "ward" or shieldType == "barrier") then
             -- Shield-specific visualization
             local runeImages = getAssetInternal("runes")
             if runeImages and #runeImages > 0 then
-                -- Get a random rune based on effect ID
-                local runeIndex = (effect.id % #runeImages) + 1
+                -- Get a deterministic rune index
+                local runeIndex
+                if effect.id then
+                    runeIndex = (effect.id % #runeImages) + 1
+                else
+                    -- Calculate a stable index from the positions
+                    local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                    runeIndex = (posHash % #runeImages) + 1
+                end
                 local runeImage = runeImages[runeIndex]
-                
-                -- Draw the rune with rotation
+
+                -- Draw the rune with rotation and pulsing
                 local runeSize = 0.5 * (1 + 0.3 * math.sin(impactProgress * math.pi * 4))
                 local runeAlpha = flashAlpha * 0.9
-                
+
                 love.graphics.setColor(1, 1, 1, runeAlpha)
-                
+
                 if runeImage then
                     love.graphics.draw(
                         runeImage,
@@ -17775,14 +17883,42 @@ local function drawBeam(effect)
                 end
             end
         end
-        
+
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 end
 
+-- Initialize function for beam effects
+local function initializeBeam(effect)
+    -- First create the main beam shape
+    effect.beamProgress = 0
+    effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
+    effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[BEAM INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Then add particles along the beam
+    for i = 1, effect.particleCount do
+        local position = math.random()
+        local offset = math.random(-10, 10)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createBeamParticle(effect, position, offset)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeBeam,
     update = updateBeam,
     draw = drawBeam
 }```
@@ -17794,6 +17930,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -18141,8 +18278,100 @@ local function drawCone(effect)
     end
 end
 
+-- Initialize function for cone effects
+local function initializeCone(effect)
+    -- For conical blast effects
+    -- Calculate the base direction from source to target
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Convert cone angle from degrees to radians
+    local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+    local halfConeAngle = coneAngleRad / 2
+
+    -- Set up wave parameters
+    local waveCount = effect.waveCount or 3
+
+    -- Calculate effect properties based on range and elevation
+    local intensityMultiplier = 1.0
+    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
+        intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
+    end
+
+    -- Create particles for the cone blast
+    for i = 1, effect.particleCount do
+        -- Determine if this particle is part of a wave or general cone fill
+        local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
+
+        -- Random position within the cone but with focus toward center if focusedCore enabled
+        local angleOffset
+
+        if effect.focusedCore then
+            -- Apply quadratic distribution to concentrate particles near center
+            -- Use squared random value to cluster toward cone center
+            local angleRand = math.random()
+            -- Apply bias toward center (squared distribution pushes values toward 0)
+            angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
+            angleOffset = angleRand * halfConeAngle
+        else
+            -- Standard uniform distribution across cone
+            angleOffset = (math.random() * 2 - 1) * halfConeAngle
+        end
+
+        local angle = baseAngle + angleOffset
+
+        -- Distance based on position in the cone (closer to edge or center)
+        local maxDistance = effect.coneLength or 320
+
+        -- For longer cone, we want more particles toward the end
+        local distanceRand
+        if math.random() < 0.6 then
+            -- 60% chance for farther particles
+            distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
+        else
+            -- 40% chance for closer particles
+            distanceRand = math.random() * 0.5 -- 0.0 to 0.5
+        end
+
+        local distance = maxDistance * distanceRand
+
+        -- Create the particle using ParticleManager
+        local waveIndex = 0
+        if isWaveParticle and effect.waveCrest then
+            waveIndex = math.floor(math.random() * waveCount) + 1
+        end
+
+        local particle = ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
+
+        -- For focused cone, make particles in the center brighter and larger
+        if effect.focusedCore and not isWaveParticle then
+            -- Calculate distance from center angle
+            local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
+            -- Particles closer to center get enhancements
+            if angleDiff < 0.4 then
+                local centerBoost = (1.0 - angleDiff/0.4) * 0.5
+                particle.scale = particle.scale * (1 + centerBoost)
+                particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
+            end
+        end
+
+        -- Apply intensity multiplier
+        particle.intensityMultiplier = intensityMultiplier
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Flag to track which waves have started
+    effect.waveStarted = {}
+    for i = 1, waveCount do
+        effect.waveStarted[i] = false
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeCone,
     update = updateCone,
     draw = drawCone
 }```
@@ -18154,6 +18383,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -18422,8 +18652,49 @@ local function drawConjure(effect)
     end
 end
 
+-- Initialize function for conjure effects
+local function initializeConjure(effect)
+    -- For conjuration spells, create particles that rise from caster toward mana pool
+    -- Set the mana pool position (typically at top center)
+    effect.manaPoolX = effect.options and effect.options.manaPoolX or 400 -- Screen center X
+    effect.manaPoolY = effect.options and effect.options.manaPoolY or 120 -- Near top of screen
+
+    -- Ensure spreadRadius has a default value
+    effect.spreadRadius = effect.spreadRadius or 40
+
+    -- Calculate direction vector toward mana pool
+    local dirX = effect.manaPoolX - effect.sourceX
+    local dirY = effect.manaPoolY - effect.sourceY
+    local len = math.sqrt(dirX * dirX + dirY * dirY)
+    dirX = dirX / len
+    dirY = dirY / len
+
+    for i = 1, effect.particleCount do
+        -- Create a spread of particles around the caster
+        local spreadAngle = math.random() * math.pi * 2
+        local spreadDist = math.random() * effect.spreadRadius
+        local startX = effect.sourceX + math.cos(spreadAngle) * spreadDist
+        local startY = effect.sourceY + math.sin(spreadAngle) * spreadDist
+
+        -- Randomize particle properties
+        local speed = math.random(80, 180)
+        local delay = i / effect.particleCount * 0.7
+
+        -- Add some variance to path
+        local pathVariance = math.random(-20, 20)
+        local pathDirX = dirX + pathVariance / 100
+        local pathDirY = dirY + pathVariance / 100
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createConjureParticle(effect, startX, startY, pathDirX, pathDirY, speed, delay)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeConjure,
     update = updateConjure,
     draw = drawConjure
 }```
@@ -18435,6 +18706,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -18573,8 +18845,32 @@ local function drawImpact(effect)
     end
 end
 
+-- Initialize function for impact effects
+local function initializeImpact(effect)
+    -- For impact effects, create a radial explosion using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local delay = math.random() * 0.2 -- Slight random delay
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createImpactParticle(effect, angle, delay)
+
+        -- Additional motion-related properties
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Additional properties for special motion
+        particle.startTime = 0
+        particle.baseX = effect.targetX
+        particle.baseY = effect.targetY
+        particle.angle = angle
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeImpact,
     update = updateImpact,
     draw = drawImpact
 }```
@@ -18757,18 +19053,13 @@ local function updateMeteor(effect, dt)
         effect.impactCreated = true
     end
     
-    -- Clean up expired particles
-    local Pool = require("core.Pool")
-    local i = 1
-    while i <= #effect.particles do
-        local particle = effect.particles[i]
-        if particle.type == "trail" and particle.alpha <= 0.05 then
-            -- Release the particle back to the pool
-            Pool.release("vfx_particle", particle)
-            table.remove(effect.particles, i)
-        else
-            i = i + 1
-        end
+    -- Clean up expired particles using ParticleManager
+    local removedCount = ParticleManager.cleanupEffectParticles(effect.particles, function(particle)
+        return particle.type == "trail" and particle.alpha <= 0.05
+    end)
+
+    if removedCount > 0 then
+        print(string.format("[METEOR] Cleaned up %d expired particles", removedCount))
     end
     
     print(string.format("[METEOR] End of update: %d particles", #effect.particles))
@@ -18850,6 +19141,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -19000,18 +19292,8 @@ local function updateProjectile(effect, dt)
         -- Add new particles at the current head position
         local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
         if math.random() < particleRate then
-            -- Create a new particle
-            local particle = {
-                x = head.x,
-                y = head.y,
-                xVel = math.random(-30, 30),
-                yVel = math.random(-30, 30),
-                size = math.random(5, 15) * (effect.size or 1.0),
-                alpha = math.random() * 0.5 + 0.5,
-                life = 0,
-                maxLife = math.random() * 0.3 + 0.1,
-                color = effect.color or {1, 1, 1} -- Default to white if no color specified
-            }
+            -- Create a new particle using specialized helper
+            local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -19046,6 +19328,8 @@ local function updateProjectile(effect, dt)
             
             -- Remove dead particles
             if particle.life >= particle.maxLife then
+                -- Release particle back to pool
+                ParticleManager.releaseParticle(particle)
                 table.remove(effect.particles, i)
             else
                 i = i + 1
@@ -19342,8 +19626,15 @@ local function drawProjectile(effect)
                 -- Shield-specific visualization
                 local runeImages = getAssetInternal("runes")
                 if runeImages and #runeImages > 0 then
-                    -- Get a random rune
-                    local runeIndex = (effect.id % #runeImages) + 1
+                    -- Get a deterministic or random rune
+                    local runeIndex
+                    if effect.id then
+                        runeIndex = (effect.id % #runeImages) + 1
+                    else
+                        -- Calculate a stable index from the positions
+                        local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                        runeIndex = (posHash % #runeImages) + 1
+                    end
                     local runeImage = runeImages[runeIndex]
                     
                     -- Draw the rune
@@ -19369,8 +19660,57 @@ local function drawProjectile(effect)
     end
 end
 
+-- Initialize function for projectile effects
+local function initializeProjectile(effect)
+    -- Calculate base trajectory properties
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local distance = math.sqrt(dirX*dirX + dirY*dirY)
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[PROJECTILE INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Get turbulence factor or use default
+    local turbulence = effect.turbulence or 0.5
+    local coreDensity = effect.coreDensity or 0.6
+    local trailDensity = effect.trailDensity or 0.4
+
+    -- Core particles (at the leading edge of the projectile)
+    local coreCount = math.floor(effect.particleCount * coreDensity)
+    local trailCount = effect.particleCount - coreCount
+
+    -- Create core/leading particles using ParticleManager
+    for i = 1, coreCount do
+        local particle = ParticleManager.createProjectileCoreParticle(effect, baseAngle, turbulence)
+
+        -- Apply motion style variations
+        if effect.motion == Constants.MotionStyle.SWIRL then
+            particle.swirlRadius = math.random(5, 15)
+            particle.swirlSpeed = math.random(3, 8)
+        elseif effect.motion == Constants.MotionStyle.PULSE then
+            particle.pulseFreq = math.random(3, 7)
+            particle.pulseAmplitude = 0.2 + math.random() * 0.3
+        end
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Create trail particles using ParticleManager
+    for i = 1, trailCount do
+        local particle = ParticleManager.createProjectileFullTrailParticle(effect, baseAngle, turbulence, i, trailCount)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeProjectile,
     update = updateProjectile,
     draw = drawProjectile
 }```
@@ -19382,6 +19722,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -19648,8 +19989,60 @@ local function drawRemote(effect)
     end
 end
 
+-- Initialize function for remote effects
+local function initializeRemote(effect)
+    -- For remote effects like warp, create particles at the target location
+    -- Set flags for position tracking
+    effect.useTargetPosition = true  -- This tells the system to use the current target position
+
+    -- Make sure to use the initial position with offsets if available
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+
+    -- Initialize with offset if the target entity has position offsets
+    if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+        centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+        centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+
+        -- Update effect's target position to include offsets
+        effect.targetX = centerX
+        effect.targetY = centerY
+
+        print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)",
+            centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
+    end
+
+    local radius = effect.radius or 60
+
+    -- Calculate how many particles to create based on density
+    local particlesToCreate = effect.particleCount
+    if effect.particleDensity then
+        particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
+    end
+
+    for i = 1, particlesToCreate do
+        -- Create particles in a circular pattern around the target
+        local angle = (i / particlesToCreate) * math.pi * 2
+        -- Random distance from center
+        local distance = math.random(10, radius)
+        -- Random speed for movement
+        local speed = math.random(10, 70)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createRemoteParticle(effect, angle, distance, speed)
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Initialize sprite rotation angle if needed
+    if effect.rotateSprite then
+        effect.spriteAngle = 0
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeRemote,
     update = updateRemote,
     draw = drawRemote
 }```
@@ -19661,6 +20054,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -19883,185 +20277,23 @@ local function drawSurge(effect)
     end
 end
 
+-- Initialize function for surge effects
+local function initializeSurge(effect)
+    -- Pre-load center particle
+    effect.centerParticleTimer = 0
+
+    -- Create particles with varied properties using ParticleManager
+    for i = 1, effect.particleCount do
+        local particle = ParticleManager.createSurgeParticle(effect)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeSurge,
     update = updateSurge,
     draw = drawSurge
-}```
-
-## ./vfx/effects/vertical.lua
-```lua
--- vertical.lua
--- Vertical VFX module for handling vertical/rising effects
-
--- Import dependencies
-local Constants = require("core.Constants")
-
--- Access to the main VFX module (will be required after vfx.lua is loaded)
-local VFX
-
--- Helper functions needed for vertical effects
-local function getAssetInternal(assetId)
-    -- Lazy-load VFX module to avoid circular dependencies
-    if not VFX then
-        -- Use a relative path that works with LÖVE's require system
-        VFX = require("vfx") -- This will look for vfx.lua in the game's root directory
-    end
-    
-    -- Use the main VFX module's getAsset function
-    return VFX.getAsset(assetId)
-end
-
--- Update function for vertical effects
-local function updateVertical(effect, dt)
-    -- Initialize effect default values
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.color = effect.color or {1, 1, 1} -- Default color (white)
-    effect.height = effect.height or 200 -- Default height
-    effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
-    effect.followSourceEntity = (effect.followSourceEntity ~= false) -- Default to true
-    
-    -- Update source position if we're tracking an entity
-    if effect.useSourcePosition and effect.followSourceEntity and effect.sourceEntity then
-        -- If the source entity has a position, update our source position
-        if effect.sourceEntity.x and effect.sourceEntity.y then
-            effect.sourceX = effect.sourceEntity.x
-            effect.sourceY = effect.sourceEntity.y
-            
-            -- Apply any entity offsets if present
-            if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
-                effect.sourceX = effect.sourceX + effect.sourceEntity.currentXOffset
-                effect.sourceY = effect.sourceY + effect.sourceEntity.currentYOffset
-            end
-        end
-    end
-    
-    for i, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
-        if not particle then
-            goto next_particle
-        end
-        
-        -- Initialize particle properties if missing
-        particle.delay = particle.delay or 0
-        particle.active = particle.active or false
-        particle.baseX = particle.baseX or effect.sourceX
-        particle.baseY = particle.baseY or effect.sourceY
-        
-        -- Check if particle should be active based on delay
-        if effect.timer > particle.delay then
-            particle.active = true
-        end
-        
-        if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Update position - moving upward
-            local height = effect.height or 200
-            local baseX = particle.baseX
-            local baseY = particle.baseY
-            
-            -- Apply wind effects
-            local windOffset = math.sin(effect.timer * 3 + particle.id * 0.7) * 10 * particleProgress
-            
-            -- Update position - moving upward with slight wind
-            particle.x = baseX + windOffset
-            particle.y = baseY - height * particleProgress
-            
-            -- Calculate fade
-            -- Start visible, then fade out near the end
-            local fadeStart = 0.7
-            local fadeAlpha = (particleProgress < fadeStart) 
-                            and 1.0 
-                            or (1.0 - (particleProgress - fadeStart) / (1.0 - fadeStart))
-            particle.alpha = fadeAlpha * (particle.baseAlpha or 1.0)
-            
-            -- Update size - grow slightly then shrink
-            local sizeFactor = 1.0 + math.sin(particleProgress * math.pi) * 0.5
-            particle.scale = (particle.baseScale or 0.3) * sizeFactor
-        end
-        
-        ::next_particle::
-    end
-end
-
--- Draw function for vertical effects
-local function drawVertical(effect)
-    -- Initialize effect default values
-    effect.color = effect.color or {1, 1, 1} -- Default color
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.sourceX = effect.sourceX or 0 -- Default position
-    effect.sourceY = effect.sourceY or 0 -- Default position
-    effect.progress = effect.progress or 0 -- Default progress
-    
-    local particleImage = getAssetInternal("fireParticle")
-    
-    -- Draw base effect at source
-    local baseProgress = math.min(effect.progress * 3, 1.0) -- Quick initial flash
-    if baseProgress < 1.0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - baseProgress) * 0.7)
-        love.graphics.circle("fill", effect.sourceX, effect.sourceY, 40 * baseProgress)
-    end
-    
-    -- Draw particles
-    for _, particle in ipairs(effect.particles) do
-        -- Skip invalid or inactive particles
-        if not particle or not particle.active then
-            goto next_draw_particle
-        end
-        
-        -- Ensure required properties exist
-        particle.alpha = particle.alpha or 0
-        particle.scale = particle.scale or 0.3
-        particle.x = particle.x or effect.sourceX
-        particle.y = particle.y or effect.sourceY
-        
-        -- Draw particle with additive blending for brighter effect
-        local prevMode = {love.graphics.getBlendMode()}
-        love.graphics.setBlendMode("add")
-        
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
-        
-        if particleImage then
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
-        else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
-        end
-        
-        -- Restore blend mode
-        love.graphics.setBlendMode(prevMode[1], prevMode[2])
-        
-        ::next_draw_particle::
-    end
-    
-    -- Draw vertical column glow (fades in then out)
-    local columnAlpha = 0.2 * math.sin(effect.progress * math.pi)
-    if columnAlpha > 0.01 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], columnAlpha)
-        
-        -- Draw a vertical rectangle
-        local height = effect.height or 200
-        local width = 40
-        love.graphics.rectangle("fill", 
-                              effect.sourceX - width/2, 
-                              effect.sourceY - height * effect.progress, 
-                              width, 
-                              height * effect.progress)
-    end
-end
-
--- Return the module
-return {
-    update = updateVertical,
-    draw = drawVertical
 }```
 
 ## ./vfx/init.lua
@@ -20071,6 +20303,54 @@ local VFX = require("vfx.lua") -- Relative path to vfx.lua in the game's root di
 
 -- Expose the module with its public interface
 return VFX```
+
+## ./vfx/initializeParticles.lua
+```lua
+-- initializeParticles.lua
+-- Centralized function for initializing particles for each effect type
+
+-- Import dependencies
+local Constants = require("core.Constants")
+
+-- Initialize particles function
+local function initializeParticles(effect)
+    -- Import the appropriate effect module
+    local effectModule
+    
+    -- Different initialization based on effect type
+    if effect.type == Constants.AttackType.PROJECTILE then
+        effectModule = require("vfx.effects.projectile")
+    elseif effect.type == "impact" then
+        effectModule = require("vfx.effects.impact")
+    elseif effect.type == "cone" then
+        effectModule = require("vfx.effects.cone")
+    elseif effect.type == "aura" then
+        effectModule = require("vfx.effects.aura")
+    elseif effect.type == "remote" then
+        effectModule = require("vfx.effects.remote")
+    elseif effect.type == "beam" then
+        effectModule = require("vfx.effects.beam")
+    elseif effect.type == "conjure" then
+        effectModule = require("vfx.effects.conjure")
+    elseif effect.type == "surge" then
+        effectModule = require("vfx.effects.surge")
+    elseif effect.type == "meteor" then
+        effectModule = require("vfx.effects.meteor")
+    else
+        print("[VFX] Warning: Unknown effect type: " .. tostring(effect.type))
+        return
+    end
+    
+    -- Call the module's initialize function if it exists
+    if effectModule and effectModule.initialize then
+        effectModule.initialize(effect)
+    else
+        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effect.type))
+    end
+end
+
+-- Return the function
+return initializeParticles```
 
 ## ./wizard.lua
 ```lua
@@ -21622,7 +21902,6 @@ The particle system has several main effect types that produce different visual 
 - `projectile`: Moves from source to target with trailing particles
 - `impact`: Creates a radial burst of particles from a central point
 - `aura`: Generates particles orbiting around a central point
-- `vertical`: Creates particles that move upward from a source point
 - `beam`: Creates a solid beam with particle effects along its length
 - `conjure`: Creates particles that rise toward the mana pool
 
@@ -22954,7 +23233,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri May  9 10:41:06 CDT 2025
+Generated: Fri May  9 12:22:17 CDT 2025
 
 # Source Code
 
@@ -24221,22 +24500,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
-
--- Spell metadata field constants
-Constants.SpellMetadata = {
-    DESCRIPTION = "description",  -- Textual description of the spell
-    ZONE = "zone",                -- Zone information for positioning
-    ID = "id",                    -- Unique identifier
-    NAME = "name",                -- Display name
-    KEYWORDS = "keywords",        -- Array of keyword behaviors
-    MANA_COST = "manaCost",       -- Token cost structure
-    ATTACK_TYPE = "attackType",   -- How the spell is delivered
-    CAST_TIME = "castTime",       -- Base casting duration
-    VFX = "vfx",                  -- Visual effects configuration
-    DAMAGE = "damage",            -- Damage information
-    AFFINITY = "affinity"         -- Elemental affinity
-}
-
 -- Utility function to get all spell metadata fields
 function Constants.getAllSpellMetadataFields()
     local fields = {}
@@ -24357,7 +24620,6 @@ Constants.VFXType = {
     FORCE_BLAST = "force_blast",
     
     -- Special fire effects
-    METEOR = "meteor",
     FORCE_BLAST_UP = "force_blast_up",
     ELEVATION_UP = "elevation_up",
     ELEVATION_DOWN = "elevation_down",
@@ -36937,6 +37199,134 @@ end
 -- Return success
 return true```
 
+## ./tools/test_particle_manager.lua
+```lua
+-- test_particle_manager.lua
+-- A script to test ParticleManager integration with vfx.lua
+
+local Pool = require("core.Pool")
+local ParticleManager = require("vfx.ParticleManager")
+local VFX = require("vfx")
+
+-- Initialize the VFX system
+VFX.init()
+
+-- Count the total particles created and returned to pool
+local function testParticlePooling()
+    print("\n=== TESTING PARTICLE POOLING ===")
+    
+    -- Get initial stats
+    local initialStats = ParticleManager.getStats()
+    print(string.format("Initial pool: %d total (%d active, %d available)", 
+        initialStats.poolSize, initialStats.active, initialStats.available))
+    
+    -- Create effects with different types
+    local effects = {}
+    
+    print("\nCreating test effects...")
+    
+    -- Test a projectile effect
+    local projectile = VFX.createEffect("proj_base", 100, 100, 500, 300, {
+        color = {1, 0, 0, 1}, -- Red
+    })
+    table.insert(effects, projectile)
+    print("Created projectile effect with " .. #projectile.particles .. " particles")
+    
+    -- Test an impact effect
+    local impact = VFX.createEffect("impact_base", 300, 300, 300, 300, {
+        color = {0, 1, 0, 1}, -- Green
+    })
+    table.insert(effects, impact)
+    print("Created impact effect with " .. #impact.particles .. " particles")
+    
+    -- Test a cone effect
+    local cone = VFX.createEffect("blast_base", 200, 400, 500, 200, {
+        color = {0, 0, 1, 1}, -- Blue
+    })
+    table.insert(effects, cone)
+    print("Created cone effect with " .. #cone.particles .. " particles")
+    
+    -- Test a beam effect
+    local beam = VFX.createEffect("beam_base", 100, 400, 600, 400, {
+        color = {1, 1, 0, 1}, -- Yellow
+    })
+    table.insert(effects, beam)
+    print("Created beam effect with " .. #beam.particles .. " particles")
+    
+    -- Test an aura effect
+    local aura = VFX.createEffect("zone_base", 400, 300, 400, 300, {
+        color = {1, 0, 1, 1}, -- Purple
+    })
+    table.insert(effects, aura)
+    print("Created aura effect with " .. #aura.particles .. " particles")
+    
+    -- Test a remote effect
+    local remote = VFX.createEffect("remote_base", 300, 100, 300, 100, {
+        color = {0, 1, 1, 1}, -- Cyan
+    })
+    table.insert(effects, remote)
+    print("Created remote effect with " .. #remote.particles .. " particles")
+    
+    -- Test a surge effect
+    local surge = VFX.createEffect("surge_base", 500, 500, 500, 500, {
+        color = {1, 0.5, 0, 1}, -- Orange
+    })
+    table.insert(effects, surge)
+    print("Created surge effect with " .. #surge.particles .. " particles")
+    
+    -- Test a conjure effect
+    local conjure = VFX.createEffect("conjure_base", 200, 500, 200, 500, {
+        color = {0.5, 0.5, 1, 1}, -- Light blue
+    })
+    table.insert(effects, conjure)
+    print("Created conjure effect with " .. #conjure.particles .. " particles")
+    
+    -- Get stats after creating effects
+    local afterCreateStats = ParticleManager.getStats()
+    print(string.format("\nAfter creating effects: %d total (%d active, %d available)", 
+        afterCreateStats.poolSize, afterCreateStats.active, afterCreateStats.available))
+    
+    -- Count total particles created
+    local totalParticles = 0
+    for _, effect in ipairs(effects) do
+        totalParticles = totalParticles + #effect.particles
+    end
+    print("Total particles created: " .. totalParticles)
+    
+    -- Release all effects and their particles
+    print("\nReleasing all effects and particles...")
+    for i, effect in ipairs(effects) do
+        print("Releasing effect " .. i .. " with " .. #effect.particles .. " particles")
+        -- First release all particles
+        for _, particle in ipairs(effect.particles) do
+            ParticleManager.releaseParticle(particle)
+        end
+        -- Then release the effect
+        Pool.release("vfx_effect", effect)
+    end
+    
+    -- Get final stats
+    local finalStats = ParticleManager.getStats()
+    print(string.format("\nFinal pool: %d total (%d active, %d available)", 
+        finalStats.poolSize, finalStats.active, finalStats.available))
+    
+    -- Verify all particles were returned to the pool
+    if finalStats.active == 0 and finalStats.available == finalStats.poolSize then
+        print("\n✓ SUCCESS: All particles were returned to the pool!")
+    else
+        print("\n✗ FAILURE: Not all particles were returned to the pool.")
+        print("  Expected active=0, got " .. finalStats.active)
+        print("  Expected available=" .. finalStats.poolSize .. ", got " .. finalStats.available)
+    end
+end
+
+-- Run the test
+testParticlePooling()
+
+return {
+    testParticlePooling = testParticlePooling
+}```
+
 ## ./tools/test_vfx_events.lua
 ```lua
 -- test_vfx_events.lua
@@ -38062,6 +38452,8 @@ VFX.__index = VFX
 local Pool = require("core.Pool")
 local Constants = require("core.Constants")
 local AssetCache = require("core.AssetCache")
+local ParticleManager = require("vfx.ParticleManager")
+local initializeParticlesModule = require("vfx.initializeParticles")
 
 -- Table to store active effects
 VFX.activeEffects = {}
@@ -38515,7 +38907,10 @@ function VFX.init()
     
     -- Create effect pool - each effect is a container object
     Pool.create("vfx_effect", 10, function() return { particles = {} } end, VFX.resetEffect)
-    
+
+    -- Run the diagnostic to ensure the particle pool is healthy
+    VFX.runParticlePoolDiagnostic()
+
     -- Return the VFX table itself
     return VFX
 end
@@ -38663,19 +39058,8 @@ end
 function VFX.resetEffect(effect)
     -- Only release particles if effect has particles field
     if effect.particles then
-        -- Safely release all particles back to their pool
-        for i = #effect.particles, 1, -1 do
-            local particle = effect.particles[i]
-            if particle then
-                -- Some particles might be created in effect modules without using Pool.acquire
-                -- Only try to release if the particle seems to be from the pool
-                local success = Pool.release("vfx_particle", particle)
-                if not success then
-                    print("[VFX] Warning: Failed to release particle, likely not from pool. Fix the effect module.")
-                end
-            end
-            effect.particles[i] = nil -- Clear reference regardless
-        end
+        -- Use ParticleManager to safely release all particles
+        ParticleManager.releaseAllParticles(effect.particles)
     end
 
     -- Clear all fields except particles
@@ -39101,603 +39485,8 @@ function VFX.ensureParticleDefaults(particle)
 end
 
 function VFX.initializeParticles(effect)
-    
-    -- Different initialization based on effect type
-    if effect.type == Constants.AttackType.PROJECTILE then
-        -- For projectiles, create core and trailing particles
-        -- Calculate base trajectory properties
-        local dirX = effect.targetX - effect.sourceX
-        local dirY = effect.targetY - effect.sourceY
-        local distance = math.sqrt(dirX*dirX + dirY*dirY)
-        local baseAngle = math.atan2(dirY, dirX)
-        
-        -- Get turbulence factor or use default
-        local turbulence = effect.turbulence or 0.5
-        local coreDensity = effect.coreDensity or 0.6
-        local trailDensity = effect.trailDensity or 0.4
-        
-        -- Core particles (at the leading edge of the projectile)
-        local coreCount = math.floor(effect.particleCount * coreDensity)
-        local trailCount = effect.particleCount - coreCount
-        
-        -- Create core/leading particles
-        for i = 1, coreCount do
-            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
-            -- Random position near the projectile core (tighter cluster)
-            local spreadFactor = 4 * turbulence
-            local offsetX = math.random(-spreadFactor, spreadFactor)
-            local offsetY = math.random(-spreadFactor, spreadFactor)
-            
-            -- Set initial state
-            particle.x = effect.sourceX + offsetX
-            particle.y = effect.sourceY + offsetY
-            particle.scale = effect.startScale * math.random(0.9, 1.4) -- Slightly larger scales
-            particle.alpha = 1.0
-            particle.rotation = math.random() * math.pi * 2
-            
-            -- Create leading-edge cluster with even less delay for faster appearance
-            particle.delay = math.random() * 0.05 -- Minimal delay
-            particle.active = false
-            particle.isCore = true -- Mark as core particle for special rendering
-            particle.motion = effect.motion -- Store motion style
-            
-            -- Motion properties
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.targetX
-            particle.targetY = effect.targetY
-            
-            -- Add less randomness to motion for more focused projectile
-            local angleVar = (math.random() - 0.5) * 0.2 * turbulence
-            particle.angle = baseAngle + angleVar
-            particle.speed = math.random(200, 260) -- Significantly faster speeds
-            
-            -- Life cycle control
-            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
-            particle.timeOffset = math.random() * 0.1
-            particle.turbulence = turbulence
-            
-            -- Apply motion style variations 
-            if effect.motion == Constants.MotionStyle.SWIRL then
-                particle.swirlRadius = math.random(5, 15)
-                particle.swirlSpeed = math.random(3, 8)
-            elseif effect.motion == Constants.MotionStyle.PULSE then
-                particle.pulseFreq = math.random(3, 7)
-                particle.pulseAmplitude = 0.2 + math.random() * 0.3
-            end
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Create trail particles
-        for i = 1, trailCount do
-            local particle = VFX.ensureParticleDefaults(Pool.acquire("vfx_particle"))
-            
-            -- Trail particles start closer to the core
-            local spreadRadius = 6 * trailDensity * turbulence -- Tighter spread
-            local spreadAngle = math.random() * math.pi * 2
-            local spreadDist = math.random() * spreadRadius
-            
-            -- Set initial state - more directional alignment
-            particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
-            particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
-            particle.scale = effect.startScale * math.random(0.7, 0.9) -- Slightly smaller
-            particle.alpha = 0.7 -- Lower alpha for less visibility
-            particle.rotation = math.random() * math.pi * 2
-            
-            -- Much shorter staggered delay for trail particles
-            particle.delay = (i / trailCount) * 0.15 -- Cut delay in half for faster response
-            particle.active = false
-            particle.isCore = false -- Mark as trail particle
-            particle.motion = effect.motion
-            
-            -- Motion properties
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.targetX
-            particle.targetY = effect.targetY
-            
-            -- Reduce trail spread angle for more directional appearance
-            local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
-            particle.angle = baseAngle + angleVar
-            particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
-            
-            -- Trail particles have shorter lifespans for smoother fade
-            particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
-            particle.timeOffset = math.random() * 0.2
-            particle.turbulence = turbulence
-            
-            -- Which segment of the trail this particle belongs to
-            particle.trailSegment = math.random()
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "impact" then
-        -- For impact effects, create a radial explosion
-        for i = 1, effect.particleCount do
-            local angle = (i / effect.particleCount) * math.pi * 2
-            local distance = math.random(10, effect.radius)
-            local speed = math.random(50, 200)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.targetX
-            particle.y = effect.targetY
-            particle.targetX = effect.targetX + math.cos(angle) * distance
-            particle.targetY = effect.targetY + math.sin(angle) * distance
-            particle.speed = speed
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = angle
-            particle.delay = math.random() * 0.2 -- Slight random delay
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
-            
-            -- Additional properties for special motion
-            particle.startTime = 0
-            particle.baseX = effect.targetX
-            particle.baseY = effect.targetY
-            particle.angle = angle
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "cone" then
-        -- For conical blast effects
-        -- Calculate the base direction from source to target
-        local dirX = effect.targetX - effect.sourceX
-        local dirY = effect.targetY - effect.sourceY
-        local baseAngle = math.atan2(dirY, dirX)
-        
-        -- Convert cone angle from degrees to radians
-        local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
-        local halfConeAngle = coneAngleRad / 2
-        
-        -- Set up wave parameters
-        local waveCount = effect.waveCount or 3
-        
-        -- Calculate effect properties based on range and elevation
-        local intensityMultiplier = 1.0
-        if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
-            intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
-        end
-        
-        -- Create particles for the cone blast
-        for i = 1, effect.particleCount do
-            local particle = Pool.acquire("vfx_particle")
-            
-            -- Determine if this particle is part of a wave or general cone fill
-            local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
-            
-            -- Random position within the cone but with focus toward center if focusedCore enabled
-            local conePos = math.random()
-            local angleOffset
-            
-            if effect.focusedCore then
-                -- Apply quadratic distribution to concentrate particles near center
-                -- Use squared random value to cluster toward cone center
-                local angleRand = math.random()
-                -- Apply bias toward center (squared distribution pushes values toward 0)
-                angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
-                angleOffset = angleRand * halfConeAngle
-            else
-                -- Standard uniform distribution across cone
-                angleOffset = (math.random() * 2 - 1) * halfConeAngle
-            end
-            
-            local angle = baseAngle + angleOffset
-            
-            -- Distance based on position in the cone (closer to edge or center)
-            local maxDistance = effect.coneLength or 320
-            
-            -- For longer cone, we want more particles toward the end
-            local distanceRand
-            if math.random() < 0.6 then
-                -- 60% chance for farther particles
-                distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
-            else
-                -- 40% chance for closer particles
-                distanceRand = math.random() * 0.5 -- 0.0 to 0.5
-            end
-            
-            local distance = maxDistance * distanceRand
-            
-            -- Wave-specific properties
-            if isWaveParticle and effect.waveCrest then
-                -- Assign to a specific wave
-                local waveIndex = math.floor(math.random() * waveCount) + 1
-                particle.waveIndex = waveIndex
-                particle.waveTime = waveIndex / waveCount -- Staggered wave timing
-                particle.isWave = true
-                
-                -- Calculate wave speed and distance based on wave index (later waves move faster)
-                local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15 -- Each wave is faster than the previous
-                particle.distance = maxDistance * 0.95 -- Waves extend almost to max distance
-                particle.speed = (effect.waveSpeed or 350) * speedMultiplier
-                particle.scale = effect.startScale * (1.5 + waveIndex * 0.1) -- Later waves slightly larger
-                particle.alpha = 0.9
-                
-                -- Wave persistence for long-lasting waves (new property)
-                if effect.wavePersistence then
-                    particle.persistenceFactor = effect.wavePersistence
-                end
-                
-                -- For trailing glow effect
-                if effect.trailingGlowStrength then
-                    particle.trailGlow = effect.trailingGlowStrength
-                end
-                
-                -- Wave particles need a more consistent angle within the cone
-                -- Distribute wave particles more densely in the center if focusedCore is enabled
-                local waveAnglePos = math.random()
-                if effect.focusedCore then
-                    -- Apply curve to concentrate in center
-                    waveAnglePos = (waveAnglePos * 2 - 1)
-                    -- Cubic function to keep more particles in center
-                    waveAnglePos = waveAnglePos * waveAnglePos * waveAnglePos
-                    waveAnglePos = (waveAnglePos + 1) / 2 -- Remap to 0-1
-                end
-                angle = baseAngle + (waveAnglePos * 2 - 1) * halfConeAngle * 0.85
-            else
-                -- Regular fill particles
-                particle.distance = distance
-                -- Faster particles for longer cone
-                particle.speed = math.random(100, 250)
-                -- More varied scale based on particleSizeVariance
-                local sizeVariance = effect.particleSizeVariance or 0.6
-                particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
-                particle.alpha = 0.6 + math.random() * 0.4
-                particle.isWave = false
-                
-                -- For focused cone, make particles in the center brighter and larger
-                if effect.focusedCore then
-                    -- Calculate distance from center angle
-                    local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
-                    -- Particles closer to center get enhancements
-                    if angleDiff < 0.4 then
-                        local centerBoost = (1.0 - angleDiff/0.4) * 0.5
-                        particle.scale = particle.scale * (1 + centerBoost)
-                        particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
-                    end
-                end
-            end
-            
-            -- Common properties
-            particle.angle = angle
-            particle.rotation = angle -- Align rotation with direction
-            particle.delay = math.random() * 0.3 -- Staggered start
-            particle.active = false
-            particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
-            particle.intensityMultiplier = intensityMultiplier
-            
-            -- Set position at source
-            particle.x = effect.sourceX
-            particle.y = effect.sourceY
-            
-            -- Additional properties for motion
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            
-            -- Target destination for the particle
-            particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
-            particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Flag to track which waves have started
-        effect.waveStarted = {}
-        for i = 1, waveCount do
-            effect.waveStarted[i] = false
-        end
-        
-    elseif effect.type == "aura" then
-        -- For aura effects, create particles that orbit the character
-        for i = 1, effect.particleCount do
-            local angle = (i / effect.particleCount) * math.pi * 2
-            local distance = math.random(effect.radius * 0.6, effect.radius)
-            local orbitalSpeed = math.random(0.5, 2.0)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.angle = angle
-            particle.distance = distance
-            particle.orbitalSpeed = orbitalSpeed
-            particle.scale = effect.startScale
-            particle.alpha = 0 -- Start invisible and fade in
-            particle.rotation = 0
-            particle.delay = i / effect.particleCount * 0.5
-            particle.active = false
-            particle.motion = effect.motion -- Store motion style on particle
-            
-            -- Additional properties for special motion
-            particle.startTime = 0
-            particle.baseX = effect.sourceX
-            particle.baseY = effect.sourceY
-            particle.targetX = effect.sourceX + math.cos(angle) * distance
-            particle.targetY = effect.sourceY + math.sin(angle) * distance
-            particle.speed = orbitalSpeed * 30
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "vertical" then
-        -- For vertical effects like emberlift, particles rise upward
-        for i = 1, effect.particleCount do
-            local offsetX = math.random(-30, 30)
-            local startY = math.random(0, 40)
-            local speed = math.random(70, 150)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = effect.sourceX + offsetX
-            particle.y = effect.sourceY + startY
-            particle.speed = speed
-            particle.scale = effect.startScale
-            particle.alpha = 1.0
-            particle.rotation = math.random() * math.pi * 2
-            particle.delay = i / effect.particleCount * 0.8
-            particle.active = false
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "remote" then
-        -- For remote effects like warp, create particles at the target location
-        -- Use the target position as the center
-        -- Set flags for position tracking
-        effect.useTargetPosition = true  -- This tells the system to use the current target position
-        
-        -- Make sure to use the initial position with offsets if available
-        local centerX = effect.targetX
-        local centerY = effect.targetY
-        
-        -- Initialize with offset if the target entity has position offsets
-        if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
-            centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
-            centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
-            
-            -- Update effect's target position to include offsets
-            effect.targetX = centerX
-            effect.targetY = centerY
-            
-            print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)", 
-                centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
-        end
-        
-        local radius = effect.radius or 60
-        
-        -- Calculate how many particles to create based on density
-        local particlesToCreate = effect.particleCount
-        if effect.particleDensity then
-            particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
-        end
-        
-        for i = 1, particlesToCreate do
-            -- Create particles in a circular pattern around the target
-            local angle = (i / particlesToCreate) * math.pi * 2
-            -- Random distance from center
-            local distance = math.random(10, radius) 
-            -- Random speed for movement
-            local speed = math.random(10, 70) 
-            
-            local particle = Pool.acquire("vfx_particle")
-            -- Start at the center
-            particle.x = centerX
-            particle.y = centerY 
-            -- Target position (for radial movement)
-            particle.targetX = centerX + math.cos(angle) * distance
-            particle.targetY = centerY + math.sin(angle) * distance
-            particle.speed = speed
-            particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
-            particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
-            particle.rotation = angle
-            -- Randomized delay for staggered appearance
-            particle.delay = math.random() * 0.4
-            particle.active = false
-            -- Store motion style and other properties
-            particle.motion = effect.motion
-            particle.angle = angle
-            particle.distance = distance
-            -- Don't store fixed coordinates, just the angle and distance
-            -- This way particles can be positioned relative to the current
-            -- target position, which may change over time
-            -- particle.baseX = centerX
-            -- particle.baseY = centerY
-            
-            table.insert(effect.particles, particle)
-        end
-        
-        -- Initialize sprite rotation angle if needed
-        if effect.rotateSprite then
-            effect.spriteAngle = 0
-        end
-    
-    elseif effect.type == "beam" then
-        -- For beam effects like fullmoonbeam, create a beam with particles
-        -- First create the main beam shape
-        effect.beamProgress = 0
-        effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
-        effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
-        
-        -- Then add particles along the beam
-        for i = 1, effect.particleCount do
-            local position = math.random()
-            local offset = math.random(-10, 10)
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.position = position -- 0 to 1 along beam
-            particle.offset = offset -- Perpendicular to beam
-            particle.scale = effect.startScale * math.random(0.7, 1.3)
-            particle.alpha = 0.8
-            particle.rotation = math.random() * math.pi * 2
-            particle.delay = math.random() * 0.3
-            particle.active = false
-            
-            table.insert(effect.particles, particle)
-        end
-        
-    elseif effect.type == "conjure" then
-        -- For conjuration spells, create particles that rise from caster toward mana pool
-        -- Set the mana pool position (typically at top center)
-        effect.manaPoolX = effect.options and effect.options.manaPoolX or 400 -- Screen center X
-        effect.manaPoolY = effect.options and effect.options.manaPoolY or 120 -- Near top of screen
-        
-        -- Ensure spreadRadius has a default value
-        effect.spreadRadius = effect.spreadRadius or 40
-        
-        -- Calculate direction vector toward mana pool
-        local dirX = effect.manaPoolX - effect.sourceX
-        local dirY = effect.manaPoolY - effect.sourceY
-        local len = math.sqrt(dirX * dirX + dirY * dirY)
-        dirX = dirX / len
-        dirY = dirY / len
-        
-        for i = 1, effect.particleCount do
-            -- Create a spread of particles around the caster
-            local spreadAngle = math.random() * math.pi * 2
-            local spreadDist = math.random() * effect.spreadRadius
-            local startX = effect.sourceX + math.cos(spreadAngle) * spreadDist
-            local startY = effect.sourceY + math.sin(spreadAngle) * spreadDist
-            
-            -- Randomize particle properties
-            local speed = math.random(80, 180)
-            local delay = i / effect.particleCount * 0.7
-            
-            -- Add some variance to path
-            local pathVariance = math.random(-20, 20)
-            local pathDirX = dirX + pathVariance / 100
-            local pathDirY = dirY + pathVariance / 100
-            
-            local particle = Pool.acquire("vfx_particle")
-            particle.x = startX
-            particle.y = startY
-            particle.speedX = pathDirX * speed
-            particle.speedY = pathDirY * speed
-            particle.scale = effect.startScale
-            particle.alpha = 0 -- Start transparent and fade in
-            particle.rotation = math.random() * math.pi * 2
-            particle.rotSpeed = math.random(-3, 3)
-            particle.delay = delay
-            particle.active = false
-            particle.finalPulse = false
-            particle.finalPulseTime = 0
-            
-            table.insert(effect.particles, particle)
-        end
-    elseif effect.type == "surge" then
-        -- Initialize particles for fountain surge effect centered on caster
-        local spread = effect.spread or 45
-        local riseFactor = effect.riseFactor or 1.4
-        local gravity = effect.gravity or 180
-        local particleSizeVariance = effect.particleSizeVariance or 0.6
-        
-        -- Determine if we're using sprites
-        local useSprites = effect.useSprites
-        local spriteFrameCount = 0
-        if useSprites and effect.criticalAssets then
-            -- Count how many sprite frames we have for animation
-            for _, assetName in ipairs(effect.criticalAssets) do
-                if assetName == "sparkle" then
-                    -- Single sprite - no animation frames
-                    spriteFrameCount = 1
-                    break
-                end
-            end
-        end
-        
-        -- Pre-load center particle
-        effect.centerParticleTimer = 0
-        
-        -- Create particles with varied properties
-        for i = 1, effect.particleCount do
-            local particle = Pool.acquire("vfx_particle")
-
-            -- Start at source position with slight random offset
-            local startOffsetX = math.random(-10, 10)
-            local startOffsetY = math.random(-10, 10)
-            particle.x = effect.sourceX + startOffsetX
-            particle.y = effect.sourceY + startOffsetY
-            
-            -- Store initial position for spiral motion calculations
-            particle.initialX = particle.x
-            particle.initialY = particle.y
-
-            -- Create upward velocity with variety
-            -- More focused in the center for a fountain effect
-            local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
-            particle.speedX = (math.random() - 0.5) * spread * horizontalBias
-            
-            -- Vertical speed with some variance and acceleration
-            local riseSpeed = math.random(220, 320) * riseFactor
-            if effect.riseAcceleration then
-                -- Some particles have extra acceleration
-                particle.riseAcceleration = math.random() * effect.riseAcceleration
-            end
-            
-            particle.speedY = -riseSpeed
-            particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
-            
-            -- Visual properties with variance
-            local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
-            particle.scale = effect.startScale * sizeVariance
-            particle.baseScale = particle.scale -- Store for pulsation
-            
-            particle.alpha = 0.9 + math.random() * 0.1
-            particle.rotation = math.random() * math.pi * 2
-            particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
-            
-            -- Staggered appearance
-            particle.delay = math.random() * 0.4
-            particle.active = false
-            
-            -- Add sprite animation if enabled
-            if useSprites then
-                particle.useSprite = true
-                if spriteFrameCount > 1 then
-                    particle.frameIndex = 1
-                    particle.frameTimer = 0
-                    particle.frameRate = effect.spriteFrameRate or 8
-                end
-            end
-            
-            -- Special properties based on effect template settings
-            if effect.spiralMotion then
-                particle.spiral = true
-                particle.spiralFrequency = 5 + math.random() * 3
-                particle.spiralAmplitude = 10 + math.random() * 20
-                particle.spiralPhase = math.random() * math.pi * 2
-                particle.spiralTightness = effect.spiralTightness or 2.5
-            end
-            
-            if effect.pulsateParticles and math.random() < 0.7 then
-                particle.pulsate = true
-                particle.pulseRate = 3 + math.random() * 5
-                particle.pulseAmount = 0.2 + math.random() * 0.3
-            end
-            
-            -- Chance for special sparkle particles
-            if effect.sparkleChance and math.random() < effect.sparkleChance then
-                particle.sparkle = true
-                particle.sparkleIntensity = 0.7 + math.random() * 0.3
-            end
-            
-            -- Add bloom glow effect
-            if effect.bloomEffect then
-                particle.bloom = true
-                particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
-            end
-
-            table.insert(effect.particles, particle)
-        end
-    elseif effect.type == "meteor" then
-        -- DEPRECATED: This meteor initialization code has been moved to the meteor.lua module
-        -- This branch is left empty to ensure compatibility while the refactoring is completed
-        print("[VFX] Using modular meteor effect implementation from vfx.effects.meteor")
-    end
+    return initializeParticlesModule(effect)
 end
-
 -- Update all active effects
 function VFX.update(dt)
     local i = 1
@@ -39756,10 +39545,16 @@ function VFX.update(dt)
         
         -- Handle shield block effects with improved safeguards
         local isBlocked = effect.options and effect.options.blockPoint
-        
+
+        -- Mark effect as blocked if necessary
+        if isBlocked and not effect.isBlocked then
+            effect.isBlocked = true
+            print("[VFX] Setting effect.isBlocked = true for projectile")
+        end
+
         -- Debug to verify blocked effect tracking
         if isBlocked and effect.timer == dt then  -- First update frame
-            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f", 
+            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f",
                 effect.name or "unknown", effect.options.blockPoint))
         end
         
@@ -39948,7 +39743,14 @@ function VFX.update(dt)
         local effectType = effect.type
         local updater = VFX.updaters[effectType]
         if updater then
-            updater(effect, dt)
+            -- Add safety pcall to prevent crashes
+            local success, err = pcall(function()
+                updater(effect, dt)
+            end)
+
+            if not success then
+                print(string.format("[VFX] Error updating effect type '%s': %s", tostring(effectType), tostring(err)))
+            end
         else
             -- Fallback or warning for unhandled types
             print("[VFX] Warning: No updater found for VFX type: " .. tostring(effectType))
@@ -39986,7 +39788,14 @@ function VFX.draw()
         local effectType = effect.type
         local drawer = VFX.drawers[effectType]
         if drawer then
-            drawer(effect)
+            -- Add safety pcall to prevent crashes
+            local success, err = pcall(function()
+                drawer(effect)
+            end)
+
+            if not success then
+                print(string.format("[VFX] Error drawing effect type '%s': %s", tostring(effectType), tostring(err)))
+            end
         else
             -- Fallback or warning for unhandled types
             print("[VFX] Warning: No drawer found for VFX type: " .. tostring(effectType))
@@ -40020,10 +39829,45 @@ end
 function VFX.showPoolStats()
     print("\n=== VFX POOLS STATS ===")
     print(string.format("Active Effects: %d", #VFX.activeEffects))
-    print(string.format("Particle Pool Size: %d (Available: %d, Active: %d)", 
+    print(string.format("Particle Pool Size: %d (Available: %d, Active: %d)",
         Pool.size("vfx_particle"), Pool.available("vfx_particle"), Pool.activeCount("vfx_particle")))
     print(string.format("Effect Pool Size: %d (Available: %d, Active: %d)",
         Pool.size("vfx_effect"), Pool.available("vfx_effect"), Pool.activeCount("vfx_effect")))
+
+    -- Check for potential issues
+    local particlePoolActiveCount = Pool.activeCount("vfx_particle")
+    local activeParticlesCount = 0
+
+    -- Count actual particles in active effects
+    for _, effect in ipairs(VFX.activeEffects) do
+        if effect.particles then
+            activeParticlesCount = activeParticlesCount + #effect.particles
+        end
+    end
+
+    -- Report if there's a mismatch
+    if particlePoolActiveCount > activeParticlesCount then
+        print(string.format("WARNING: Pool reports %d active particles but only %d found in effects",
+            particlePoolActiveCount, activeParticlesCount))
+        print("This suggests particles are not being properly released back to the pool")
+    elseif particlePoolActiveCount < activeParticlesCount then
+        print(string.format("WARNING: Found %d particles in effects but pool only reports %d active",
+            activeParticlesCount, particlePoolActiveCount))
+        print("This suggests particles are being created without using Pool.acquire")
+    end
+
+    -- Check particle creation and usage rate
+    local creates = Pool.stats.creates["vfx_particle"] or 0
+    local acquires = Pool.stats.acquires["vfx_particle"] or 0
+
+    if creates > 0 and acquires > 0 then
+        local reuseRate = (acquires - creates) / acquires * 100
+        print(string.format("Particle Reuse Rate: %.1f%% (Lower is worse)", reuseRate))
+
+        if reuseRate < 50 then
+            print("WARNING: Low particle reuse rate suggests pool is too small or particles aren't being released properly")
+        end
+    end
 end
 
 -- Create an effect with async callback support
@@ -40046,6 +39890,45 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
     }
 end
 
+-- Diagnostic function to run on game startup to detect and fix particle pool issues
+function VFX.runParticlePoolDiagnostic()
+    print("\n=== VFX PARTICLE POOL DIAGNOSTIC ===")
+    local stats = ParticleManager.getStats()
+    print(string.format("Particle Pool: %d total (%d active, %d available)",
+        stats.poolSize, stats.active, stats.available))
+
+    -- Check for active particles that aren't in use
+    if stats.active > 0 and #VFX.activeEffects == 0 then
+        print("WARNING: Pool reports active particles but no active effects exist")
+        print("This suggests particles weren't released properly in a previous session")
+
+        -- Force reset the pool
+        print("Resetting particle pool to fix the issue...")
+        Pool.clear("vfx_particle")
+
+        -- Recreate with initial size
+        Pool.create("vfx_particle", 100, function() return {} end, VFX.resetParticle)
+
+        print("Pool reset complete")
+    end
+
+    -- Test particle acquisition and release
+    print("Testing particle acquisition and release...")
+    local testParticle = ParticleManager.createParticle()
+    if testParticle then
+        print("Successfully acquired test particle from pool")
+        if ParticleManager.releaseParticle(testParticle) then
+            print("Successfully released test particle back to pool")
+        else
+            print("ERROR: Failed to release test particle")
+        end
+    else
+        print("ERROR: Failed to acquire test particle from pool")
+    end
+
+    print("Diagnostic complete!")
+end
+
 -- Import effect modules
 local ProjectileEffect = require("vfx.effects.projectile")
 local ImpactEffect = require("vfx.effects.impact")
@@ -40060,6 +39943,7 @@ local MeteorEffect = require("vfx.effects.meteor")
 -- Initialize the updaters table with update functions
 -- TODO - retrofit all the "projectile" defaults to use the new "visual shape" subtype system
 VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
+VFX.updaters["impact"] = ImpactEffect.update
 VFX.updaters[Constants.VisualShape.BEAM] = BeamEffect.update
 VFX.updaters[Constants.VisualShape.BLAST] = ImpactEffect.update
 VFX.updaters[Constants.VisualShape.CONE] = ConeEffect.update
@@ -40074,6 +39958,7 @@ VFX.updaters[Constants.VisualShape.AURA] = AuraEffect.update
 
 -- Initialize the drawers table with draw functions
 VFX.drawers[Constants.AttackType.PROJECTILE] = ProjectileEffect.draw
+VFX.drawers["impact"] = ImpactEffect.draw
 VFX.drawers[Constants.VisualShape.BEAM] = BeamEffect.draw
 VFX.drawers[Constants.VisualShape.BLAST] = ImpactEffect.draw
 VFX.drawers[Constants.VisualShape.CONE] = ConeEffect.draw
@@ -40094,6 +39979,7 @@ return VFX```
 -- Centralized system for managing VFX particles using the Pool system
 
 local Pool = require("core.Pool")
+local Constants = require("core.Constants")
 local ParticleManager = {}
 
 -- Create a new particle from the pool
@@ -40209,7 +40095,7 @@ end
 -- Create a meteor impact particle
 function ParticleManager.createMeteorImpactParticle(effect, angle)
     local particle = ParticleManager.createParticle()
-    
+
     -- Set impact-specific properties
     particle.type = "impact"
     particle.angle = angle
@@ -40224,7 +40110,368 @@ function ParticleManager.createMeteorImpactParticle(effect, angle)
     particle.lifespan = 0.4 + math.random() * 0.2
     particle.assetId = "sparkle"
     particle.color = effect.color
-    
+
+    return particle
+end
+
+-- Create a projectile trail particle
+function ParticleManager.createProjectileTrailParticle(effect, headX, headY)
+    local particle = ParticleManager.createParticle()
+
+    -- Set trail-specific properties
+    particle.x = headX
+    particle.y = headY
+    particle.xVel = math.random(-30, 30)
+    particle.yVel = math.random(-30, 30)
+    particle.size = math.random(5, 15) * (effect.size or 1.0)
+    particle.alpha = math.random() * 0.5 + 0.5
+    particle.life = 0
+    particle.maxLife = math.random() * 0.3 + 0.1
+    particle.color = effect.color or {1, 1, 1}
+
+    return particle
+end
+
+-- Create an impact particle
+function ParticleManager.createImpactParticle(effect, angle, delay)
+    local particle = ParticleManager.createParticle()
+
+    -- Set impact-specific properties
+    particle.baseX = effect.targetX
+    particle.baseY = effect.targetY
+    particle.x = effect.targetX
+    particle.y = effect.targetY
+    particle.angle = angle
+    particle.delay = delay or 0
+    particle.active = false
+    particle.animType = "expand"
+    particle.maxDist = effect.radius * (0.5 + math.random() * 0.5)
+    particle.baseScale = 0.5 + math.random() * 0.5
+    particle.scale = particle.baseScale
+    particle.alpha = 1.0
+
+    return particle
+end
+
+-- Create an aura particle
+function ParticleManager.createAuraParticle(effect, angle, orbitId)
+    local particle = ParticleManager.createParticle()
+
+    -- Set aura-specific properties
+    local distance = effect.radius * (0.6 + math.random() * 0.4)
+    local orbitalSpeed = 0.5 + math.random() * 1.5
+
+    particle.angle = angle
+    particle.distance = distance
+    particle.orbitalSpeed = orbitalSpeed
+    particle.scale = effect.startScale
+    particle.baseScale = effect.startScale
+    particle.alpha = 0 -- Start invisible and fade in
+    particle.baseAlpha = 1.0
+    particle.rotation = 0
+    particle.delay = (angle / (2 * math.pi)) * 0.5
+    particle.active = false
+    particle.orbitId = orbitId or math.random(1, effect.orbitCount or 2)
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+
+    return particle
+end
+
+-- Create a beam particle
+function ParticleManager.createBeamParticle(effect, position, offset)
+    local particle = ParticleManager.createParticle()
+
+    -- Set beam-specific properties
+    particle.position = position -- 0 to 1 along beam
+    particle.offset = offset -- Perpendicular to beam
+    particle.scale = effect.startScale * (0.7 + math.random() * 0.6)
+    particle.alpha = 0.8
+    particle.rotation = math.random() * math.pi * 2
+    particle.delay = math.random() * 0.3
+    particle.active = false
+
+    return particle
+end
+
+-- Create a cone particle
+function ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
+    local particle = ParticleManager.createParticle()
+
+    -- Common properties
+    particle.angle = angle
+    particle.rotation = angle -- Align rotation with direction
+    particle.delay = math.random() * 0.3 -- Staggered start
+    particle.active = false
+    particle.motion = effect.motionStyle or Constants.MotionStyle.DIRECTIONAL
+    particle.intensityMultiplier = 1.0
+
+    -- Set position at source
+    particle.x = effect.sourceX
+    particle.y = effect.sourceY
+
+    -- Additional properties for motion
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+
+    -- Wave-specific properties
+    if isWaveParticle then
+        particle.isWave = true
+        particle.waveIndex = waveIndex
+        particle.waveTime = waveIndex / (effect.waveCount or 3) -- Staggered wave timing
+
+        -- Calculate wave speed and distance based on wave index
+        local speedMultiplier = 1.0 + (waveIndex - 1) * 0.15
+        particle.distance = (effect.coneLength or 320) * 0.95 -- Waves extend almost to max distance
+        particle.speed = (effect.waveSpeed or 350) * speedMultiplier
+        particle.scale = effect.startScale * (1.5 + waveIndex * 0.1)
+        particle.alpha = 0.9
+
+        -- Special effects
+        if effect.wavePersistence then
+            particle.persistenceFactor = effect.wavePersistence
+        end
+
+        if effect.trailingGlowStrength then
+            particle.trailGlow = effect.trailingGlowStrength
+        end
+    else
+        -- Regular fill particles
+        particle.distance = distance
+        particle.speed = math.random(100, 250)
+
+        -- Size variance
+        local sizeVariance = effect.particleSizeVariance or 0.6
+        particle.scale = effect.startScale * (0.7 + math.random() * sizeVariance)
+        particle.alpha = 0.6 + math.random() * 0.4
+        particle.isWave = false
+    end
+
+    -- Target destination for the particle
+    particle.targetX = effect.sourceX + math.cos(angle) * particle.distance
+    particle.targetY = effect.sourceY + math.sin(angle) * particle.distance
+
+    return particle
+end
+
+-- Create a remote effect particle
+function ParticleManager.createRemoteParticle(effect, angle, distance, speed)
+    local particle = ParticleManager.createParticle()
+
+    -- Calculate center position
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+
+    -- Set remote-specific properties
+    particle.x = centerX
+    particle.y = centerY
+    particle.targetX = centerX + math.cos(angle) * distance
+    particle.targetY = centerY + math.sin(angle) * distance
+    particle.speed = speed
+    particle.scale = effect.startScale * (0.5 + math.random() * 0.5) -- Varied scales
+    particle.alpha = 0.7 + math.random() * 0.3 -- Slightly varied alpha
+    particle.rotation = angle
+    particle.delay = math.random() * 0.4
+    particle.active = false
+    particle.motion = effect.motion
+    particle.angle = angle
+    particle.distance = distance
+
+    return particle
+end
+
+-- Create a conjure particle
+function ParticleManager.createConjureParticle(effect, startX, startY, dirX, dirY, speed, delay)
+    local particle = ParticleManager.createParticle()
+
+    -- Set conjure-specific properties
+    particle.x = startX
+    particle.y = startY
+    particle.speedX = dirX * speed
+    particle.speedY = dirY * speed
+    particle.scale = effect.startScale
+    particle.alpha = 0 -- Start transparent and fade in
+    particle.rotation = math.random() * math.pi * 2
+    particle.rotSpeed = math.random(-3, 3)
+    particle.delay = delay
+    particle.active = false
+    particle.finalPulse = false
+    particle.finalPulseTime = 0
+
+    return particle
+end
+
+-- Create a surge particle
+function ParticleManager.createSurgeParticle(effect)
+    local particle = ParticleManager.createParticle()
+
+    -- Get effect properties
+    local spread = effect.spread or 45
+    local riseFactor = effect.riseFactor or 1.4
+    local gravity = effect.gravity or 180
+    local particleSizeVariance = effect.particleSizeVariance or 0.6
+    local useSprites = effect.useSprites
+
+    -- Start at source position with slight random offset
+    local startOffsetX = math.random(-10, 10)
+    local startOffsetY = math.random(-10, 10)
+    particle.x = effect.sourceX + startOffsetX
+    particle.y = effect.sourceY + startOffsetY
+
+    -- Store initial position for spiral motion calculations
+    particle.initialX = particle.x
+    particle.initialY = particle.y
+
+    -- Create upward velocity with variety
+    -- More focused in the center for a fountain effect
+    local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
+    particle.speedX = (math.random() - 0.5) * spread * horizontalBias
+
+    -- Vertical speed with some variance and acceleration
+    local riseSpeed = math.random(220, 320) * riseFactor
+    if effect.riseAcceleration then
+        particle.riseAcceleration = math.random() * effect.riseAcceleration
+    end
+
+    particle.speedY = -riseSpeed
+    particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+
+    -- Visual properties with variance
+    local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
+    particle.scale = effect.startScale * sizeVariance
+    particle.baseScale = particle.scale -- Store for pulsation
+
+    particle.alpha = 0.9 + math.random() * 0.1
+    particle.rotation = math.random() * math.pi * 2
+    particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+
+    -- Staggered appearance
+    particle.delay = math.random() * 0.4
+    particle.active = false
+
+    -- Add sprite animation if enabled
+    if useSprites then
+        particle.useSprite = true
+        particle.frameIndex = 1
+        particle.frameTimer = 0
+        particle.frameRate = effect.spriteFrameRate or 8
+    end
+
+    -- Special properties based on effect template settings
+    if effect.spiralMotion then
+        particle.spiral = true
+        particle.spiralFrequency = 5 + math.random() * 3
+        particle.spiralAmplitude = 10 + math.random() * 20
+        particle.spiralPhase = math.random() * math.pi * 2
+        particle.spiralTightness = effect.spiralTightness or 2.5
+    end
+
+    if effect.pulsateParticles and math.random() < 0.7 then
+        particle.pulsate = true
+        particle.pulseRate = 3 + math.random() * 5
+        particle.pulseAmount = 0.2 + math.random() * 0.3
+    end
+
+    -- Chance for special sparkle particles
+    if effect.sparkleChance and math.random() < effect.sparkleChance then
+        particle.sparkle = true
+        particle.sparkleIntensity = 0.7 + math.random() * 0.3
+    end
+
+    -- Add bloom glow effect
+    if effect.bloomEffect then
+        particle.bloom = true
+        particle.bloomIntensity = (effect.bloomIntensity or 0.8) * (0.7 + math.random() * 0.6)
+    end
+
+    return particle
+end
+
+-- Create a projectile core particle
+function ParticleManager.createProjectileCoreParticle(effect, baseAngle, turbulence)
+    local particle = ParticleManager.createParticle()
+
+    -- Random position near the projectile core
+    local spreadFactor = 4 * turbulence
+    local offsetX = math.random(-spreadFactor, spreadFactor)
+    local offsetY = math.random(-spreadFactor, spreadFactor)
+
+    -- Set initial state
+    particle.x = effect.sourceX + offsetX
+    particle.y = effect.sourceY + offsetY
+    particle.scale = effect.startScale * (0.9 + math.random() * 0.5) -- Slightly larger scales
+    particle.alpha = 1.0
+    particle.rotation = math.random() * math.pi * 2
+
+    -- Create leading-edge cluster with minimal delay
+    particle.delay = math.random() * 0.05
+    particle.active = false
+    particle.isCore = true -- Mark as core particle for special rendering
+    particle.motion = effect.motion -- Store motion style
+
+    -- Motion properties
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+    particle.targetX = effect.targetX
+    particle.targetY = effect.targetY
+
+    -- Add less randomness to motion for more focused projectile
+    local angleVar = (math.random() - 0.5) * 0.2 * turbulence
+    particle.angle = baseAngle + angleVar
+    particle.speed = math.random(200, 260) -- Significantly faster speeds
+
+    -- Life cycle control
+    particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration
+    particle.timeOffset = math.random() * 0.1
+    particle.turbulence = turbulence
+
+    return particle
+end
+
+-- Create a projectile trail particle (using core system, not the same as createProjectileTrailParticle)
+function ParticleManager.createProjectileFullTrailParticle(effect, baseAngle, turbulence, trailIndex, trailCount)
+    local particle = ParticleManager.createParticle()
+
+    -- Trail particles start closer to the core
+    local spreadRadius = 6 * (effect.trailDensity or 0.4) * turbulence -- Tighter spread
+    local spreadAngle = math.random() * math.pi * 2
+    local spreadDist = math.random() * spreadRadius
+
+    -- Set initial state - more directional alignment
+    particle.x = effect.sourceX + math.cos(spreadAngle) * spreadDist
+    particle.y = effect.sourceY + math.sin(spreadAngle) * spreadDist
+    particle.scale = effect.startScale * (0.7 + math.random() * 0.2) -- Slightly smaller
+    particle.alpha = 0.7 -- Lower alpha for less visibility
+    particle.rotation = math.random() * math.pi * 2
+
+    -- Much shorter staggered delay for trail particles
+    particle.delay = (trailIndex / trailCount) * 0.15 -- Cut delay in half for faster response
+    particle.active = false
+    particle.isCore = false -- Mark as trail particle
+    particle.motion = effect.motion
+
+    -- Motion properties
+    particle.startTime = 0
+    particle.baseX = effect.sourceX
+    particle.baseY = effect.sourceY
+    particle.targetX = effect.targetX
+    particle.targetY = effect.targetY
+
+    -- Reduce trail spread angle for more directional appearance
+    local angleVar = (math.random() - 0.5) * 0.3 * turbulence -- Half the angle variance
+    particle.angle = baseAngle + angleVar
+    particle.speed = math.random(150, 200) -- Faster than before, closer to core speed
+
+    -- Trail particles have shorter lifespans for smoother fade
+    particle.lifespan = (effect.particleLifespan or 0.6) * effect.duration * 0.8
+    particle.timeOffset = math.random() * 0.2
+    particle.turbulence = turbulence
+
+    -- Which segment of the trail this particle belongs to
+    particle.trailSegment = math.random()
+
     return particle
 end
 
@@ -40253,6 +40500,7 @@ return ParticleManager```
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -40418,8 +40666,37 @@ local function drawAura(effect)
     end
 end
 
+-- Initialize function for aura effects
+local function initializeAura(effect)
+    -- For aura effects, create particles that orbit the character using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local orbitId = math.ceil(i / (effect.particleCount / (effect.orbitCount or 2)))
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createAuraParticle(effect, angle, orbitId)
+
+        -- Add motion information
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Add additional properties for special motion
+        particle.startTime = 0
+
+        -- Calculate distance and orbitalSpeed for legacy code compatibility
+        local distance = particle.distance or (effect.radius * 0.8)
+        local orbitalSpeed = particle.orbitalSpeed or 1.5
+
+        particle.targetX = effect.sourceX + math.cos(angle) * distance
+        particle.targetY = effect.sourceY + math.sin(angle) * distance
+        particle.speed = orbitalSpeed * 30
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeAura,
     update = updateAura,
     draw = drawAura
 }```
@@ -40431,6 +40708,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -40502,14 +40780,89 @@ local function updateBeam(effect, dt)
 
     -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
     local baseProgress = effect.visualProgress or effect.progress
-    
+
     -- Apply pulsing effect
     effect.pulseTimer = (effect.pulseTimer or 0) + dt * 10
     effect.pulseFactor = 0.7 + 0.3 * math.sin(effect.pulseTimer)
-    
+
     -- Handle beam progress for blocked beams
     local blockPoint = effect.blockPoint or 1.0
-    
+
+    -- Handle shield block specific effects
+    if effect.isBlocked and not effect.impactEffectCreated and baseProgress >= blockPoint then
+        -- Create shield impact effect
+        effect.impactEffectCreated = true
+
+        -- Calculate impact position
+        local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * blockPoint)
+        local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * blockPoint)
+
+        print(string.format("[BEAM] Creating shield impact effect at (%.1f, %.1f)", impactX, impactY))
+
+        -- Get the VFX module (should be loaded by now)
+        if not VFX then VFX = require("vfx") end
+
+        -- Determine shield color based on shield type
+        local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
+        local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+        elseif shieldType == "field" then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+        end
+
+        -- Create shield impact effect
+        if VFX.createEffect then
+            -- Impact flash effect
+            local flashParams = {
+                duration = 0.3,
+                scale = (effect.startScale or 1.0) * 1.5,
+                color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.9},
+                particleCount = 8
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, flashParams)
+
+            -- Particle burst effect
+            local burstParams = {
+                duration = 0.8,
+                scale = (effect.startScale or 1.0) * 1.2,
+                color = shieldColor,
+                particleCount = 30
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, burstParams)
+        end
+
+        -- Trigger screen shake for beam impact
+        local gameState = nil
+
+        -- Try to find the game state through various references
+        if effect.options and effect.options.gameState then
+            gameState = effect.options.gameState
+        elseif effect.options and effect.options.sourceEntity and effect.options.sourceEntity.gameState then
+            gameState = effect.options.sourceEntity.gameState
+        elseif effect.options and effect.options.targetEntity and effect.options.targetEntity.gameState then
+            gameState = effect.options.targetEntity.gameState
+        elseif _G.game then
+            gameState = _G.game
+        elseif VFX.gameState then
+            gameState = VFX.gameState
+        end
+
+        -- Determine impact amount for shake intensity
+        local amount = effect.options and effect.options.amount or 12  -- Beams are powerful
+        local intensity = math.min(5, 2.5 + (amount / 20))  -- Slightly more intense than projectiles
+        local shakeDuration = 0.25  -- Longer duration for beam
+
+        -- Trigger shake if we have access to game state
+        if gameState and gameState.triggerShake then
+            gameState.triggerShake(shakeDuration, intensity)
+            print(string.format("[BEAM] Shield block impact! Triggered shake (%.2f, %.2f) at blockPoint=%.2f",
+                shakeDuration, intensity, blockPoint))
+        elseif VFX.triggerShake then
+            VFX.triggerShake(shakeDuration, intensity)
+        end
+    end
+
     -- If beam is blocked, it should stop at the block point
     if effect.isBlocked and baseProgress > blockPoint then
         effect.beamProgress = blockPoint
@@ -40690,35 +41043,69 @@ local function drawBeam(effect)
         -- Calculate impact point
         local blockX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
         local blockY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
-        
+
         -- Calculate impact flash size and alpha
         local impactProgress = (effect.progress - effect.blockPoint) / (1 - effect.blockPoint)
         local flashSize = 40 * (1.0 - impactProgress) * effect.pulseFactor
         local flashAlpha = 0.7 * (1.0 - impactProgress)
-        
+
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
-        
+
         -- Draw impact flash
         love.graphics.setColor(1, 1, 1, flashAlpha)
         love.graphics.circle("fill", blockX, blockY, flashSize)
-        
-        -- Draw shield specific effects if applicable
+
+        -- Get shield color based on type for distinctive visuals
+        local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
         local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldR, shieldG, shieldB = 0.3, 0.3, 1.0 -- Blue for wards
+        elseif shieldType == "field" then
+            shieldR, shieldG, shieldB = 0.3, 1.0, 0.3 -- Green for fields
+        end
+
+        -- Draw colored shield impact ring
+        love.graphics.setColor(shieldR, shieldG, shieldB, flashAlpha * 0.9)
+        local ringSize = flashSize * 1.2
+        local ringWidth = 3
+        love.graphics.setLineWidth(ringWidth)
+        love.graphics.circle("line", blockX, blockY, ringSize)
+
+        -- Draw radial beams emanating from impact point
+        local beamCount = 8
+        for i = 1, beamCount do
+            local angle = (i / beamCount) * math.pi * 2 + (effect.progress * 3)
+            local rayLength = ringSize * (0.8 + 0.4 * math.sin(impactProgress * math.pi * 6))
+            local x2 = blockX + math.cos(angle) * rayLength
+            local y2 = blockY + math.sin(angle) * rayLength
+
+            love.graphics.setLineWidth(ringWidth * 0.6)
+            love.graphics.line(blockX, blockY, x2, y2)
+        end
+
+        -- Draw shield specific effects if applicable
         if shieldType and (shieldType == "ward" or shieldType == "barrier") then
             -- Shield-specific visualization
             local runeImages = getAssetInternal("runes")
             if runeImages and #runeImages > 0 then
-                -- Get a random rune based on effect ID
-                local runeIndex = (effect.id % #runeImages) + 1
+                -- Get a deterministic rune index
+                local runeIndex
+                if effect.id then
+                    runeIndex = (effect.id % #runeImages) + 1
+                else
+                    -- Calculate a stable index from the positions
+                    local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                    runeIndex = (posHash % #runeImages) + 1
+                end
                 local runeImage = runeImages[runeIndex]
-                
-                -- Draw the rune with rotation
+
+                -- Draw the rune with rotation and pulsing
                 local runeSize = 0.5 * (1 + 0.3 * math.sin(impactProgress * math.pi * 4))
                 local runeAlpha = flashAlpha * 0.9
-                
+
                 love.graphics.setColor(1, 1, 1, runeAlpha)
-                
+
                 if runeImage then
                     love.graphics.draw(
                         runeImage,
@@ -40730,14 +41117,42 @@ local function drawBeam(effect)
                 end
             end
         end
-        
+
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 end
 
+-- Initialize function for beam effects
+local function initializeBeam(effect)
+    -- First create the main beam shape
+    effect.beamProgress = 0
+    effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
+    effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[BEAM INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Then add particles along the beam
+    for i = 1, effect.particleCount do
+        local position = math.random()
+        local offset = math.random(-10, 10)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createBeamParticle(effect, position, offset)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeBeam,
     update = updateBeam,
     draw = drawBeam
 }```
@@ -40749,6 +41164,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -41096,8 +41512,100 @@ local function drawCone(effect)
     end
 end
 
+-- Initialize function for cone effects
+local function initializeCone(effect)
+    -- For conical blast effects
+    -- Calculate the base direction from source to target
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Convert cone angle from degrees to radians
+    local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
+    local halfConeAngle = coneAngleRad / 2
+
+    -- Set up wave parameters
+    local waveCount = effect.waveCount or 3
+
+    -- Calculate effect properties based on range and elevation
+    local intensityMultiplier = 1.0
+    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
+        intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
+    end
+
+    -- Create particles for the cone blast
+    for i = 1, effect.particleCount do
+        -- Determine if this particle is part of a wave or general cone fill
+        local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
+
+        -- Random position within the cone but with focus toward center if focusedCore enabled
+        local angleOffset
+
+        if effect.focusedCore then
+            -- Apply quadratic distribution to concentrate particles near center
+            -- Use squared random value to cluster toward cone center
+            local angleRand = math.random()
+            -- Apply bias toward center (squared distribution pushes values toward 0)
+            angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
+            angleOffset = angleRand * halfConeAngle
+        else
+            -- Standard uniform distribution across cone
+            angleOffset = (math.random() * 2 - 1) * halfConeAngle
+        end
+
+        local angle = baseAngle + angleOffset
+
+        -- Distance based on position in the cone (closer to edge or center)
+        local maxDistance = effect.coneLength or 320
+
+        -- For longer cone, we want more particles toward the end
+        local distanceRand
+        if math.random() < 0.6 then
+            -- 60% chance for farther particles
+            distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
+        else
+            -- 40% chance for closer particles
+            distanceRand = math.random() * 0.5 -- 0.0 to 0.5
+        end
+
+        local distance = maxDistance * distanceRand
+
+        -- Create the particle using ParticleManager
+        local waveIndex = 0
+        if isWaveParticle and effect.waveCrest then
+            waveIndex = math.floor(math.random() * waveCount) + 1
+        end
+
+        local particle = ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
+
+        -- For focused cone, make particles in the center brighter and larger
+        if effect.focusedCore and not isWaveParticle then
+            -- Calculate distance from center angle
+            local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
+            -- Particles closer to center get enhancements
+            if angleDiff < 0.4 then
+                local centerBoost = (1.0 - angleDiff/0.4) * 0.5
+                particle.scale = particle.scale * (1 + centerBoost)
+                particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
+            end
+        end
+
+        -- Apply intensity multiplier
+        particle.intensityMultiplier = intensityMultiplier
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Flag to track which waves have started
+    effect.waveStarted = {}
+    for i = 1, waveCount do
+        effect.waveStarted[i] = false
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeCone,
     update = updateCone,
     draw = drawCone
 }```
@@ -41109,6 +41617,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -41377,8 +41886,49 @@ local function drawConjure(effect)
     end
 end
 
+-- Initialize function for conjure effects
+local function initializeConjure(effect)
+    -- For conjuration spells, create particles that rise from caster toward mana pool
+    -- Set the mana pool position (typically at top center)
+    effect.manaPoolX = effect.options and effect.options.manaPoolX or 400 -- Screen center X
+    effect.manaPoolY = effect.options and effect.options.manaPoolY or 120 -- Near top of screen
+
+    -- Ensure spreadRadius has a default value
+    effect.spreadRadius = effect.spreadRadius or 40
+
+    -- Calculate direction vector toward mana pool
+    local dirX = effect.manaPoolX - effect.sourceX
+    local dirY = effect.manaPoolY - effect.sourceY
+    local len = math.sqrt(dirX * dirX + dirY * dirY)
+    dirX = dirX / len
+    dirY = dirY / len
+
+    for i = 1, effect.particleCount do
+        -- Create a spread of particles around the caster
+        local spreadAngle = math.random() * math.pi * 2
+        local spreadDist = math.random() * effect.spreadRadius
+        local startX = effect.sourceX + math.cos(spreadAngle) * spreadDist
+        local startY = effect.sourceY + math.sin(spreadAngle) * spreadDist
+
+        -- Randomize particle properties
+        local speed = math.random(80, 180)
+        local delay = i / effect.particleCount * 0.7
+
+        -- Add some variance to path
+        local pathVariance = math.random(-20, 20)
+        local pathDirX = dirX + pathVariance / 100
+        local pathDirY = dirY + pathVariance / 100
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createConjureParticle(effect, startX, startY, pathDirX, pathDirY, speed, delay)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeConjure,
     update = updateConjure,
     draw = drawConjure
 }```
@@ -41390,6 +41940,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -41528,8 +42079,32 @@ local function drawImpact(effect)
     end
 end
 
+-- Initialize function for impact effects
+local function initializeImpact(effect)
+    -- For impact effects, create a radial explosion using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local delay = math.random() * 0.2 -- Slight random delay
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createImpactParticle(effect, angle, delay)
+
+        -- Additional motion-related properties
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Additional properties for special motion
+        particle.startTime = 0
+        particle.baseX = effect.targetX
+        particle.baseY = effect.targetY
+        particle.angle = angle
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeImpact,
     update = updateImpact,
     draw = drawImpact
 }```
@@ -41712,18 +42287,13 @@ local function updateMeteor(effect, dt)
         effect.impactCreated = true
     end
     
-    -- Clean up expired particles
-    local Pool = require("core.Pool")
-    local i = 1
-    while i <= #effect.particles do
-        local particle = effect.particles[i]
-        if particle.type == "trail" and particle.alpha <= 0.05 then
-            -- Release the particle back to the pool
-            Pool.release("vfx_particle", particle)
-            table.remove(effect.particles, i)
-        else
-            i = i + 1
-        end
+    -- Clean up expired particles using ParticleManager
+    local removedCount = ParticleManager.cleanupEffectParticles(effect.particles, function(particle)
+        return particle.type == "trail" and particle.alpha <= 0.05
+    end)
+
+    if removedCount > 0 then
+        print(string.format("[METEOR] Cleaned up %d expired particles", removedCount))
     end
     
     print(string.format("[METEOR] End of update: %d particles", #effect.particles))
@@ -41805,6 +42375,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -41955,18 +42526,8 @@ local function updateProjectile(effect, dt)
         -- Add new particles at the current head position
         local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
         if math.random() < particleRate then
-            -- Create a new particle
-            local particle = {
-                x = head.x,
-                y = head.y,
-                xVel = math.random(-30, 30),
-                yVel = math.random(-30, 30),
-                size = math.random(5, 15) * (effect.size or 1.0),
-                alpha = math.random() * 0.5 + 0.5,
-                life = 0,
-                maxLife = math.random() * 0.3 + 0.1,
-                color = effect.color or {1, 1, 1} -- Default to white if no color specified
-            }
+            -- Create a new particle using specialized helper
+            local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -42001,6 +42562,8 @@ local function updateProjectile(effect, dt)
             
             -- Remove dead particles
             if particle.life >= particle.maxLife then
+                -- Release particle back to pool
+                ParticleManager.releaseParticle(particle)
                 table.remove(effect.particles, i)
             else
                 i = i + 1
@@ -42297,8 +42860,15 @@ local function drawProjectile(effect)
                 -- Shield-specific visualization
                 local runeImages = getAssetInternal("runes")
                 if runeImages and #runeImages > 0 then
-                    -- Get a random rune
-                    local runeIndex = (effect.id % #runeImages) + 1
+                    -- Get a deterministic or random rune
+                    local runeIndex
+                    if effect.id then
+                        runeIndex = (effect.id % #runeImages) + 1
+                    else
+                        -- Calculate a stable index from the positions
+                        local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                        runeIndex = (posHash % #runeImages) + 1
+                    end
                     local runeImage = runeImages[runeIndex]
                     
                     -- Draw the rune
@@ -42324,8 +42894,57 @@ local function drawProjectile(effect)
     end
 end
 
+-- Initialize function for projectile effects
+local function initializeProjectile(effect)
+    -- Calculate base trajectory properties
+    local dirX = effect.targetX - effect.sourceX
+    local dirY = effect.targetY - effect.sourceY
+    local distance = math.sqrt(dirX*dirX + dirY*dirY)
+    local baseAngle = math.atan2(dirY, dirX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[PROJECTILE INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Get turbulence factor or use default
+    local turbulence = effect.turbulence or 0.5
+    local coreDensity = effect.coreDensity or 0.6
+    local trailDensity = effect.trailDensity or 0.4
+
+    -- Core particles (at the leading edge of the projectile)
+    local coreCount = math.floor(effect.particleCount * coreDensity)
+    local trailCount = effect.particleCount - coreCount
+
+    -- Create core/leading particles using ParticleManager
+    for i = 1, coreCount do
+        local particle = ParticleManager.createProjectileCoreParticle(effect, baseAngle, turbulence)
+
+        -- Apply motion style variations
+        if effect.motion == Constants.MotionStyle.SWIRL then
+            particle.swirlRadius = math.random(5, 15)
+            particle.swirlSpeed = math.random(3, 8)
+        elseif effect.motion == Constants.MotionStyle.PULSE then
+            particle.pulseFreq = math.random(3, 7)
+            particle.pulseAmplitude = 0.2 + math.random() * 0.3
+        end
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Create trail particles using ParticleManager
+    for i = 1, trailCount do
+        local particle = ParticleManager.createProjectileFullTrailParticle(effect, baseAngle, turbulence, i, trailCount)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeProjectile,
     update = updateProjectile,
     draw = drawProjectile
 }```
@@ -42337,6 +42956,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -42603,8 +43223,60 @@ local function drawRemote(effect)
     end
 end
 
+-- Initialize function for remote effects
+local function initializeRemote(effect)
+    -- For remote effects like warp, create particles at the target location
+    -- Set flags for position tracking
+    effect.useTargetPosition = true  -- This tells the system to use the current target position
+
+    -- Make sure to use the initial position with offsets if available
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+
+    -- Initialize with offset if the target entity has position offsets
+    if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+        centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+        centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+
+        -- Update effect's target position to include offsets
+        effect.targetX = centerX
+        effect.targetY = centerY
+
+        print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)",
+            centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
+    end
+
+    local radius = effect.radius or 60
+
+    -- Calculate how many particles to create based on density
+    local particlesToCreate = effect.particleCount
+    if effect.particleDensity then
+        particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
+    end
+
+    for i = 1, particlesToCreate do
+        -- Create particles in a circular pattern around the target
+        local angle = (i / particlesToCreate) * math.pi * 2
+        -- Random distance from center
+        local distance = math.random(10, radius)
+        -- Random speed for movement
+        local speed = math.random(10, 70)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createRemoteParticle(effect, angle, distance, speed)
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Initialize sprite rotation angle if needed
+    if effect.rotateSprite then
+        effect.spriteAngle = 0
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeRemote,
     update = updateRemote,
     draw = drawRemote
 }```
@@ -42616,6 +43288,7 @@ return {
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -42838,185 +43511,23 @@ local function drawSurge(effect)
     end
 end
 
+-- Initialize function for surge effects
+local function initializeSurge(effect)
+    -- Pre-load center particle
+    effect.centerParticleTimer = 0
+
+    -- Create particles with varied properties using ParticleManager
+    for i = 1, effect.particleCount do
+        local particle = ParticleManager.createSurgeParticle(effect)
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeSurge,
     update = updateSurge,
     draw = drawSurge
-}```
-
-## ./vfx/effects/vertical.lua
-```lua
--- vertical.lua
--- Vertical VFX module for handling vertical/rising effects
-
--- Import dependencies
-local Constants = require("core.Constants")
-
--- Access to the main VFX module (will be required after vfx.lua is loaded)
-local VFX
-
--- Helper functions needed for vertical effects
-local function getAssetInternal(assetId)
-    -- Lazy-load VFX module to avoid circular dependencies
-    if not VFX then
-        -- Use a relative path that works with LÖVE's require system
-        VFX = require("vfx") -- This will look for vfx.lua in the game's root directory
-    end
-    
-    -- Use the main VFX module's getAsset function
-    return VFX.getAsset(assetId)
-end
-
--- Update function for vertical effects
-local function updateVertical(effect, dt)
-    -- Initialize effect default values
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.color = effect.color or {1, 1, 1} -- Default color (white)
-    effect.height = effect.height or 200 -- Default height
-    effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
-    effect.followSourceEntity = (effect.followSourceEntity ~= false) -- Default to true
-    
-    -- Update source position if we're tracking an entity
-    if effect.useSourcePosition and effect.followSourceEntity and effect.sourceEntity then
-        -- If the source entity has a position, update our source position
-        if effect.sourceEntity.x and effect.sourceEntity.y then
-            effect.sourceX = effect.sourceEntity.x
-            effect.sourceY = effect.sourceEntity.y
-            
-            -- Apply any entity offsets if present
-            if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
-                effect.sourceX = effect.sourceX + effect.sourceEntity.currentXOffset
-                effect.sourceY = effect.sourceY + effect.sourceEntity.currentYOffset
-            end
-        end
-    end
-    
-    for i, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
-        if not particle then
-            goto next_particle
-        end
-        
-        -- Initialize particle properties if missing
-        particle.delay = particle.delay or 0
-        particle.active = particle.active or false
-        particle.baseX = particle.baseX or effect.sourceX
-        particle.baseY = particle.baseY or effect.sourceY
-        
-        -- Check if particle should be active based on delay
-        if effect.timer > particle.delay then
-            particle.active = true
-        end
-        
-        if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Update position - moving upward
-            local height = effect.height or 200
-            local baseX = particle.baseX
-            local baseY = particle.baseY
-            
-            -- Apply wind effects
-            local windOffset = math.sin(effect.timer * 3 + particle.id * 0.7) * 10 * particleProgress
-            
-            -- Update position - moving upward with slight wind
-            particle.x = baseX + windOffset
-            particle.y = baseY - height * particleProgress
-            
-            -- Calculate fade
-            -- Start visible, then fade out near the end
-            local fadeStart = 0.7
-            local fadeAlpha = (particleProgress < fadeStart) 
-                            and 1.0 
-                            or (1.0 - (particleProgress - fadeStart) / (1.0 - fadeStart))
-            particle.alpha = fadeAlpha * (particle.baseAlpha or 1.0)
-            
-            -- Update size - grow slightly then shrink
-            local sizeFactor = 1.0 + math.sin(particleProgress * math.pi) * 0.5
-            particle.scale = (particle.baseScale or 0.3) * sizeFactor
-        end
-        
-        ::next_particle::
-    end
-end
-
--- Draw function for vertical effects
-local function drawVertical(effect)
-    -- Initialize effect default values
-    effect.color = effect.color or {1, 1, 1} -- Default color
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.sourceX = effect.sourceX or 0 -- Default position
-    effect.sourceY = effect.sourceY or 0 -- Default position
-    effect.progress = effect.progress or 0 -- Default progress
-    
-    local particleImage = getAssetInternal("fireParticle")
-    
-    -- Draw base effect at source
-    local baseProgress = math.min(effect.progress * 3, 1.0) -- Quick initial flash
-    if baseProgress < 1.0 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - baseProgress) * 0.7)
-        love.graphics.circle("fill", effect.sourceX, effect.sourceY, 40 * baseProgress)
-    end
-    
-    -- Draw particles
-    for _, particle in ipairs(effect.particles) do
-        -- Skip invalid or inactive particles
-        if not particle or not particle.active then
-            goto next_draw_particle
-        end
-        
-        -- Ensure required properties exist
-        particle.alpha = particle.alpha or 0
-        particle.scale = particle.scale or 0.3
-        particle.x = particle.x or effect.sourceX
-        particle.y = particle.y or effect.sourceY
-        
-        -- Draw particle with additive blending for brighter effect
-        local prevMode = {love.graphics.getBlendMode()}
-        love.graphics.setBlendMode("add")
-        
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
-        
-        if particleImage then
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
-        else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
-        end
-        
-        -- Restore blend mode
-        love.graphics.setBlendMode(prevMode[1], prevMode[2])
-        
-        ::next_draw_particle::
-    end
-    
-    -- Draw vertical column glow (fades in then out)
-    local columnAlpha = 0.2 * math.sin(effect.progress * math.pi)
-    if columnAlpha > 0.01 then
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], columnAlpha)
-        
-        -- Draw a vertical rectangle
-        local height = effect.height or 200
-        local width = 40
-        love.graphics.rectangle("fill", 
-                              effect.sourceX - width/2, 
-                              effect.sourceY - height * effect.progress, 
-                              width, 
-                              height * effect.progress)
-    end
-end
-
--- Return the module
-return {
-    update = updateVertical,
-    draw = drawVertical
 }```
 
 ## ./vfx/init.lua
@@ -43026,6 +43537,54 @@ local VFX = require("vfx.lua") -- Relative path to vfx.lua in the game's root di
 
 -- Expose the module with its public interface
 return VFX```
+
+## ./vfx/initializeParticles.lua
+```lua
+-- initializeParticles.lua
+-- Centralized function for initializing particles for each effect type
+
+-- Import dependencies
+local Constants = require("core.Constants")
+
+-- Initialize particles function
+local function initializeParticles(effect)
+    -- Import the appropriate effect module
+    local effectModule
+    
+    -- Different initialization based on effect type
+    if effect.type == Constants.AttackType.PROJECTILE then
+        effectModule = require("vfx.effects.projectile")
+    elseif effect.type == "impact" then
+        effectModule = require("vfx.effects.impact")
+    elseif effect.type == "cone" then
+        effectModule = require("vfx.effects.cone")
+    elseif effect.type == "aura" then
+        effectModule = require("vfx.effects.aura")
+    elseif effect.type == "remote" then
+        effectModule = require("vfx.effects.remote")
+    elseif effect.type == "beam" then
+        effectModule = require("vfx.effects.beam")
+    elseif effect.type == "conjure" then
+        effectModule = require("vfx.effects.conjure")
+    elseif effect.type == "surge" then
+        effectModule = require("vfx.effects.surge")
+    elseif effect.type == "meteor" then
+        effectModule = require("vfx.effects.meteor")
+    else
+        print("[VFX] Warning: Unknown effect type: " .. tostring(effect.type))
+        return
+    end
+    
+    -- Call the module's initialize function if it exists
+    if effectModule and effectModule.initialize then
+        effectModule.initialize(effect)
+    else
+        print("[VFX] Warning: No initialize function found for effect type: " .. tostring(effect.type))
+    end
+end
+
+-- Return the function
+return initializeParticles```
 
 ## ./wizard.lua
 ```lua
@@ -44577,7 +45136,6 @@ The particle system has several main effect types that produce different visual 
 - `projectile`: Moves from source to target with trailing particles
 - `impact`: Creates a radial burst of particles from a central point
 - `aura`: Generates particles orbiting around a central point
-- `vertical`: Creates particles that move upward from a source point
 - `beam`: Creates a solid beam with particle effects along its length
 - `conjure`: Creates particles that rise toward the mana pool
 

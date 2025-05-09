@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -141,8 +142,32 @@ local function drawImpact(effect)
     end
 end
 
+-- Initialize function for impact effects
+local function initializeImpact(effect)
+    -- For impact effects, create a radial explosion using ParticleManager
+    for i = 1, effect.particleCount do
+        local angle = (i / effect.particleCount) * math.pi * 2
+        local delay = math.random() * 0.2 -- Slight random delay
+
+        -- Create particle using specialized helper
+        local particle = ParticleManager.createImpactParticle(effect, angle, delay)
+
+        -- Additional motion-related properties
+        particle.motion = effect.motion -- Store motion style on particle
+
+        -- Additional properties for special motion
+        particle.startTime = 0
+        particle.baseX = effect.targetX
+        particle.baseY = effect.targetY
+        particle.angle = angle
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeImpact,
     update = updateImpact,
     draw = drawImpact
 }

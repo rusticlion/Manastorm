@@ -2,6 +2,24 @@
 
 The VFX (Visual Effects) system handles all visual effects in Manastorm, from projectiles and beams to explosions and auras. This document provides guidelines on how to work with the VFX system, particularly focusing on proper particle management to avoid memory leaks and performance issues.
 
+## Recent Refactoring
+
+We're currently in the process of unifying particle management across all effect types. So far, we've refactored:
+
+- ✅ Meteor effect (meteor.lua)
+- ✅ Projectile effect (projectile.lua)
+- ✅ Impact effect (impact.lua)
+- ✅ Aura effect (aura.lua)
+
+Still need to refactor:
+- ⬜ Beam effect (beam.lua)
+- ⬜ Cone effect (cone.lua)
+- ⬜ Conjure effect (conjure.lua)
+- ⬜ Remote effect (remote.lua)
+- ⬜ Surge effect (surge.lua)
+
+This gradual migration is addressing the warning messages: "Object being released was not acquired from pool", which occur when particles are created directly as tables rather than through the Pool system.
+
 ## Architecture
 
 The VFX system is organized around these components:

@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -271,8 +272,49 @@ local function drawConjure(effect)
     end
 end
 
+-- Initialize function for conjure effects
+local function initializeConjure(effect)
+    -- For conjuration spells, create particles that rise from caster toward mana pool
+    -- Set the mana pool position (typically at top center)
+    effect.manaPoolX = effect.options and effect.options.manaPoolX or 400 -- Screen center X
+    effect.manaPoolY = effect.options and effect.options.manaPoolY or 120 -- Near top of screen
+
+    -- Ensure spreadRadius has a default value
+    effect.spreadRadius = effect.spreadRadius or 40
+
+    -- Calculate direction vector toward mana pool
+    local dirX = effect.manaPoolX - effect.sourceX
+    local dirY = effect.manaPoolY - effect.sourceY
+    local len = math.sqrt(dirX * dirX + dirY * dirY)
+    dirX = dirX / len
+    dirY = dirY / len
+
+    for i = 1, effect.particleCount do
+        -- Create a spread of particles around the caster
+        local spreadAngle = math.random() * math.pi * 2
+        local spreadDist = math.random() * effect.spreadRadius
+        local startX = effect.sourceX + math.cos(spreadAngle) * spreadDist
+        local startY = effect.sourceY + math.sin(spreadAngle) * spreadDist
+
+        -- Randomize particle properties
+        local speed = math.random(80, 180)
+        local delay = i / effect.particleCount * 0.7
+
+        -- Add some variance to path
+        local pathVariance = math.random(-20, 20)
+        local pathDirX = dirX + pathVariance / 100
+        local pathDirY = dirY + pathVariance / 100
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createConjureParticle(effect, startX, startY, pathDirX, pathDirY, speed, delay)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeConjure,
     update = updateConjure,
     draw = drawConjure
 }

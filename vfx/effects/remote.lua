@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -269,8 +270,60 @@ local function drawRemote(effect)
     end
 end
 
+-- Initialize function for remote effects
+local function initializeRemote(effect)
+    -- For remote effects like warp, create particles at the target location
+    -- Set flags for position tracking
+    effect.useTargetPosition = true  -- This tells the system to use the current target position
+
+    -- Make sure to use the initial position with offsets if available
+    local centerX = effect.targetX
+    local centerY = effect.targetY
+
+    -- Initialize with offset if the target entity has position offsets
+    if effect.targetEntity and effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
+        centerX = effect.targetEntity.x + effect.targetEntity.currentXOffset
+        centerY = effect.targetEntity.y + effect.targetEntity.currentYOffset
+
+        -- Update effect's target position to include offsets
+        effect.targetX = centerX
+        effect.targetY = centerY
+
+        print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)",
+            centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
+    end
+
+    local radius = effect.radius or 60
+
+    -- Calculate how many particles to create based on density
+    local particlesToCreate = effect.particleCount
+    if effect.particleDensity then
+        particlesToCreate = math.floor(effect.particleCount * effect.particleDensity)
+    end
+
+    for i = 1, particlesToCreate do
+        -- Create particles in a circular pattern around the target
+        local angle = (i / particlesToCreate) * math.pi * 2
+        -- Random distance from center
+        local distance = math.random(10, radius)
+        -- Random speed for movement
+        local speed = math.random(10, 70)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createRemoteParticle(effect, angle, distance, speed)
+
+        table.insert(effect.particles, particle)
+    end
+
+    -- Initialize sprite rotation angle if needed
+    if effect.rotateSprite then
+        effect.spriteAngle = 0
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeRemote,
     update = updateRemote,
     draw = drawRemote
 }

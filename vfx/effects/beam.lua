@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local ParticleManager = require("vfx.ParticleManager")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -74,14 +75,89 @@ local function updateBeam(effect, dt)
 
     -- Determine which progress value to use (normal vs. visualProgress for blocked beams)
     local baseProgress = effect.visualProgress or effect.progress
-    
+
     -- Apply pulsing effect
     effect.pulseTimer = (effect.pulseTimer or 0) + dt * 10
     effect.pulseFactor = 0.7 + 0.3 * math.sin(effect.pulseTimer)
-    
+
     -- Handle beam progress for blocked beams
     local blockPoint = effect.blockPoint or 1.0
-    
+
+    -- Handle shield block specific effects
+    if effect.isBlocked and not effect.impactEffectCreated and baseProgress >= blockPoint then
+        -- Create shield impact effect
+        effect.impactEffectCreated = true
+
+        -- Calculate impact position
+        local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * blockPoint)
+        local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * blockPoint)
+
+        print(string.format("[BEAM] Creating shield impact effect at (%.1f, %.1f)", impactX, impactY))
+
+        -- Get the VFX module (should be loaded by now)
+        if not VFX then VFX = require("vfx") end
+
+        -- Determine shield color based on shield type
+        local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
+        local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldColor = {0.3, 0.3, 1.0, 0.7}  -- Blue for wards
+        elseif shieldType == "field" then
+            shieldColor = {0.3, 1.0, 0.3, 0.7}  -- Green for fields
+        end
+
+        -- Create shield impact effect
+        if VFX.createEffect then
+            -- Impact flash effect
+            local flashParams = {
+                duration = 0.3,
+                scale = (effect.startScale or 1.0) * 1.5,
+                color = {shieldColor[1], shieldColor[2], shieldColor[3], 0.9},
+                particleCount = 8
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, flashParams)
+
+            -- Particle burst effect
+            local burstParams = {
+                duration = 0.8,
+                scale = (effect.startScale or 1.0) * 1.2,
+                color = shieldColor,
+                particleCount = 30
+            }
+            VFX.createEffect("impact_base", impactX, impactY, impactX, impactY, burstParams)
+        end
+
+        -- Trigger screen shake for beam impact
+        local gameState = nil
+
+        -- Try to find the game state through various references
+        if effect.options and effect.options.gameState then
+            gameState = effect.options.gameState
+        elseif effect.options and effect.options.sourceEntity and effect.options.sourceEntity.gameState then
+            gameState = effect.options.sourceEntity.gameState
+        elseif effect.options and effect.options.targetEntity and effect.options.targetEntity.gameState then
+            gameState = effect.options.targetEntity.gameState
+        elseif _G.game then
+            gameState = _G.game
+        elseif VFX.gameState then
+            gameState = VFX.gameState
+        end
+
+        -- Determine impact amount for shake intensity
+        local amount = effect.options and effect.options.amount or 12  -- Beams are powerful
+        local intensity = math.min(5, 2.5 + (amount / 20))  -- Slightly more intense than projectiles
+        local shakeDuration = 0.25  -- Longer duration for beam
+
+        -- Trigger shake if we have access to game state
+        if gameState and gameState.triggerShake then
+            gameState.triggerShake(shakeDuration, intensity)
+            print(string.format("[BEAM] Shield block impact! Triggered shake (%.2f, %.2f) at blockPoint=%.2f",
+                shakeDuration, intensity, blockPoint))
+        elseif VFX.triggerShake then
+            VFX.triggerShake(shakeDuration, intensity)
+        end
+    end
+
     -- If beam is blocked, it should stop at the block point
     if effect.isBlocked and baseProgress > blockPoint then
         effect.beamProgress = blockPoint
@@ -262,35 +338,69 @@ local function drawBeam(effect)
         -- Calculate impact point
         local blockX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
         local blockY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.blockPoint)
-        
+
         -- Calculate impact flash size and alpha
         local impactProgress = (effect.progress - effect.blockPoint) / (1 - effect.blockPoint)
         local flashSize = 40 * (1.0 - impactProgress) * effect.pulseFactor
         local flashAlpha = 0.7 * (1.0 - impactProgress)
-        
+
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
-        
+
         -- Draw impact flash
         love.graphics.setColor(1, 1, 1, flashAlpha)
         love.graphics.circle("fill", blockX, blockY, flashSize)
-        
-        -- Draw shield specific effects if applicable
+
+        -- Get shield color based on type for distinctive visuals
+        local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
         local shieldType = effect.blockType or (effect.options and effect.options.shieldType)
+        if shieldType == "ward" then
+            shieldR, shieldG, shieldB = 0.3, 0.3, 1.0 -- Blue for wards
+        elseif shieldType == "field" then
+            shieldR, shieldG, shieldB = 0.3, 1.0, 0.3 -- Green for fields
+        end
+
+        -- Draw colored shield impact ring
+        love.graphics.setColor(shieldR, shieldG, shieldB, flashAlpha * 0.9)
+        local ringSize = flashSize * 1.2
+        local ringWidth = 3
+        love.graphics.setLineWidth(ringWidth)
+        love.graphics.circle("line", blockX, blockY, ringSize)
+
+        -- Draw radial beams emanating from impact point
+        local beamCount = 8
+        for i = 1, beamCount do
+            local angle = (i / beamCount) * math.pi * 2 + (effect.progress * 3)
+            local rayLength = ringSize * (0.8 + 0.4 * math.sin(impactProgress * math.pi * 6))
+            local x2 = blockX + math.cos(angle) * rayLength
+            local y2 = blockY + math.sin(angle) * rayLength
+
+            love.graphics.setLineWidth(ringWidth * 0.6)
+            love.graphics.line(blockX, blockY, x2, y2)
+        end
+
+        -- Draw shield specific effects if applicable
         if shieldType and (shieldType == "ward" or shieldType == "barrier") then
             -- Shield-specific visualization
             local runeImages = getAssetInternal("runes")
             if runeImages and #runeImages > 0 then
-                -- Get a random rune based on effect ID
-                local runeIndex = (effect.id % #runeImages) + 1
+                -- Get a deterministic rune index
+                local runeIndex
+                if effect.id then
+                    runeIndex = (effect.id % #runeImages) + 1
+                else
+                    -- Calculate a stable index from the positions
+                    local posHash = math.floor(effect.sourceX + effect.sourceY + effect.targetX + effect.targetY)
+                    runeIndex = (posHash % #runeImages) + 1
+                end
                 local runeImage = runeImages[runeIndex]
-                
-                -- Draw the rune with rotation
+
+                -- Draw the rune with rotation and pulsing
                 local runeSize = 0.5 * (1 + 0.3 * math.sin(impactProgress * math.pi * 4))
                 local runeAlpha = flashAlpha * 0.9
-                
+
                 love.graphics.setColor(1, 1, 1, runeAlpha)
-                
+
                 if runeImage then
                     love.graphics.draw(
                         runeImage,
@@ -302,14 +412,42 @@ local function drawBeam(effect)
                 end
             end
         end
-        
+
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 end
 
+-- Initialize function for beam effects
+local function initializeBeam(effect)
+    -- First create the main beam shape
+    effect.beamProgress = 0
+    effect.beamLength = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
+    effect.beamAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
+
+    -- Check for block info and set block properties
+    if effect.options and effect.options.blockPoint then
+        print(string.format("[BEAM INIT] Detected block at point %.2f", effect.options.blockPoint))
+        effect.isBlocked = true
+        effect.blockPoint = effect.options.blockPoint
+        effect.blockType = effect.options.shieldType or "ward"
+    end
+
+    -- Then add particles along the beam
+    for i = 1, effect.particleCount do
+        local position = math.random()
+        local offset = math.random(-10, 10)
+
+        -- Create particle using ParticleManager
+        local particle = ParticleManager.createBeamParticle(effect, position, offset)
+
+        table.insert(effect.particles, particle)
+    end
+end
+
 -- Return the module
 return {
+    initialize = initializeBeam,
     update = updateBeam,
     draw = drawBeam
 }
