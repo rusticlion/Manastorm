@@ -13,6 +13,7 @@ WaterSpells.watergun = {
     description = "Quick ranged hit, more damage against NEAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.BOLT,
     cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
     keywords = {
         damage = {

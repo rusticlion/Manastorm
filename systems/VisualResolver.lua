@@ -48,15 +48,15 @@ local BASE_BY_ATTACK = {
 
 -- Map affinities (token types) to colors
 local COLOR_BY_AFF = {
-    [Constants.TokenType.FIRE] = Constants.Color.CRIMSON,
-    [Constants.TokenType.WATER] = Constants.Color.OCEAN,
-    [Constants.TokenType.SALT] = Constants.Color.SAND,
-    [Constants.TokenType.SUN] = Constants.Color.ORANGE,
-    [Constants.TokenType.MOON] = Constants.Color.SKY,
-    [Constants.TokenType.STAR] = Constants.Color.YELLOW,
-    [Constants.TokenType.LIFE] = Constants.Color.LIME,
-    [Constants.TokenType.MIND] = Constants.Color.PINK,
-    [Constants.TokenType.VOID] = Constants.Color.BONE
+    [Constants.TokenType.FIRE] = Constants.getColorForTokenType(Constants.TokenType.FIRE),
+    [Constants.TokenType.WATER] = Constants.getColorForTokenType(Constants.TokenType.WATER),
+    [Constants.TokenType.SALT] = Constants.getColorForTokenType(Constants.TokenType.SALT),
+    [Constants.TokenType.SUN] = Constants.getColorForTokenType(Constants.TokenType.SUN),
+    [Constants.TokenType.MOON] = Constants.getColorForTokenType(Constants.TokenType.MOON),
+    [Constants.TokenType.STAR] = Constants.getColorForTokenType(Constants.TokenType.STAR),
+    [Constants.TokenType.LIFE] = Constants.getColorForTokenType(Constants.TokenType.LIFE),
+    [Constants.TokenType.MIND] = Constants.getColorForTokenType(Constants.TokenType.MIND),
+    [Constants.TokenType.VOID] = Constants.getColorForTokenType(Constants.TokenType.VOID)
 }
 
 -- Map specific tags to overlay visual effects

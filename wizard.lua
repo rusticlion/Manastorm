@@ -148,7 +148,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.infiniteprocession,
+            ["12"] = Spells.watergun,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             

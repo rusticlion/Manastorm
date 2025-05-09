@@ -54,23 +54,42 @@ Constants.ElevationState = {
 }
 
 -- Color Palette (RGBA, 0-1 range)
+-- Constants.Color = {
+--     BLACK = {0, 0, 0, 1},                    -- #000000
+--     MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
+--     FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
+--     OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
+--     SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
+--     CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
+--     LIME = {0.651, 0.871, 0, 1},             -- #a6de00
+--     SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
+--     SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
+--     OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
+--     ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
+--     PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
+--     BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
+--     YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
+--     MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
+--     PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+-- }
+
 Constants.Color = {
-    BLACK = {0, 0, 0, 1},                    -- #000000
-    MAROON = {0.592, 0.184, 0.278, 1},       -- #972f47
-    FOREST = {0.482, 0.620, 0.145, 1},       -- #7b9e25
-    OCEAN = {0.282, 0.184, 0.745, 1},        -- #482fbe
-    SMOKE = {0.557, 0.475, 0.420, 1},        -- #8e796b
-    CRIMSON = {0.906, 0.122, 0.231, 1},      -- #e71f3b
-    LIME = {0.651, 0.871, 0, 1},             -- #a6de00
-    SKY = {0.365, 0.459, 0.745, 1},          -- #5d75be
-    SAND = {0.906, 0.722, 0.427, 1},         -- #e7b86d
-    OCHRE = {0.847, 0.349, 0.024, 1},        -- #d85906
-    ORANGE = {0.984, 0.675, 0.043, 1},       -- #fbac0b
-    PUCE = {0.851, 0.502, 0.494, 1},         -- #d9807e
-    BONE = {0.906, 0.890, 0.745, 1},         -- #e7e3be
-    YELLOW = {0.984, 0.941, 0.024, 1},       -- #fbf006
-    MINT = {0.502, 0.953, 0.561, 1},         -- #80f38f
-    PINK = {1, 0.820, 1, 1}                  -- #ffd1ff
+    BLACK          = {0.000, 0.000, 0.000, 1}, -- #000000
+    VOID           = {0.102, 0.043, 0.118, 1}, -- #1a0b1e
+    GRAY           = {0.620, 0.620, 0.620, 1}, -- #9e9e9e
+    WHITE          = {1.000, 1.000, 1.000, 1}, -- #ffffff
+    RED_HERO       = {1.000, 0.290, 0.141, 1}, -- #ff4a24
+    RED_SHADE      = {0.765, 0.212, 0.094, 1}, -- #c33618
+    GREEN_HERO     = {0.651, 0.871, 0.000, 1}, -- #a6de00
+    GREEN_SHADE    = {0.275, 0.400, 0.000, 1}, -- #466600
+    BLUE_HERO      = {0.000, 0.573, 0.875, 1}, -- #0092df
+    BLUE_SHADE     = {0.000, 0.322, 0.600, 1}, -- #005299
+    YELLOW_HERO    = {1.000, 0.843, 0.000, 1}, -- #ffd700
+    YELLOW_SHADE   = {0.784, 0.651, 0.000, 1}, -- #c8a600
+    LAVENDER_HERO  = {0.788, 0.722, 1.000, 1}, -- #c9b8ff
+    LAVENDER_SHADE = {0.478, 0.424, 0.769, 1}, -- #7a6cc4
+    PURPLE_HERO    = {0.353, 0.204, 0.769, 1}, -- #5a34c4
+    MAGENTA_HERO   = {0.820, 0.145, 0.659, 1}, -- #d125a8
 }
 
 -- Default color for unknown types
@@ -79,15 +98,15 @@ Constants.Color.DEFAULT = Constants.Color.SMOKE
 -- Helper function to get color based on token type
 -- Added mappings for types found in manapool.lua (Nature, Force)
 function Constants.getColorForTokenType(tokenType)
-    if tokenType == Constants.TokenType.FIRE then return Constants.Color.CRIMSON
-    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.OCEAN
-    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.SAND
-    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.ORANGE
-    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.SKY
-    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW
-    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.LIME
-    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.PINK
-    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.BONE
+    if tokenType == Constants.TokenType.FIRE then return Constants.Color.RED_HERO
+    elseif tokenType == Constants.TokenType.WATER then return Constants.Color.BLUE_HERO
+    elseif tokenType == Constants.TokenType.SALT then return Constants.Color.GRAY
+    elseif tokenType == Constants.TokenType.SUN then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.MOON then return Constants.Color.LAVENDER_HERO
+    elseif tokenType == Constants.TokenType.STAR then return Constants.Color.YELLOW_HERO
+    elseif tokenType == Constants.TokenType.LIFE then return Constants.Color.GREEN_HERO
+    elseif tokenType == Constants.TokenType.MIND then return Constants.Color.MAGENTA_HERO
+    elseif tokenType == Constants.TokenType.VOID then return Constants.Color.WHITE
     else
         print("Warning: Unknown token type for color lookup: " .. tostring(tokenType))
         return Constants.Color.DEFAULT
