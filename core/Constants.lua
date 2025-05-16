@@ -146,11 +146,11 @@ Constants.VisualShape = {
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 12,
-    SLOW = 8,
-    NORMAL = 5,
-    FAST = 3,
-    VERY_FAST = 1.5,
+    VERY_SLOW = 15,
+    SLOW = 12,
+    NORMAL = 9,
+    FAST = 6,
+    VERY_FAST = 3,
     ONE_TIER = 3
 }
 

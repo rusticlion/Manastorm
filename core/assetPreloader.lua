@@ -38,6 +38,13 @@ function AssetPreloader.preloadAllAssets()
             "assets/sprites/wizard.png",
             "assets/sprites/ashgar.png",
             "assets/sprites/ashgar-cast.png",
+            "assets/sprites/ashgar-idle-1.png",
+            "assets/sprites/ashgar-idle-2.png",
+            "assets/sprites/ashgar-idle-3.png",
+            "assets/sprites/ashgar-idle-4.png",
+            "assets/sprites/ashgar-idle-5.png",
+            "assets/sprites/ashgar-idle-6.png",
+            "assets/sprites/ashgar-idle-7.png",
             "assets/sprites/selene.png",
             "assets/sprites/selene-cast.png",
 

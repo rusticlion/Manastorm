@@ -857,10 +857,28 @@ function WizardVisuals.drawWizard(wizard)
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
 
-        -- Determine which sprite to draw (normal or cast frame)
-        local spriteToDraw = wizard.sprite
+        -- Determine which sprite to draw (casting, idle animation, or static)
+        local spriteToDraw = nil
+
         if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
+            -- Use cast frame if we're in the middle of casting
             spriteToDraw = wizard.castFrameSprite
+        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
+            -- Use current idle animation frame if available
+            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        else
+            -- Fallback to the original static sprite if no animation frames are available
+            spriteToDraw = wizard.sprite
+        end
+
+        -- Ensure spriteToDraw is not nil before attempting to draw
+        if not spriteToDraw then
+            print("Error: No sprite to draw for wizard " .. wizard.name)
+            -- Draw a placeholder rectangle as a last resort
+            love.graphics.setColor(1, 0, 0, 1) -- Red error color
+            love.graphics.rectangle("fill", wizard.x + xOffset - 20, wizard.y + yOffset - 30, 40, 60)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+            return
         end
 
         -- Draw shadow first (when not AERIAL)
@@ -931,7 +949,6 @@ function WizardVisuals.drawWizard(wizard)
                 spriteToDraw:getWidth() / 2,
                 spriteToDraw:getHeight() / 2
             )
-
         end -- End of if wizard.hitFlashTimer > 0 block
         
         -- Reset color back to default after drawing wizard

@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri May  9 16:32:37 CDT 2025
+Generated: Tue May 13 12:49:06 CDT 2025
 
 # Source Code
 
@@ -7,16 +7,17 @@ Generated: Fri May  9 16:32:37 CDT 2025
 ```lua
 -- ai/OpponentAI.lua
 -- Basic AI opponent for Manastorm
--- Phase 1: Local Demo Implementation
+-- Phase 2: Modular AI Architecture with Personality System
 
 local Constants = require("core.Constants")
 local ManaHelpers = require("systems.ManaHelpers")
+local PersonalityBase = require("ai.PersonalityBase")
 
 -- Define the OpponentAI module
 local OpponentAI = {}
 
 -- AI States - Define as constants for clarity
-local STATE = {
+OpponentAI.STATE = {
     IDLE = "IDLE",             -- Default state, focus on building mana resources
     ATTACK = "ATTACK",         -- Aggressive offense, prioritize damage spells
     DEFEND = "DEFEND",         -- Defensive posture, prioritize shields and healing
@@ -28,26 +29,33 @@ local STATE = {
 -- Constructor for OpponentAI
 -- @param wizard - The wizard object this AI will control (typically game.wizards[2])
 -- @param gameState - Reference to the game state (the global 'game' object)
-function OpponentAI.new(wizard, gameState)
+-- @param personalityModule - The personality module to use for decision making
+function OpponentAI.new(wizard, gameState, personalityModule)
+    -- Create default personality if none provided
+    personalityModule = personalityModule or PersonalityBase.new("Default")
+    
     -- Create a new instance
     local ai = {
         -- Store references to game objects
         wizard = wizard,
         gameState = gameState,
         
+        -- Store personality
+        personality = personalityModule,
+        
         -- Track the opposing wizard (player's wizard)
         playerWizard = nil,
         
         -- Track last perception time for throttling
         lastPerceptionTime = 0,
-        perceptionInterval = 0.5, -- Update perception every 0.5 seconds
+        perceptionInterval = 2, -- Update perception every 2 seconds
         
         -- Track last action time for throttling
         lastActionTime = 0,
         actionInterval = 1.0, -- Consider actions every 1.0 seconds
         
         -- Simple finite state machine
-        currentState = STATE.IDLE, -- Initial state
+        currentState = OpponentAI.STATE.IDLE, -- Initial state
         lastState = nil,           -- Previous state for transition detection
         stateChangeTime = 0,       -- When the last state change occurred
         
@@ -250,6 +258,7 @@ end
 function OpponentAI:printPerceptionDebug()
     local p = self.perception
     print("=== AI PERCEPTION ===")
+    print(string.format("PERSONALITY: %s", self.personality.name))
     print(string.format("HEALTH: Self=%d, Opponent=%d", p.selfHealth, p.opponentHealth))
     print(string.format("RANGE: %s, ELEVATION: Self=%s, Opp=%s", 
         p.rangeState, p.ownElevation, p.opponentElevation))
@@ -299,258 +308,122 @@ function OpponentAI:decide()
     local p = self.perception
     local spellbook = self.wizard.spellbook
     
-    -- Basic state transition logic based on health and threat
-    
-    -- Critical health - go into escape mode
-    if p.selfCriticalHealth then
-        self.currentState = STATE.ESCAPE
+    -- Check if personality wants to override state selection
+    local suggestedState = self.personality:suggestState(self, p)
+    if suggestedState then
+        self.currentState = suggestedState
+    else
+        -- Basic state transition logic based on health and threat
         
-        -- First try to find a shield spell if not already shielded
-        if not p.hasActiveShield then
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Critical health - need shield"
-                }
+        -- Critical health - go into escape mode
+        if p.selfCriticalHealth then
+            self.currentState = OpponentAI.STATE.ESCAPE
+        
+        -- Low health - prioritize defense
+        elseif p.selfLowHealth and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- Opponent has very low health - press the advantage
+        elseif p.opponentLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- Opponent is casting something - consider countering
+        elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
+            self.currentState = OpponentAI.STATE.COUNTER
+        
+        -- If health advantage is significant and we're not in low health, attack
+        elseif p.healthAdvantage > 15 and not p.selfLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- If we're at a health disadvantage, consider defense
+        elseif p.healthAdvantage < -15 and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- If no tokens or very few tokens are available, focus on gaining resources
+        elseif p.totalFreeTokens <= 1 then
+            self.currentState = OpponentAI.STATE.IDLE
+        
+        -- Default state when no specific criteria are met - slight aggression bias
+        else
+            -- Slightly biased toward attacking when nothing else is going on
+            local randomChoice = math.random(1, 10)
+            
+            if randomChoice <= 6 then -- 60% chance of attack
+                self.currentState = OpponentAI.STATE.ATTACK
+            elseif randomChoice <= 9 then -- 30% chance of defense
+                self.currentState = OpponentAI.STATE.DEFEND
+            else -- 10% chance of resource gathering
+                self.currentState = OpponentAI.STATE.IDLE
             end
         end
-        
-        -- If shield not available, try mobility
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell and self.wizard:canPayManaCost(escapeSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = escapeSpell,
-                reason = "Critical health - escape"
-            }
-        end
-        
-        -- Last resort - free all spells
-        if p.activeSlots > 0 then
-            return { 
-                type = "FREE_ALL", 
+    end
+    
+    -- State->Action mapping
+    local spell = nil
+    local actionType = nil
+    local reason = nil
+    
+    -- Based on the current state, decide what specific spell to cast
+    if self.currentState == OpponentAI.STATE.ATTACK then
+        -- Ask personality module for attack spell
+        spell = self.personality:getAttackSpell(self, p, spellbook)
+        reason = "Attack"
+        actionType = "ATTACK_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.DEFEND then
+        -- Ask personality module for defense spell
+        spell = self.personality:getDefenseSpell(self, p, spellbook)
+        reason = "Defense"
+        actionType = "DEFEND_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.COUNTER then
+        -- Ask personality module for counter spell
+        spell = self.personality:getCounterSpell(self, p, spellbook)
+        reason = "Counter"
+        actionType = "COUNTER_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.ESCAPE then
+        -- Emergency defense: shield, escape, or free all (last resort)
+        if p.activeSlots > 0 and p.totalFreeTokens < 1 then
+            -- No resources, free all spell slots
+            return {
+                type = "FREE_ALL",
                 reason = "Critical health - free resources"
             }
         end
         
-        return { 
-            type = "ESCAPE_ACTION", 
-            reason = "Critical health (" .. p.selfHealth .. ")"
-        }
+        -- Ask personality module for escape spell
+        spell = self.personality:getEscapeSpell(self, p, spellbook)
+        reason = "Escape"
+        actionType = "ESCAPE_ACTION"
     
-    -- Low health - prioritize defense
-    elseif p.selfLowHealth and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Low health defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Low health, need shield"
-        }
+    elseif self.currentState == OpponentAI.STATE.POSITION then
+        -- Ask personality module for positioning spell
+        spell = self.personality:getPositioningSpell(self, p, spellbook)
+        reason = "Positioning"
+        actionType = "POSITION_ACTION"
     
-    -- Opponent has very low health - press the advantage
-    elseif p.opponentLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use strongest attack spell available
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Offensive finish"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Opponent low health (" .. p.opponentHealth .. ")"
-        }
-    
-    -- Opponent is casting something - consider countering
-    elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
-        self.currentState = STATE.COUNTER
-        
-        -- Try counter spells
-        if self:hasAvailableSpellSlot() then
-            local counterOptions = {
-                spellbook["13"], -- eclipse (freezes crown slot)
-                spellbook["3"]   -- moondance (changes range, can disrupt)
-            }
-            
-            for _, spell in ipairs(counterOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell, 
-                        reason = "Counter opponent spell"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "COUNTER_ACTION", 
-            reason = "Opponent casting spell"
-        }
-    
-    -- If health advantage is significant and we're not in low health, attack
-    elseif p.healthAdvantage > 15 and not p.selfLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use offensive spell based on available mana
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Press advantage"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Health advantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If we're at a health disadvantage, consider defense
-    elseif p.healthAdvantage < -15 and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Health disadvantage defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Health disadvantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If no tokens or very few tokens are available, focus on gaining resources
-    elseif p.totalFreeTokens <= 1 then
-        self.currentState = STATE.IDLE
-        
-        -- Try conjuring spell
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
-        if conjureSpell and self:hasAvailableSpellSlot() and 
-           (p.totalFreeTokens == 0 or self.wizard:canPayManaCost(conjureSpell.cost)) then
-            return { 
-                type = "CAST_SPELL", 
-                spell = conjureSpell,
-                reason = "Generate resources"
-            }
-        end
-        
-        return { 
-            type = "CONJURE_ACTION", 
-            reason = "Need resources (tokens: " .. p.totalFreeTokens .. ")"
-        }
-    
-    -- Default state when no specific criteria are met - slight aggression bias
-    else
-        -- Slightly biased toward attacking when nothing else is going on
-        local randomChoice = math.random(1, 10)
-        
-        if randomChoice <= 6 then -- 60% chance of attack
-            self.currentState = STATE.ATTACK
-            
-            -- Try an attack spell if possible
-            if self:hasAvailableSpellSlot() then
-                local attackOptions = {
-                    spellbook["123"], -- fullmoonbeam
-                    spellbook["13"], -- eclipse
-                    spellbook["3"]   -- moondance
-                }
-                
-                for _, spell in ipairs(attackOptions) do
-                    if spell and self.wizard:canPayManaCost(spell.cost) then
-                        return { 
-                            type = "CAST_SPELL", 
-                            spell = spell,
-                            reason = "Default attack"
-                        }
-                    end
-                end
-            end
-            
-            return { 
-                type = "ATTACK_ACTION", 
-                reason = "Default aggression"
-            }
-            
-        elseif randomChoice <= 9 then -- 30% chance of defense
-            self.currentState = STATE.DEFEND
-            
-            -- Try defensive spell if possible
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() 
-               and not p.hasActiveShield then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Default defense"
-                }
-            end
-            
-            return { 
-                type = "DEFEND_ACTION", 
-                reason = "Default caution"
-            }
-            
-        else -- 10% chance of resource gathering
-            self.currentState = STATE.IDLE
-            
-            -- Try conjuring spell if possible
-            local conjureSpell = spellbook["1"] -- conjuremoonlight
-            if conjureSpell and self.wizard:canPayManaCost(conjureSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = conjureSpell,
-                    reason = "Default resource gathering"
-                }
-            end
-            
-            return { 
-                type = "WAIT_ACTION", 
-                reason = "Default patience"
-            }
-        end
+    elseif self.currentState == OpponentAI.STATE.IDLE then
+        -- Ask personality module for conjure/resource spell
+        spell = self.personality:getConjureSpell(self, p, spellbook)
+        reason = "Generate resources"
+        actionType = "CONJURE_ACTION"
     end
+    
+    -- If we found a specific spell and have a slot for it, cast it
+    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+        return {
+            type = "CAST_SPELL",
+            spell = spell,
+            reason = reason
+        }
+    end
+    
+    -- Return the general action if no specific spell was found or affordable
+    return {
+        type = actionType,
+        reason = reason .. " (no specific spell found or affordable)"
+    }
 end
 
 -- Execute the decided action
@@ -577,30 +450,6 @@ function OpponentAI:act(decision)
         print("[AI] Freeing all spells")
         wizard:freeAllSpells()
         
-    elseif decision.type == "ATTACK_ACTION" then
-        -- Choose and cast an offensive spell based on available mana
-        self:castOffensiveSpell()
-        
-    elseif decision.type == "DEFEND_ACTION" then
-        -- Choose and cast a defensive spell based on available mana
-        self:castDefensiveSpell()
-        
-    elseif decision.type == "CONJURE_ACTION" then
-        -- Cast a mana conjuring spell
-        self:castConjurationSpell()
-        
-    elseif decision.type == "COUNTER_ACTION" then
-        -- Cast a counter spell against opponent's active spell
-        self:castCounterSpell()
-        
-    elseif decision.type == "ESCAPE_ACTION" then
-        -- Cast an escape spell for desperate situations
-        self:castEscapeSpell()
-        
-    elseif decision.type == "POSITION_ACTION" then
-        -- Cast positioning spell to change range or elevation
-        self:castPositioningSpell()
-        
     elseif decision.type == "CAST_SPELL" and decision.spell then
         -- Direct spell casting (specified by higher-level logic)
         print("[AI] Casting specific spell: " .. decision.spell.name)
@@ -608,6 +457,62 @@ function OpponentAI:act(decision)
         if not success then
             print("[AI] Failed to cast " .. decision.spell.name)
         end
+    
+    -- Generic action types - try to get a spell from personality as fallback
+    elseif decision.type == "ATTACK_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ATTACK, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting attack spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable attack spell found")
+        end
+        
+    elseif decision.type == "DEFEND_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.DEFEND, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting defense spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable defense spell found")
+        end
+        
+    elseif decision.type == "COUNTER_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.COUNTER, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting counter spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable counter spell found")
+        end
+        
+    elseif decision.type == "ESCAPE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ESCAPE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting escape spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable escape spell found")
+        end
+        
+    elseif decision.type == "POSITION_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.POSITION, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting positioning spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable positioning spell found")
+        end
+        
+    elseif decision.type == "CONJURE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.IDLE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting conjure spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable conjure spell found")
+        end
+    
     else
         print("[AI] Unknown action type: " .. decision.type)
     end
@@ -623,203 +528,675 @@ function OpponentAI:hasAvailableSpellSlot()
     return false
 end
 
--- Try to cast an offensive spell based on available mana
-function OpponentAI:castOffensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    local spellsToTry = {}
+return OpponentAI```
+
+## ./ai/PersonalityBase.lua
+```lua
+-- ai/PersonalityBase.lua
+-- Interface for wizard AI personalities in Manastorm
+-- Defines the contract for how personality modules interact with the OpponentAI system
+
+local PersonalityBase = {}
+
+-- Constructor for personality modules
+-- @param name - A string identifier for the personality
+function PersonalityBase.new(name)
+    local personality = {
+        name = name or "Generic",
+        description = "Base personality module - meant to be extended"
+    }
     
-    -- If we have a lot of tokens, try the most powerful spell
-    if p.totalFreeTokens >= 3 and self:hasAvailableSpellSlot() then
-        -- Try full moon beam (3-key combo) if we have enough mana
-        table.insert(spellsToTry, spellbook["123"]) -- fullmoonbeam
-    end
+    -- Set metatable to use PersonalityBase methods
+    setmetatable(personality, {__index = PersonalityBase})
     
-    -- Try 2-key offensive combos
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Add offensive 2-key spells
-        if p.opponentElevation == Constants.ElevationState.AERIAL then
-            -- Gravity trap good against aerial opponents
-            table.insert(spellsToTry, spellbook["23"]) -- gravityTrap
-        end
-        
-        -- Try to use positioning tricks
-        table.insert(spellsToTry, spellbook["13"]) -- eclipse
-    end
-    
-    -- Try simpler attacks if nothing else worked
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        -- Add single key offensive spells
-        table.insert(spellsToTry, spellbook["3"]) -- moondance (position change)
-    end
-    
-    -- Try each spell in order of preference
-    for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting offensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
-        end
-    end
-    
-    -- If we couldn't cast anything offensive, try to build resources
-    if p.totalFreeTokens < 2 then
-        return self:castConjurationSpell()
-    end
-    
-    return false
+    return personality
 end
 
--- Try to cast a defensive spell based on available mana
-function OpponentAI:castDefensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getAttackSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getDefenseSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getCounterSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getEscapeSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getConjureSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getPositioningSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get best spell for a given intent/state when no specific spell was found
+-- @param state - The AI state (from OpponentAI.STATE)
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getBestSpellForIntent(state, ai, perception, spellbook)
+    -- This is a fallback method for when more specific methods don't find a suitable spell
+    -- Each personality can implement custom fallback logic
+    
+    -- Base implementation tries to match the state to a specific spell getter
+    if state == "ATTACK" then
+        return self:getAttackSpell(ai, perception, spellbook)
+    elseif state == "DEFEND" then
+        return self:getDefenseSpell(ai, perception, spellbook)
+    elseif state == "COUNTER" then
+        return self:getCounterSpell(ai, perception, spellbook)
+    elseif state == "ESCAPE" then
+        return self:getEscapeSpell(ai, perception, spellbook)
+    elseif state == "IDLE" then
+        return self:getConjureSpell(ai, perception, spellbook)
+    elseif state == "POSITION" then
+        return self:getPositioningSpell(ai, perception, spellbook)
+    end
+    
+    return nil
+end
+
+-- Can be used to provide character-specific customizations to FSM state selection
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @return - A string state name or nil to use default state selection logic
+function PersonalityBase:suggestState(ai, perception)
+    -- Base implementation returns nil, letting the core AI decide
+    -- Derived personalities can override this to customize state selection
+    return nil
+end
+
+return PersonalityBase```
+
+## ./ai/personalities/AshgarPersonality.lua
+```lua
+-- ai/personalities/AshgarPersonality.lua
+-- AI personality module for Ashgar the Emberfist
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the AshgarPersonality module
+local AshgarPersonality = PersonalityBase.new("Ashgar the Emberfist")
+
+-- Ashgar's Spellbook:
+-- "1": Conjure Fire (Conjure)
+-- "2": Nova Conjuring (Resource Management/Setup)
+-- "3": Firebolt (Attack)
+-- "12": Battle Shield (Defense)
+-- "13": Blast Wave (Attack - Zone, good vs NEAR)
+-- "23": Emberlift (Positioning/Utility, Conjure Fire)
+-- "123": Meteor (Attack - Aerial Finisher, requires AERIAL setup)
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
     local spellsToTry = {}
     
-    -- Best defense is shield
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Try shield spell (wrapinmoonlight)
-        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
+    -- Meteor (powerful aerial finisher) - if both conditions are met:
+    -- 1. AI is in AERIAL state
+    -- 2. Opponent is in GROUNDED state
+    if p.ownElevation == Constants.ElevationState.AERIAL and 
+       p.opponentElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["123"]) -- Meteor
+    end
+    
+    -- Blast Wave (good at NEAR range)
+    if p.rangeState == Constants.RangeState.NEAR and 
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Blast Wave
+    end
+    
+    -- Firebolt (basic attack, better at FAR range)
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- Firebolt 
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- Battle Shield is Ashgar's primary defense
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and not p.hasActiveShield then
+        table.insert(spellsToTry, spellbook["12"]) -- Battle Shield
+    end
+    
+    -- Emberlift can be used to escape by changing elevation
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and 
+       p.ownElevation == Constants.ElevationState.GROUNDED then
+        table.insert(spellsToTry, spellbook["23"]) -- Emberlift
     end
     
     -- If we don't have enough tokens for a shield
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
         -- Try to gain tokens
-        table.insert(spellsToTry, spellbook["1"]) -- conjuremoonlight
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Fire
     end
     
-    -- Try each spell in order of preference
+    -- Return the first affordable spell
     for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting defensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- If we couldn't cast any defensive spell, try to build resources
-    return self:castConjurationSpell()
+    return nil
 end
 
--- Try to cast a mana conjuring spell
-function OpponentAI:castConjurationSpell()
-    local spellbook = self.wizard.spellbook
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
-    -- Try conjuration spell if a slot is available
-    if self:hasAvailableSpellSlot() then
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
+    -- Ashgar doesn't have direct counter spells like Selene's Eclipse,
+    -- but he can use Blast Wave to disrupt opponents at NEAR range
+    -- or Emberlift to change position
+    
+    if p.opponentHasDangerousSpell then
+        -- If near, use Blast Wave as a counter
+        if p.rangeState == Constants.RangeState.NEAR and p.totalFreeTokens >= 2 then
+            table.insert(spellsToTry, spellbook["13"]) -- Blast Wave
+        end
         
-        if conjureSpell then
-            print("[AI] Attempting conjuration: " .. conjureSpell.name)
-            local success = self.wizard:queueSpell(conjureSpell)
-            if success then
-                print("[AI] Successfully cast " .. conjureSpell.name)
-                return true
+        -- Use Emberlift to change position and potentially disrupt
+        if p.totalFreeTokens >= 2 and p.ownElevation == Constants.ElevationState.GROUNDED then
+            table.insert(spellsToTry, spellbook["23"]) -- Emberlift
+        end
+        
+        -- Simple attack may also work as disruption
+        if p.totalFreeTokens >= 1 then
+            table.insert(spellsToTry, spellbook["3"]) -- Firebolt
+        end
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    -- If no counter spell is available, fall back to a defensive option
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- When in critical health
+    
+    -- First priority: Battle Shield if not already shielded
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Battle Shield
+    end
+    
+    -- Second priority: Emberlift to change elevation (if grounded)
+    if p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["23"]) -- Emberlift
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getConjureSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- Try to use Nova Conjuring for more advanced resource generation
+    -- when we already have some tokens
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- Nova Conjuring
+    end
+    
+    -- Basic conjuration spell - always useful
+    if ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Fire
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getPositioningSpell(ai, perception, spellbook)
+    local p = perception
+    
+    -- Emberlift is Ashgar's primary positioning spell
+    -- Use it when grounded to gain aerial advantage
+    if p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local posSpell = spellbook["23"] -- Emberlift
+        
+        if posSpell and ai.wizard:canPayManaCost(posSpell.cost) then
+            return posSpell
+        end
+    end
+    
+    return nil
+end
+
+-- Suggest custom state based on Ashgar's special capabilities
+function AshgarPersonality:suggestState(ai, perception)
+    local p = perception
+    
+    -- Consider positioning to setup an aerial meteor attack
+    if not p.selfCriticalHealth and -- not in emergency
+       p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and 
+       ai:hasAvailableSpellSlot() then
+        
+        -- 20% chance to try positioning for a meteor setup when conditions are good
+        if math.random(1, 5) == 1 then
+            return ai.STATE.POSITION
+        end
+    end
+    
+    -- Let the core AI decide in other cases
+    return nil
+end
+
+return AshgarPersonality```
+
+## ./ai/personalities/SelenePersonality.lua
+```lua
+-- ai/personalities/SelenePersonality.lua
+-- AI personality module for Selene of the Veil
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the SelenePersonality module
+local SelenePersonality = PersonalityBase.new("Selene of the Veil")
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- CORE STRATEGY: 
+    -- 1. Save up for Full Moon Beam
+    -- 2. Try to queue Full Moon Beam in the middle slot
+    -- 3. Use Eclipse to boost its damage
+    
+    -- Track what spells we already have active
+    local fullMoonBeamActive = false
+    local eclipseActive = false
+    local moonDanceActive = false
+    local gravityTrapActive = false
+    local fullMoonBeamSlot = nil
+    
+    for i, slot in ipairs(p.spellSlots) do
+        if slot.active then
+            if slot.spellType == "fullmoonbeam" then
+                fullMoonBeamActive = true
+                fullMoonBeamSlot = i
+            elseif slot.spellType == "eclipse" then
+                eclipseActive = true
+            elseif slot.spellType == "moondance" then
+                moonDanceActive = true
+            elseif slot.spellType == "gravityTrap" then
+                gravityTrapActive = true
             end
         end
     end
     
-    return false
+    -- Check if we have enough resources for Full Moon Beam
+    if p.totalFreeTokens >= 4 and not fullMoonBeamActive and ai:hasAvailableSpellSlot() then
+        -- We have enough tokens for Full Moon Beam, prioritize it
+        local fullMoonBeam = spellbook["123"] -- Full Moon Beam
+        if fullMoonBeam and ai.wizard:canPayManaCost(fullMoonBeam.cost) then
+            -- We're specifically looking for this, so prioritize it highly
+            return fullMoonBeam
+        end
+    end
+    
+    -- If we have Full Moon Beam active, follow up with Eclipse to enhance it
+    if fullMoonBeamActive and not eclipseActive and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local eclipse = spellbook["13"] -- Eclipse
+        if eclipse and ai.wizard:canPayManaCost(eclipse.cost) then
+            return eclipse
+        end
+    end
+    
+    -- If opponent is aerial, consider Gravity Trap
+    if p.opponentElevation == Constants.ElevationState.AERIAL and p.totalFreeTokens >= 2 and 
+       not gravityTrapActive and ai:hasAvailableSpellSlot() then
+        local gravityTrap = spellbook["23"] -- gravityTrap
+        if gravityTrap and ai.wizard:canPayManaCost(gravityTrap.cost) then
+            table.insert(spellsToTry, gravityTrap)
+        end
+    end
+    
+    -- If we have a shield up and < 3 tokens, consider Moon Dance for chip damage
+    if p.hasActiveShield and p.totalFreeTokens >= 1 and p.totalFreeTokens < 3 and 
+       not moonDanceActive and ai:hasAvailableSpellSlot() then
+        local moonDance = spellbook["3"] -- moondance
+        if moonDance and ai.wizard:canPayManaCost(moonDance.cost) then
+            table.insert(spellsToTry, moonDance)
+        end
+    end
+    
+    -- If we have 3+ tokens but can't do Full Moon Beam for some reason, try Eclipse
+    if not eclipseActive and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local eclipse = spellbook["13"] -- eclipse
+        if eclipse and ai.wizard:canPayManaCost(eclipse.cost) then
+            table.insert(spellsToTry, eclipse)
+        end
+    end
+    
+    -- Return the first affordable spell from our priority list
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
 end
 
--- Try to cast a counter spell against opponent's active spell
-function OpponentAI:castCounterSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- ENHANCED STRATEGY: Prioritize defense more - try to keep a shield up at all times
+    -- Put up a shield whenever we don't have one and can afford it, not just when low health
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and not p.hasActiveShield then
+        -- Try shield spell (wrapinmoonlight) - Selene's primary advantage
+        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
+    end
+
+    -- Secondary options if shield isn't possible
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        -- If health is starting to get low, consider evasive maneuvers
+        if p.selfHealth < 75 and not p.hasActiveShield then
+            table.insert(spellsToTry, spellbook["3"]) -- moondance (position change for evasion)
+        end
+
+        -- Building resources is also defensive when we need tokens for shield
+        if p.totalFreeTokens < 2 then
+            table.insert(spellsToTry, spellbook["1"]) -- conjuremoonlight
+        end
+    end
+
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
     -- Check if there's something to counter and we have enough resources
-    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
+    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
         -- For Selene, try using eclipse or moondance
-        local counterSpells = {
-            spellbook["13"], -- eclipse (freezes crown slot)
-            spellbook["3"]   -- moondance (can disrupt by changing range)
-        }
-        
-        -- Try each counter spell
-        for _, spell in ipairs(counterSpells) do
-            if spell then
-                print("[AI] Attempting counter spell: " .. spell.name)
-                local success = self.wizard:queueSpell(spell)
-                if success then
-                    print("[AI] Successfully cast counter " .. spell.name)
-                    return true
-                end
-            end
+        table.insert(spellsToTry, spellbook["13"]) -- eclipse (freezes crown slot)
+        table.insert(spellsToTry, spellbook["3"])  -- moondance (can disrupt by changing range)
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- If countering failed, try attacking instead
-    return self:castOffensiveSpell()
+    -- If no counter spell is available, fall back to a defensive option
+    return self:getDefenseSpell(ai, perception, spellbook)
 end
 
--- Try to cast an escape spell for desperate situations
-function OpponentAI:castEscapeSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
     -- When in critical health, try shield, range change, or free all slots
     
     -- First priority: shields if not already shielded
-    if not p.hasActiveShield and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell then
-            print("[AI] Attempting emergency shield: " .. shieldSpell.name)
-            local success = self.wizard:queueSpell(shieldSpell)
-            if success then 
-                return true
-            end
-        end
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
     end
     
     -- Second priority: change range/position
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell then
-            print("[AI] Attempting escape with: " .. escapeSpell.name)
-            local success = self.wizard:queueSpell(escapeSpell)
-            if success then 
-                return true
-            end
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- moondance
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- Last resort: free all slots to get more resources
-    if p.activeSlots > 0 then
-        print("[AI] Emergency - freeing all spell slots")
-        self.wizard:freeAllSpells()
-        return true
-    end
-    
-    return false
+    return nil
 end
 
--- Try to cast a positioning spell to change range or elevation
-function OpponentAI:castPositioningSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getConjureSpell(ai, perception, spellbook)
+    local p = perception
     
-    -- Try to use moondance to change range
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
+    -- Try conjuration spell if a slot is available
+    if ai:hasAvailableSpellSlot() then
+        local conjureSpell = spellbook["1"] -- conjuremoonlight
+        
+        if conjureSpell and ai.wizard:canPayManaCost(conjureSpell.cost) then
+            return conjureSpell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getPositioningSpell(ai, perception, spellbook)
+    local p = perception
+    
+    -- If at NEAR range, prioritize Moon Dance to get back to FAR
+    if p.rangeState == Constants.RangeState.NEAR then
+        local moonDance = spellbook["3"] -- moondance
+        if moonDance and ai.wizard:canPayManaCost(moonDance.cost) and ai:hasAvailableSpellSlot() then
+            return moonDance
+        end
+    end
+    
+    -- Default behavior - try to use moondance to change range if needed
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
         local posSpell = spellbook["3"] -- moondance
-        if posSpell then
-            print("[AI] Attempting position change with: " .. posSpell.name)
-            local success = self.wizard:queueSpell(posSpell)
-            if success then
-                return true
-            end
+        
+        if posSpell and ai.wizard:canPayManaCost(posSpell.cost) then
+            return posSpell
         end
     end
     
-    return false
+    return nil
 end
 
-return OpponentAI```
+-- Override suggestState to provide Selene-specific state suggestions
+function SelenePersonality:suggestState(ai, perception)
+    local p = perception
+    
+    -- If at NEAR range, prioritize positioning to get back to FAR
+    if p.rangeState == Constants.RangeState.NEAR and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        -- 80% chance to prioritize positioning when at NEAR range
+        if math.random() < 0.5 then
+            return ai.STATE.POSITION
+        end
+    end
+    
+    -- NEW CORE STRATEGY: Focus on resource accumulation for Full Moon Beam + Eclipse combo
+    -- If we have a shield up and 3+ tokens, focus on attacking to try our combo
+    if p.hasActiveShield and p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        -- With a shield up and enough tokens, we should try our combo
+        return ai.STATE.ATTACK
+    end
+    
+    -- If we have a lot of tokens, prioritize attacking to use them
+    if p.totalFreeTokens >= 4 and ai:hasAvailableSpellSlot() then
+        -- We have enough tokens for our most powerful spells
+        return ai.STATE.ATTACK
+    end
+    
+    -- ENHANCED STRATEGY: More proactive shield usage
+    -- Prioritize defense if we don't have a shield and have enough resources
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        -- 70% chance to prioritize defense when we don't have a shield (increased from 60%)
+        if math.random() < 0.7 then
+            return ai.STATE.DEFEND
+        end
+    end
+    
+    -- ENHANCED STRATEGY: Resource accumulation when we have a shield but not enough tokens
+    -- If we have a shield but less than 3 tokens, focus on resource gathering
+    if p.hasActiveShield and p.totalFreeTokens < 3 then
+        -- 70% chance to focus on resource gathering when we have a shield but few tokens
+        if math.random() < 0.7 then
+            return ai.STATE.IDLE
+        end
+    end
+    
+    -- ENHANCED STRATEGY: Prioritize Counter when opponent is casting
+    -- If opponent is casting and we have enough tokens, counter them
+    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        -- 80% chance to try countering dangerous spells
+        if math.random() < 0.8 then
+            return ai.STATE.COUNTER
+        end
+    end
+    
+    -- Let the default AI logic handle other cases
+    return nil
+end
+
+return SelenePersonality```
 
 ## ./conf.lua
 ```lua
@@ -1180,11 +1557,11 @@ Constants.VisualShape = {
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 12,
-    SLOW = 8,
-    NORMAL = 5,
-    FAST = 3,
-    VERY_FAST = 1.5,
+    VERY_SLOW = 15,
+    SLOW = 12,
+    NORMAL = 9,
+    FAST = 6,
+    VERY_FAST = 3,
     ONE_TIER = 3
 }
 
@@ -2363,7 +2740,18 @@ function AssetPreloader.preloadAllAssets()
             
             -- Game entity assets
             "assets/sprites/wizard.png",
-            
+            "assets/sprites/ashgar.png",
+            "assets/sprites/ashgar-cast.png",
+            "assets/sprites/ashgar-idle-1.png",
+            "assets/sprites/ashgar-idle-2.png",
+            "assets/sprites/ashgar-idle-3.png",
+            "assets/sprites/ashgar-idle-4.png",
+            "assets/sprites/ashgar-idle-5.png",
+            "assets/sprites/ashgar-idle-6.png",
+            "assets/sprites/ashgar-idle-7.png",
+            "assets/sprites/selene.png",
+            "assets/sprites/selene-cast.png",
+
             "assets/sprites/grounded-circle.png"
         },
         
@@ -3784,6 +4172,8 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
+local SelenePersonality = require("ai.personalities.SelenePersonality")
+local AshgarPersonality = require("ai.personalities.AshgarPersonality")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -3812,9 +4202,13 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Attract mode properties
+    attractModeActive = false,
+    menuIdleTimer = 0,
+    ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -4197,8 +4591,23 @@ function resetGame()
     
     -- Reinitialize AI opponent if AI mode is enabled
     if game.useAI then
-        game.opponentAI = OpponentAI.new(game.wizards[2], game)
-        print("AI opponent reinitialized")
+        -- Use the appropriate personality based on which wizard is controlled by AI
+        local aiWizard = game.wizards[2]
+        local personality
+
+        if aiWizard.name == "Selene" then
+            personality = SelenePersonality
+            print("Initializing Selene AI personality")
+        elseif aiWizard.name == "Ashgar" then
+            personality = AshgarPersonality
+            print("Initializing Ashgar AI personality")
+        else
+            -- Default to base personality for unknown wizards
+            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        end
+
+        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -4224,6 +4633,77 @@ end
 -- Add resetGame function to game state so Input system can call it
 function game.resetGame()
     resetGame()
+end
+
+-- Function to start an AI vs AI attract mode game
+function startGameAttractMode()
+    print("Starting attract mode...")
+
+    -- Mark attract mode as active
+    game.attractModeActive = true
+
+    -- Reset the game to clear any existing state
+    resetGame()
+
+    -- Temporarily store input routes so we can restore them later
+    game.savedInputRoutes = {
+        p1 = Input.Routes.p1,
+        p2 = Input.Routes.p2
+    }
+
+    -- Disable player input during attract mode
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+
+    -- Make sure AI mode is enabled but not tracked by the normal flag
+    -- This way we can have two AI players without affecting the normal mode
+    game.useAI = false
+
+    -- Create AI for player 1 (Ashgar)
+    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+    game.player1AI = player1AI
+
+    -- Create AI for player 2 (Selene)
+    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+    game.player2AI = player2AI
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Transition to the attract mode battle state
+    game.currentState = "BATTLE_ATTRACT"
+
+    print("Attract mode started: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name)
+end
+
+-- Function to exit attract mode and return to the menu
+function exitAttractMode()
+    print("Exiting attract mode...")
+
+    -- Disable attract mode
+    game.attractModeActive = false
+
+    -- Clean up AI instances
+    game.player1AI = nil
+    game.player2AI = nil
+
+    -- Reset the game
+    resetGame()
+
+    -- Restore input routes if we saved them
+    if game.savedInputRoutes then
+        Input.Routes.p1 = game.savedInputRoutes.p1
+        Input.Routes.p2 = game.savedInputRoutes.p2
+        game.savedInputRoutes = nil
+    end
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Return to menu
+    game.currentState = "MENU"
+
+    print("Attract mode ended, returned to menu")
 end
 
 function love.update(dt)
@@ -4253,7 +4733,17 @@ function love.update(dt)
         if game.vfx then
             game.vfx.update(dt)
         end
-        
+
+        -- Update attract mode timer when in menu
+        if not game.attractModeActive then
+            game.menuIdleTimer = game.menuIdleTimer + dt
+
+            -- Start attract mode if idle timer exceeds threshold
+            if game.menuIdleTimer > game.ATTRACT_MODE_DELAY then
+                startGameAttractMode()
+            end
+        end
+
         -- No other updates needed in menu state
         return
     elseif game.currentState == "BATTLE" then
@@ -4327,17 +4817,127 @@ function love.update(dt)
         if game.useAI and game.opponentAI then
             game.opponentAI:update(dt)
         end
+
+        -- Update both AI players in attract mode
+        if game.attractModeActive then
+            if game.player1AI then
+                game.player1AI:update(dt)
+            end
+            if game.player2AI then
+                game.player2AI:update(dt)
+            end
+        end
     elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
-        
+
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
             -- Reset game and go back to menu
             resetGame()
             game.currentState = "MENU"
         end
-        
+
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+    elseif game.currentState == "BATTLE_ATTRACT" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to attract mode game over state
+            game.currentState = "GAME_OVER_ATTRACT"
+            game.winScreenTimer = 0
+            return
+        end
+
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+
+                print("[Attract Mode] " .. winner.name .. " wins!")
+
+                -- Transition to game over state
+                game.currentState = "GAME_OVER_ATTRACT"
+                return
+            end
+        end
+
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+
+        -- Update mana pool
+        game.manaPool:update(dt)
+
+        -- Update VFX system
+        game.vfx.update(dt)
+
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+
+        -- Update both AI players in attract mode
+        if game.player1AI then
+            game.player1AI:update(dt)
+        end
+        if game.player2AI then
+            game.player2AI:update(dt)
+        end
+    elseif game.currentState == "GAME_OVER_ATTRACT" then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+
+        -- Auto-reset after duration - start a new attract mode battle
+        if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and start another attract mode battle
+            resetGame()
+
+            -- Create AI for player 1 (Ashgar)
+            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+            game.player1AI = player1AI
+
+            -- Create AI for player 2 (Selene)
+            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+            game.player2AI = player2AI
+
+            -- Keep attract mode active
+            game.attractModeActive = true
+
+            -- Go back to attract mode battle
+            game.currentState = "BATTLE_ATTRACT"
+        end
+
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
     end
@@ -4365,7 +4965,7 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
-    elseif game.currentState == "BATTLE" then
+    elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -4376,35 +4976,40 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw range state indicator (NEAR/FAR)
         if love.keyboard.isDown("`") then
             drawRangeIndicator()
         end
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer (between wizards and UI)
         game.vfx.draw()
-        
+
         -- Draw UI elements in proper z-order
         love.graphics.setColor(1, 1, 1)
-        
+
         -- First draw health bars and basic UI components
         UI.drawSpellInfo(game.wizards)
-        
+
         -- Then draw spellbook buttons (the input feedback bar)
         UI.drawSpellbookButtons()
-        
+
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
-    elseif game.currentState == "GAME_OVER" then
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "BATTLE_ATTRACT" then
+            drawAttractModeOverlay()
+        end
+    elseif game.currentState == "GAME_OVER" or game.currentState == "GAME_OVER_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -4415,24 +5020,29 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator
         drawRangeIndicator()
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer
         game.vfx.draw()
-        
+
         -- Draw win screen on top
         drawWinScreen()
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "GAME_OVER_ATTRACT" then
+            drawAttractModeOverlay()
+        end
     end
     
     -- Debug info only when debug key is pressed (available in all states)
@@ -4996,14 +5606,67 @@ function drawMainMenu()
     love.graphics.print(versionText, 10, screenHeight - 30)
 end
 
+-- Draw attract mode overlay
+function drawAttractModeOverlay()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    -- Draw a semi-transparent banner at the top
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, 40)
+
+    -- Draw "Attract Mode" text
+    love.graphics.setColor(1, 1, 1, 0.9)
+    local attractText = "ATTRACT MODE - PRESS ANY KEY TO RETURN TO MENU"
+    local textWidth = game.font:getWidth(attractText) * 1.5
+
+    -- Make text pulse slightly to draw attention
+    local pulse = 0.8 + 0.2 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(1, 1, 1, pulse)
+    love.graphics.print(
+        attractText,
+        screenWidth / 2 - textWidth / 2,
+        10,
+        0, -- rotation
+        1.5, -- scale X
+        1.5  -- scale Y
+    )
+
+    -- Draw AI info text at bottom
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, screenHeight - 40, screenWidth, 40)
+
+    -- Show which AI personalities are fighting
+    local aiInfoText = "AI DUEL: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name
+    local aiTextWidth = game.font:getWidth(aiInfoText)
+
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print(
+        aiInfoText,
+        screenWidth / 2 - aiTextWidth / 2,
+        screenHeight - 30
+    )
+end
+
 -- Unified key handler using the Input module
 function love.keypressed(key, scancode, isrepeat)
-    -- Forward all key presses to the Input module
+    -- First check if we're in attract mode - any key exits attract mode
+    if game.attractModeActive then
+        exitAttractMode()
+        return true -- Key handled
+    end
+
+    -- Forward all key presses to the Input module for normal gameplay
     return Input.handleKey(key, scancode, isrepeat)
 end
 
 -- Unified key release handler
 function love.keyreleased(key, scancode)
+    -- Skip key release handling if in attract mode (already handled in keypressed)
+    if game.attractModeActive then
+        return true -- Key handled
+    end
+
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
 end```
@@ -7230,10 +7893,10 @@ FireSpells.blastwave = {
             amount = function(caster, target)
                 local baseDmg = 2
                 if target and target.elevation == caster.elevation then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 5
                 end
                 if target and target.gameState.rangeState == Constants.RangeState.NEAR then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 12
                 end
                 return baseDmg
             end,
@@ -7533,11 +8196,11 @@ MoonSpells.moondance = {
     description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
     attackType = "remote",
     visualShape = "warp",
-    castTime = Constants.CastSpeed.SLOW,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON},
     keywords = {
         damage = {
-            amount = 5,
+            amount = 6,
             type = Constants.TokenType.MOON
         },
         rangeShift = {
@@ -11876,13 +12539,12 @@ local VisualResolver = {}
 -- Map visualShape strings to base VFX template names
 -- This is the primary mapping table for determining visual template from spell shape
 local TEMPLATE_BY_SHAPE = {
-    -- Beam-like effects
-    ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
@@ -13216,76 +13878,99 @@ function WizardVisuals.drawWizard(wizard)
     if wizard.sprite then
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
-        
+
+        -- Determine which sprite to draw (casting, idle animation, or static)
+        local spriteToDraw = nil
+
+        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
+            -- Use cast frame if we're in the middle of casting
+            spriteToDraw = wizard.castFrameSprite
+        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
+            -- Use current idle animation frame if available
+            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        else
+            -- Fallback to the original static sprite if no animation frames are available
+            spriteToDraw = wizard.sprite
+        end
+
+        -- Ensure spriteToDraw is not nil before attempting to draw
+        if not spriteToDraw then
+            print("Error: No sprite to draw for wizard " .. wizard.name)
+            -- Draw a placeholder rectangle as a last resort
+            love.graphics.setColor(1, 0, 0, 1) -- Red error color
+            love.graphics.rectangle("fill", wizard.x + xOffset - 20, wizard.y + yOffset - 30, 40, 60)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+            return
+        end
+
         -- Draw shadow first (when not AERIAL)
         if wizard.elevation == Constants.ElevationState.GROUNDED then
             love.graphics.setColor(0, 0, 0, 0.2)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
                 wizard.y + 40, -- Shadow on ground
                 0, -- No rotation
                 adjustedScale * 0.8, -- Slightly smaller shadow
                 wizard.scale * 0.3, -- Flatter shadow
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
         end
-        
+
         -- Draw the actual wizard with the appropriate color based on state
-        
+
         -- For hit flash, we use a special blend mode and draw the sprite twice
         if wizard.hitFlashTimer > 0 then
             -- First draw the normal sprite
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Save current blend mode
             local prevBlendMode = love.graphics.getBlendMode()
-            
+
             -- Set additive blend mode for glow effect
             love.graphics.setBlendMode("add")
-            
+
             -- Draw the bright overlay
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
-            
+
             -- Then overdraw with bright additive color
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Restore previous blend mode
             love.graphics.setBlendMode(prevBlendMode)
         else
             -- Normal drawing
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
             love.graphics.draw(
-            wizard.sprite, 
-            wizard.x + xOffset, 
-            wizard.y + yOffset, 
-            0, -- No rotation
-            adjustedScale * 2, -- Double scale
-            wizard.scale * 2, -- Double scale
-            wizard.sprite:getWidth() / 2, 
-            wizard.sprite:getHeight() / 2
-        )
-        
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
+                0, -- No rotation
+                adjustedScale * 2, -- Double scale
+                wizard.scale * 2, -- Double scale
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
+            )
         end -- End of if wizard.hitFlashTimer > 0 block
         
         -- Reset color back to default after drawing wizard
@@ -13294,7 +13979,7 @@ function WizardVisuals.drawWizard(wizard)
         -- Draw AERIAL cloud effect after wizard for proper layering
         if wizard.elevation == Constants.ElevationState.AERIAL then
             love.graphics.setColor(0.8, 0.8, 1.0, 0.3)
-            
+
             -- Draw more numerous, smaller animated cloud particles
             for i = 1, 8 do
                 -- Calculate wobble in both x and y directions
@@ -13302,11 +13987,11 @@ function WizardVisuals.drawWizard(wizard)
                 local angle = (i / 8) * math.pi * 2 + time
                 local xWobble = math.sin(time * 2 + i * 1.5) * 15
                 local yWobble = math.cos(time * 1.8 + i * 1.7) * 10
-                
+
                 -- Vary sizes for more natural look
                 local width = 20 + math.sin(time + i) * 5
                 local height = 6 + math.cos(time + i) * 2
-                
+
                 love.graphics.ellipse(
                     "fill",
                     wizard.x + xOffset + xWobble,
@@ -19264,7 +19949,23 @@ local function updateProjectile(effect, dt)
     effect.frameDuration = effect.frameDuration or 0.1 -- Default frame duration
     effect.currentFrame = effect.currentFrame or 1 -- Default current frame
     effect.frameTimer = effect.frameTimer or 0 -- Default frame timer
-    effect.visualProgress = effect.visualProgress or effect.progress -- Default visual progress
+
+    -- Always update visual progress from effect.progress on each frame
+    -- This ensures visualProgress increases over time consistently
+
+    -- Bug fix: visualProgress wasn't being set correctly for blocked projectiles
+    if effect.isBlocked then
+        -- For blocked effects, always update until it reaches the block point
+        local blockPoint = (effect.options and effect.options.blockPoint) or 1.0
+
+        if not effect.visualProgress or effect.visualProgress < effect.progress then
+            effect.visualProgress = math.min(effect.progress, blockPoint)
+            print("[PROJECTILE DEBUG] Updating visualProgress for blocked effect: " .. effect.visualProgress)
+        end
+    else
+        -- For normal effects, always sync visualProgress with progress on each update
+        effect.visualProgress = effect.progress
+    end
     
     -- Ensure path-related properties are set
     effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
@@ -19286,10 +19987,10 @@ local function updateProjectile(effect, dt)
     -- Get effect parameters with defaults
     local arcHeight = effect.arcHeight or 60
     
-    -- Use visualProgress for blocked effects, otherwise use normal progress
-    -- IMPORTANT: Only use visualProgress if the effect is blocked
-    local baseProgress = effect.isBlocked and effect.visualProgress or effect.progress
-    
+    -- Always use visualProgress for consistent animation
+    -- This ensures the head position consistently updates with each frame
+    local baseProgress = effect.visualProgress
+
     print(string.format("[PROJECTILE PROGRESS] isBlocked=%s, progress=%.2f, visualProgress=%.2f, baseProgress=%.2f",
         tostring(effect.isBlocked), effect.progress or 0, effect.visualProgress or 0, baseProgress))
     
@@ -19318,8 +20019,13 @@ local function updateProjectile(effect, dt)
     }
     
     -- Ensure we're using a valid progress value
-    baseProgress = baseProgress or (effect.progress or 0)
-    
+    -- Crucial: If baseProgress is nil, use effect.progress directly
+    -- This ensures we always have a value that increases over time
+    if baseProgress == nil then
+        baseProgress = effect.progress or 0
+        print("[PROJECTILE WARNING] baseProgress was nil, using effect.progress = " .. baseProgress)
+    end
+
     -- Now calculate the position along the path
     if effect.useCurvedPath then
         -- Use a parabolic path
@@ -19363,22 +20069,59 @@ local function updateProjectile(effect, dt)
     end
     
     -- Update trail points (shifting all points to make room for the new head)
+    -- Bug fix: Ensure head position is actually different before updating trail
+    -- This prevents the trail from being stuck at the same point
+    local shouldUpdateTrail = true
+
     if #effect.trailPoints > 0 then
-        -- For trail with length n, we want to preserve n points
-        -- Remove the last point
-        table.remove(effect.trailPoints)
-        
-        -- Insert the new head position at the beginning
-        table.insert(effect.trailPoints, 1, {
-            x = head.x,
-            y = head.y,
-            alpha = 1.0
-        })
-        
-        -- Update alpha values for the trail
-        for i = 2, #effect.trailPoints do
-            effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+        -- Check if the head has actually moved from the last position
+        local lastHeadX = effect.trailPoints[1] and effect.trailPoints[1].x
+        local lastHeadY = effect.trailPoints[1] and effect.trailPoints[1].y
+
+        -- Only create a new trail point if the head has moved at least a small distance
+        -- or if this is the first update
+        local minDistance = 1.0 -- Minimum distance to consider movement significant
+        if lastHeadX and lastHeadY then
+            local dx = head.x - lastHeadX
+            local dy = head.y - lastHeadY
+            local distanceMoved = math.sqrt(dx*dx + dy*dy)
+            shouldUpdateTrail = (distanceMoved >= minDistance)
+
+            if not shouldUpdateTrail then
+                print(string.format("[PROJECTILE DEBUG] Head position hasn't changed significantly: dist=%.2f < %.2f",
+                    distanceMoved, minDistance))
+            end
         end
+
+        if shouldUpdateTrail then
+            -- For trail with length n, we want to preserve n points
+            -- Remove the last point
+            table.remove(effect.trailPoints)
+
+            -- Insert the new head position at the beginning
+            table.insert(effect.trailPoints, 1, {
+                x = head.x,
+                y = head.y,
+                alpha = 1.0
+            })
+
+            -- Update alpha values for the trail
+            for i = 2, #effect.trailPoints do
+                effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+            end
+
+            print(string.format("[PROJECTILE DEBUG] Updated trail with new head position: (%.1f, %.1f)", head.x, head.y))
+        end
+    else
+        -- If there are no trail points yet, initialize with current head position
+        for i = 1, effect.trailLength do
+            table.insert(effect.trailPoints, {
+                x = head.x,
+                y = head.y,
+                alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
+            })
+        end
+        print("[PROJECTILE DEBUG] Initialized trail with starting position")
     end
     
     -- Update particles for the projectile trail
@@ -19446,8 +20189,14 @@ local function updateProjectile(effect, dt)
     end
     
     -- Write the head position to the effect for drawing
+    -- Critical bugfix: Force head position update even if trail wasn't updated
+    -- This ensures the head always reflects the current progress
     effect.headX = head.x
     effect.headY = head.y
+
+    -- Debug logging - track position updates
+    print(string.format("[PROJECTILE DEBUG] Updated head position: (%.1f, %.1f) at progress=%.2f",
+        head.x, head.y, baseProgress))
 end
 
 -- Draw function for projectile effects
@@ -20579,7 +21328,18 @@ function Wizard.new(name, x, y, color)
     
     -- Hit flash effect
     self.hitFlashTimer = 0
-    
+
+    -- Cast frame animation properties
+    self.castFrameSprite = nil
+    self.castFrameTimer = 0
+    self.castFrameDuration = 0.25 -- Show cast frame for 0.25 seconds
+
+    -- Idle animation properties
+    self.idleAnimationFrames = {}
+    self.currentIdleFrame = 1
+    self.idleFrameTimer = 0
+    self.idleFrameDuration = 0.15 -- seconds per frame
+
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
     
@@ -20632,7 +21392,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.watergun,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -20668,7 +21428,7 @@ function Wizard.new(name, x, y, color)
     local success, result = pcall(function()
         return love.graphics.newImage(spritePath)
     end)
-    
+
     if success then
         self.sprite = result
         print("Loaded wizard sprite: " .. spritePath)
@@ -20677,6 +21437,45 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load sprite " .. spritePath .. ". Using default wizard.png instead.")
         self.sprite = love.graphics.newImage("assets/sprites/wizard.png")
     end
+
+    -- Load cast frame sprite with fallback
+    local castFramePath = "assets/sprites/" .. string.lower(name) .. "-cast.png"
+    local castSuccess, castResult = pcall(function()
+        return love.graphics.newImage(castFramePath)
+    end)
+
+    if castSuccess then
+        self.castFrameSprite = castResult
+        print("Loaded wizard cast frame: " .. castFramePath)
+    else
+        -- No fallback for cast frame, just leave it nil
+        print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
+    end
+
+    -- Load idle animation frames specifically for Ashgar
+    if name == "Ashgar" then
+        local AssetCache = require("core.AssetCache")
+        for i = 1, 7 do
+            local framePath = "assets/sprites/" .. string.lower(name) .. "-idle-" .. i .. ".png"
+            local frameImg = AssetCache.getImage(framePath)
+            if frameImg then
+                table.insert(self.idleAnimationFrames, frameImg)
+            else
+                print("Warning: Could not load Ashgar idle frame: " .. framePath)
+                -- Fallback to using the main sprite if we can't load the idle frame
+                table.insert(self.idleAnimationFrames, self.sprite)
+            end
+        end
+        -- If no idle frames loaded, use the main sprite as a single-frame animation
+        if #self.idleAnimationFrames == 0 then
+            print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
+            table.insert(self.idleAnimationFrames, self.sprite)
+        end
+    else
+        -- For other wizards, populate with their main sprite for now
+        table.insert(self.idleAnimationFrames, self.sprite)
+    end
+
     self.scale = 1.0
     
     -- Keep references
@@ -20698,10 +21497,32 @@ function Wizard:update(dt)
     -- Reset flags at the beginning of each frame
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
-    
+
     -- Update hit flash timer
     if self.hitFlashTimer > 0 then
         self.hitFlashTimer = math.max(0, self.hitFlashTimer - dt)
+    end
+
+    -- Update cast frame timer
+    if self.castFrameTimer > 0 then
+        self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
+    end
+
+    -- Update idle animation timer and frame
+    -- Only animate idle if not casting or in another special visual state
+    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+        self.idleFrameTimer = self.idleFrameTimer + dt
+        if self.idleFrameTimer >= self.idleFrameDuration then
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.currentIdleFrame = self.currentIdleFrame + 1
+            if self.currentIdleFrame > #self.idleAnimationFrames then
+                self.currentIdleFrame = 1 -- Loop animation
+            end
+        end
+    else
+        -- If casting, reset idle animation to first frame to look clean when cast finishes
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
     end
     
     -- Update position animation
@@ -21368,8 +22189,13 @@ function Wizard:castSpell(spellSlot)
     
     -- Set the flag to indicate a spell was cast this frame (for trap triggers)
     self.justCastSpellThisFrame = true
-    
+
     print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
+
+    -- Activate cast frame animation if sprite is available
+    if self.castFrameSprite then
+        self.castFrameTimer = self.castFrameDuration
+    end
     
     -- Create a temporary visual notification for spell casting
     self.spellCastNotification = {
@@ -21794,20 +22620,22 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ### Better visual language for spell slots and cast progress
 * ?? on whole thing...current vibes are serviceable
-* Experiment with no explicitly drawn static orbit, only draw as cast bar
+* DONE - Experiment with no explicitly drawn static orbit, only draw as cast bar
 * Experiment with transparent lines or particles flowing between mana tokens in slot. Strengthen with cast progress?
 
 ### Unique "idle" animations for each stance
-* Stretch: unique "cast" animations for each stance
+* DONE - Stretch: unique "cast" animations for each stance
   
 ### Tween frames for range/position changes
-
+* DONE
 ### Establish visual language for Ninefold Path
 * Two colors per element, "core" and "aura"?
 
 ### FX on taking damage
-* Hitstop - exclude DoT (burn, etc. Minimum threshold?)
+* DONE - Hitstop - exclude DoT (burn, etc. Minimum threshold?)
+  * Implementation scales with DMG value - consistent rule that makes DoTs feel right.
 * Flashing effect for DoT (for everything maybe?)
+  * DONE, for everything
 
 ### Consistent-fy visual language for shield types: ward vs. barrier
 * Barrier is a partly-transparent "screen" that extends up and down from the spell slot
@@ -21820,12 +22648,14 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ## Rules Engine
 ### Update mana types to canonical Ninefold Path
+  * DONE
 * Material: FIRE, WATER, SALT
 * Celestial: SUN, MOON, STAR
 * Transcendental: SOURCE, MIND, VOID
 * Update all spells to use definitions
 
 ### Unify Shield spells with new "Trap" type/keyword set under a "sustained spell" umbrella
+* DONE
 
 ### Support "Field" spell type/keyword as an additional type of ongoing effect/"sustained spell"
 
@@ -21914,8 +22744,8 @@ This report shows the current VFX setup for each spell and recommendations for i
 
 ## docs/VerticalSliceMustHaves.md
 Polished spell templates:
-* ORB
-* BEAM
+* DONE BOLT
+* DONE BEAM
 * WARP
 * BLAST
 * METEOR
@@ -21932,9 +22762,9 @@ SFX:
 Character animation:
 * Absolute bare minimum: 2-frame idles
 * Ideally: 4-frame idles _per position_.
-* 1-frame Cast per-position
-* Flash/shake on-hit
-* Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
+* DONE 1-frame Cast per-position
+* DONE Flash/shake on-hit
+* DONE Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
 * 
 
 ## docs/Visual_Language.md
@@ -23361,7 +24191,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri May  9 16:32:37 CDT 2025
+Generated: Tue May 13 12:49:06 CDT 2025
 
 # Source Code
 
@@ -23369,16 +24199,17 @@ Generated: Fri May  9 16:32:37 CDT 2025
 ```lua
 -- ai/OpponentAI.lua
 -- Basic AI opponent for Manastorm
--- Phase 1: Local Demo Implementation
+-- Phase 2: Modular AI Architecture with Personality System
 
 local Constants = require("core.Constants")
 local ManaHelpers = require("systems.ManaHelpers")
+local PersonalityBase = require("ai.PersonalityBase")
 
 -- Define the OpponentAI module
 local OpponentAI = {}
 
 -- AI States - Define as constants for clarity
-local STATE = {
+OpponentAI.STATE = {
     IDLE = "IDLE",             -- Default state, focus on building mana resources
     ATTACK = "ATTACK",         -- Aggressive offense, prioritize damage spells
     DEFEND = "DEFEND",         -- Defensive posture, prioritize shields and healing
@@ -23390,26 +24221,33 @@ local STATE = {
 -- Constructor for OpponentAI
 -- @param wizard - The wizard object this AI will control (typically game.wizards[2])
 -- @param gameState - Reference to the game state (the global 'game' object)
-function OpponentAI.new(wizard, gameState)
+-- @param personalityModule - The personality module to use for decision making
+function OpponentAI.new(wizard, gameState, personalityModule)
+    -- Create default personality if none provided
+    personalityModule = personalityModule or PersonalityBase.new("Default")
+    
     -- Create a new instance
     local ai = {
         -- Store references to game objects
         wizard = wizard,
         gameState = gameState,
         
+        -- Store personality
+        personality = personalityModule,
+        
         -- Track the opposing wizard (player's wizard)
         playerWizard = nil,
         
         -- Track last perception time for throttling
         lastPerceptionTime = 0,
-        perceptionInterval = 0.5, -- Update perception every 0.5 seconds
+        perceptionInterval = 2, -- Update perception every 2 seconds
         
         -- Track last action time for throttling
         lastActionTime = 0,
         actionInterval = 1.0, -- Consider actions every 1.0 seconds
         
         -- Simple finite state machine
-        currentState = STATE.IDLE, -- Initial state
+        currentState = OpponentAI.STATE.IDLE, -- Initial state
         lastState = nil,           -- Previous state for transition detection
         stateChangeTime = 0,       -- When the last state change occurred
         
@@ -23612,6 +24450,7 @@ end
 function OpponentAI:printPerceptionDebug()
     local p = self.perception
     print("=== AI PERCEPTION ===")
+    print(string.format("PERSONALITY: %s", self.personality.name))
     print(string.format("HEALTH: Self=%d, Opponent=%d", p.selfHealth, p.opponentHealth))
     print(string.format("RANGE: %s, ELEVATION: Self=%s, Opp=%s", 
         p.rangeState, p.ownElevation, p.opponentElevation))
@@ -23661,258 +24500,122 @@ function OpponentAI:decide()
     local p = self.perception
     local spellbook = self.wizard.spellbook
     
-    -- Basic state transition logic based on health and threat
-    
-    -- Critical health - go into escape mode
-    if p.selfCriticalHealth then
-        self.currentState = STATE.ESCAPE
+    -- Check if personality wants to override state selection
+    local suggestedState = self.personality:suggestState(self, p)
+    if suggestedState then
+        self.currentState = suggestedState
+    else
+        -- Basic state transition logic based on health and threat
         
-        -- First try to find a shield spell if not already shielded
-        if not p.hasActiveShield then
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Critical health - need shield"
-                }
+        -- Critical health - go into escape mode
+        if p.selfCriticalHealth then
+            self.currentState = OpponentAI.STATE.ESCAPE
+        
+        -- Low health - prioritize defense
+        elseif p.selfLowHealth and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- Opponent has very low health - press the advantage
+        elseif p.opponentLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- Opponent is casting something - consider countering
+        elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
+            self.currentState = OpponentAI.STATE.COUNTER
+        
+        -- If health advantage is significant and we're not in low health, attack
+        elseif p.healthAdvantage > 15 and not p.selfLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- If we're at a health disadvantage, consider defense
+        elseif p.healthAdvantage < -15 and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- If no tokens or very few tokens are available, focus on gaining resources
+        elseif p.totalFreeTokens <= 1 then
+            self.currentState = OpponentAI.STATE.IDLE
+        
+        -- Default state when no specific criteria are met - slight aggression bias
+        else
+            -- Slightly biased toward attacking when nothing else is going on
+            local randomChoice = math.random(1, 10)
+            
+            if randomChoice <= 6 then -- 60% chance of attack
+                self.currentState = OpponentAI.STATE.ATTACK
+            elseif randomChoice <= 9 then -- 30% chance of defense
+                self.currentState = OpponentAI.STATE.DEFEND
+            else -- 10% chance of resource gathering
+                self.currentState = OpponentAI.STATE.IDLE
             end
         end
-        
-        -- If shield not available, try mobility
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell and self.wizard:canPayManaCost(escapeSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = escapeSpell,
-                reason = "Critical health - escape"
-            }
-        end
-        
-        -- Last resort - free all spells
-        if p.activeSlots > 0 then
-            return { 
-                type = "FREE_ALL", 
+    end
+    
+    -- State->Action mapping
+    local spell = nil
+    local actionType = nil
+    local reason = nil
+    
+    -- Based on the current state, decide what specific spell to cast
+    if self.currentState == OpponentAI.STATE.ATTACK then
+        -- Ask personality module for attack spell
+        spell = self.personality:getAttackSpell(self, p, spellbook)
+        reason = "Attack"
+        actionType = "ATTACK_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.DEFEND then
+        -- Ask personality module for defense spell
+        spell = self.personality:getDefenseSpell(self, p, spellbook)
+        reason = "Defense"
+        actionType = "DEFEND_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.COUNTER then
+        -- Ask personality module for counter spell
+        spell = self.personality:getCounterSpell(self, p, spellbook)
+        reason = "Counter"
+        actionType = "COUNTER_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.ESCAPE then
+        -- Emergency defense: shield, escape, or free all (last resort)
+        if p.activeSlots > 0 and p.totalFreeTokens < 1 then
+            -- No resources, free all spell slots
+            return {
+                type = "FREE_ALL",
                 reason = "Critical health - free resources"
             }
         end
         
-        return { 
-            type = "ESCAPE_ACTION", 
-            reason = "Critical health (" .. p.selfHealth .. ")"
-        }
+        -- Ask personality module for escape spell
+        spell = self.personality:getEscapeSpell(self, p, spellbook)
+        reason = "Escape"
+        actionType = "ESCAPE_ACTION"
     
-    -- Low health - prioritize defense
-    elseif p.selfLowHealth and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Low health defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Low health, need shield"
-        }
+    elseif self.currentState == OpponentAI.STATE.POSITION then
+        -- Ask personality module for positioning spell
+        spell = self.personality:getPositioningSpell(self, p, spellbook)
+        reason = "Positioning"
+        actionType = "POSITION_ACTION"
     
-    -- Opponent has very low health - press the advantage
-    elseif p.opponentLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use strongest attack spell available
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Offensive finish"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Opponent low health (" .. p.opponentHealth .. ")"
-        }
-    
-    -- Opponent is casting something - consider countering
-    elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
-        self.currentState = STATE.COUNTER
-        
-        -- Try counter spells
-        if self:hasAvailableSpellSlot() then
-            local counterOptions = {
-                spellbook["13"], -- eclipse (freezes crown slot)
-                spellbook["3"]   -- moondance (changes range, can disrupt)
-            }
-            
-            for _, spell in ipairs(counterOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell, 
-                        reason = "Counter opponent spell"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "COUNTER_ACTION", 
-            reason = "Opponent casting spell"
-        }
-    
-    -- If health advantage is significant and we're not in low health, attack
-    elseif p.healthAdvantage > 15 and not p.selfLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use offensive spell based on available mana
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Press advantage"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Health advantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If we're at a health disadvantage, consider defense
-    elseif p.healthAdvantage < -15 and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Health disadvantage defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Health disadvantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If no tokens or very few tokens are available, focus on gaining resources
-    elseif p.totalFreeTokens <= 1 then
-        self.currentState = STATE.IDLE
-        
-        -- Try conjuring spell
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
-        if conjureSpell and self:hasAvailableSpellSlot() and 
-           (p.totalFreeTokens == 0 or self.wizard:canPayManaCost(conjureSpell.cost)) then
-            return { 
-                type = "CAST_SPELL", 
-                spell = conjureSpell,
-                reason = "Generate resources"
-            }
-        end
-        
-        return { 
-            type = "CONJURE_ACTION", 
-            reason = "Need resources (tokens: " .. p.totalFreeTokens .. ")"
-        }
-    
-    -- Default state when no specific criteria are met - slight aggression bias
-    else
-        -- Slightly biased toward attacking when nothing else is going on
-        local randomChoice = math.random(1, 10)
-        
-        if randomChoice <= 6 then -- 60% chance of attack
-            self.currentState = STATE.ATTACK
-            
-            -- Try an attack spell if possible
-            if self:hasAvailableSpellSlot() then
-                local attackOptions = {
-                    spellbook["123"], -- fullmoonbeam
-                    spellbook["13"], -- eclipse
-                    spellbook["3"]   -- moondance
-                }
-                
-                for _, spell in ipairs(attackOptions) do
-                    if spell and self.wizard:canPayManaCost(spell.cost) then
-                        return { 
-                            type = "CAST_SPELL", 
-                            spell = spell,
-                            reason = "Default attack"
-                        }
-                    end
-                end
-            end
-            
-            return { 
-                type = "ATTACK_ACTION", 
-                reason = "Default aggression"
-            }
-            
-        elseif randomChoice <= 9 then -- 30% chance of defense
-            self.currentState = STATE.DEFEND
-            
-            -- Try defensive spell if possible
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() 
-               and not p.hasActiveShield then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Default defense"
-                }
-            end
-            
-            return { 
-                type = "DEFEND_ACTION", 
-                reason = "Default caution"
-            }
-            
-        else -- 10% chance of resource gathering
-            self.currentState = STATE.IDLE
-            
-            -- Try conjuring spell if possible
-            local conjureSpell = spellbook["1"] -- conjuremoonlight
-            if conjureSpell and self.wizard:canPayManaCost(conjureSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = conjureSpell,
-                    reason = "Default resource gathering"
-                }
-            end
-            
-            return { 
-                type = "WAIT_ACTION", 
-                reason = "Default patience"
-            }
-        end
+    elseif self.currentState == OpponentAI.STATE.IDLE then
+        -- Ask personality module for conjure/resource spell
+        spell = self.personality:getConjureSpell(self, p, spellbook)
+        reason = "Generate resources"
+        actionType = "CONJURE_ACTION"
     end
+    
+    -- If we found a specific spell and have a slot for it, cast it
+    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+        return {
+            type = "CAST_SPELL",
+            spell = spell,
+            reason = reason
+        }
+    end
+    
+    -- Return the general action if no specific spell was found or affordable
+    return {
+        type = actionType,
+        reason = reason .. " (no specific spell found or affordable)"
+    }
 end
 
 -- Execute the decided action
@@ -23939,30 +24642,6 @@ function OpponentAI:act(decision)
         print("[AI] Freeing all spells")
         wizard:freeAllSpells()
         
-    elseif decision.type == "ATTACK_ACTION" then
-        -- Choose and cast an offensive spell based on available mana
-        self:castOffensiveSpell()
-        
-    elseif decision.type == "DEFEND_ACTION" then
-        -- Choose and cast a defensive spell based on available mana
-        self:castDefensiveSpell()
-        
-    elseif decision.type == "CONJURE_ACTION" then
-        -- Cast a mana conjuring spell
-        self:castConjurationSpell()
-        
-    elseif decision.type == "COUNTER_ACTION" then
-        -- Cast a counter spell against opponent's active spell
-        self:castCounterSpell()
-        
-    elseif decision.type == "ESCAPE_ACTION" then
-        -- Cast an escape spell for desperate situations
-        self:castEscapeSpell()
-        
-    elseif decision.type == "POSITION_ACTION" then
-        -- Cast positioning spell to change range or elevation
-        self:castPositioningSpell()
-        
     elseif decision.type == "CAST_SPELL" and decision.spell then
         -- Direct spell casting (specified by higher-level logic)
         print("[AI] Casting specific spell: " .. decision.spell.name)
@@ -23970,6 +24649,62 @@ function OpponentAI:act(decision)
         if not success then
             print("[AI] Failed to cast " .. decision.spell.name)
         end
+    
+    -- Generic action types - try to get a spell from personality as fallback
+    elseif decision.type == "ATTACK_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ATTACK, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting attack spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable attack spell found")
+        end
+        
+    elseif decision.type == "DEFEND_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.DEFEND, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting defense spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable defense spell found")
+        end
+        
+    elseif decision.type == "COUNTER_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.COUNTER, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting counter spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable counter spell found")
+        end
+        
+    elseif decision.type == "ESCAPE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ESCAPE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting escape spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable escape spell found")
+        end
+        
+    elseif decision.type == "POSITION_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.POSITION, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting positioning spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable positioning spell found")
+        end
+        
+    elseif decision.type == "CONJURE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.IDLE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting conjure spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable conjure spell found")
+        end
+    
     else
         print("[AI] Unknown action type: " .. decision.type)
     end
@@ -23985,203 +24720,675 @@ function OpponentAI:hasAvailableSpellSlot()
     return false
 end
 
--- Try to cast an offensive spell based on available mana
-function OpponentAI:castOffensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    local spellsToTry = {}
+return OpponentAI```
+
+## ./ai/PersonalityBase.lua
+```lua
+-- ai/PersonalityBase.lua
+-- Interface for wizard AI personalities in Manastorm
+-- Defines the contract for how personality modules interact with the OpponentAI system
+
+local PersonalityBase = {}
+
+-- Constructor for personality modules
+-- @param name - A string identifier for the personality
+function PersonalityBase.new(name)
+    local personality = {
+        name = name or "Generic",
+        description = "Base personality module - meant to be extended"
+    }
     
-    -- If we have a lot of tokens, try the most powerful spell
-    if p.totalFreeTokens >= 3 and self:hasAvailableSpellSlot() then
-        -- Try full moon beam (3-key combo) if we have enough mana
-        table.insert(spellsToTry, spellbook["123"]) -- fullmoonbeam
-    end
+    -- Set metatable to use PersonalityBase methods
+    setmetatable(personality, {__index = PersonalityBase})
     
-    -- Try 2-key offensive combos
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Add offensive 2-key spells
-        if p.opponentElevation == Constants.ElevationState.AERIAL then
-            -- Gravity trap good against aerial opponents
-            table.insert(spellsToTry, spellbook["23"]) -- gravityTrap
-        end
-        
-        -- Try to use positioning tricks
-        table.insert(spellsToTry, spellbook["13"]) -- eclipse
-    end
-    
-    -- Try simpler attacks if nothing else worked
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        -- Add single key offensive spells
-        table.insert(spellsToTry, spellbook["3"]) -- moondance (position change)
-    end
-    
-    -- Try each spell in order of preference
-    for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting offensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
-        end
-    end
-    
-    -- If we couldn't cast anything offensive, try to build resources
-    if p.totalFreeTokens < 2 then
-        return self:castConjurationSpell()
-    end
-    
-    return false
+    return personality
 end
 
--- Try to cast a defensive spell based on available mana
-function OpponentAI:castDefensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getAttackSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getDefenseSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getCounterSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getEscapeSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getConjureSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getPositioningSpell(ai, perception, spellbook)
+    -- Base implementation returns nil - should be overridden by derived personalities
+    return nil
+end
+
+-- Get best spell for a given intent/state when no specific spell was found
+-- @param state - The AI state (from OpponentAI.STATE)
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function PersonalityBase:getBestSpellForIntent(state, ai, perception, spellbook)
+    -- This is a fallback method for when more specific methods don't find a suitable spell
+    -- Each personality can implement custom fallback logic
+    
+    -- Base implementation tries to match the state to a specific spell getter
+    if state == "ATTACK" then
+        return self:getAttackSpell(ai, perception, spellbook)
+    elseif state == "DEFEND" then
+        return self:getDefenseSpell(ai, perception, spellbook)
+    elseif state == "COUNTER" then
+        return self:getCounterSpell(ai, perception, spellbook)
+    elseif state == "ESCAPE" then
+        return self:getEscapeSpell(ai, perception, spellbook)
+    elseif state == "IDLE" then
+        return self:getConjureSpell(ai, perception, spellbook)
+    elseif state == "POSITION" then
+        return self:getPositioningSpell(ai, perception, spellbook)
+    end
+    
+    return nil
+end
+
+-- Can be used to provide character-specific customizations to FSM state selection
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @return - A string state name or nil to use default state selection logic
+function PersonalityBase:suggestState(ai, perception)
+    -- Base implementation returns nil, letting the core AI decide
+    -- Derived personalities can override this to customize state selection
+    return nil
+end
+
+return PersonalityBase```
+
+## ./ai/personalities/AshgarPersonality.lua
+```lua
+-- ai/personalities/AshgarPersonality.lua
+-- AI personality module for Ashgar the Emberfist
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the AshgarPersonality module
+local AshgarPersonality = PersonalityBase.new("Ashgar the Emberfist")
+
+-- Ashgar's Spellbook:
+-- "1": Conjure Fire (Conjure)
+-- "2": Nova Conjuring (Resource Management/Setup)
+-- "3": Firebolt (Attack)
+-- "12": Battle Shield (Defense)
+-- "13": Blast Wave (Attack - Zone, good vs NEAR)
+-- "23": Emberlift (Positioning/Utility, Conjure Fire)
+-- "123": Meteor (Attack - Aerial Finisher, requires AERIAL setup)
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
     local spellsToTry = {}
     
-    -- Best defense is shield
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Try shield spell (wrapinmoonlight)
-        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
+    -- Meteor (powerful aerial finisher) - if both conditions are met:
+    -- 1. AI is in AERIAL state
+    -- 2. Opponent is in GROUNDED state
+    if p.ownElevation == Constants.ElevationState.AERIAL and 
+       p.opponentElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["123"]) -- Meteor
+    end
+    
+    -- Blast Wave (good at NEAR range)
+    if p.rangeState == Constants.RangeState.NEAR and 
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Blast Wave
+    end
+    
+    -- Firebolt (basic attack, better at FAR range)
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- Firebolt 
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- Battle Shield is Ashgar's primary defense
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and not p.hasActiveShield then
+        table.insert(spellsToTry, spellbook["12"]) -- Battle Shield
+    end
+    
+    -- Emberlift can be used to escape by changing elevation
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and 
+       p.ownElevation == Constants.ElevationState.GROUNDED then
+        table.insert(spellsToTry, spellbook["23"]) -- Emberlift
     end
     
     -- If we don't have enough tokens for a shield
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
         -- Try to gain tokens
-        table.insert(spellsToTry, spellbook["1"]) -- conjuremoonlight
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Fire
     end
     
-    -- Try each spell in order of preference
+    -- Return the first affordable spell
     for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting defensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- If we couldn't cast any defensive spell, try to build resources
-    return self:castConjurationSpell()
+    return nil
 end
 
--- Try to cast a mana conjuring spell
-function OpponentAI:castConjurationSpell()
-    local spellbook = self.wizard.spellbook
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
-    -- Try conjuration spell if a slot is available
-    if self:hasAvailableSpellSlot() then
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
+    -- Ashgar doesn't have direct counter spells like Selene's Eclipse,
+    -- but he can use Blast Wave to disrupt opponents at NEAR range
+    -- or Emberlift to change position
+    
+    if p.opponentHasDangerousSpell then
+        -- If near, use Blast Wave as a counter
+        if p.rangeState == Constants.RangeState.NEAR and p.totalFreeTokens >= 2 then
+            table.insert(spellsToTry, spellbook["13"]) -- Blast Wave
+        end
         
-        if conjureSpell then
-            print("[AI] Attempting conjuration: " .. conjureSpell.name)
-            local success = self.wizard:queueSpell(conjureSpell)
-            if success then
-                print("[AI] Successfully cast " .. conjureSpell.name)
-                return true
+        -- Use Emberlift to change position and potentially disrupt
+        if p.totalFreeTokens >= 2 and p.ownElevation == Constants.ElevationState.GROUNDED then
+            table.insert(spellsToTry, spellbook["23"]) -- Emberlift
+        end
+        
+        -- Simple attack may also work as disruption
+        if p.totalFreeTokens >= 1 then
+            table.insert(spellsToTry, spellbook["3"]) -- Firebolt
+        end
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    -- If no counter spell is available, fall back to a defensive option
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- When in critical health
+    
+    -- First priority: Battle Shield if not already shielded
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Battle Shield
+    end
+    
+    -- Second priority: Emberlift to change elevation (if grounded)
+    if p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["23"]) -- Emberlift
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getConjureSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- Try to use Nova Conjuring for more advanced resource generation
+    -- when we already have some tokens
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- Nova Conjuring
+    end
+    
+    -- Basic conjuration spell - always useful
+    if ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Fire
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function AshgarPersonality:getPositioningSpell(ai, perception, spellbook)
+    local p = perception
+    
+    -- Emberlift is Ashgar's primary positioning spell
+    -- Use it when grounded to gain aerial advantage
+    if p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local posSpell = spellbook["23"] -- Emberlift
+        
+        if posSpell and ai.wizard:canPayManaCost(posSpell.cost) then
+            return posSpell
+        end
+    end
+    
+    return nil
+end
+
+-- Suggest custom state based on Ashgar's special capabilities
+function AshgarPersonality:suggestState(ai, perception)
+    local p = perception
+    
+    -- Consider positioning to setup an aerial meteor attack
+    if not p.selfCriticalHealth and -- not in emergency
+       p.ownElevation == Constants.ElevationState.GROUNDED and
+       p.totalFreeTokens >= 2 and 
+       ai:hasAvailableSpellSlot() then
+        
+        -- 20% chance to try positioning for a meteor setup when conditions are good
+        if math.random(1, 5) == 1 then
+            return ai.STATE.POSITION
+        end
+    end
+    
+    -- Let the core AI decide in other cases
+    return nil
+end
+
+return AshgarPersonality```
+
+## ./ai/personalities/SelenePersonality.lua
+```lua
+-- ai/personalities/SelenePersonality.lua
+-- AI personality module for Selene of the Veil
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the SelenePersonality module
+local SelenePersonality = PersonalityBase.new("Selene of the Veil")
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+    
+    -- CORE STRATEGY: 
+    -- 1. Save up for Full Moon Beam
+    -- 2. Try to queue Full Moon Beam in the middle slot
+    -- 3. Use Eclipse to boost its damage
+    
+    -- Track what spells we already have active
+    local fullMoonBeamActive = false
+    local eclipseActive = false
+    local moonDanceActive = false
+    local gravityTrapActive = false
+    local fullMoonBeamSlot = nil
+    
+    for i, slot in ipairs(p.spellSlots) do
+        if slot.active then
+            if slot.spellType == "fullmoonbeam" then
+                fullMoonBeamActive = true
+                fullMoonBeamSlot = i
+            elseif slot.spellType == "eclipse" then
+                eclipseActive = true
+            elseif slot.spellType == "moondance" then
+                moonDanceActive = true
+            elseif slot.spellType == "gravityTrap" then
+                gravityTrapActive = true
             end
         end
     end
     
-    return false
+    -- Check if we have enough resources for Full Moon Beam
+    if p.totalFreeTokens >= 4 and not fullMoonBeamActive and ai:hasAvailableSpellSlot() then
+        -- We have enough tokens for Full Moon Beam, prioritize it
+        local fullMoonBeam = spellbook["123"] -- Full Moon Beam
+        if fullMoonBeam and ai.wizard:canPayManaCost(fullMoonBeam.cost) then
+            -- We're specifically looking for this, so prioritize it highly
+            return fullMoonBeam
+        end
+    end
+    
+    -- If we have Full Moon Beam active, follow up with Eclipse to enhance it
+    if fullMoonBeamActive and not eclipseActive and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local eclipse = spellbook["13"] -- Eclipse
+        if eclipse and ai.wizard:canPayManaCost(eclipse.cost) then
+            return eclipse
+        end
+    end
+    
+    -- If opponent is aerial, consider Gravity Trap
+    if p.opponentElevation == Constants.ElevationState.AERIAL and p.totalFreeTokens >= 2 and 
+       not gravityTrapActive and ai:hasAvailableSpellSlot() then
+        local gravityTrap = spellbook["23"] -- gravityTrap
+        if gravityTrap and ai.wizard:canPayManaCost(gravityTrap.cost) then
+            table.insert(spellsToTry, gravityTrap)
+        end
+    end
+    
+    -- If we have a shield up and < 3 tokens, consider Moon Dance for chip damage
+    if p.hasActiveShield and p.totalFreeTokens >= 1 and p.totalFreeTokens < 3 and 
+       not moonDanceActive and ai:hasAvailableSpellSlot() then
+        local moonDance = spellbook["3"] -- moondance
+        if moonDance and ai.wizard:canPayManaCost(moonDance.cost) then
+            table.insert(spellsToTry, moonDance)
+        end
+    end
+    
+    -- If we have 3+ tokens but can't do Full Moon Beam for some reason, try Eclipse
+    if not eclipseActive and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local eclipse = spellbook["13"] -- eclipse
+        if eclipse and ai.wizard:canPayManaCost(eclipse.cost) then
+            table.insert(spellsToTry, eclipse)
+        end
+    end
+    
+    -- Return the first affordable spell from our priority list
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    
+    return nil
 end
 
--- Try to cast a counter spell against opponent's active spell
-function OpponentAI:castCounterSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best defensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- ENHANCED STRATEGY: Prioritize defense more - try to keep a shield up at all times
+    -- Put up a shield whenever we don't have one and can afford it, not just when low health
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() and not p.hasActiveShield then
+        -- Try shield spell (wrapinmoonlight) - Selene's primary advantage
+        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
+    end
+
+    -- Secondary options if shield isn't possible
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        -- If health is starting to get low, consider evasive maneuvers
+        if p.selfHealth < 75 and not p.hasActiveShield then
+            table.insert(spellsToTry, spellbook["3"]) -- moondance (position change for evasion)
+        end
+
+        -- Building resources is also defensive when we need tokens for shield
+        if p.totalFreeTokens < 2 then
+            table.insert(spellsToTry, spellbook["1"]) -- conjuremoonlight
+        end
+    end
+
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
     -- Check if there's something to counter and we have enough resources
-    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
+    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
         -- For Selene, try using eclipse or moondance
-        local counterSpells = {
-            spellbook["13"], -- eclipse (freezes crown slot)
-            spellbook["3"]   -- moondance (can disrupt by changing range)
-        }
-        
-        -- Try each counter spell
-        for _, spell in ipairs(counterSpells) do
-            if spell then
-                print("[AI] Attempting counter spell: " .. spell.name)
-                local success = self.wizard:queueSpell(spell)
-                if success then
-                    print("[AI] Successfully cast counter " .. spell.name)
-                    return true
-                end
-            end
+        table.insert(spellsToTry, spellbook["13"]) -- eclipse (freezes crown slot)
+        table.insert(spellsToTry, spellbook["3"])  -- moondance (can disrupt by changing range)
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- If countering failed, try attacking instead
-    return self:castOffensiveSpell()
+    -- If no counter spell is available, fall back to a defensive option
+    return self:getDefenseSpell(ai, perception, spellbook)
 end
 
--- Try to cast an escape spell for desperate situations
-function OpponentAI:castEscapeSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best escape spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
     
     -- When in critical health, try shield, range change, or free all slots
     
     -- First priority: shields if not already shielded
-    if not p.hasActiveShield and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell then
-            print("[AI] Attempting emergency shield: " .. shieldSpell.name)
-            local success = self.wizard:queueSpell(shieldSpell)
-            if success then 
-                return true
-            end
-        end
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
     end
     
     -- Second priority: change range/position
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell then
-            print("[AI] Attempting escape with: " .. escapeSpell.name)
-            local success = self.wizard:queueSpell(escapeSpell)
-            if success then 
-                return true
-            end
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- moondance
+    end
+    
+    -- Return the first affordable spell
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
         end
     end
     
-    -- Last resort: free all slots to get more resources
-    if p.activeSlots > 0 then
-        print("[AI] Emergency - freeing all spell slots")
-        self.wizard:freeAllSpells()
-        return true
-    end
-    
-    return false
+    return nil
 end
 
--- Try to cast a positioning spell to change range or elevation
-function OpponentAI:castPositioningSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
+-- Get the best conjuration spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getConjureSpell(ai, perception, spellbook)
+    local p = perception
     
-    -- Try to use moondance to change range
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
+    -- Try conjuration spell if a slot is available
+    if ai:hasAvailableSpellSlot() then
+        local conjureSpell = spellbook["1"] -- conjuremoonlight
+        
+        if conjureSpell and ai.wizard:canPayManaCost(conjureSpell.cost) then
+            return conjureSpell
+        end
+    end
+    
+    return nil
+end
+
+-- Get the best positioning spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SelenePersonality:getPositioningSpell(ai, perception, spellbook)
+    local p = perception
+    
+    -- If at NEAR range, prioritize Moon Dance to get back to FAR
+    if p.rangeState == Constants.RangeState.NEAR then
+        local moonDance = spellbook["3"] -- moondance
+        if moonDance and ai.wizard:canPayManaCost(moonDance.cost) and ai:hasAvailableSpellSlot() then
+            return moonDance
+        end
+    end
+    
+    -- Default behavior - try to use moondance to change range if needed
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
         local posSpell = spellbook["3"] -- moondance
-        if posSpell then
-            print("[AI] Attempting position change with: " .. posSpell.name)
-            local success = self.wizard:queueSpell(posSpell)
-            if success then
-                return true
-            end
+        
+        if posSpell and ai.wizard:canPayManaCost(posSpell.cost) then
+            return posSpell
         end
     end
     
-    return false
+    return nil
 end
 
-return OpponentAI```
+-- Override suggestState to provide Selene-specific state suggestions
+function SelenePersonality:suggestState(ai, perception)
+    local p = perception
+    
+    -- If at NEAR range, prioritize positioning to get back to FAR
+    if p.rangeState == Constants.RangeState.NEAR and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        -- 80% chance to prioritize positioning when at NEAR range
+        if math.random() < 0.5 then
+            return ai.STATE.POSITION
+        end
+    end
+    
+    -- NEW CORE STRATEGY: Focus on resource accumulation for Full Moon Beam + Eclipse combo
+    -- If we have a shield up and 3+ tokens, focus on attacking to try our combo
+    if p.hasActiveShield and p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        -- With a shield up and enough tokens, we should try our combo
+        return ai.STATE.ATTACK
+    end
+    
+    -- If we have a lot of tokens, prioritize attacking to use them
+    if p.totalFreeTokens >= 4 and ai:hasAvailableSpellSlot() then
+        -- We have enough tokens for our most powerful spells
+        return ai.STATE.ATTACK
+    end
+    
+    -- ENHANCED STRATEGY: More proactive shield usage
+    -- Prioritize defense if we don't have a shield and have enough resources
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        -- 70% chance to prioritize defense when we don't have a shield (increased from 60%)
+        if math.random() < 0.7 then
+            return ai.STATE.DEFEND
+        end
+    end
+    
+    -- ENHANCED STRATEGY: Resource accumulation when we have a shield but not enough tokens
+    -- If we have a shield but less than 3 tokens, focus on resource gathering
+    if p.hasActiveShield and p.totalFreeTokens < 3 then
+        -- 70% chance to focus on resource gathering when we have a shield but few tokens
+        if math.random() < 0.7 then
+            return ai.STATE.IDLE
+        end
+    end
+    
+    -- ENHANCED STRATEGY: Prioritize Counter when opponent is casting
+    -- If opponent is casting and we have enough tokens, counter them
+    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        -- 80% chance to try countering dangerous spells
+        if math.random() < 0.8 then
+            return ai.STATE.COUNTER
+        end
+    end
+    
+    -- Let the default AI logic handle other cases
+    return nil
+end
+
+return SelenePersonality```
 
 ## ./conf.lua
 ```lua
@@ -24542,11 +25749,11 @@ Constants.VisualShape = {
 }
 
 Constants.CastSpeed = {
-    VERY_SLOW = 12,
-    SLOW = 8,
-    NORMAL = 5,
-    FAST = 3,
-    VERY_FAST = 1.5,
+    VERY_SLOW = 15,
+    SLOW = 12,
+    NORMAL = 9,
+    FAST = 6,
+    VERY_FAST = 3,
     ONE_TIER = 3
 }
 
@@ -25725,7 +26932,18 @@ function AssetPreloader.preloadAllAssets()
             
             -- Game entity assets
             "assets/sprites/wizard.png",
-            
+            "assets/sprites/ashgar.png",
+            "assets/sprites/ashgar-cast.png",
+            "assets/sprites/ashgar-idle-1.png",
+            "assets/sprites/ashgar-idle-2.png",
+            "assets/sprites/ashgar-idle-3.png",
+            "assets/sprites/ashgar-idle-4.png",
+            "assets/sprites/ashgar-idle-5.png",
+            "assets/sprites/ashgar-idle-6.png",
+            "assets/sprites/ashgar-idle-7.png",
+            "assets/sprites/selene.png",
+            "assets/sprites/selene-cast.png",
+
             "assets/sprites/grounded-circle.png"
         },
         
@@ -27146,6 +28364,8 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
+local SelenePersonality = require("ai.personalities.SelenePersonality")
+local AshgarPersonality = require("ai.personalities.AshgarPersonality")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -27174,9 +28394,13 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Attract mode properties
+    attractModeActive = false,
+    menuIdleTimer = 0,
+    ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -27559,8 +28783,23 @@ function resetGame()
     
     -- Reinitialize AI opponent if AI mode is enabled
     if game.useAI then
-        game.opponentAI = OpponentAI.new(game.wizards[2], game)
-        print("AI opponent reinitialized")
+        -- Use the appropriate personality based on which wizard is controlled by AI
+        local aiWizard = game.wizards[2]
+        local personality
+
+        if aiWizard.name == "Selene" then
+            personality = SelenePersonality
+            print("Initializing Selene AI personality")
+        elseif aiWizard.name == "Ashgar" then
+            personality = AshgarPersonality
+            print("Initializing Ashgar AI personality")
+        else
+            -- Default to base personality for unknown wizards
+            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        end
+
+        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -27586,6 +28825,77 @@ end
 -- Add resetGame function to game state so Input system can call it
 function game.resetGame()
     resetGame()
+end
+
+-- Function to start an AI vs AI attract mode game
+function startGameAttractMode()
+    print("Starting attract mode...")
+
+    -- Mark attract mode as active
+    game.attractModeActive = true
+
+    -- Reset the game to clear any existing state
+    resetGame()
+
+    -- Temporarily store input routes so we can restore them later
+    game.savedInputRoutes = {
+        p1 = Input.Routes.p1,
+        p2 = Input.Routes.p2
+    }
+
+    -- Disable player input during attract mode
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+
+    -- Make sure AI mode is enabled but not tracked by the normal flag
+    -- This way we can have two AI players without affecting the normal mode
+    game.useAI = false
+
+    -- Create AI for player 1 (Ashgar)
+    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+    game.player1AI = player1AI
+
+    -- Create AI for player 2 (Selene)
+    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+    game.player2AI = player2AI
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Transition to the attract mode battle state
+    game.currentState = "BATTLE_ATTRACT"
+
+    print("Attract mode started: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name)
+end
+
+-- Function to exit attract mode and return to the menu
+function exitAttractMode()
+    print("Exiting attract mode...")
+
+    -- Disable attract mode
+    game.attractModeActive = false
+
+    -- Clean up AI instances
+    game.player1AI = nil
+    game.player2AI = nil
+
+    -- Reset the game
+    resetGame()
+
+    -- Restore input routes if we saved them
+    if game.savedInputRoutes then
+        Input.Routes.p1 = game.savedInputRoutes.p1
+        Input.Routes.p2 = game.savedInputRoutes.p2
+        game.savedInputRoutes = nil
+    end
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Return to menu
+    game.currentState = "MENU"
+
+    print("Attract mode ended, returned to menu")
 end
 
 function love.update(dt)
@@ -27615,7 +28925,17 @@ function love.update(dt)
         if game.vfx then
             game.vfx.update(dt)
         end
-        
+
+        -- Update attract mode timer when in menu
+        if not game.attractModeActive then
+            game.menuIdleTimer = game.menuIdleTimer + dt
+
+            -- Start attract mode if idle timer exceeds threshold
+            if game.menuIdleTimer > game.ATTRACT_MODE_DELAY then
+                startGameAttractMode()
+            end
+        end
+
         -- No other updates needed in menu state
         return
     elseif game.currentState == "BATTLE" then
@@ -27689,17 +29009,127 @@ function love.update(dt)
         if game.useAI and game.opponentAI then
             game.opponentAI:update(dt)
         end
+
+        -- Update both AI players in attract mode
+        if game.attractModeActive then
+            if game.player1AI then
+                game.player1AI:update(dt)
+            end
+            if game.player2AI then
+                game.player2AI:update(dt)
+            end
+        end
     elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
-        
+
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
             -- Reset game and go back to menu
             resetGame()
             game.currentState = "MENU"
         end
-        
+
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+    elseif game.currentState == "BATTLE_ATTRACT" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to attract mode game over state
+            game.currentState = "GAME_OVER_ATTRACT"
+            game.winScreenTimer = 0
+            return
+        end
+
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+
+                print("[Attract Mode] " .. winner.name .. " wins!")
+
+                -- Transition to game over state
+                game.currentState = "GAME_OVER_ATTRACT"
+                return
+            end
+        end
+
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+
+        -- Update mana pool
+        game.manaPool:update(dt)
+
+        -- Update VFX system
+        game.vfx.update(dt)
+
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+
+        -- Update both AI players in attract mode
+        if game.player1AI then
+            game.player1AI:update(dt)
+        end
+        if game.player2AI then
+            game.player2AI:update(dt)
+        end
+    elseif game.currentState == "GAME_OVER_ATTRACT" then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+
+        -- Auto-reset after duration - start a new attract mode battle
+        if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and start another attract mode battle
+            resetGame()
+
+            -- Create AI for player 1 (Ashgar)
+            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+            game.player1AI = player1AI
+
+            -- Create AI for player 2 (Selene)
+            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+            game.player2AI = player2AI
+
+            -- Keep attract mode active
+            game.attractModeActive = true
+
+            -- Go back to attract mode battle
+            game.currentState = "BATTLE_ATTRACT"
+        end
+
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
     end
@@ -27727,7 +29157,7 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
-    elseif game.currentState == "BATTLE" then
+    elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -27738,35 +29168,40 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw range state indicator (NEAR/FAR)
         if love.keyboard.isDown("`") then
             drawRangeIndicator()
         end
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer (between wizards and UI)
         game.vfx.draw()
-        
+
         -- Draw UI elements in proper z-order
         love.graphics.setColor(1, 1, 1)
-        
+
         -- First draw health bars and basic UI components
         UI.drawSpellInfo(game.wizards)
-        
+
         -- Then draw spellbook buttons (the input feedback bar)
         UI.drawSpellbookButtons()
-        
+
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
-    elseif game.currentState == "GAME_OVER" then
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "BATTLE_ATTRACT" then
+            drawAttractModeOverlay()
+        end
+    elseif game.currentState == "GAME_OVER" or game.currentState == "GAME_OVER_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -27777,24 +29212,29 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator
         drawRangeIndicator()
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer
         game.vfx.draw()
-        
+
         -- Draw win screen on top
         drawWinScreen()
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "GAME_OVER_ATTRACT" then
+            drawAttractModeOverlay()
+        end
     end
     
     -- Debug info only when debug key is pressed (available in all states)
@@ -28358,14 +29798,67 @@ function drawMainMenu()
     love.graphics.print(versionText, 10, screenHeight - 30)
 end
 
+-- Draw attract mode overlay
+function drawAttractModeOverlay()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    -- Draw a semi-transparent banner at the top
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, 40)
+
+    -- Draw "Attract Mode" text
+    love.graphics.setColor(1, 1, 1, 0.9)
+    local attractText = "ATTRACT MODE - PRESS ANY KEY TO RETURN TO MENU"
+    local textWidth = game.font:getWidth(attractText) * 1.5
+
+    -- Make text pulse slightly to draw attention
+    local pulse = 0.8 + 0.2 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(1, 1, 1, pulse)
+    love.graphics.print(
+        attractText,
+        screenWidth / 2 - textWidth / 2,
+        10,
+        0, -- rotation
+        1.5, -- scale X
+        1.5  -- scale Y
+    )
+
+    -- Draw AI info text at bottom
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, screenHeight - 40, screenWidth, 40)
+
+    -- Show which AI personalities are fighting
+    local aiInfoText = "AI DUEL: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name
+    local aiTextWidth = game.font:getWidth(aiInfoText)
+
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print(
+        aiInfoText,
+        screenWidth / 2 - aiTextWidth / 2,
+        screenHeight - 30
+    )
+end
+
 -- Unified key handler using the Input module
 function love.keypressed(key, scancode, isrepeat)
-    -- Forward all key presses to the Input module
+    -- First check if we're in attract mode - any key exits attract mode
+    if game.attractModeActive then
+        exitAttractMode()
+        return true -- Key handled
+    end
+
+    -- Forward all key presses to the Input module for normal gameplay
     return Input.handleKey(key, scancode, isrepeat)
 end
 
 -- Unified key release handler
 function love.keyreleased(key, scancode)
+    -- Skip key release handling if in attract mode (already handled in keypressed)
+    if game.attractModeActive then
+        return true -- Key handled
+    end
+
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
 end```
@@ -30592,10 +32085,10 @@ FireSpells.blastwave = {
             amount = function(caster, target)
                 local baseDmg = 2
                 if target and target.elevation == caster.elevation then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 5
                 end
                 if target and target.gameState.rangeState == Constants.RangeState.NEAR then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 12
                 end
                 return baseDmg
             end,
@@ -30895,11 +32388,11 @@ MoonSpells.moondance = {
     description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
     attackType = "remote",
     visualShape = "warp",
-    castTime = Constants.CastSpeed.SLOW,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON},
     keywords = {
         damage = {
-            amount = 5,
+            amount = 6,
             type = Constants.TokenType.MOON
         },
         rangeShift = {
@@ -35238,13 +36731,12 @@ local VisualResolver = {}
 -- Map visualShape strings to base VFX template names
 -- This is the primary mapping table for determining visual template from spell shape
 local TEMPLATE_BY_SHAPE = {
-    -- Beam-like effects
-    ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
@@ -36578,76 +38070,99 @@ function WizardVisuals.drawWizard(wizard)
     if wizard.sprite then
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
-        
+
+        -- Determine which sprite to draw (casting, idle animation, or static)
+        local spriteToDraw = nil
+
+        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
+            -- Use cast frame if we're in the middle of casting
+            spriteToDraw = wizard.castFrameSprite
+        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
+            -- Use current idle animation frame if available
+            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        else
+            -- Fallback to the original static sprite if no animation frames are available
+            spriteToDraw = wizard.sprite
+        end
+
+        -- Ensure spriteToDraw is not nil before attempting to draw
+        if not spriteToDraw then
+            print("Error: No sprite to draw for wizard " .. wizard.name)
+            -- Draw a placeholder rectangle as a last resort
+            love.graphics.setColor(1, 0, 0, 1) -- Red error color
+            love.graphics.rectangle("fill", wizard.x + xOffset - 20, wizard.y + yOffset - 30, 40, 60)
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
+            return
+        end
+
         -- Draw shadow first (when not AERIAL)
         if wizard.elevation == Constants.ElevationState.GROUNDED then
             love.graphics.setColor(0, 0, 0, 0.2)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
                 wizard.y + 40, -- Shadow on ground
                 0, -- No rotation
                 adjustedScale * 0.8, -- Slightly smaller shadow
                 wizard.scale * 0.3, -- Flatter shadow
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
         end
-        
+
         -- Draw the actual wizard with the appropriate color based on state
-        
+
         -- For hit flash, we use a special blend mode and draw the sprite twice
         if wizard.hitFlashTimer > 0 then
             -- First draw the normal sprite
             love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Save current blend mode
             local prevBlendMode = love.graphics.getBlendMode()
-            
+
             -- Set additive blend mode for glow effect
             love.graphics.setBlendMode("add")
-            
+
             -- Draw the bright overlay
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
-            
+
             -- Then overdraw with bright additive color
             love.graphics.draw(
-                wizard.sprite, 
-                wizard.x + xOffset, 
-                wizard.y + yOffset, 
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
                 0, -- No rotation
                 adjustedScale * 2, -- Double scale
                 wizard.scale * 2, -- Double scale
-                wizard.sprite:getWidth() / 2, 
-                wizard.sprite:getHeight() / 2
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
             )
-            
+
             -- Restore previous blend mode
             love.graphics.setBlendMode(prevBlendMode)
         else
             -- Normal drawing
             love.graphics.setColor(wizardColor[1], wizardColor[2], wizardColor[3], wizardColor[4])
             love.graphics.draw(
-            wizard.sprite, 
-            wizard.x + xOffset, 
-            wizard.y + yOffset, 
-            0, -- No rotation
-            adjustedScale * 2, -- Double scale
-            wizard.scale * 2, -- Double scale
-            wizard.sprite:getWidth() / 2, 
-            wizard.sprite:getHeight() / 2
-        )
-        
+                spriteToDraw,
+                wizard.x + xOffset,
+                wizard.y + yOffset,
+                0, -- No rotation
+                adjustedScale * 2, -- Double scale
+                wizard.scale * 2, -- Double scale
+                spriteToDraw:getWidth() / 2,
+                spriteToDraw:getHeight() / 2
+            )
         end -- End of if wizard.hitFlashTimer > 0 block
         
         -- Reset color back to default after drawing wizard
@@ -36656,7 +38171,7 @@ function WizardVisuals.drawWizard(wizard)
         -- Draw AERIAL cloud effect after wizard for proper layering
         if wizard.elevation == Constants.ElevationState.AERIAL then
             love.graphics.setColor(0.8, 0.8, 1.0, 0.3)
-            
+
             -- Draw more numerous, smaller animated cloud particles
             for i = 1, 8 do
                 -- Calculate wobble in both x and y directions
@@ -36664,11 +38179,11 @@ function WizardVisuals.drawWizard(wizard)
                 local angle = (i / 8) * math.pi * 2 + time
                 local xWobble = math.sin(time * 2 + i * 1.5) * 15
                 local yWobble = math.cos(time * 1.8 + i * 1.7) * 10
-                
+
                 -- Vary sizes for more natural look
                 local width = 20 + math.sin(time + i) * 5
                 local height = 6 + math.cos(time + i) * 2
-                
+
                 love.graphics.ellipse(
                     "fill",
                     wizard.x + xOffset + xWobble,
@@ -42626,7 +44141,23 @@ local function updateProjectile(effect, dt)
     effect.frameDuration = effect.frameDuration or 0.1 -- Default frame duration
     effect.currentFrame = effect.currentFrame or 1 -- Default current frame
     effect.frameTimer = effect.frameTimer or 0 -- Default frame timer
-    effect.visualProgress = effect.visualProgress or effect.progress -- Default visual progress
+
+    -- Always update visual progress from effect.progress on each frame
+    -- This ensures visualProgress increases over time consistently
+
+    -- Bug fix: visualProgress wasn't being set correctly for blocked projectiles
+    if effect.isBlocked then
+        -- For blocked effects, always update until it reaches the block point
+        local blockPoint = (effect.options and effect.options.blockPoint) or 1.0
+
+        if not effect.visualProgress or effect.visualProgress < effect.progress then
+            effect.visualProgress = math.min(effect.progress, blockPoint)
+            print("[PROJECTILE DEBUG] Updating visualProgress for blocked effect: " .. effect.visualProgress)
+        end
+    else
+        -- For normal effects, always sync visualProgress with progress on each update
+        effect.visualProgress = effect.progress
+    end
     
     -- Ensure path-related properties are set
     effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
@@ -42648,10 +44179,10 @@ local function updateProjectile(effect, dt)
     -- Get effect parameters with defaults
     local arcHeight = effect.arcHeight or 60
     
-    -- Use visualProgress for blocked effects, otherwise use normal progress
-    -- IMPORTANT: Only use visualProgress if the effect is blocked
-    local baseProgress = effect.isBlocked and effect.visualProgress or effect.progress
-    
+    -- Always use visualProgress for consistent animation
+    -- This ensures the head position consistently updates with each frame
+    local baseProgress = effect.visualProgress
+
     print(string.format("[PROJECTILE PROGRESS] isBlocked=%s, progress=%.2f, visualProgress=%.2f, baseProgress=%.2f",
         tostring(effect.isBlocked), effect.progress or 0, effect.visualProgress or 0, baseProgress))
     
@@ -42680,8 +44211,13 @@ local function updateProjectile(effect, dt)
     }
     
     -- Ensure we're using a valid progress value
-    baseProgress = baseProgress or (effect.progress or 0)
-    
+    -- Crucial: If baseProgress is nil, use effect.progress directly
+    -- This ensures we always have a value that increases over time
+    if baseProgress == nil then
+        baseProgress = effect.progress or 0
+        print("[PROJECTILE WARNING] baseProgress was nil, using effect.progress = " .. baseProgress)
+    end
+
     -- Now calculate the position along the path
     if effect.useCurvedPath then
         -- Use a parabolic path
@@ -42725,22 +44261,59 @@ local function updateProjectile(effect, dt)
     end
     
     -- Update trail points (shifting all points to make room for the new head)
+    -- Bug fix: Ensure head position is actually different before updating trail
+    -- This prevents the trail from being stuck at the same point
+    local shouldUpdateTrail = true
+
     if #effect.trailPoints > 0 then
-        -- For trail with length n, we want to preserve n points
-        -- Remove the last point
-        table.remove(effect.trailPoints)
-        
-        -- Insert the new head position at the beginning
-        table.insert(effect.trailPoints, 1, {
-            x = head.x,
-            y = head.y,
-            alpha = 1.0
-        })
-        
-        -- Update alpha values for the trail
-        for i = 2, #effect.trailPoints do
-            effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+        -- Check if the head has actually moved from the last position
+        local lastHeadX = effect.trailPoints[1] and effect.trailPoints[1].x
+        local lastHeadY = effect.trailPoints[1] and effect.trailPoints[1].y
+
+        -- Only create a new trail point if the head has moved at least a small distance
+        -- or if this is the first update
+        local minDistance = 1.0 -- Minimum distance to consider movement significant
+        if lastHeadX and lastHeadY then
+            local dx = head.x - lastHeadX
+            local dy = head.y - lastHeadY
+            local distanceMoved = math.sqrt(dx*dx + dy*dy)
+            shouldUpdateTrail = (distanceMoved >= minDistance)
+
+            if not shouldUpdateTrail then
+                print(string.format("[PROJECTILE DEBUG] Head position hasn't changed significantly: dist=%.2f < %.2f",
+                    distanceMoved, minDistance))
+            end
         end
+
+        if shouldUpdateTrail then
+            -- For trail with length n, we want to preserve n points
+            -- Remove the last point
+            table.remove(effect.trailPoints)
+
+            -- Insert the new head position at the beginning
+            table.insert(effect.trailPoints, 1, {
+                x = head.x,
+                y = head.y,
+                alpha = 1.0
+            })
+
+            -- Update alpha values for the trail
+            for i = 2, #effect.trailPoints do
+                effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+            end
+
+            print(string.format("[PROJECTILE DEBUG] Updated trail with new head position: (%.1f, %.1f)", head.x, head.y))
+        end
+    else
+        -- If there are no trail points yet, initialize with current head position
+        for i = 1, effect.trailLength do
+            table.insert(effect.trailPoints, {
+                x = head.x,
+                y = head.y,
+                alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
+            })
+        end
+        print("[PROJECTILE DEBUG] Initialized trail with starting position")
     end
     
     -- Update particles for the projectile trail
@@ -42808,8 +44381,14 @@ local function updateProjectile(effect, dt)
     end
     
     -- Write the head position to the effect for drawing
+    -- Critical bugfix: Force head position update even if trail wasn't updated
+    -- This ensures the head always reflects the current progress
     effect.headX = head.x
     effect.headY = head.y
+
+    -- Debug logging - track position updates
+    print(string.format("[PROJECTILE DEBUG] Updated head position: (%.1f, %.1f) at progress=%.2f",
+        head.x, head.y, baseProgress))
 end
 
 -- Draw function for projectile effects
@@ -43941,7 +45520,18 @@ function Wizard.new(name, x, y, color)
     
     -- Hit flash effect
     self.hitFlashTimer = 0
-    
+
+    -- Cast frame animation properties
+    self.castFrameSprite = nil
+    self.castFrameTimer = 0
+    self.castFrameDuration = 0.25 -- Show cast frame for 0.25 seconds
+
+    -- Idle animation properties
+    self.idleAnimationFrames = {}
+    self.currentIdleFrame = 1
+    self.idleFrameTimer = 0
+    self.idleFrameDuration = 0.15 -- seconds per frame
+
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
     
@@ -43994,7 +45584,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.watergun,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -44030,7 +45620,7 @@ function Wizard.new(name, x, y, color)
     local success, result = pcall(function()
         return love.graphics.newImage(spritePath)
     end)
-    
+
     if success then
         self.sprite = result
         print("Loaded wizard sprite: " .. spritePath)
@@ -44039,6 +45629,45 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load sprite " .. spritePath .. ". Using default wizard.png instead.")
         self.sprite = love.graphics.newImage("assets/sprites/wizard.png")
     end
+
+    -- Load cast frame sprite with fallback
+    local castFramePath = "assets/sprites/" .. string.lower(name) .. "-cast.png"
+    local castSuccess, castResult = pcall(function()
+        return love.graphics.newImage(castFramePath)
+    end)
+
+    if castSuccess then
+        self.castFrameSprite = castResult
+        print("Loaded wizard cast frame: " .. castFramePath)
+    else
+        -- No fallback for cast frame, just leave it nil
+        print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
+    end
+
+    -- Load idle animation frames specifically for Ashgar
+    if name == "Ashgar" then
+        local AssetCache = require("core.AssetCache")
+        for i = 1, 7 do
+            local framePath = "assets/sprites/" .. string.lower(name) .. "-idle-" .. i .. ".png"
+            local frameImg = AssetCache.getImage(framePath)
+            if frameImg then
+                table.insert(self.idleAnimationFrames, frameImg)
+            else
+                print("Warning: Could not load Ashgar idle frame: " .. framePath)
+                -- Fallback to using the main sprite if we can't load the idle frame
+                table.insert(self.idleAnimationFrames, self.sprite)
+            end
+        end
+        -- If no idle frames loaded, use the main sprite as a single-frame animation
+        if #self.idleAnimationFrames == 0 then
+            print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
+            table.insert(self.idleAnimationFrames, self.sprite)
+        end
+    else
+        -- For other wizards, populate with their main sprite for now
+        table.insert(self.idleAnimationFrames, self.sprite)
+    end
+
     self.scale = 1.0
     
     -- Keep references
@@ -44060,10 +45689,32 @@ function Wizard:update(dt)
     -- Reset flags at the beginning of each frame
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
-    
+
     -- Update hit flash timer
     if self.hitFlashTimer > 0 then
         self.hitFlashTimer = math.max(0, self.hitFlashTimer - dt)
+    end
+
+    -- Update cast frame timer
+    if self.castFrameTimer > 0 then
+        self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
+    end
+
+    -- Update idle animation timer and frame
+    -- Only animate idle if not casting or in another special visual state
+    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+        self.idleFrameTimer = self.idleFrameTimer + dt
+        if self.idleFrameTimer >= self.idleFrameDuration then
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.currentIdleFrame = self.currentIdleFrame + 1
+            if self.currentIdleFrame > #self.idleAnimationFrames then
+                self.currentIdleFrame = 1 -- Loop animation
+            end
+        end
+    else
+        -- If casting, reset idle animation to first frame to look clean when cast finishes
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
     end
     
     -- Update position animation
@@ -44730,8 +46381,13 @@ function Wizard:castSpell(spellSlot)
     
     -- Set the flag to indicate a spell was cast this frame (for trap triggers)
     self.justCastSpellThisFrame = true
-    
+
     print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
+
+    -- Activate cast frame animation if sprite is available
+    if self.castFrameSprite then
+        self.castFrameTimer = self.castFrameDuration
+    end
     
     -- Create a temporary visual notification for spell casting
     self.spellCastNotification = {
@@ -45156,20 +46812,22 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ### Better visual language for spell slots and cast progress
 * ?? on whole thing...current vibes are serviceable
-* Experiment with no explicitly drawn static orbit, only draw as cast bar
+* DONE - Experiment with no explicitly drawn static orbit, only draw as cast bar
 * Experiment with transparent lines or particles flowing between mana tokens in slot. Strengthen with cast progress?
 
 ### Unique "idle" animations for each stance
-* Stretch: unique "cast" animations for each stance
+* DONE - Stretch: unique "cast" animations for each stance
   
 ### Tween frames for range/position changes
-
+* DONE
 ### Establish visual language for Ninefold Path
 * Two colors per element, "core" and "aura"?
 
 ### FX on taking damage
-* Hitstop - exclude DoT (burn, etc. Minimum threshold?)
+* DONE - Hitstop - exclude DoT (burn, etc. Minimum threshold?)
+  * Implementation scales with DMG value - consistent rule that makes DoTs feel right.
 * Flashing effect for DoT (for everything maybe?)
+  * DONE, for everything
 
 ### Consistent-fy visual language for shield types: ward vs. barrier
 * Barrier is a partly-transparent "screen" that extends up and down from the spell slot
@@ -45182,12 +46840,14 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ## Rules Engine
 ### Update mana types to canonical Ninefold Path
+  * DONE
 * Material: FIRE, WATER, SALT
 * Celestial: SUN, MOON, STAR
 * Transcendental: SOURCE, MIND, VOID
 * Update all spells to use definitions
 
 ### Unify Shield spells with new "Trap" type/keyword set under a "sustained spell" umbrella
+* DONE
 
 ### Support "Field" spell type/keyword as an additional type of ongoing effect/"sustained spell"
 
@@ -45276,8 +46936,8 @@ This report shows the current VFX setup for each spell and recommendations for i
 
 ## docs/VerticalSliceMustHaves.md
 Polished spell templates:
-* ORB
-* BEAM
+* DONE BOLT
+* DONE BEAM
 * WARP
 * BLAST
 * METEOR
@@ -45294,9 +46954,9 @@ SFX:
 Character animation:
 * Absolute bare minimum: 2-frame idles
 * Ideally: 4-frame idles _per position_.
-* 1-frame Cast per-position
-* Flash/shake on-hit
-* Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
+* DONE 1-frame Cast per-position
+* DONE Flash/shake on-hit
+* DONE Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
 * 
 
 ## docs/Visual_Language.md
@@ -46778,6 +48438,204 @@ It might involve choosing between integrating the impact flash into the main eff
 Depends on VFX-P1 (Dynamic Block Point) for the most accurate visual positioning, but can be done independently focusing purely on the animation logic after a block is detected.
 Priority: Medium (Post-Demo, improves stability)
 
+## Tickets/S10_GameJuice/AI-1-abstract-ai-core-from-personality.md
+Abstract Core AI Logic & Create Personality Interface
+Goal: Refactor OpponentAI.lua to remove hardcoded spell choices and 
+delegate character-specific decisions to a new "Personality" system.
+Tasks:
+Define Personality Interface (ai/PersonalityBase.lua or similar concept):
+Outline the functions a personality module must provide, e.g.:
+getAttackSpell(ai, perception, spellbook)
+getDefenseSpell(ai, perception, spellbook)
+getCounterSpell(ai, perception, spellbook)
+getEscapeSpell(ai, perception, spellbook)
+getConjureSpell(ai, perception, spellbook)
+getPositioningSpell(ai, perception, spellbook) (Optional, for 
+STATE.POSITION)
+These functions should return a specific spell object from the AI's 
+spellbook or nil if no suitable spell is found/affordable.
+Modify OpponentAI.new(wizard, gameState, personalityModule):
+Add personalityModule as a parameter.
+Store self.personality = personalityModule.
+Refactor OpponentAI:decide():
+Remove all direct spellbook["X"] lookups.
+When a state (ATTACK, DEFEND, etc.) determines a spell should be cast, 
+call the appropriate function from self.personality, passing self, 
+self.perception, and self.wizard.spellbook.
+Example: if self.currentState == STATE.ATTACK, then local spellToCast = 
+self.personality.getAttackSpell(self, p, self.wizard.spellbook).
+The decision to cast should still check 
+self.wizard:canPayManaCost(spellToCast.cost) and 
+self:hasAvailableSpellSlot().
+Refactor OpponentAI:castOffensiveSpell(), castDefensiveSpell(), etc.:
+These helper methods in OpponentAI:act() should be simplified or removed.
+The decide() function will now return specific spells if one is chosen.
+act() will primarily handle decision.type == "CAST_SPELL" with 
+decision.spell directly.
+If decide() returns a more general action like ATTACK_ACTION (without a 
+specific spell because the personality couldn't find one), act() can then 
+call a generic self.personality.getBestSpellForIntent(STATE.ATTACK, ...) 
+or simply do nothing if no spell is forthcoming.
+Acceptance Criteria:
+OpponentAI.lua no longer contains hardcoded spell IDs for Selene.
+OpponentAI:decide() calls methods on a self.personality object to get 
+spell suggestions.
+The game still runs with the AI (it will be broken until AI-R2 is 
+complete, but shouldn't crash due to missing methods if a dummy 
+personality is temporarily used).
+Design Notes:
+The personality module effectively becomes the AI's "brain" for spell 
+selection strategy.
+The core OpponentAI FSM and perception logic remains generic.
+
+## Tickets/S10_GameJuice/AI-2-implement-selene-personality.md
+Implement SelenePersonality Module
+Goal: Create the personality module for Selene, encapsulating her current 
+hardcoded spell selection logic.
+Tasks:
+Create ai/personalities/SelenePersonality.lua:
+Implement the functions defined in the Personality Interface (from AI-R1).
+Move Selene's spell selection logic from the old OpponentAI:decide() and 
+cast<Type>Spell() methods into these new functions.
+getDefenseSpell: Prioritize spellbook["2"] (Wrap in Moonlight).
+getEscapeSpell: Prioritize spellbook["2"] then spellbook["3"] (Moondance).
+getAttackSpell: Implement logic to choose between spellbook["123"] (Full 
+Moon Beam), spellbook["13"] (Eclipse), spellbook["3"] (Moondance) based on 
+perception (e.g., mana, opponent health).
+getCounterSpell: Choose between spellbook["13"] (Eclipse) and 
+spellbook["3"] (Moondance).
+getConjureSpell: Return spellbook["1"] (Conjure Moonlight).
+Update AI Initialization (main.lua):
+When creating the AI for game.wizards[2] (Selene), pass an instance of 
+SelenePersonality:
+local SelenePersonality = require("ai.personalities.SelenePersonality")
+game.opponentAI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+Use code with caution.
+Lua
+Acceptance Criteria:
+The AI controlling Selene behaves identically to its pre-refactor state.
+Selene AI correctly selects and attempts to cast her specific spells based 
+on game situations.
+
+## Tickets/S10_GameJuice/AI-3-implement-ashgar-personality.md
+ Implement AshgarPersonality Module
+Goal: Create a new personality module for Ashgar, enabling the AI to 
+control him.
+Tasks:
+Analyze Ashgar's Spellbook (wizard.lua):
+"1": Conjure Fire (Conjure)
+"2": Nova Conjuring (Resource Management/Setup - harder for AI initially, 
+maybe focus on "1" for conjure)
+"3": Firebolt (Attack)
+"12": Battle Shield (Defense)
+"13": Blast Wave (Attack - Zone, good vs NEAR)
+"23": Emberlift (Positioning/Utility, Conjure Fire)
+"123": Meteor (Attack - Aerial Finisher, requires AERIAL setup)
+Create ai/personalities/AshgarPersonality.lua:
+Implement the Personality Interface functions for Ashgar.
+getDefenseSpell: Prioritize spellbook["12"] (Battle Shield).
+getEscapeSpell: Could be spellbook["23"] (Emberlift) for repositioning. If 
+low health, might also consider freeAllSpells.
+getAttackSpell:
+If opponent AERIAL: Maybe spellbook["123"] (Meteor) if self is AERIAL.
+If opponent NEAR: spellbook["13"] (Blast Wave).
+Default/FAR: spellbook["3"] (Firebolt).
+Consider spellbook["123"] (Meteor) as a high-mana option if AI is AERIAL 
+and opponent is GROUNDED.
+getCounterSpell: Ashgar doesn't have direct counters like Selene's 
+Eclipse. Could use Blast Wave to disrupt NEAR, or Emberlift to change 
+range/elevation. This might be less effective initially.
+getConjureSpell: Prioritize spellbook["1"] (Conjure Fire). Nova Conjuring 
+is more complex due to its cost.
+getPositioningSpell: spellbook["23"] (Emberlift).
+Testing:
+Temporarily modify main.lua to assign Ashgar's personality to an AI 
+controlling Ashgar (e.g., game.wizards[1] if P2 is human, or set up a 
+temporary AI vs AI).
+Acceptance Criteria:
+An AI controlling Ashgar can select and attempt to cast spells from 
+Ashgar's spellbook.
+The spell choices are somewhat logical for Ashgar's kit (e.g., uses 
+shields defensively, firebolt offensively).
+The Ashgar AI functions without errors.
+
+## Tickets/S10_GameJuice/AI-4-trigger-attract-mode.md
+Attract Mode Trigger & AI vs. AI Setup
+Goal: Implement the mechanism to trigger an AI vs. AI duel after a period 
+of inactivity on the main menu.
+Tasks:
+Idle Timer (main.lua):
+In love.update, when game.currentState == "MENU", add an idle timer.
+game.menuIdleTimer = (game.menuIdleTimer or 0) + dt.
+Reset game.menuIdleTimer = 0 whenever any key is pressed in the MENU state 
+(modify Input.lua or main menu key handlers).
+Attract Mode Trigger (main.lua):
+In love.update (MENU state), if game.menuIdleTimer > ATTRACT_MODE_DELAY 
+(e.g., 15-30 seconds):
+Set game.attractModeActive = true.
+Call a new function startGameAttractMode().
+startGameAttractMode() function (main.lua):
+Call resetGame() (ensure resetGame() doesn't try to re-initialize player 
+AI if attractModeActive is true).
+Disable player input (e.g., by setting a flag that Input.lua checks, or by 
+temporarily clearing Input.Routes.p1 and Input.Routes.p2).
+Randomly select (or predefine) two different wizards (e.g., Ashgar vs 
+Selene).
+Create OpponentAI instances for both game.wizards[1] and game.wizards[2].
+local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local SelenePersonality = require("ai.personalities.SelenePersonality")
+game.player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+game.player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+(Or, if one AI should be fixed, game.opponentAI can be used for P2, and a 
+new game.player1AI for P1)
+Set game.currentState = "BATTLE_ATTRACT" (or a similar new state to 
+distinguish from normal battle).
+Reset game.menuIdleTimer = 0.
+Update AI Calls (main.lua):
+In love.update (BATTLE state), if game.attractModeActive is true, call 
+game.player1AI:update(dt) and game.player2AI:update(dt).
+If not in attract mode, call the regular game.opponentAI:update(dt) if 
+game.useAI is true.
+Acceptance Criteria:
+After ~15-30 seconds of inactivity on the main menu, the game 
+automatically starts an AI vs. AI duel.
+Both AI-controlled wizards attempt to cast spells.
+Player input is disabled during attract mode.
+
+## Tickets/S10_GameJuice/AI-5-play-and-cleanup-attract-mode.md
+Attract Mode Gameplay Loop & Exit Condition
+Goal: Ensure the AI vs. AI duel in attract mode plays out to completion 
+and can be exited by the player.
+Tasks:
+Game Over Handling (main.lua):
+Ensure the existing game over logic (if wizard.health <= 0) correctly 
+identifies a winner in AI vs. AI mode.
+When game.gameOver becomes true during BATTLE_ATTRACT state:
+Transition to GAME_OVER_ATTRACT state.
+Display the win screen as normal.
+After winScreenDuration, or on player input, transition back to MENU 
+state.
+Exiting Attract Mode (Input.lua / main.lua):
+Modify Input.handleKey (or relevant key handlers in main.lua if attract 
+mode bypasses Input.lua):
+If game.attractModeActive is true, any key press should:
+Set game.attractModeActive = false.
+Clean up AI instances: game.player1AI = nil, game.player2AI = nil.
+Re-enable player input routes if they were disabled.
+Call resetGame() to prepare for a potential player-initiated game.
+Set game.currentState = "MENU".
+Reset game.menuIdleTimer = 0.
+UI for Attract Mode (Optional, ui.lua):
+Consider adding a small "Attract Mode - Press Any Key" text overlay during 
+BATTLE_ATTRACT or GAME_OVER_ATTRACT.
+Acceptance Criteria:
+AI vs. AI duels play until one wizard wins.
+The win screen is displayed.
+Pressing any key during the attract mode (battle or game over screen) 
+immediately returns to the main menu.
+The game state is correctly reset, and player controls are restored after 
+exiting attract mode.
+
 ## Tickets/S10_GameJuice/GFX-1-hit-flash.md
 Title: Implement Character Hit Flash
 Goal: Provide immediate, clear visual feedback when a wizard takes damage.
@@ -47033,6 +48891,251 @@ sparkle asset if particle.isDebris flag is set).
 Acceptance Criteria:
 Impact effects have a noticeable sharper, faster "spark" component 
 alongside the main radial burst.
+
+## Tickets/S11_WizardVisualsJuice/1-asset-loading-and-wizard-state-preparation.md
+Asset Loading & Wizard State Preparation
+Goal: Load Ashgar's idle animation frames and prepare the Wizard object to 
+manage animation state.
+Tasks:
+Update Asset Manifest (core/assetPreloader.lua):
+Add paths for Ashgar's 7 idle frames to the assetManifest.images table.
+-- In assetManifest.images
+"assets/sprites/ashgar-idle-1.png",
+"assets/sprites/ashgar-idle-2.png",
+"assets/sprites/ashgar-idle-3.png",
+"assets/sprites/ashgar-idle-4.png",
+"assets/sprites/ashgar-idle-5.png",
+"assets/sprites/ashgar-idle-6.png",
+"assets/sprites/ashgar-idle-7.png",
+Use code with caution.
+Lua
+Modify Wizard.new (wizard.lua):
+For Ashgar, load and store the idle animation frames.
+Add new properties to the Wizard instance for animation control.
+function Wizard.new(name, x, y, color)
+    local self = setmetatable({}, Wizard)
+    -- ... (existing properties) ...
+
+    self.idleAnimationFrames = {}
+    self.currentIdleFrame = 1
+    self.idleFrameTimer = 0
+    self.idleFrameDuration = 0.15 -- seconds per frame (adjust for desired 
+speed)
+
+    -- Load sprite with fallback
+    local spritePathBase = "assets/sprites/" .. string.lower(name)
+    
+    -- ... (existing sprite loading for self.sprite and 
+self.castFrameSprite) ...
+
+    -- Load idle animation frames specifically for Ashgar
+    if name == "Ashgar" then
+        for i = 1, 7 do
+            local framePath = spritePathBase .. "-idle-" .. i .. ".png"
+            local frameImg = AssetCache.getImage(framePath)
+            if frameImg then
+                table.insert(self.idleAnimationFrames, frameImg)
+            else
+                print("Warning: Could not load Ashgar idle frame: " .. 
+framePath)
+                -- Optional: Add a fallback, e.g., use self.sprite
+                table.insert(self.idleAnimationFrames, self.sprite) 
+            end
+        end
+        -- If no idle frames loaded, use the main sprite as a single-frame 
+animation
+        if #self.idleAnimationFrames == 0 then
+            print("Warning: Ashgar has no idle animation frames loaded, 
+using static sprite.")
+            table.insert(self.idleAnimationFrames, self.sprite)
+        end
+    else
+        -- For other wizards, populate with their main sprite for now
+        table.insert(self.idleAnimationFrames, self.sprite)
+    end
+    
+    -- ... (rest of Wizard.new) ...
+    return self
+end
+Use code with caution.
+Lua
+Acceptance Criteria:
+Ashgar's idle animation frames are preloaded at game start.
+The Wizard object for Ashgar contains the idleAnimationFrames table 
+populated with image objects.
+currentIdleFrame, idleFrameTimer, and idleFrameDuration properties are 
+initialized.
+
+## Tickets/S11_WizardVisualsJuice/2-idle-animation-logic.md
+Implement Idle Animation Logic
+Goal: Update the Wizard's animation state over time.
+Tasks:
+Modify Wizard:update (wizard.lua):
+Add logic to advance the idle animation frame. This should only happen if 
+no other primary animation (like casting) is overriding the display.
+function Wizard:update(dt)
+    -- ... (existing update logic: hitFlashTimer, castFrameTimer, 
+positionAnimation, etc.) ...
+
+    -- Update idle animation timer and frame
+    -- Only animate idle if not casting or in another special visual state
+    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+        self.idleFrameTimer = self.idleFrameTimer + dt
+        if self.idleFrameTimer >= self.idleFrameDuration then
+            self.idleFrameTimer = self.idleFrameTimer - 
+self.idleFrameDuration -- Subtract to carry over excess time
+            self.currentIdleFrame = self.currentIdleFrame + 1
+            if self.currentIdleFrame > #self.idleAnimationFrames then
+                self.currentIdleFrame = 1 -- Loop animation
+            end
+        end
+    else
+        -- If casting, reset idle animation to first frame to look clean 
+when cast finishes
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
+    end
+
+    -- ... (rest of Wizard:update logic for status effects, spell slots, 
+etc.) ...
+end
+Use code with caution.
+Lua
+Acceptance Criteria:
+wizard.currentIdleFrame cycles from 1 to 7 (or the number of frames) 
+repeatedly.
+wizard.idleFrameTimer correctly manages time per frame.
+Idle animation is paused/reset if castFrameTimer > 0.
+
+## Tickets/S11_WizardVisualsJuice/3-update-drawing-logic.md
+Update Drawing Logic
+Goal: Draw the current idle animation frame for Ashgar instead of his 
+static sprite.
+Tasks:
+Modify WizardVisuals.drawWizard (systems/WizardVisuals.lua):
+Change the sprite drawing logic to use the current idle animation frame 
+when appropriate.
+function WizardVisuals.drawWizard(wizard)
+    -- ... (existing logic for xOffset, yOffset, wizardColor, ground 
+indicator) ...
+
+    WizardVisuals.drawSpellSlots(wizard, "back") -- Draw back slots
+
+    -- Draw the wizard sprite
+    if wizard.sprite then -- Still check if a base sprite exists (for 
+fallbacks/other wizards)
+        local flipX = (wizard.name == "Selene") and -1 or 1
+        local adjustedScale = wizard.scale * flipX
+
+        local spriteToDraw = nil
+
+        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
+            spriteToDraw = wizard.castFrameSprite
+        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames 
+> 0 then
+            spriteToDraw = 
+wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        else
+            -- Fallback to the original static sprite if no animation 
+frames are available
+            spriteToDraw = wizard.sprite 
+        end
+
+        -- Ensure spriteToDraw is not nil before attempting to draw
+        if not spriteToDraw then
+            print("Error: No sprite to draw for wizard " .. wizard.name)
+            -- Optionally draw a placeholder or return
+            love.graphics.setColor(1,0,0,1) -- Red error color
+            love.graphics.rectangle("fill", wizard.x + xOffset - 20, 
+wizard.y + yOffset - 30, 40, 60)
+            love.graphics.setColor(1,1,1,1) -- Reset color
+        else
+            -- Draw shadow first (when not AERIAL)
+            if wizard.elevation == Constants.ElevationState.GROUNDED then
+                love.graphics.setColor(0, 0, 0, 0.2)
+                love.graphics.draw(
+                    spriteToDraw,
+                    wizard.x + xOffset,
+                    wizard.y + 40, -- Shadow on ground
+                    0, 
+                    adjustedScale * 0.8, 
+                    wizard.scale * 0.3, 
+                    spriteToDraw:getWidth() / 2,
+                    spriteToDraw:getHeight() / 2
+                )
+            end
+
+            -- Hit flash logic (applies color before drawing main sprite)
+            if wizard.hitFlashTimer > 0 then
+                local prevBlendMode = love.graphics.getBlendMode()
+                love.graphics.setBlendMode("add")
+                love.graphics.setColor(wizardColor[1], wizardColor[2], 
+wizardColor[3], wizardColor[4]) 
+                love.graphics.draw(
+                    spriteToDraw,
+                    wizard.x + xOffset, wizard.y + yOffset, 0,
+                    adjustedScale * 2, wizard.scale * 2,
+                    spriteToDraw:getWidth() / 2, spriteToDraw:getHeight() 
+/ 2
+                )
+                love.graphics.setBlendMode(prevBlendMode)
+                -- Reset color for normal drawing if hit flash isn't 
+covering it
+                love.graphics.setColor(1,1,1,1) 
+                if wizard.flashBlendMode ~= "add" then -- if hit flash 
+isn't additive, draw base normally
+                     love.graphics.draw(
+                        spriteToDraw,
+                        wizard.x + xOffset, wizard.y + yOffset, 0,
+                        adjustedScale * 2, wizard.scale * 2,
+                        spriteToDraw:getWidth() / 2, 
+spriteToDraw:getHeight() / 2
+                    )
+                end
+
+            else 
+                -- Normal drawing (no hit flash)
+                love.graphics.setColor(wizardColor[1], wizardColor[2], 
+wizardColor[3], wizardColor[4])
+                love.graphics.draw(
+                    spriteToDraw,
+                    wizard.x + xOffset, wizard.y + yOffset, 0,
+                    adjustedScale * 2, wizard.scale * 2,
+                    spriteToDraw:getWidth() / 2, spriteToDraw:getHeight() 
+/ 2
+                )
+            end
+        end
+        
+        love.graphics.setColor(1, 1, 1, 1) -- Reset color
+
+        -- Draw AERIAL cloud effect (existing logic)
+        if wizard.elevation == Constants.ElevationState.AERIAL then
+            -- ... (existing cloud drawing logic) ...
+        end
+    else
+        -- ... (existing fallback circle drawing) ...
+    end
+
+    WizardVisuals.drawSpellSlots(wizard, "front") -- Draw front slots
+
+    -- ... (existing logic for status effects, spell cast notification) 
+...
+end
+Use code with caution.
+Lua
+Important: The logic should prioritize castFrameSprite if castFrameTimer > 
+0. The idle animation should only play if the cast animation is not 
+active.
+The existing hit flash (tinting wizardColor) should apply to the current 
+animation frame.
+Acceptance Criteria:
+Ashgar is drawn using his idle animation frames when not casting.
+The cast animation (ashgar-cast.png) still takes precedence during 
+castFrameTimer.
+Hit flash and other visual effects correctly apply to the animated sprite.
+Selene (and any other future wizards) continue to display their static 
+sprites correctly.
 
 ## Tickets/S1_CoreGameplay/1-1-setup-new-files.md
 Ticket #1: Setup Keyword & Compiler Files

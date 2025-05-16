@@ -106,10 +106,10 @@ FireSpells.blastwave = {
             amount = function(caster, target)
                 local baseDmg = 2
                 if target and target.elevation == caster.elevation then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 5
                 end
                 if target and target.gameState.rangeState == Constants.RangeState.NEAR then
-                    baseDmg = baseDmg + 9
+                    baseDmg = baseDmg + 12
                 end
                 return baseDmg
             end,

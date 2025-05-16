@@ -1,6 +1,6 @@
 Polished spell templates:
-* ORB
-* BEAM
+* DONE BOLT
+* DONE BEAM
 * WARP
 * BLAST
 * METEOR
@@ -17,7 +17,7 @@ SFX:
 Character animation:
 * Absolute bare minimum: 2-frame idles
 * Ideally: 4-frame idles _per position_.
-* 1-frame Cast per-position
-* Flash/shake on-hit
-* Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
+* DONE 1-frame Cast per-position
+* DONE Flash/shake on-hit
+* DONE Screenshake on big hit (Meteor Dive, charged Full Moon Beam)
 * 

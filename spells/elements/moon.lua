@@ -99,11 +99,11 @@ MoonSpells.moondance = {
     description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
     attackType = "remote",
     visualShape = "warp",
-    castTime = Constants.CastSpeed.SLOW,
+    castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON},
     keywords = {
         damage = {
-            amount = 5,
+            amount = 6,
             type = Constants.TokenType.MOON
         },
         rangeShift = {

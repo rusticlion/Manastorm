@@ -1,15 +1,16 @@
 -- ai/OpponentAI.lua
 -- Basic AI opponent for Manastorm
--- Phase 1: Local Demo Implementation
+-- Phase 2: Modular AI Architecture with Personality System
 
 local Constants = require("core.Constants")
 local ManaHelpers = require("systems.ManaHelpers")
+local PersonalityBase = require("ai.PersonalityBase")
 
 -- Define the OpponentAI module
 local OpponentAI = {}
 
 -- AI States - Define as constants for clarity
-local STATE = {
+OpponentAI.STATE = {
     IDLE = "IDLE",             -- Default state, focus on building mana resources
     ATTACK = "ATTACK",         -- Aggressive offense, prioritize damage spells
     DEFEND = "DEFEND",         -- Defensive posture, prioritize shields and healing
@@ -21,26 +22,33 @@ local STATE = {
 -- Constructor for OpponentAI
 -- @param wizard - The wizard object this AI will control (typically game.wizards[2])
 -- @param gameState - Reference to the game state (the global 'game' object)
-function OpponentAI.new(wizard, gameState)
+-- @param personalityModule - The personality module to use for decision making
+function OpponentAI.new(wizard, gameState, personalityModule)
+    -- Create default personality if none provided
+    personalityModule = personalityModule or PersonalityBase.new("Default")
+    
     -- Create a new instance
     local ai = {
         -- Store references to game objects
         wizard = wizard,
         gameState = gameState,
         
+        -- Store personality
+        personality = personalityModule,
+        
         -- Track the opposing wizard (player's wizard)
         playerWizard = nil,
         
         -- Track last perception time for throttling
         lastPerceptionTime = 0,
-        perceptionInterval = 0.5, -- Update perception every 0.5 seconds
+        perceptionInterval = 2, -- Update perception every 2 seconds
         
         -- Track last action time for throttling
         lastActionTime = 0,
         actionInterval = 1.0, -- Consider actions every 1.0 seconds
         
         -- Simple finite state machine
-        currentState = STATE.IDLE, -- Initial state
+        currentState = OpponentAI.STATE.IDLE, -- Initial state
         lastState = nil,           -- Previous state for transition detection
         stateChangeTime = 0,       -- When the last state change occurred
         
@@ -243,6 +251,7 @@ end
 function OpponentAI:printPerceptionDebug()
     local p = self.perception
     print("=== AI PERCEPTION ===")
+    print(string.format("PERSONALITY: %s", self.personality.name))
     print(string.format("HEALTH: Self=%d, Opponent=%d", p.selfHealth, p.opponentHealth))
     print(string.format("RANGE: %s, ELEVATION: Self=%s, Opp=%s", 
         p.rangeState, p.ownElevation, p.opponentElevation))
@@ -292,258 +301,122 @@ function OpponentAI:decide()
     local p = self.perception
     local spellbook = self.wizard.spellbook
     
-    -- Basic state transition logic based on health and threat
-    
-    -- Critical health - go into escape mode
-    if p.selfCriticalHealth then
-        self.currentState = STATE.ESCAPE
+    -- Check if personality wants to override state selection
+    local suggestedState = self.personality:suggestState(self, p)
+    if suggestedState then
+        self.currentState = suggestedState
+    else
+        -- Basic state transition logic based on health and threat
         
-        -- First try to find a shield spell if not already shielded
-        if not p.hasActiveShield then
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Critical health - need shield"
-                }
+        -- Critical health - go into escape mode
+        if p.selfCriticalHealth then
+            self.currentState = OpponentAI.STATE.ESCAPE
+        
+        -- Low health - prioritize defense
+        elseif p.selfLowHealth and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- Opponent has very low health - press the advantage
+        elseif p.opponentLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- Opponent is casting something - consider countering
+        elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
+            self.currentState = OpponentAI.STATE.COUNTER
+        
+        -- If health advantage is significant and we're not in low health, attack
+        elseif p.healthAdvantage > 15 and not p.selfLowHealth then
+            self.currentState = OpponentAI.STATE.ATTACK
+        
+        -- If we're at a health disadvantage, consider defense
+        elseif p.healthAdvantage < -15 and not p.hasActiveShield then
+            self.currentState = OpponentAI.STATE.DEFEND
+        
+        -- If no tokens or very few tokens are available, focus on gaining resources
+        elseif p.totalFreeTokens <= 1 then
+            self.currentState = OpponentAI.STATE.IDLE
+        
+        -- Default state when no specific criteria are met - slight aggression bias
+        else
+            -- Slightly biased toward attacking when nothing else is going on
+            local randomChoice = math.random(1, 10)
+            
+            if randomChoice <= 6 then -- 60% chance of attack
+                self.currentState = OpponentAI.STATE.ATTACK
+            elseif randomChoice <= 9 then -- 30% chance of defense
+                self.currentState = OpponentAI.STATE.DEFEND
+            else -- 10% chance of resource gathering
+                self.currentState = OpponentAI.STATE.IDLE
             end
         end
-        
-        -- If shield not available, try mobility
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell and self.wizard:canPayManaCost(escapeSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = escapeSpell,
-                reason = "Critical health - escape"
-            }
-        end
-        
-        -- Last resort - free all spells
-        if p.activeSlots > 0 then
-            return { 
-                type = "FREE_ALL", 
+    end
+    
+    -- State->Action mapping
+    local spell = nil
+    local actionType = nil
+    local reason = nil
+    
+    -- Based on the current state, decide what specific spell to cast
+    if self.currentState == OpponentAI.STATE.ATTACK then
+        -- Ask personality module for attack spell
+        spell = self.personality:getAttackSpell(self, p, spellbook)
+        reason = "Attack"
+        actionType = "ATTACK_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.DEFEND then
+        -- Ask personality module for defense spell
+        spell = self.personality:getDefenseSpell(self, p, spellbook)
+        reason = "Defense"
+        actionType = "DEFEND_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.COUNTER then
+        -- Ask personality module for counter spell
+        spell = self.personality:getCounterSpell(self, p, spellbook)
+        reason = "Counter"
+        actionType = "COUNTER_ACTION"
+    
+    elseif self.currentState == OpponentAI.STATE.ESCAPE then
+        -- Emergency defense: shield, escape, or free all (last resort)
+        if p.activeSlots > 0 and p.totalFreeTokens < 1 then
+            -- No resources, free all spell slots
+            return {
+                type = "FREE_ALL",
                 reason = "Critical health - free resources"
             }
         end
         
-        return { 
-            type = "ESCAPE_ACTION", 
-            reason = "Critical health (" .. p.selfHealth .. ")"
-        }
+        -- Ask personality module for escape spell
+        spell = self.personality:getEscapeSpell(self, p, spellbook)
+        reason = "Escape"
+        actionType = "ESCAPE_ACTION"
     
-    -- Low health - prioritize defense
-    elseif p.selfLowHealth and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Low health defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Low health, need shield"
-        }
+    elseif self.currentState == OpponentAI.STATE.POSITION then
+        -- Ask personality module for positioning spell
+        spell = self.personality:getPositioningSpell(self, p, spellbook)
+        reason = "Positioning"
+        actionType = "POSITION_ACTION"
     
-    -- Opponent has very low health - press the advantage
-    elseif p.opponentLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use strongest attack spell available
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Offensive finish"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Opponent low health (" .. p.opponentHealth .. ")"
-        }
-    
-    -- Opponent is casting something - consider countering
-    elseif p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 then
-        self.currentState = STATE.COUNTER
-        
-        -- Try counter spells
-        if self:hasAvailableSpellSlot() then
-            local counterOptions = {
-                spellbook["13"], -- eclipse (freezes crown slot)
-                spellbook["3"]   -- moondance (changes range, can disrupt)
-            }
-            
-            for _, spell in ipairs(counterOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell, 
-                        reason = "Counter opponent spell"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "COUNTER_ACTION", 
-            reason = "Opponent casting spell"
-        }
-    
-    -- If health advantage is significant and we're not in low health, attack
-    elseif p.healthAdvantage > 15 and not p.selfLowHealth then
-        self.currentState = STATE.ATTACK
-        
-        -- Use offensive spell based on available mana
-        if self:hasAvailableSpellSlot() then
-            local attackOptions = {
-                spellbook["123"], -- fullmoonbeam (strongest)
-                spellbook["13"], -- eclipse
-                spellbook["3"]   -- moondance
-            }
-            
-            for _, spell in ipairs(attackOptions) do
-                if spell and self.wizard:canPayManaCost(spell.cost) then
-                    return { 
-                        type = "CAST_SPELL", 
-                        spell = spell,
-                        reason = "Press advantage"
-                    }
-                end
-            end
-        end
-        
-        return { 
-            type = "ATTACK_ACTION", 
-            reason = "Health advantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If we're at a health disadvantage, consider defense
-    elseif p.healthAdvantage < -15 and not p.hasActiveShield then
-        self.currentState = STATE.DEFEND
-        
-        -- Look for shield spell
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() then
-            return { 
-                type = "CAST_SPELL", 
-                spell = shieldSpell,
-                reason = "Health disadvantage defense"
-            }
-        end
-        
-        return { 
-            type = "DEFEND_ACTION", 
-            reason = "Health disadvantage (" .. p.healthAdvantage .. ")"
-        }
-    
-    -- If no tokens or very few tokens are available, focus on gaining resources
-    elseif p.totalFreeTokens <= 1 then
-        self.currentState = STATE.IDLE
-        
-        -- Try conjuring spell
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
-        if conjureSpell and self:hasAvailableSpellSlot() and 
-           (p.totalFreeTokens == 0 or self.wizard:canPayManaCost(conjureSpell.cost)) then
-            return { 
-                type = "CAST_SPELL", 
-                spell = conjureSpell,
-                reason = "Generate resources"
-            }
-        end
-        
-        return { 
-            type = "CONJURE_ACTION", 
-            reason = "Need resources (tokens: " .. p.totalFreeTokens .. ")"
-        }
-    
-    -- Default state when no specific criteria are met - slight aggression bias
-    else
-        -- Slightly biased toward attacking when nothing else is going on
-        local randomChoice = math.random(1, 10)
-        
-        if randomChoice <= 6 then -- 60% chance of attack
-            self.currentState = STATE.ATTACK
-            
-            -- Try an attack spell if possible
-            if self:hasAvailableSpellSlot() then
-                local attackOptions = {
-                    spellbook["123"], -- fullmoonbeam
-                    spellbook["13"], -- eclipse
-                    spellbook["3"]   -- moondance
-                }
-                
-                for _, spell in ipairs(attackOptions) do
-                    if spell and self.wizard:canPayManaCost(spell.cost) then
-                        return { 
-                            type = "CAST_SPELL", 
-                            spell = spell,
-                            reason = "Default attack"
-                        }
-                    end
-                end
-            end
-            
-            return { 
-                type = "ATTACK_ACTION", 
-                reason = "Default aggression"
-            }
-            
-        elseif randomChoice <= 9 then -- 30% chance of defense
-            self.currentState = STATE.DEFEND
-            
-            -- Try defensive spell if possible
-            local shieldSpell = spellbook["2"] -- wrapinmoonlight
-            if shieldSpell and self.wizard:canPayManaCost(shieldSpell.cost) and self:hasAvailableSpellSlot() 
-               and not p.hasActiveShield then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = shieldSpell,
-                    reason = "Default defense"
-                }
-            end
-            
-            return { 
-                type = "DEFEND_ACTION", 
-                reason = "Default caution"
-            }
-            
-        else -- 10% chance of resource gathering
-            self.currentState = STATE.IDLE
-            
-            -- Try conjuring spell if possible
-            local conjureSpell = spellbook["1"] -- conjuremoonlight
-            if conjureSpell and self.wizard:canPayManaCost(conjureSpell.cost) and self:hasAvailableSpellSlot() then
-                return { 
-                    type = "CAST_SPELL", 
-                    spell = conjureSpell,
-                    reason = "Default resource gathering"
-                }
-            end
-            
-            return { 
-                type = "WAIT_ACTION", 
-                reason = "Default patience"
-            }
-        end
+    elseif self.currentState == OpponentAI.STATE.IDLE then
+        -- Ask personality module for conjure/resource spell
+        spell = self.personality:getConjureSpell(self, p, spellbook)
+        reason = "Generate resources"
+        actionType = "CONJURE_ACTION"
     end
+    
+    -- If we found a specific spell and have a slot for it, cast it
+    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+        return {
+            type = "CAST_SPELL",
+            spell = spell,
+            reason = reason
+        }
+    end
+    
+    -- Return the general action if no specific spell was found or affordable
+    return {
+        type = actionType,
+        reason = reason .. " (no specific spell found or affordable)"
+    }
 end
 
 -- Execute the decided action
@@ -570,30 +443,6 @@ function OpponentAI:act(decision)
         print("[AI] Freeing all spells")
         wizard:freeAllSpells()
         
-    elseif decision.type == "ATTACK_ACTION" then
-        -- Choose and cast an offensive spell based on available mana
-        self:castOffensiveSpell()
-        
-    elseif decision.type == "DEFEND_ACTION" then
-        -- Choose and cast a defensive spell based on available mana
-        self:castDefensiveSpell()
-        
-    elseif decision.type == "CONJURE_ACTION" then
-        -- Cast a mana conjuring spell
-        self:castConjurationSpell()
-        
-    elseif decision.type == "COUNTER_ACTION" then
-        -- Cast a counter spell against opponent's active spell
-        self:castCounterSpell()
-        
-    elseif decision.type == "ESCAPE_ACTION" then
-        -- Cast an escape spell for desperate situations
-        self:castEscapeSpell()
-        
-    elseif decision.type == "POSITION_ACTION" then
-        -- Cast positioning spell to change range or elevation
-        self:castPositioningSpell()
-        
     elseif decision.type == "CAST_SPELL" and decision.spell then
         -- Direct spell casting (specified by higher-level logic)
         print("[AI] Casting specific spell: " .. decision.spell.name)
@@ -601,6 +450,62 @@ function OpponentAI:act(decision)
         if not success then
             print("[AI] Failed to cast " .. decision.spell.name)
         end
+    
+    -- Generic action types - try to get a spell from personality as fallback
+    elseif decision.type == "ATTACK_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ATTACK, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting attack spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable attack spell found")
+        end
+        
+    elseif decision.type == "DEFEND_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.DEFEND, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting defense spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable defense spell found")
+        end
+        
+    elseif decision.type == "COUNTER_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.COUNTER, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting counter spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable counter spell found")
+        end
+        
+    elseif decision.type == "ESCAPE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ESCAPE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting escape spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable escape spell found")
+        end
+        
+    elseif decision.type == "POSITION_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.POSITION, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting positioning spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable positioning spell found")
+        end
+        
+    elseif decision.type == "CONJURE_ACTION" then
+        local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.IDLE, self, self.perception, self.wizard.spellbook)
+        if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
+            print("[AI] Fallback casting conjure spell: " .. spell.name)
+            self.wizard:queueSpell(spell)
+        else
+            print("[AI] No suitable conjure spell found")
+        end
+    
     else
         print("[AI] Unknown action type: " .. decision.type)
     end
@@ -613,202 +518,6 @@ function OpponentAI:hasAvailableSpellSlot()
             return true
         end
     end
-    return false
-end
-
--- Try to cast an offensive spell based on available mana
-function OpponentAI:castOffensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    local spellsToTry = {}
-    
-    -- If we have a lot of tokens, try the most powerful spell
-    if p.totalFreeTokens >= 3 and self:hasAvailableSpellSlot() then
-        -- Try full moon beam (3-key combo) if we have enough mana
-        table.insert(spellsToTry, spellbook["123"]) -- fullmoonbeam
-    end
-    
-    -- Try 2-key offensive combos
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Add offensive 2-key spells
-        if p.opponentElevation == Constants.ElevationState.AERIAL then
-            -- Gravity trap good against aerial opponents
-            table.insert(spellsToTry, spellbook["23"]) -- gravityTrap
-        end
-        
-        -- Try to use positioning tricks
-        table.insert(spellsToTry, spellbook["13"]) -- eclipse
-    end
-    
-    -- Try simpler attacks if nothing else worked
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        -- Add single key offensive spells
-        table.insert(spellsToTry, spellbook["3"]) -- moondance (position change)
-    end
-    
-    -- Try each spell in order of preference
-    for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting offensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
-        end
-    end
-    
-    -- If we couldn't cast anything offensive, try to build resources
-    if p.totalFreeTokens < 2 then
-        return self:castConjurationSpell()
-    end
-    
-    return false
-end
-
--- Try to cast a defensive spell based on available mana
-function OpponentAI:castDefensiveSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    local spellsToTry = {}
-    
-    -- Best defense is shield
-    if p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- Try shield spell (wrapinmoonlight)
-        table.insert(spellsToTry, spellbook["2"]) -- wrapinmoonlight
-    end
-    
-    -- If we don't have enough tokens for a shield
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        -- Try to gain tokens
-        table.insert(spellsToTry, spellbook["1"]) -- conjuremoonlight
-    end
-    
-    -- Try each spell in order of preference
-    for _, spell in ipairs(spellsToTry) do
-        if spell then
-            print("[AI] Attempting defensive spell: " .. spell.name)
-            local success = self.wizard:queueSpell(spell)
-            if success then
-                print("[AI] Successfully cast " .. spell.name)
-                return true
-            end
-        end
-    end
-    
-    -- If we couldn't cast any defensive spell, try to build resources
-    return self:castConjurationSpell()
-end
-
--- Try to cast a mana conjuring spell
-function OpponentAI:castConjurationSpell()
-    local spellbook = self.wizard.spellbook
-    
-    -- Try conjuration spell if a slot is available
-    if self:hasAvailableSpellSlot() then
-        local conjureSpell = spellbook["1"] -- conjuremoonlight
-        
-        if conjureSpell then
-            print("[AI] Attempting conjuration: " .. conjureSpell.name)
-            local success = self.wizard:queueSpell(conjureSpell)
-            if success then
-                print("[AI] Successfully cast " .. conjureSpell.name)
-                return true
-            end
-        end
-    end
-    
-    return false
-end
-
--- Try to cast a counter spell against opponent's active spell
-function OpponentAI:castCounterSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    
-    -- Check if there's something to counter and we have enough resources
-    if p.opponentHasDangerousSpell and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        -- For Selene, try using eclipse or moondance
-        local counterSpells = {
-            spellbook["13"], -- eclipse (freezes crown slot)
-            spellbook["3"]   -- moondance (can disrupt by changing range)
-        }
-        
-        -- Try each counter spell
-        for _, spell in ipairs(counterSpells) do
-            if spell then
-                print("[AI] Attempting counter spell: " .. spell.name)
-                local success = self.wizard:queueSpell(spell)
-                if success then
-                    print("[AI] Successfully cast counter " .. spell.name)
-                    return true
-                end
-            end
-        end
-    end
-    
-    -- If countering failed, try attacking instead
-    return self:castOffensiveSpell()
-end
-
--- Try to cast an escape spell for desperate situations
-function OpponentAI:castEscapeSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    
-    -- When in critical health, try shield, range change, or free all slots
-    
-    -- First priority: shields if not already shielded
-    if not p.hasActiveShield and p.totalFreeTokens >= 2 and self:hasAvailableSpellSlot() then
-        local shieldSpell = spellbook["2"] -- wrapinmoonlight
-        if shieldSpell then
-            print("[AI] Attempting emergency shield: " .. shieldSpell.name)
-            local success = self.wizard:queueSpell(shieldSpell)
-            if success then 
-                return true
-            end
-        end
-    end
-    
-    -- Second priority: change range/position
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        local escapeSpell = spellbook["3"] -- moondance
-        if escapeSpell then
-            print("[AI] Attempting escape with: " .. escapeSpell.name)
-            local success = self.wizard:queueSpell(escapeSpell)
-            if success then 
-                return true
-            end
-        end
-    end
-    
-    -- Last resort: free all slots to get more resources
-    if p.activeSlots > 0 then
-        print("[AI] Emergency - freeing all spell slots")
-        self.wizard:freeAllSpells()
-        return true
-    end
-    
-    return false
-end
-
--- Try to cast a positioning spell to change range or elevation
-function OpponentAI:castPositioningSpell()
-    local p = self.perception
-    local spellbook = self.wizard.spellbook
-    
-    -- Try to use moondance to change range
-    if p.totalFreeTokens >= 1 and self:hasAvailableSpellSlot() then
-        local posSpell = spellbook["3"] -- moondance
-        if posSpell then
-            print("[AI] Attempting position change with: " .. posSpell.name)
-            local success = self.wizard:queueSpell(posSpell)
-            if success then
-                return true
-            end
-        end
-    end
-    
     return false
 end
 

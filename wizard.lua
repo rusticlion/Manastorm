@@ -101,6 +101,12 @@ function Wizard.new(name, x, y, color)
     self.castFrameTimer = 0
     self.castFrameDuration = 0.25 -- Show cast frame for 0.25 seconds
 
+    -- Idle animation properties
+    self.idleAnimationFrames = {}
+    self.currentIdleFrame = 1
+    self.idleFrameTimer = 0
+    self.idleFrameDuration = 0.15 -- seconds per frame
+
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
     
@@ -153,7 +159,7 @@ function Wizard.new(name, x, y, color)
             ["3"]  = Spells.moondance,
             
             -- Two key combos
-            ["12"] = Spells.watergun,
+            ["12"] = Spells.infiniteprocession,
             ["13"] = Spells.eclipse,
             ["23"] = Spells.gravityTrap,
             
@@ -213,6 +219,30 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
     end
 
+    -- Load idle animation frames specifically for Ashgar
+    if name == "Ashgar" then
+        local AssetCache = require("core.AssetCache")
+        for i = 1, 7 do
+            local framePath = "assets/sprites/" .. string.lower(name) .. "-idle-" .. i .. ".png"
+            local frameImg = AssetCache.getImage(framePath)
+            if frameImg then
+                table.insert(self.idleAnimationFrames, frameImg)
+            else
+                print("Warning: Could not load Ashgar idle frame: " .. framePath)
+                -- Fallback to using the main sprite if we can't load the idle frame
+                table.insert(self.idleAnimationFrames, self.sprite)
+            end
+        end
+        -- If no idle frames loaded, use the main sprite as a single-frame animation
+        if #self.idleAnimationFrames == 0 then
+            print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
+            table.insert(self.idleAnimationFrames, self.sprite)
+        end
+    else
+        -- For other wizards, populate with their main sprite for now
+        table.insert(self.idleAnimationFrames, self.sprite)
+    end
+
     self.scale = 1.0
     
     -- Keep references
@@ -234,7 +264,7 @@ function Wizard:update(dt)
     -- Reset flags at the beginning of each frame
     self.justCastSpellThisFrame = false
     self.justConjuredMana = false
-    
+
     -- Update hit flash timer
     if self.hitFlashTimer > 0 then
         self.hitFlashTimer = math.max(0, self.hitFlashTimer - dt)
@@ -243,6 +273,23 @@ function Wizard:update(dt)
     -- Update cast frame timer
     if self.castFrameTimer > 0 then
         self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
+    end
+
+    -- Update idle animation timer and frame
+    -- Only animate idle if not casting or in another special visual state
+    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+        self.idleFrameTimer = self.idleFrameTimer + dt
+        if self.idleFrameTimer >= self.idleFrameDuration then
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.currentIdleFrame = self.currentIdleFrame + 1
+            if self.currentIdleFrame > #self.idleAnimationFrames then
+                self.currentIdleFrame = 1 -- Loop animation
+            end
+        end
+    else
+        -- If casting, reset idle animation to first frame to look clean when cast finishes
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
     end
     
     -- Update position animation

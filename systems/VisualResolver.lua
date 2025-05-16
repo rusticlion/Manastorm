@@ -8,13 +8,12 @@ local VisualResolver = {}
 -- Map visualShape strings to base VFX template names
 -- This is the primary mapping table for determining visual template from spell shape
 local TEMPLATE_BY_SHAPE = {
-    -- Beam-like effects
-    ["beam"] = Constants.VFXType.BEAM_BASE,
     
     -- Projectile-like effects
+    ["beam"] = Constants.VFXType.BEAM_BASE,
+    ["zap"] = Constants.VFXType.PROJ_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.PROJ_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template

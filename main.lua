@@ -16,6 +16,8 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
+local SelenePersonality = require("ai.personalities.SelenePersonality")
+local AshgarPersonality = require("ai.personalities.AshgarPersonality")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -44,9 +46,13 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER)
+    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Attract mode properties
+    attractModeActive = false,
+    menuIdleTimer = 0,
+    ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -429,8 +435,23 @@ function resetGame()
     
     -- Reinitialize AI opponent if AI mode is enabled
     if game.useAI then
-        game.opponentAI = OpponentAI.new(game.wizards[2], game)
-        print("AI opponent reinitialized")
+        -- Use the appropriate personality based on which wizard is controlled by AI
+        local aiWizard = game.wizards[2]
+        local personality
+
+        if aiWizard.name == "Selene" then
+            personality = SelenePersonality
+            print("Initializing Selene AI personality")
+        elseif aiWizard.name == "Ashgar" then
+            personality = AshgarPersonality
+            print("Initializing Ashgar AI personality")
+        else
+            -- Default to base personality for unknown wizards
+            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        end
+
+        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -456,6 +477,77 @@ end
 -- Add resetGame function to game state so Input system can call it
 function game.resetGame()
     resetGame()
+end
+
+-- Function to start an AI vs AI attract mode game
+function startGameAttractMode()
+    print("Starting attract mode...")
+
+    -- Mark attract mode as active
+    game.attractModeActive = true
+
+    -- Reset the game to clear any existing state
+    resetGame()
+
+    -- Temporarily store input routes so we can restore them later
+    game.savedInputRoutes = {
+        p1 = Input.Routes.p1,
+        p2 = Input.Routes.p2
+    }
+
+    -- Disable player input during attract mode
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+
+    -- Make sure AI mode is enabled but not tracked by the normal flag
+    -- This way we can have two AI players without affecting the normal mode
+    game.useAI = false
+
+    -- Create AI for player 1 (Ashgar)
+    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+    game.player1AI = player1AI
+
+    -- Create AI for player 2 (Selene)
+    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+    game.player2AI = player2AI
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Transition to the attract mode battle state
+    game.currentState = "BATTLE_ATTRACT"
+
+    print("Attract mode started: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name)
+end
+
+-- Function to exit attract mode and return to the menu
+function exitAttractMode()
+    print("Exiting attract mode...")
+
+    -- Disable attract mode
+    game.attractModeActive = false
+
+    -- Clean up AI instances
+    game.player1AI = nil
+    game.player2AI = nil
+
+    -- Reset the game
+    resetGame()
+
+    -- Restore input routes if we saved them
+    if game.savedInputRoutes then
+        Input.Routes.p1 = game.savedInputRoutes.p1
+        Input.Routes.p2 = game.savedInputRoutes.p2
+        game.savedInputRoutes = nil
+    end
+
+    -- Reset idle timer
+    game.menuIdleTimer = 0
+
+    -- Return to menu
+    game.currentState = "MENU"
+
+    print("Attract mode ended, returned to menu")
 end
 
 function love.update(dt)
@@ -485,7 +577,17 @@ function love.update(dt)
         if game.vfx then
             game.vfx.update(dt)
         end
-        
+
+        -- Update attract mode timer when in menu
+        if not game.attractModeActive then
+            game.menuIdleTimer = game.menuIdleTimer + dt
+
+            -- Start attract mode if idle timer exceeds threshold
+            if game.menuIdleTimer > game.ATTRACT_MODE_DELAY then
+                startGameAttractMode()
+            end
+        end
+
         -- No other updates needed in menu state
         return
     elseif game.currentState == "BATTLE" then
@@ -559,17 +661,127 @@ function love.update(dt)
         if game.useAI and game.opponentAI then
             game.opponentAI:update(dt)
         end
+
+        -- Update both AI players in attract mode
+        if game.attractModeActive then
+            if game.player1AI then
+                game.player1AI:update(dt)
+            end
+            if game.player2AI then
+                game.player2AI:update(dt)
+            end
+        end
     elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
-        
+
         -- Auto-reset after duration
         if game.winScreenTimer >= game.winScreenDuration then
             -- Reset game and go back to menu
             resetGame()
             game.currentState = "MENU"
         end
-        
+
+        -- Still update VFX system for visual effects
+        game.vfx.update(dt)
+    elseif game.currentState == "BATTLE_ATTRACT" then
+        -- Check for win condition before updates
+        if game.gameOver then
+            -- Transition to attract mode game over state
+            game.currentState = "GAME_OVER_ATTRACT"
+            game.winScreenTimer = 0
+            return
+        end
+
+        -- Check if any wizard's health has reached zero
+        for i, wizard in ipairs(game.wizards) do
+            if wizard.health <= 0 then
+                game.gameOver = true
+                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
+                game.winScreenTimer = 0
+
+                -- Create victory VFX around the winner
+                local winner = game.wizards[game.winner]
+                for j = 1, 15 do
+                    local angle = math.random() * math.pi * 2
+                    local distance = math.random(40, 100)
+                    local x = winner.x + math.cos(angle) * distance
+                    local y = winner.y + math.sin(angle) * distance
+
+                    -- Determine winner's color for effects
+                    local color
+                    if game.winner == 1 then -- Ashgar
+                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
+                    else -- Selene
+                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
+                    end
+
+                    -- Create sparkle effect with delay
+                    game.vfx.createEffect("impact", x, y, nil, nil, {
+                        duration = 0.8 + math.random() * 0.5,
+                        color = color,
+                        particleCount = 5,
+                        radius = 15,
+                        delay = j * 0.1
+                    })
+                end
+
+                print("[Attract Mode] " .. winner.name .. " wins!")
+
+                -- Transition to game over state
+                game.currentState = "GAME_OVER_ATTRACT"
+                return
+            end
+        end
+
+        -- Update wizards
+        for _, wizard in ipairs(game.wizards) do
+            wizard:update(dt)
+        end
+
+        -- Update mana pool
+        game.manaPool:update(dt)
+
+        -- Update VFX system
+        game.vfx.update(dt)
+
+        -- Update SustainedSpellManager for trap and shield management
+        game.sustainedSpellManager.update(dt)
+
+        -- Update animated health displays
+        UI.updateHealthDisplays(dt, game.wizards)
+
+        -- Update both AI players in attract mode
+        if game.player1AI then
+            game.player1AI:update(dt)
+        end
+        if game.player2AI then
+            game.player2AI:update(dt)
+        end
+    elseif game.currentState == "GAME_OVER_ATTRACT" then
+        -- Update win screen timer
+        game.winScreenTimer = game.winScreenTimer + dt
+
+        -- Auto-reset after duration - start a new attract mode battle
+        if game.winScreenTimer >= game.winScreenDuration then
+            -- Reset game and start another attract mode battle
+            resetGame()
+
+            -- Create AI for player 1 (Ashgar)
+            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
+            game.player1AI = player1AI
+
+            -- Create AI for player 2 (Selene)
+            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
+            game.player2AI = player2AI
+
+            -- Keep attract mode active
+            game.attractModeActive = true
+
+            -- Go back to attract mode battle
+            game.currentState = "BATTLE_ATTRACT"
+        end
+
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
     end
@@ -597,7 +809,7 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
-    elseif game.currentState == "BATTLE" then
+    elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -608,35 +820,40 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw range state indicator (NEAR/FAR)
         if love.keyboard.isDown("`") then
             drawRangeIndicator()
         end
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer (between wizards and UI)
         game.vfx.draw()
-        
+
         -- Draw UI elements in proper z-order
         love.graphics.setColor(1, 1, 1)
-        
+
         -- First draw health bars and basic UI components
         UI.drawSpellInfo(game.wizards)
-        
+
         -- Then draw spellbook buttons (the input feedback bar)
         UI.drawSpellbookButtons()
-        
+
         -- Finally draw spellbook modals on top of everything else
         UI.drawSpellbookModals(game.wizards)
-    elseif game.currentState == "GAME_OVER" then
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "BATTLE_ATTRACT" then
+            drawAttractModeOverlay()
+        end
+    elseif game.currentState == "GAME_OVER" or game.currentState == "GAME_OVER_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
         if game.backgroundImage then
@@ -647,24 +864,29 @@ function love.draw()
             love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
             love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
-        
+
         -- Draw game elements in the background (frozen in time)
         -- Draw range state indicator
         drawRangeIndicator()
-        
+
         -- Draw mana pool
         game.manaPool:draw()
-        
+
         -- Draw wizards
         for _, wizard in ipairs(game.wizards) do
             wizard:draw()
         end
-        
+
         -- Draw visual effects layer
         game.vfx.draw()
-        
+
         -- Draw win screen on top
         drawWinScreen()
+
+        -- If in attract mode, draw the attract mode overlay
+        if game.currentState == "GAME_OVER_ATTRACT" then
+            drawAttractModeOverlay()
+        end
     end
     
     -- Debug info only when debug key is pressed (available in all states)
@@ -1228,14 +1450,67 @@ function drawMainMenu()
     love.graphics.print(versionText, 10, screenHeight - 30)
 end
 
+-- Draw attract mode overlay
+function drawAttractModeOverlay()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    -- Draw a semi-transparent banner at the top
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, 40)
+
+    -- Draw "Attract Mode" text
+    love.graphics.setColor(1, 1, 1, 0.9)
+    local attractText = "ATTRACT MODE - PRESS ANY KEY TO RETURN TO MENU"
+    local textWidth = game.font:getWidth(attractText) * 1.5
+
+    -- Make text pulse slightly to draw attention
+    local pulse = 0.8 + 0.2 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(1, 1, 1, pulse)
+    love.graphics.print(
+        attractText,
+        screenWidth / 2 - textWidth / 2,
+        10,
+        0, -- rotation
+        1.5, -- scale X
+        1.5  -- scale Y
+    )
+
+    -- Draw AI info text at bottom
+    love.graphics.setColor(0, 0, 0, 0.7)
+    love.graphics.rectangle("fill", 0, screenHeight - 40, screenWidth, 40)
+
+    -- Show which AI personalities are fighting
+    local aiInfoText = "AI DUEL: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name
+    local aiTextWidth = game.font:getWidth(aiInfoText)
+
+    love.graphics.setColor(1, 1, 1, 0.9)
+    love.graphics.print(
+        aiInfoText,
+        screenWidth / 2 - aiTextWidth / 2,
+        screenHeight - 30
+    )
+end
+
 -- Unified key handler using the Input module
 function love.keypressed(key, scancode, isrepeat)
-    -- Forward all key presses to the Input module
+    -- First check if we're in attract mode - any key exits attract mode
+    if game.attractModeActive then
+        exitAttractMode()
+        return true -- Key handled
+    end
+
+    -- Forward all key presses to the Input module for normal gameplay
     return Input.handleKey(key, scancode, isrepeat)
 end
 
 -- Unified key release handler
 function love.keyreleased(key, scancode)
+    -- Skip key release handling if in attract mode (already handled in keypressed)
+    if game.attractModeActive then
+        return true -- Key handled
+    end
+
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
 end

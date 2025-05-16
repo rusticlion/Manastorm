@@ -32,7 +32,23 @@ local function updateProjectile(effect, dt)
     effect.frameDuration = effect.frameDuration or 0.1 -- Default frame duration
     effect.currentFrame = effect.currentFrame or 1 -- Default current frame
     effect.frameTimer = effect.frameTimer or 0 -- Default frame timer
-    effect.visualProgress = effect.visualProgress or effect.progress -- Default visual progress
+
+    -- Always update visual progress from effect.progress on each frame
+    -- This ensures visualProgress increases over time consistently
+
+    -- Bug fix: visualProgress wasn't being set correctly for blocked projectiles
+    if effect.isBlocked then
+        -- For blocked effects, always update until it reaches the block point
+        local blockPoint = (effect.options and effect.options.blockPoint) or 1.0
+
+        if not effect.visualProgress or effect.visualProgress < effect.progress then
+            effect.visualProgress = math.min(effect.progress, blockPoint)
+            print("[PROJECTILE DEBUG] Updating visualProgress for blocked effect: " .. effect.visualProgress)
+        end
+    else
+        -- For normal effects, always sync visualProgress with progress on each update
+        effect.visualProgress = effect.progress
+    end
     
     -- Ensure path-related properties are set
     effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
@@ -54,10 +70,10 @@ local function updateProjectile(effect, dt)
     -- Get effect parameters with defaults
     local arcHeight = effect.arcHeight or 60
     
-    -- Use visualProgress for blocked effects, otherwise use normal progress
-    -- IMPORTANT: Only use visualProgress if the effect is blocked
-    local baseProgress = effect.isBlocked and effect.visualProgress or effect.progress
-    
+    -- Always use visualProgress for consistent animation
+    -- This ensures the head position consistently updates with each frame
+    local baseProgress = effect.visualProgress
+
     print(string.format("[PROJECTILE PROGRESS] isBlocked=%s, progress=%.2f, visualProgress=%.2f, baseProgress=%.2f",
         tostring(effect.isBlocked), effect.progress or 0, effect.visualProgress or 0, baseProgress))
     
@@ -86,8 +102,13 @@ local function updateProjectile(effect, dt)
     }
     
     -- Ensure we're using a valid progress value
-    baseProgress = baseProgress or (effect.progress or 0)
-    
+    -- Crucial: If baseProgress is nil, use effect.progress directly
+    -- This ensures we always have a value that increases over time
+    if baseProgress == nil then
+        baseProgress = effect.progress or 0
+        print("[PROJECTILE WARNING] baseProgress was nil, using effect.progress = " .. baseProgress)
+    end
+
     -- Now calculate the position along the path
     if effect.useCurvedPath then
         -- Use a parabolic path
@@ -131,22 +152,59 @@ local function updateProjectile(effect, dt)
     end
     
     -- Update trail points (shifting all points to make room for the new head)
+    -- Bug fix: Ensure head position is actually different before updating trail
+    -- This prevents the trail from being stuck at the same point
+    local shouldUpdateTrail = true
+
     if #effect.trailPoints > 0 then
-        -- For trail with length n, we want to preserve n points
-        -- Remove the last point
-        table.remove(effect.trailPoints)
-        
-        -- Insert the new head position at the beginning
-        table.insert(effect.trailPoints, 1, {
-            x = head.x,
-            y = head.y,
-            alpha = 1.0
-        })
-        
-        -- Update alpha values for the trail
-        for i = 2, #effect.trailPoints do
-            effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+        -- Check if the head has actually moved from the last position
+        local lastHeadX = effect.trailPoints[1] and effect.trailPoints[1].x
+        local lastHeadY = effect.trailPoints[1] and effect.trailPoints[1].y
+
+        -- Only create a new trail point if the head has moved at least a small distance
+        -- or if this is the first update
+        local minDistance = 1.0 -- Minimum distance to consider movement significant
+        if lastHeadX and lastHeadY then
+            local dx = head.x - lastHeadX
+            local dy = head.y - lastHeadY
+            local distanceMoved = math.sqrt(dx*dx + dy*dy)
+            shouldUpdateTrail = (distanceMoved >= minDistance)
+
+            if not shouldUpdateTrail then
+                print(string.format("[PROJECTILE DEBUG] Head position hasn't changed significantly: dist=%.2f < %.2f",
+                    distanceMoved, minDistance))
+            end
         end
+
+        if shouldUpdateTrail then
+            -- For trail with length n, we want to preserve n points
+            -- Remove the last point
+            table.remove(effect.trailPoints)
+
+            -- Insert the new head position at the beginning
+            table.insert(effect.trailPoints, 1, {
+                x = head.x,
+                y = head.y,
+                alpha = 1.0
+            })
+
+            -- Update alpha values for the trail
+            for i = 2, #effect.trailPoints do
+                effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
+            end
+
+            print(string.format("[PROJECTILE DEBUG] Updated trail with new head position: (%.1f, %.1f)", head.x, head.y))
+        end
+    else
+        -- If there are no trail points yet, initialize with current head position
+        for i = 1, effect.trailLength do
+            table.insert(effect.trailPoints, {
+                x = head.x,
+                y = head.y,
+                alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
+            })
+        end
+        print("[PROJECTILE DEBUG] Initialized trail with starting position")
     end
     
     -- Update particles for the projectile trail
@@ -214,8 +272,14 @@ local function updateProjectile(effect, dt)
     end
     
     -- Write the head position to the effect for drawing
+    -- Critical bugfix: Force head position update even if trail wasn't updated
+    -- This ensures the head always reflects the current progress
     effect.headX = head.x
     effect.headY = head.y
+
+    -- Debug logging - track position updates
+    print(string.format("[PROJECTILE DEBUG] Updated head position: (%.1f, %.1f) at progress=%.2f",
+        head.x, head.y, baseProgress))
 end
 
 -- Draw function for projectile effects
