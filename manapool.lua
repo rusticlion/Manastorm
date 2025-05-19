@@ -275,6 +275,13 @@ function TokenMethods:finalizeOrbit()
     -- Update position to make sure it's at the target
     self.x = self.targetOrbitX
     self.y = self.targetOrbitY
+
+    -- Ensure scale is finalized
+    if self.targetScale then
+        self.scale = self.targetScale
+    else
+        self.scale = 0.85 + math.random() * 0.3
+    end
     
     -- Clean up orbit animation properties
     self.startOrbitX = nil
@@ -398,8 +405,9 @@ function TokenMethods:finalizeAppear()
     self.targetRadiusY = valence.radiusY
     self.currentRadiusX = valence.radiusX
     self.currentRadiusY = valence.radiusY
-    
+
     -- Visual variance set during appearing animation
+    self.scale = self.targetScale
     self.zOrder = math.random()
     
     return true

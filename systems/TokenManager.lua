@@ -255,6 +255,13 @@ function TokenManager.positionTokensInSpellSlot(wizard, slotIndex, tokens)
         -- Store token's current position as the starting point for animation
         token.startX = token.x
         token.startY = token.y
+
+        -- Ensure the token appears at a consistent scale while channeled
+        if token.targetScale then
+            token.scale = token.targetScale
+        else
+            token.scale = Constants.TokenVisuals and Constants.TokenVisuals.CHANNELED_SCALE or 1.0
+        end
         
         -- Initialize animation parameters
         token.animTime = 0
