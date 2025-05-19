@@ -135,15 +135,16 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw STUN duration if active
-    if wizard.stunTimer > 0 then
+    if wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Calculate progress (1.0 to 0.0 as time depletes)
-        local maxDuration = 3.0  -- Assuming 3 seconds is max stun duration
-        local progress = wizard.stunTimer / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
+        local stun = wizard.statusEffects.stun
+        local maxDuration = stun.duration
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        local progress = maxDuration > 0 and remaining / maxDuration or 0
+
         -- Get color for stun state
         local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.STUN)
         
@@ -829,7 +830,7 @@ function WizardVisuals.drawWizard(wizard)
         wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
         
         -- Flash effect is now implemented with additive blending
-    elseif wizard.stunTimer > 0 then
+    elseif wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
         wizardColor = {1, 1, flashIntensity, 1}

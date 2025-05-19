@@ -378,7 +378,12 @@ function resetGame()
         wizard.health = 100
         wizard.elevation = Constants.ElevationState.GROUNDED
         wizard.elevationTimer = 0
-        wizard.stunTimer = 0
+        if wizard.statusEffects and wizard.statusEffects[Constants.StatusType.STUN] then
+            wizard.statusEffects[Constants.StatusType.STUN].active = false
+            wizard.statusEffects[Constants.StatusType.STUN].duration = 0
+            wizard.statusEffects[Constants.StatusType.STUN].elapsed = 0
+            wizard.statusEffects[Constants.StatusType.STUN].totalTime = 0
+        end
         
         -- Reset spell slots
         for i = 1, 3 do

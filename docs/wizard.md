@@ -11,7 +11,8 @@ The `wizard.lua` module defines the "class" for the player characters in Manasto
 Each `Wizard` instance maintains a comprehensive set of state variables:
 
 *   **Identity & Position:** `name`, `x`, `y`, `color`.
-*   **Combat:** `health`, `stunTimer`.
+*   **Combat:** `health`.
+    * `statusEffects[Constants.StatusType.STUN]`: Tracks stun duration.
 *   **Positioning:**
     *   `elevation`: String ("GROUNDED" or "AERIAL").
     *   `elevationTimer`: Duration for temporary AERIAL state.
