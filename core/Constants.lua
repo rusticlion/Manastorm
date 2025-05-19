@@ -41,6 +41,12 @@ Constants.TokenStatus = {
     POOLED = "POOLED"          -- Released to the object pool
 }
 
+-- Visual constants for tokens
+Constants.TokenVisuals = {
+    -- Scale applied when a token is placed in a spell slot
+    CHANNELED_SCALE = 1.0
+}
+
 -- Range positioning between wizards
 Constants.RangeState = {
     NEAR = "NEAR",
