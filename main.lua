@@ -20,6 +20,7 @@ local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
 local SilexPersonality = require("ai.personalities.SilexPersonality")
+local BorrakPersonality = require("ai.personalities.BorrakPersonality")
 local CharacterData = require("characterData")
 
 -- Resolution settings
@@ -153,6 +154,8 @@ local function getPersonalityFor(name)
         return SelenePersonality
     elseif name == "Ashgar" then
         return AshgarPersonality
+    elseif name == "Borrak" then
+        return BorrakPersonality
     elseif name == "Silex" then
         return SilexPersonality
     else
