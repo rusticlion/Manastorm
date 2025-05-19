@@ -50,13 +50,25 @@ local TokenMethods = {}
 -- Set the token's state with validation
 function TokenMethods:setState(newStatus)
     local oldStatus = self.status
-    
+
     -- Validate state transitions
     if self.status == Constants.TokenStatus.POOLED then
         print("[TOKEN LIFECYCLE] WARNING: Cannot transition from POOLED state!")
         return false
     end
-    
+
+    -- Finalize scale if leaving an animation state that modifies scale
+    if (oldStatus == Constants.TokenStatus.APPEARING or oldStatus == Constants.TokenStatus.ORBITING) and
+       (newStatus == Constants.TokenStatus.CHANNELED or
+        newStatus == Constants.TokenStatus.SHIELDING or
+        newStatus == Constants.TokenStatus.FREE) then
+        if self.targetScale then
+            self.scale = self.targetScale
+        else
+            self.scale = 0.85 + math.random() * 0.3
+        end
+    end
+
     -- Update the token's status
     self.status = newStatus
     
@@ -275,6 +287,13 @@ function TokenMethods:finalizeOrbit()
     -- Update position to make sure it's at the target
     self.x = self.targetOrbitX
     self.y = self.targetOrbitY
+
+    -- Ensure scale is finalized
+    if self.targetScale then
+        self.scale = self.targetScale
+    else
+        self.scale = 0.85 + math.random() * 0.3
+    end
     
     -- Clean up orbit animation properties
     self.startOrbitX = nil
@@ -398,8 +417,9 @@ function TokenMethods:finalizeAppear()
     self.targetRadiusY = valence.radiusY
     self.currentRadiusX = valence.radiusX
     self.currentRadiusY = valence.radiusY
-    
+
     -- Visual variance set during appearing animation
+    self.scale = self.targetScale
     self.zOrder = math.random()
     
     return true
