@@ -93,9 +93,6 @@ SaltSpells.imprison = {
             condition = "on_opponent_far" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 

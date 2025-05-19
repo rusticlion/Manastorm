@@ -11,10 +11,8 @@ local SustainedSpellManager = {}
 --   wizard = reference to wizard who cast the spell,
 --   slotIndex = index of the spell slot,
 --   spell = reference to the spell,
---   windowData = expiry conditions (duration or state),
 --   triggerData = trigger conditions (for traps),
 --   effectData = effect to apply when triggered (for traps),
---   expiryTimer = countdown for duration-based expiry,
 --   type = "shield" or "trap" or "generic"
 -- }
 SustainedSpellManager.activeSpells = {}
@@ -62,12 +60,6 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if spellType == "trap" then
         entry.triggerData = spellData.trapTrigger or {}
         entry.effectData = spellData.trapEffect or {}
-        entry.windowData = spellData.trapWindow or {}
-        
-        -- Initialize expiry timer if a duration is specified
-        if entry.windowData.duration and type(entry.windowData.duration) == "number" then
-            entry.expiryTimer = entry.windowData.duration
-        end
     end
     
     -- Add shield-specific data if present
@@ -130,50 +122,6 @@ function SustainedSpellManager.update(dt)
             genericCount = genericCount + 1
         end
         
-        -- Check for expiry conditions (BEFORE trigger checks)
-        if entry.windowData then
-            -- Duration-based expiry (already implemented)
-            if entry.windowData.duration and entry.expiryTimer and not entry.expired then
-                entry.expiryTimer = entry.expiryTimer - dt
-                
-                -- Check if the duration has expired
-                if entry.expiryTimer <= 0 then
-                    entry.expired = true
-                    print(string.format("[SustainedManager] Spell expired (duration) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                    table.insert(spellsToRemove, id)
-                end
-            end
-            
-            -- Condition-based expiry
-            if entry.windowData.condition and not entry.expired then
-                local condition = entry.windowData.condition
-                local conditionMet = false
-                
-                -- Check until_next_conjure condition
-                if condition == "until_next_conjure" and entry.wizard.justConjuredMana then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (conjure condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check while_elevated condition
-                if condition == "while_elevated" and entry.wizard.elevation ~= Constants.ElevationState.AERIAL then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (elevation condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check other conditions as needed
-                -- Add new condition checks here as the system expands
-                
-                -- If any condition is met, mark for expiry
-                if conditionMet then
-                    entry.expired = true
-                    table.insert(spellsToRemove, id)
-                end
-            end
-        end
         
         -- Process trap trigger conditions if this is a trap
         if entry.type == "trap" and entry.triggerData and not entry.triggered then
@@ -339,43 +287,15 @@ function SustainedSpellManager.update(dt)
                 table.insert(spellsToRemove, id)
             end
         end
-        
-        -- Duration-based expiry now handled at the top of the loop
-        
+
         ::continue::
     end
     
-    -- Remove expired and triggered spells after iteration
+    -- Remove triggered spells after iteration
     for _, id in ipairs(spellsToRemove) do
         local entry = SustainedSpellManager.activeSpells[id]
         if entry then
-            -- Expire spells without triggering trap effects
-            if entry.expired and not entry.triggered and not entry.processed then
-                print(string.format("[SustainedManager] Cleaning up expired spell for %s slot %d", 
-                    entry.wizard.name, entry.slotIndex))
-                
-                -- Clean up expired spell
-                local TokenManager = require("systems.TokenManager")
-                
-                -- Get the spell slot
-                local slot = entry.wizard.spellSlots[entry.slotIndex]
-                if slot then
-                    -- Return tokens to the mana pool
-                    if #slot.tokens > 0 then
-                        TokenManager.returnTokensToPool(slot.tokens)
-                        print(string.format("[SustainedManager] Returning %d tokens from expired spell", 
-                            #slot.tokens))
-                    end
-                    
-                    -- Reset the spell slot
-                    entry.wizard:resetSpellSlot(entry.slotIndex)
-                end
-                
-                -- Mark as processed to prevent duplicate processing
-                entry.processed = true
-            end
-            
-            -- Remove the spell from the manager, whether it was triggered or expired
+            -- Remove the spell from the manager
             SustainedSpellManager.removeSustainedSpell(id)
         end
     end
