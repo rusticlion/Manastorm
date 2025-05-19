@@ -609,7 +609,7 @@ function exitAttractMode()
 end
 
 -- Initialize wizards for battle based on selected names
-local function setupWizards(name1, name2)
+function setupWizards(name1, name2)
     local data1 = game.characterData[name1] or {}
     local data2 = game.characterData[name2] or {}
     game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
