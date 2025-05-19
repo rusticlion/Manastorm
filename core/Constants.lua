@@ -260,15 +260,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
--- Utility function to get all spell metadata fields
-function Constants.getAllSpellMetadataFields()
-    local fields = {}
-    for _, value in pairs(Constants.SpellMetadata) do
-        table.insert(fields, value)
-    end
-    return fields
-end
-
 -- Spell metadata field names for consistent reference
 Constants.SpellMetadata = {
     ID = "id",
