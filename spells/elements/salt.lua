@@ -57,6 +57,23 @@ SaltSpells.glitterfang = {
     sfx = "glitter_fang",
 }
 
+SaltSpells.burnToAsh = {
+    id = "burnToAsh",
+    name = "Burn to Ash",
+    affinity = "salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "zap",
+    cost = {Constants.TokenType.FIRE},
+    keywords = {
+        disruptAndShift = {
+            targetType = "salt"
+        },
+        consume = true,
+    }
+}
+
 -- Salt Storm spell
 SaltSpells.saltstorm = {
     id = "saltstorm",

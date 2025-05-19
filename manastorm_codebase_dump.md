@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Sun May 18 01:04:43 CDT 2025
+Generated: Mon May 19 14:49:32 CDT 2025
 
 # Source Code
 
@@ -1198,6 +1198,70 @@ end
 
 return SelenePersonality```
 
+## ./characterData.lua
+```lua
+-- characterData.lua
+-- Defines color and spellbook data for each playable character
+
+local SpellsModule = require("spells")
+local Spells = SpellsModule.spells
+
+local characterData = {}
+
+characterData.Ashgar = {
+    color = {255,100,100},
+    spellbook = {
+        ["1"]  = Spells.conjurefire,
+        ["2"]  = Spells.burnToAsh,
+        ["3"]  = Spells.firebolt,
+        ["12"] = Spells.saltcircle,
+        ["13"] = Spells.blastwave,
+        ["23"] = Spells.fireball,
+        ["123"] = Spells.eruption,
+    }
+}
+
+characterData.Selene = {
+    color = {100,100,255},
+    spellbook = {
+        ["1"]  = Spells.conjuremoonlight,
+        ["2"]  = Spells.wrapinmoonlight,
+        ["3"]  = Spells.moondance,
+        ["12"] = Spells.infiniteprocession,
+        ["13"] = Spells.eclipse,
+        ["23"] = Spells.gravityTrap,
+        ["123"] = Spells.fullmoonbeam,
+    }
+}
+
+characterData.Silex = {
+    color = {200,200,200},
+    spellbook = {
+        ["1"]  = Spells.conjuresalt,
+        ["2"]  = Spells.glitterfang,
+        ["3"]  = Spells.imprison,
+        ["12"] = Spells.saltcircle,
+        ["13"] = Spells.stoneshield,
+        ["23"] = Spells.shieldbreaker,
+        ["123"] = Spells.saltstorm,
+    }
+}
+
+-- Placeholder spellbooks for other characters, defaulting to Ashgar's spells
+local defaultSpellbook = characterData.Ashgar.spellbook
+local defaultColor = {255,255,255}
+
+local roster = {"Borrak","Brightwulf","Klaus","Ohm","Archive","End"}
+for _, name in ipairs(roster) do
+    characterData[name] = {
+        color = defaultColor,
+        spellbook = defaultSpellbook,
+    }
+end
+
+return characterData
+```
+
 ## ./conf.lua
 ```lua
 -- Configuration
@@ -1556,20 +1620,36 @@ Constants.VisualShape = {
     WAVE = "wave",
 }
 
-Constants.CastSpeed = {
-    VERY_SLOW = 15,
-    SLOW = 12,
-    NORMAL = 9,
-    FAST = 6,
-    VERY_FAST = 3,
-    ONE_TIER = 3
+local function buildCastSpeedSet(oneTier)
+    return {
+        ONE_TIER = oneTier,
+        VERY_SLOW = oneTier * 5,
+        SLOW = oneTier * 4,
+        NORMAL = oneTier * 3,
+        FAST = oneTier * 2,
+        VERY_FAST = oneTier
+    }
+end
+
+Constants.CastSpeedSets = {
+    FAST = buildCastSpeedSet(3),
+    SLOW = buildCastSpeedSet(5)
 }
+
+Constants.CastSpeed = Constants.CastSpeedSets.FAST
+
+function Constants.setCastSpeedSet(name)
+    if Constants.CastSpeedSets[name] then
+        Constants.CastSpeed = Constants.CastSpeedSets[name]
+    end
+end
 
 -- Target types for keywords
 Constants.TargetType = {
     -- Simple targeting - used in spell definitions
     SELF = "SELF",             -- Target the caster
     ENEMY = "ENEMY",           -- Target the opponent
+    ALL = "ALL",               -- Target all wizards
     
     -- Complex targeting - used in keyword behaviors
     SLOT_SELF = "SLOT_SELF",     -- Target caster's spell slots
@@ -1602,6 +1682,14 @@ Constants.PlayerSide = {
     PLAYER = "PLAYER",
     OPPONENT = "OPPONENT",
     NEUTRAL = "NEUTRAL"
+}
+
+-- Status effect types applied to wizards
+Constants.StatusType = {
+    BURN = "burn",       -- Damage over time
+    SLOW = "slow",       -- Increases next cast time
+    STUN = "stun",       -- Prevents actions
+    REFLECT = "reflect"  -- Reflects incoming spells
 }
 
 -- Helper functions for dynamic string generation
@@ -1662,15 +1750,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
--- Utility function to get all spell metadata fields
-function Constants.getAllSpellMetadataFields()
-    local fields = {}
-    for _, value in pairs(Constants.SpellMetadata) do
-        table.insert(fields, value)
-    end
-    return fields
-end
-
 -- Spell metadata field names for consistent reference
 Constants.SpellMetadata = {
     ID = "id",
@@ -1684,7 +1763,6 @@ Constants.SpellMetadata = {
     VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
-    BLOCKABLE_BY = "blockableBy",
     ZONE = "zone"
 }
 
@@ -1912,6 +1990,24 @@ end
 function Input.handleKey(key, scancode, isrepeat)
     -- Log key presses for debugging
     print("DEBUG: Key pressed: '" .. key .. "'")
+
+    -- Handle settings key capture
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local action = gameState.settingsMenu.waitingForKey
+        local controls = gameState.settings.get("controls")
+        controls[action.player][action.key] = key
+        gameState.settings.set("controls", controls)
+        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
+        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
+            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
+            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+        else
+            gameState.settingsMenu.waitingForKey = nil
+            gameState.settingsMenu.mode = nil
+        end
+        Input.setupRoutes()
+        return true
+    end
     
     -- First check gameOver state - these have highest priority
     if gameState and gameState.gameOver then
@@ -1938,10 +2034,14 @@ function Input.handleKey(key, scancode, isrepeat)
         end
     end
     
-    -- Check UI controls (always active)
+    -- Check UI controls (always active). Only stop processing if handled
     local uiHandler = Input.Routes.ui[key]
     if uiHandler then
-        return uiHandler(key, scancode, isrepeat)
+        local handled = uiHandler(key, scancode, isrepeat)
+        if handled then
+            return true
+        end
+        -- fall through to player controls when not handled
     end
     
     -- Check player 1 controls
@@ -1974,18 +2074,19 @@ end
 
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
+    local controls = gameState.settings.get("controls")
     -- Handle player 1 key releases
-    if key == "q" or key == "w" or key == "e" then
-        local slotIndex = key == "q" and 1 or (key == "w" and 2 or 3)
+    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
+        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[1] then
             gameState.wizards[1]:keySpell(slotIndex, false)
             return true
         end
     end
-    
+
     -- Handle player 2 key releases
-    if key == "i" or key == "o" or key == "p" then
-        local slotIndex = key == "i" and 1 or (key == "o" and 2 or 3)
+    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
+        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[2] then
             gameState.wizards[2]:keySpell(slotIndex, false)
             return true
@@ -1997,6 +2098,14 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
+    -- Reset route tables
+    Input.Routes.system = {}
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+    Input.Routes.debug = {}
+    Input.Routes.test = {}
+    Input.Routes.ui = {}
+    Input.Routes.gameOver = {}
     -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
         -- If in MENU state, quit the game
@@ -2008,11 +2117,18 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             print("Returning to main menu")
             return true
-        -- If in GAME_OVER state, return to menu 
+        -- If in GAME_OVER state, return to menu
         elseif gameState.currentState == "GAME_OVER" then
             gameState.currentState = "MENU"
             gameState.resetGame()
             print("Returning to main menu")
+            return true
+        -- If in CHARACTER_SELECT, go back to menu
+        elseif gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectBack(true)
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.currentState = "MENU"
             return true
         end
         return false
@@ -2060,50 +2176,131 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Start Two-Player game from menu
+    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game")
+            print("Campaign mode not implemented yet")
             return true
         end
         return false
     end
-    
-    -- Start vs AI game from menu
+
+    -- Character Duel - goes to character select screen
     Input.Routes.ui["2"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to use AI
-            gameState.useAI = true
-            -- Reset game state for a fresh start
-            gameState.resetGame() -- This will initialize the AI
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new game against AI")
+            gameState.startCharacterSelect()
             return true
         end
         return false
     end
-    
-    -- Legacy enter key support (defaults to two-player)
+
+    -- Research Duel stub
+    Input.Routes.ui["3"] = function()
+        if gameState.currentState == "MENU" then
+            print("Research Duel not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Compendium stub
+    Input.Routes.ui["4"] = function()
+        if gameState.currentState == "MENU" then
+            print("Compendium not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Open settings menu
+    Input.Routes.ui["5"] = function()
+        if gameState.currentState == "MENU" then
+            gameState.startSettings()
+            return true
+        end
+        return false
+    end
+
+    -- Exit the game
+    Input.Routes.ui["6"] = function()
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        end
+        return false
+    end
+
+    -- Legacy enter key starts Character Duel
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game (via Enter key)")
+            gameState.startCharacterSelect()
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.settingsSelect()
             return true
         end
         return false
     end
+
+    -- SETTINGS CONTROLS
+    Input.Routes.ui["up"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["down"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["left"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["right"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(1)
+            return true
+        end
+        return false
+    end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
+            return true
+        end
+        return false
+    end
+
+    -- Confirm selection / Fight
+    Input.Routes.ui["f"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectConfirm()
+            return true
+        end
+        return false
+    end
+
+    -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
@@ -2117,72 +2314,76 @@ function Input.setupRoutes()
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
+    local c = gameState.settings.get("controls")
+    local p1 = c.p1
+    local p2 = c.p2
+
     -- Key spell slots
-    Input.Routes.p1["q"] = function()
+    Input.Routes.p1[p1.slot1] = function()
         gameState.wizards[1]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p1["w"] = function()
+
+    Input.Routes.p1[p1.slot2] = function()
         gameState.wizards[1]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p1["e"] = function()
+
+    Input.Routes.p1[p1.slot3] = function()
         gameState.wizards[1]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p1["f"] = function()
+    Input.Routes.p1[p1.cast] = function()
         gameState.wizards[1]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p1["g"] = function()
+    Input.Routes.p1[p1.free] = function()
         gameState.wizards[1]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p1["b"] = function()
+    Input.Routes.p1[p1.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(1)
         return true
     end
-    
+
     -- PLAYER 2 CONTROLS (Selene)
     -- Key spell slots
-    Input.Routes.p2["i"] = function()
+    Input.Routes.p2[p2.slot1] = function()
         gameState.wizards[2]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p2["o"] = function()
+
+    Input.Routes.p2[p2.slot2] = function()
         gameState.wizards[2]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p2["p"] = function()
+
+    Input.Routes.p2[p2.slot3] = function()
         gameState.wizards[2]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p2["j"] = function()
+    Input.Routes.p2[p2.cast] = function()
         gameState.wizards[2]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p2["h"] = function()
+    Input.Routes.p2[p2.free] = function()
         gameState.wizards[2]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p2["m"] = function()
+    Input.Routes.p2[p2.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(2)
         return true
@@ -2386,14 +2587,19 @@ Input.reservedKeys = {
     },
     
     menu = {
-        "1", -- Start two-player game from menu
-        "2", -- Start vs AI game from menu
-        "Enter", -- Start two-player game from menu (legacy)
+        "1", "2", "3", "4", "5", "6", -- Main menu options
+        "Enter", -- Start character duel (shortcut)
         "Escape", -- Quit game from menu
     },
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    characterSelect = {
+        "Q", "E", -- Move cursor
+        "F", -- Confirm
+        "Escape" -- Back
     },
     
     gameOver = {
@@ -2430,6 +2636,29 @@ Input.reservedKeys = {
 }
 
 return Input```
+
+## ./core/Log.lua
+```lua
+local Log = {}
+
+-- Flag to enable verbose debug logging
+Log.verbose = false
+
+--- Set verbose logging flag
+-- @param enabled boolean
+function Log.setVerbose(enabled)
+    Log.verbose = not not enabled
+end
+
+--- Print a debug message if verbose logging is enabled
+function Log.debug(...)
+    if Log.verbose then
+        print(...)
+    end
+end
+
+return Log
+```
 
 ## ./core/Pool.lua
 ```lua
@@ -2700,6 +2929,95 @@ end
 
 return Pool```
 
+## ./core/Settings.lua
+```lua
+local Settings = {}
+
+-- Default configuration
+local defaults = {
+    dummyFlag = false,
+    gameSpeed = "FAST",
+    controls = {
+        p1 = { slot1 = "q", slot2 = "w", slot3 = "e", cast = "f", free = "g", book = "b" },
+        p2 = { slot1 = "i", slot2 = "o", slot3 = "p", cast = "j", free = "h", book = "m" }
+    }
+}
+
+local function deepcopy(tbl)
+    if type(tbl) ~= "table" then return tbl end
+    local result = {}
+    for k, v in pairs(tbl) do
+        result[k] = deepcopy(v)
+    end
+    return result
+end
+
+local function serialize(tbl, indent)
+    indent = indent or 0
+    local parts = {"{\n"}
+    local pad = string.rep(" ", indent + 2)
+    for k, v in pairs(tbl) do
+        local key
+        if type(k) == "string" then
+            key = k .. " = "
+        else
+            key = "[" .. k .. "] = "
+        end
+        if type(v) == "table" then
+            table.insert(parts, pad .. key .. serialize(v, indent + 2) .. ",\n")
+        elseif type(v) == "string" then
+            table.insert(parts, pad .. key .. string.format("%q", v) .. ",\n")
+        else
+            table.insert(parts, pad .. key .. tostring(v) .. ",\n")
+        end
+    end
+    table.insert(parts, string.rep(" ", indent) .. "}")
+    return table.concat(parts)
+end
+
+Settings.data = nil
+
+function Settings.load()
+    if love.filesystem.getInfo("settings.lua") then
+        local chunk = love.filesystem.load("settings.lua")
+        local ok, result = pcall(chunk)
+        if ok and type(result) == "table" then
+            Settings.data = result
+            -- Backwards compatibility: convert numeric gameSpeed
+            if type(Settings.data.gameSpeed) ~= "string" then
+                Settings.data.gameSpeed = "FAST"
+            end
+            return
+        end
+    end
+    Settings.data = deepcopy(defaults)
+    Settings.save()
+end
+
+function Settings.save()
+    if not Settings.data then return end
+    local serialized = "return " .. serialize(Settings.data) .. "\n"
+    love.filesystem.write("settings.lua", serialized)
+end
+
+function Settings.get(key)
+    if not Settings.data then Settings.load() end
+    return Settings.data[key]
+end
+
+function Settings.set(key, value)
+    if not Settings.data then Settings.load() end
+    Settings.data[key] = value
+    Settings.save()
+end
+
+function Settings.getDefaults()
+    return deepcopy(defaults)
+end
+
+return Settings
+```
+
 ## ./core/assetPreloader.lua
 ```lua
 -- assetPreloader.lua
@@ -2959,7 +3277,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "        }\n"
     output = output .. "    },\n"
     output = output .. "    vfx = \"arcane_reversal\",\n"
-    output = output .. "    blockableBy = {\"ward\", \"field\"}\n"
     output = output .. "}\n```\n\n"
     
     -- Fireball example
@@ -2987,7 +3304,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "    },\n"
     output = output .. "    vfx = \"fireball\",\n"
     output = output .. "    sfx = \"explosion\",\n"
-    output = output .. "    blockableBy = {\"barrier\"}\n"
     output = output .. "}\n```\n\n"
     
     return output
@@ -3223,32 +3539,6 @@ Keywords.trap_trigger = {
     end
 }
 
--- trap_window: Defines the duration or condition for a trap spell's expiration
-Keywords.trap_window = {
-    -- Behavior definition
-    behavior = {
-        storesWindowCondition = true,
-        category = "TRAP"
-    },
-    
-    -- Implementation function - Stores window condition/duration
-    execute = function(params, caster, target, results, events)
-        results.trapWindow = params
-        
-        -- Log info based on whether it's duration or condition-based
-        if params.duration then
-            print(string.format("[TRAP] Stored window duration: %.1f seconds", 
-                params.duration))
-        elseif params.condition then
-            print(string.format("[TRAP] Stored window condition: %s", 
-                params.condition))
-        else
-            print("[TRAP] Warning: Window with no duration or condition")
-        end
-        
-        return results
-    end
-}
 
 -- trap_effect: Defines the effect that occurs when a trap is triggered
 Keywords.trap_effect = {
@@ -3276,6 +3566,21 @@ Keywords.trap_effect = {
             print("[TRAP] Warning: Effect payload with no effects defined")
         end
         
+        return results
+    end
+}
+
+-- field_status: Defines a persistent status applied while the field is active
+Keywords.field_status = {
+    behavior = {
+        marksSpellAsSustained = true,
+        category = "FIELD"
+    },
+
+    execute = function(params, caster, target, results, events)
+        results.fieldStatus = params
+        results.isField = true
+        results.isSustained = true
         return results
     end
 }
@@ -3356,7 +3661,7 @@ Keywords.burn = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "burn",
+        statusType = Constants.StatusType.BURN,
         dealsDamageOverTime = true,
         targetType = Constants.TargetType.ENEMY,
         category = "DOT",
@@ -3374,25 +3679,64 @@ Keywords.burn = {
         if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
             manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
-        
-        table.insert(events or {}, {
-            type = "APPLY_STATUS",
-            source = "caster",
-            target = "enemy",
-            statusType = "burn",
-            duration = params.duration or 3.0,
-            tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0,
-            
-            -- Visual metadata for VisualResolver
-            affinity = spell and spell.affinity or nil,
-            attackType = spell and spell.attackType or nil,
-            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
-            manaCost = manaCost,
-            tags = { BURN = true, DOT = true },
-            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
-            elevation = caster and caster.elevation or nil
-        })
+
+        if params.target == Constants.TargetType.ALL then
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "self",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "enemy",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        else
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = params.target or "enemy",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        end
         return results
     end
 }
@@ -3402,7 +3746,7 @@ Keywords.stagger = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Assuming stagger applies a stun/daze status
-        statusType = "stun",      -- Using "stun" status for simplicity
+        statusType = Constants.StatusType.STUN,      -- Using "stun" status for simplicity
         interruptsSpell = true,    -- Stagger implies interruption
         targetType = "ENEMY",     -- Typically targets enemy
         category = "TIMING",
@@ -3416,7 +3760,7 @@ Keywords.stagger = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy",
+            target = params.target or "enemy",
             statusType = "stun", -- Using "stun" as the status effect
             duration = params.duration or 3.0
         })
@@ -3766,7 +4110,7 @@ Keywords.slow = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "slow",
+        statusType = Constants.StatusType.SLOW,
         targetType = Constants.TargetType.ENEMY, -- Applies status to enemy wizard
         category = "TIMING",
         
@@ -3781,8 +4125,8 @@ Keywords.slow = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy", -- Target the enemy wizard entity
-            statusType = "slow",
+            target = params.target or "enemy", -- Target the enemy wizard entity
+            statusType = Constants.StatusType.SLOW,
             magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
@@ -3966,7 +4310,7 @@ Keywords.reflect = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Reflect handled as a status effect
-        statusType = "reflect",
+        statusType = Constants.StatusType.REFLECT,
         targetType = "SELF",
         category = "DEFENSE",
         
@@ -3980,7 +4324,7 @@ Keywords.reflect = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "self",
-            statusType = "reflect",
+            statusType = Constants.StatusType.REFLECT,
             duration = params.duration or 3.0
         })
         return results
@@ -4150,7 +4494,9 @@ Keywords.vfx = {
     end
 }
 
-return Keywords```
+return Keywords
+
+```
 
 ## ./main.lua
 ```lua
@@ -4171,9 +4517,11 @@ local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local CharacterData = require("characterData")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -4194,6 +4542,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
+    characterData = CharacterData,
     rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
@@ -4202,13 +4551,30 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
     ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
+    settings = Settings,
+    settingsMenu = {
+        selected = 1,
+        mode = nil,
+        waitingForKey = nil,
+        bindOrder = {
+            {"p1","slot1","P1 Slot 1"},
+            {"p1","slot2","P1 Slot 2"},
+            {"p1","slot3","P1 Slot 3"},
+            {"p1","cast","P1 Cast"},
+            {"p2","slot1","P2 Slot 1"},
+            {"p2","slot2","P2 Slot 2"},
+            {"p2","slot3","P2 Slot 3"},
+            {"p2","cast","P2 Cast"}
+        },
+        rebindIndex = 1
+    },
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -4256,6 +4622,47 @@ game.tokenImages = {
     [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
     [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
     [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
+}
+
+-- Character roster and unlocks
+game.characterRoster = {
+    "Ashgar", "Borrak", "Silex",
+    "Brightwulf", "Selene", "Klaus",
+    "Ohm", "Archive", "End"
+}
+
+game.unlockedCharacters = {
+    Ashgar = true,
+    Selene = true,
+    Silex = false
+}
+
+-- Get a list of all unlocked characters in the roster
+local function getUnlockedCharacterList()
+    local list = {}
+    for _, name in ipairs(game.characterRoster) do
+        if game.unlockedCharacters[name] then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+-- Helper to grab an AI personality for a given character name
+local function getPersonalityFor(name)
+    if name == "Selene" then
+        return SelenePersonality
+    elseif name == "Ashgar" then
+        return AshgarPersonality
+    else
+        return nil
+    end
+end
+
+game.characterSelect = {
+    stage = 1, -- 1: choose player, 2: choose opponent, 3: confirm
+    cursor = 1,
+    selected = {nil, nil}
 }
 
 -- Helper function to add a random token to the mana pool
@@ -4325,6 +4732,10 @@ function love.load()
                         preloadStats.imageCount,
                         preloadStats.soundCount,
                         preloadStats.loadTime))
+
+    -- Load persisted settings
+    Settings.load()
+    Constants.setCastSpeedSet(Settings.get("gameSpeed") or "FAST")
     
     -- Set up game object to have calculateScaling function that can be called by Input
     game.calculateScaling = calculateScaling
@@ -4349,8 +4760,10 @@ function love.load()
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
-    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    local d1 = CharacterData.Ashgar
+    local d2 = CharacterData.Selene
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, d1.color, d1.spellbook)
+    game.wizards[2] = Wizard.new("Selene", 600, 370, d2.color, d2.spellbook)
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -4409,7 +4822,6 @@ function love.load()
         },
         vfx = "moon_ward",
         sfx = "shield_up",
-        blockableBy = {}
     }
     
     -- Define Mirror Shield with minimal dependencies
@@ -4431,7 +4843,6 @@ function love.load()
         },
         vfx = "mirror_shield",
         sfx = "crystal_ring",
-        blockableBy = {}
     }
     
     -- Compile custom spells too
@@ -4536,7 +4947,12 @@ function resetGame()
         wizard.health = 100
         wizard.elevation = Constants.ElevationState.GROUNDED
         wizard.elevationTimer = 0
-        wizard.stunTimer = 0
+        if wizard.statusEffects and wizard.statusEffects[Constants.StatusType.STUN] then
+            wizard.statusEffects[Constants.StatusType.STUN].active = false
+            wizard.statusEffects[Constants.StatusType.STUN].duration = 0
+            wizard.statusEffects[Constants.StatusType.STUN].elapsed = 0
+            wizard.statusEffects[Constants.StatusType.STUN].totalTime = 0
+        end
         
         -- Reset spell slots
         for i = 1, 3 do
@@ -4555,12 +4971,12 @@ function resetGame()
         end
         
         -- Reset status effects
-        wizard.statusEffects.burn.active = false
-        wizard.statusEffects.burn.duration = 0
-        wizard.statusEffects.burn.tickDamage = 0
-        wizard.statusEffects.burn.tickInterval = 1.0
-        wizard.statusEffects.burn.elapsed = 0
-        wizard.statusEffects.burn.totalTime = 0
+        wizard.statusEffects[Constants.StatusType.BURN].active = false
+        wizard.statusEffects[Constants.StatusType.BURN].duration = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickDamage = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickInterval = 1.0
+        wizard.statusEffects[Constants.StatusType.BURN].elapsed = 0
+        wizard.statusEffects[Constants.StatusType.BURN].totalTime = 0
         
         -- Reset blockers
         if wizard.blockers then
@@ -4645,6 +5061,21 @@ function startGameAttractMode()
     -- Reset the game to clear any existing state
     resetGame()
 
+    -- Choose two random unlocked characters
+    local unlocked = getUnlockedCharacterList()
+    if #unlocked < 2 then
+        print("Not enough unlocked characters for attract mode")
+        return
+    end
+
+    local name1 = unlocked[math.random(#unlocked)]
+    local name2 = unlocked[math.random(#unlocked)]
+    while name2 == name1 do
+        name2 = unlocked[math.random(#unlocked)]
+    end
+
+    setupWizards(name1, name2)
+
     -- Temporarily store input routes so we can restore them later
     game.savedInputRoutes = {
         p1 = Input.Routes.p1,
@@ -4659,13 +5090,9 @@ function startGameAttractMode()
     -- This way we can have two AI players without affecting the normal mode
     game.useAI = false
 
-    -- Create AI for player 1 (Ashgar)
-    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-    game.player1AI = player1AI
-
-    -- Create AI for player 2 (Selene)
-    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-    game.player2AI = player2AI
+    -- Create AIs for both players
+    game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+    game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
 
     -- Reset idle timer
     game.menuIdleTimer = 0
@@ -4704,6 +5131,123 @@ function exitAttractMode()
     game.currentState = "MENU"
 
     print("Attract mode ended, returned to menu")
+end
+
+-- Initialize wizards for battle based on selected names
+function setupWizards(name1, name2)
+    local data1 = game.characterData[name1] or {}
+    local data2 = game.characterData[name2] or {}
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    for _, wizard in ipairs(game.wizards) do
+        wizard.manaPool = game.manaPool
+        wizard.gameState = game
+    end
+end
+
+-- Start character selection
+function game.startCharacterSelect()
+    game.characterSelect.stage = 1
+    game.characterSelect.cursor = 1
+    game.characterSelect.selected = {nil,nil}
+    game.currentState = "CHARACTER_SELECT"
+end
+
+-- Move selection cursor
+function game.characterSelectMove(dir)
+    local count = #game.characterRoster
+    local idx = game.characterSelect.cursor
+    repeat
+        idx = ((idx -1 + dir -1) % count) + 1
+    until game.unlockedCharacters[game.characterRoster[idx]]
+    game.characterSelect.cursor = idx
+end
+
+-- Confirm selection or start fight
+function game.characterSelectConfirm()
+    local idx = game.characterSelect.cursor
+    local name = game.characterRoster[idx]
+    if not game.unlockedCharacters[name] then return end
+
+    if game.characterSelect.stage == 1 then
+        game.characterSelect.selected[1] = name
+        game.characterSelect.stage = 2
+    elseif game.characterSelect.stage == 2 then
+        game.characterSelect.selected[2] = name
+        game.characterSelect.stage = 3
+    else
+        setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
+        game.useAI = true
+        resetGame()
+        game.currentState = "BATTLE"
+    end
+end
+
+-- Back out of selection
+function game.characterSelectBack(toMenu)
+    if toMenu then
+        game.currentState = "MENU"
+        return
+    end
+    if game.characterSelect.stage == 2 then
+        game.characterSelect.stage = 1
+        game.characterSelect.selected[1] = nil
+    elseif game.characterSelect.stage == 3 then
+        game.characterSelect.stage = 2
+        game.characterSelect.selected[2] = nil
+    else
+        game.currentState = "MENU"
+    end
+end
+
+-- Start settings menu
+function game.startSettings()
+    game.settingsMenu.selected = 1
+    game.settingsMenu.mode = nil
+    game.settingsMenu.waitingForKey = nil
+    game.settingsMenu.rebindIndex = 1
+    game.currentState = "SETTINGS"
+end
+
+function game.settingsMove(dir)
+    if game.settingsMenu.mode then return end
+    local count = 3
+    local idx = game.settingsMenu.selected + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.settingsMenu.selected = idx
+end
+
+function game.settingsAdjust(dir)
+    if game.settingsMenu.mode then return end
+    if game.settingsMenu.selected == 1 then
+        if dir ~= 0 then
+            local val = Settings.get("dummyFlag")
+            Settings.set("dummyFlag", not val)
+        end
+    elseif game.settingsMenu.selected == 2 then
+        if dir ~= 0 then
+            local current = Settings.get("gameSpeed") or "FAST"
+            if current == "FAST" then
+                current = "SLOW"
+            else
+                current = "FAST"
+            end
+            Settings.set("gameSpeed", current)
+            Constants.setCastSpeedSet(current)
+        end
+    end
+end
+
+function game.settingsSelect()
+    if game.settingsMenu.selected == 3 then
+        game.settingsMenu.mode = "rebind"
+        game.settingsMenu.rebindIndex = 1
+        local a = game.settingsMenu.bindOrder[1]
+        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    else
+        game.settingsAdjust(1)
+    end
 end
 
 function love.update(dt)
@@ -4745,6 +5289,17 @@ function love.update(dt)
         end
 
         -- No other updates needed in menu state
+        return
+    elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CHARACTER_SELECT" then
+        -- Simple animations for character select
+        if game.vfx then
+            game.vfx.update(dt)
+        end
         return
     elseif game.currentState == "BATTLE" then
         -- Check for win condition before updates
@@ -4923,13 +5478,17 @@ function love.update(dt)
             -- Reset game and start another attract mode battle
             resetGame()
 
-            -- Create AI for player 1 (Ashgar)
-            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-            game.player1AI = player1AI
-
-            -- Create AI for player 2 (Selene)
-            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-            game.player2AI = player2AI
+            local unlocked = getUnlockedCharacterList()
+            if #unlocked >= 2 then
+                local name1 = unlocked[math.random(#unlocked)]
+                local name2 = unlocked[math.random(#unlocked)]
+                while name2 == name1 do
+                    name2 = unlocked[math.random(#unlocked)]
+                end
+                setupWizards(name1, name2)
+                game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+                game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
+            end
 
             -- Keep attract mode active
             game.attractModeActive = true
@@ -4965,6 +5524,10 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
+    elseif game.currentState == "SETTINGS" then
+        drawSettingsMenu()
+    elseif game.currentState == "CHARACTER_SELECT" then
+        drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
@@ -5553,57 +6116,139 @@ function drawMainMenu()
     )
     
     -- Draw menu options
-    local menuY = screenHeight * 0.6
-    local menuSpacing = 50
-    local menuScale = 1.5
-    
-    -- Two-player duel option
-    local twoPlayerText = "[1] Two-Player Duel"
-    local twoPlayerWidth = game.font:getWidth(twoPlayerText) * menuScale
-    
-    -- Pulse effect for two-player option
-    local twoPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(0.9, 0.7, 0.1, twoPlayerPulse)
-    love.graphics.print(
-        twoPlayerText,
-        screenWidth/2 - twoPlayerWidth/2,
-        menuY,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Single-player vs AI option
-    local aiPlayerText = "[2] Duel Against AI"
-    local aiPlayerWidth = game.font:getWidth(aiPlayerText) * menuScale
-    
-    -- Pulse effect for AI option (slightly out of phase)
-    local aiPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3 + 1)
-    love.graphics.setColor(0.7, 0.9, 0.2, aiPlayerPulse)
-    love.graphics.print(
-        aiPlayerText,
-        screenWidth/2 - aiPlayerWidth/2,
-        menuY + menuSpacing,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Quit option
-    local quitText = "[Esc] Quit"
-    local quitWidth = game.font:getWidth(quitText) * menuScale
-    
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
-    love.graphics.print(
-        quitText,
-        screenWidth/2 - quitWidth/2,
-        menuY + menuSpacing * 2, -- Move down one more row
-        0,
-        menuScale, menuScale
-    )
+    local menuY = screenHeight * 0.55
+    local menuSpacing = 40
+    local menuScale = 1.4
+
+    local options = {
+        {"[1] Campaign", {0.9, 0.9, 0.9, 0.9}},
+        {"[2] Character Duel", {0.9, 0.7, 0.1, 0.9}},
+        {"[3] Research Duel", {0.7, 0.9, 0.2, 0.9}},
+        {"[4] Compendium", {0.7, 0.8, 1.0, 0.9}},
+        {"[5] Settings", {0.8, 0.8, 0.8, 0.9}},
+        {"[6] Exit", {0.7, 0.7, 0.7, 0.9}}
+    }
+
+    for i, option in ipairs(options) do
+        local text, color = option[1], option[2]
+        local width = game.font:getWidth(text) * menuScale
+        love.graphics.setColor(color)
+        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+    end
     
     -- Draw version and credit
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the character selection screen
+function drawCharacterSelect()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local paneWidth = screenWidth/3
+    local cellSize = 60
+    local padding = 10
+    local gridWidth = cellSize*3 + padding*2
+    local gridHeight = cellSize*3 + padding*2
+    local gridX = paneWidth + (paneWidth - gridWidth)/2
+    local gridY = screenHeight/2 - gridHeight/2
+
+    -- Helper to draw a character sprite
+    local function drawSprite(name,x,y,scale)
+        local sprite = AssetCache.getImage("assets/sprites/"..string.lower(name)..".png")
+        if sprite then
+            love.graphics.draw(sprite,x,y,0,scale,scale,sprite:getWidth()/2,sprite:getHeight()/2)
+        else
+            love.graphics.print(name,x-20,y-5)
+        end
+    end
+
+    -- Draw selected characters in side panes
+    if game.characterSelect.selected[1] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[1],paneWidth/2,screenHeight/2,2)
+    end
+    if game.characterSelect.selected[2] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[2],screenWidth-paneWidth/2,screenHeight/2,2)
+    end
+
+    -- Draw grid of characters
+    for i,name in ipairs(game.characterRoster) do
+        local col=(i-1)%3
+        local row=math.floor((i-1)/3)
+        local x=gridX+col*(cellSize+padding)
+        local y=gridY+row*(cellSize+padding)
+
+        local unlocked = game.unlockedCharacters[name]
+        love.graphics.setColor(0.4,0.4,0.4)
+        love.graphics.rectangle("fill",x,y,cellSize,cellSize)
+
+        local scale = cellSize/64
+        if unlocked then
+            love.graphics.setColor(1,1,1)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        else
+            love.graphics.setColor(0,0,0)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        end
+
+        if game.characterSelect.cursor==i then
+            love.graphics.setColor(1,1,0)
+            love.graphics.rectangle("line",x-2,y-2,cellSize+4,cellSize+4)
+        end
+    end
+
+    -- Instruction text
+    love.graphics.setColor(1,1,1,0.8)
+    local msg
+    if game.characterSelect.stage==1 then
+        msg = "Select Your Wizard"
+    elseif game.characterSelect.stage==2 then
+        msg = "Select Opponent"
+    else
+        msg = "Press F to Fight!"
+    end
+    local w = game.font:getWidth(msg)
+    love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+end
+
+-- Draw the settings menu
+function drawSettingsMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local options = {
+        "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
+        "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Rebind Controls"
+    }
+
+    for i, text in ipairs(options) do
+        local scale = 1.4
+        local y = screenHeight * 0.4 + (i-1) * 40
+        local w = game.font:getWidth(text) * scale
+        if i == game.settingsMenu.selected and not game.settingsMenu.mode then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new key for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
 end
 
 -- Draw attract mode overlay
@@ -7294,7 +7939,6 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
-        blockableBy = spellDef.blockableBy,
         -- Create empty behavior table to store merged behavior data
         behavior = {}
     }
@@ -7541,25 +8185,20 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 print("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
             end
         end
-        
-        if compiledSpell.behavior.trap_window then
-            -- Make sure trapWindow data is in the results
-            if not results.trapWindow then
-                results.trapWindow = compiledSpell.behavior.trap_window.params or {}
-                print("DEBUG: Adding trapWindow data to results: " .. tostring(results.trapWindow))
-                
-                -- Debug what's in the params
-                for k, v in pairs(compiledSpell.behavior.trap_window.params or {}) do
-                    print("DEBUG:   trapWindow param: " .. k .. " = " .. tostring(v))
-                end
-            end
-        end
-        
+
+
         if compiledSpell.behavior.trap_effect then
             -- Make sure trapEffect data is in the results
             if not results.trapEffect then
                 results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
                 print("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
+            end
+        end
+
+        if compiledSpell.behavior.field_status then
+            if not results.fieldStatus then
+                results.fieldStatus = compiledSpell.behavior.field_status.params or {}
+                print("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
             end
         end
         
@@ -7809,7 +8448,6 @@ FireSpells.conjurefire = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
@@ -7853,7 +8491,6 @@ FireSpells.firebolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Fireball spell
@@ -7874,7 +8511,6 @@ FireSpells.fireball = {
                 duration = 2
             }
         },
-        blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
     }
 }
 
@@ -7950,7 +8586,6 @@ FireSpells.blazingAscent = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Eruption spell
@@ -7965,7 +8600,9 @@ FireSpells.eruption = {
     cost = {"fire", "fire", "salt"},
     keywords = {
         zoneAnchor = {
-            range = "NEAR",
+            range = function(caster, target)
+                return caster.gameState.rangeState
+            end,
             elevation = "GROUNDED",
             requireAll = true
         },
@@ -7973,14 +8610,12 @@ FireSpells.eruption = {
             amount = 16,
             type = "fire"
         },
-        ground = true,
         burn = {
             duration = 4.0,
             tickDamage = 3
         },
     },
     sfx = "volcano_rumble",
-    blockableBy = {Constants.ShieldType.BARRIER},
     
     onMiss = function(caster, target, slot)
         print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
@@ -8025,7 +8660,7 @@ FireSpells.battleshield = {
                         type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        statusType = "burn",
+                        statusType = Constants.StatusType.BURN,
                         duration = 1.5,
                         tickDamage = 4,
                         targetSlot = "NEAR"
@@ -8047,7 +8682,6 @@ FireSpells.battleshield = {
         },
     },
     sfx = "fire_shield",
-    blockableBy = {}
 }
 
 return FireSpells```
@@ -8119,7 +8753,6 @@ MoonSpells.conjuremoonlight = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -8158,7 +8791,6 @@ MoonSpells.tidalforce = {
         },
     },
     sfx = "tidal_wave",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Lunar Disjunction spell
@@ -8185,7 +8817,6 @@ MoonSpells.lunardisjunction = {
         },
     },
     sfx = "lunardisjunction_sound",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Moon Dance spell
@@ -8250,7 +8881,6 @@ MoonSpells.gravity = {
         },
     },
     sfx = "gravity_slam",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Eclipse spell
@@ -8275,7 +8905,6 @@ MoonSpells.eclipse = {
         },
     },
     sfx = "eclipse_shatter",
-    blockableBy = {}
 }
 
 -- Full Moon Beam spell
@@ -8318,7 +8947,6 @@ MoonSpells.fullmoonbeam = {
         }
     },
     sfx = "beam_charge",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Lunar Tides spell
@@ -8351,7 +8979,6 @@ MoonSpells.lunarTides = {
         },
     },
     sfx = "tide_rush",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Wings of Moonlight (shield spell)
@@ -8388,7 +9015,6 @@ MoonSpells.wrapinmoonlight = {
         },
     },
     sfx = "mist_shimmer",
-    blockableBy = {},
 }
 
 -- Gravity Trap spell
@@ -8408,9 +9034,6 @@ MoonSpells.gravityTrap = {
             condition = "on_opponent_elevate" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 
@@ -8430,7 +9053,6 @@ MoonSpells.gravityTrap = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {}
 }
 
 -- Infinite Procession spell
@@ -8495,7 +9117,6 @@ MoonSpells.enhancedmirrorshield = {
         },
     },
     sfx = "crystal_ring",
-    blockableBy = {}
 }
 
 return MoonSpells```
@@ -8524,7 +9145,6 @@ SaltSpells.conjuresalt = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -8560,7 +9180,23 @@ SaltSpells.glitterfang = {
         },
     },
     sfx = "glitter_fang",
-    blockableBy = {}
+}
+
+SaltSpells.burnToAsh = {
+    id = "burnToAsh",
+    name = "Burn to Ash",
+    affinity = "salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "zap",
+    cost = {Constants.TokenType.FIRE},
+    keywords = {
+        disruptAndShift = {
+            targetType = "salt"
+        },
+        consume = true,
+    }
 }
 
 -- Salt Storm spell
@@ -8581,7 +9217,6 @@ SaltSpells.saltstorm = {
         shieldBreaker = 2,
     },
     sfx = "salt_storm",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Imprison spell (Salt trap)
@@ -8600,9 +9235,6 @@ SaltSpells.imprison = {
             condition = "on_opponent_far" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 
@@ -8616,7 +9248,6 @@ SaltSpells.imprison = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {} 
 }
 
 -- Jagged Earth spell (Salt trap)
@@ -8641,7 +9272,6 @@ SaltSpells.jaggedearth = {
         },
     },
     sfx = "jagged_earth",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Salt Circle spell (Ward)
@@ -8660,7 +9290,6 @@ SaltSpells.saltcircle = {
         }
     },
     sfx = "salt_circle",
-    blockableBy = {}
 }
 
 -- Stone Shield spell (Barrier)
@@ -8679,7 +9308,6 @@ SaltSpells.stoneshield = {
         }
     },
     sfx = "stone_shield",
-    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -8713,7 +9341,6 @@ SaltSpells.shieldbreaker = {
     },
     shieldBreaker = 3,
     sfx = "shield_break",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD},
     
     onBlock = function(caster, target, slot, blockInfo)
         print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
@@ -8755,7 +9382,6 @@ StarSpells.conjurestars = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -8809,7 +9435,6 @@ StarSpells.adaptive_surge = {
         ),
     },
     sfx = "adaptive_sound",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Cosmic Rift spell
@@ -8834,7 +9459,6 @@ StarSpells.cosmicRift = {
         zoneMulti = true,
     },
     sfx = "space_tear",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return StarSpells```
@@ -8871,7 +9495,6 @@ SunSpells.radiantbolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Meteor spell
@@ -8902,7 +9525,6 @@ SunSpells.meteor = {
         }
     },
     sfx = "meteor_impact",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }
 
 -- Emberlift spell
@@ -8933,7 +9555,6 @@ SunSpells.emberlift = {
         }
     },
     sfx = "whoosh_up",
-    blockableBy = {}
 }
 
 -- Nova Conjuring (Combine 3 x FIRE into SUN)
@@ -8956,7 +9577,171 @@ SunSpells.novaconjuring = {
         },
     },
     sfx = "conjure_nova",
-    blockableBy = {}
+}
+
+-- Burn the Soul (Inflict Burn on self to conjure a Sun token)
+SunSpells.burnTheSoul = {
+    id = "burnTheSoul",
+    name = "Burn the Soul",
+    affinity = "sun",
+    description = "Inflict Burn on self to conjure a Sun token.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
+    cost = {},
+    keywords = {
+        burn = {
+            amount = 1,
+            duration = 10,
+            target = Constants.TargetType.SELF
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.SpaceRipper = {
+    id = "SpaceRipper",
+    name = "Space Ripper",
+    affinity = "sun",
+    description = "Range swap to NEAR. Burn both self and target. Turn SUN to VOID.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
+    cost = {Constants.TokenType.SUN},
+    keywords = {
+        rangeShift = {
+            position = Constants.RangeState.NEAR
+        },
+        burn = {
+            amount = 3,
+            duration = 3,
+            target = Constants.TargetType.ALL
+        },
+        consume = true,
+        conjure = {
+            token = Constants.TokenType.VOID,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.StingingEyes = {
+    id = "StingingEyes",
+    name = "Stinging Eyes",
+    affinity = "sun",
+    description = "Damage based on user's Burn level.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 3
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 8 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local totalDamage = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                return totalDamage
+            end,
+            type = Constants.DamageType.SUN
+        },
+        burn = {
+            amount = function(caster, target)
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    local selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                    return selfBurnIntensity
+                end
+                return 0
+            end,
+            duration = 1,
+            target = Constants.TargetType.ENEMY
+        }
+    }
+}
+
+SunSpells.CoreBolt = {
+    id = "CoreBolt",
+    name = "Core Bolt",
+    affinity = "sun",
+    description = "Expend SUN and VOID for a powerful energy bolt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.VOID, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = 25,
+            target = Constants.TargetType.ENEMY
+        },
+        consume = true,
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+SunSpells.NuclearFurnace = {
+    id = "NuclearFurnace",
+    name = "Nuclear Furnace",
+    affinity = "sun",
+    description = "Damage based on user's Burn level. Burn user further. Conjure Fire.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.ZONE,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 10
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 10 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local attackStrength = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                if caster.elevation ~= target.elevation then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                if caster.gameState.rangeState ~= Constants.RangeState.NEAR then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                return attackStrength
+            end,
+            type = Constants.DamageType.SUN
+        },
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
+        burn = {
+            amount = 2,
+            duration = 7,
+            target = Constants.TargetType.SELF
+        }
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Force Barrier spell (Sun-based shield)
@@ -8976,10 +9761,29 @@ SunSpells.forcebarrier = {
         },
     },
     sfx = "shield_up",
-    blockableBy = {}
 }
 
-return SunSpells```
+-- Radiant Field spell applying slow to both wizards
+SunSpells.radiantfield = {
+    id = "radiantfield",
+    name = "Radiant Field",
+    affinity = "sun",
+    description = "Blinding field that slows both wizards while active.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        field_status = {
+            statusType = Constants.StatusType.SLOW,
+            magnitude = Constants.CastSpeed.ONE_TIER
+        }
+    },
+    sfx = "radiant_field"
+}
+
+return SunSpells
+```
 
 ## ./spells/elements/void.lua
 ```lua
@@ -9022,6 +9826,19 @@ VoidSpells.riteofemptiness = {
     }
 }
 
+VoidSpells.quenchPower = {
+    id = "quenchPower",
+    name = "Quench Power",
+    affinity = "void",
+    description = "Consumes Celestial or Material mana to create VOID.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {},
+    keywords = {
+        --todo
+    }
+}
+
 -- One-shot kill combo payoff/mega-nuke
 VoidSpells.heartripper = {
     id = "heartripper",
@@ -9038,7 +9855,6 @@ VoidSpells.heartripper = {
         }
     },
     sfx = "heartripper",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 return VoidSpells```
@@ -9074,7 +9890,6 @@ WaterSpells.watergun = {
         }
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Force blast spell (Steam Vent) - water and fire combo
@@ -9097,7 +9912,6 @@ WaterSpells.forceBlast = {
         },
     },
     sfx = "force_wind",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return WaterSpells```
@@ -9215,7 +10029,6 @@ local Schema = {}
 -- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
--- blockableBy: Array of shield types that can block this spell (array, optional)
 --
 -- Shield Types and Blocking Rules:
 -- * barrier: Physical shield that blocks projectiles and zones
@@ -9308,17 +10121,6 @@ function Schema.validateSpell(spell, spellId)
         spell.keywords = {}
     end
     
-    -- Check blockableBy (if present)
-    if spell.blockableBy then
-        if type(spell.blockableBy) ~= "table" then
-            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
-            spell.blockableBy = {}
-        end
-    else
-        -- Create empty blockableBy table
-        spell.blockableBy = {}
-    end
-    
     return true
 end
 
@@ -9348,6 +10150,7 @@ return Schema```
 
 local Constants = require("core.Constants")
 local VisualResolver = require("systems.VisualResolver")
+local Log = require("core.Log")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -9401,20 +10204,20 @@ end
 
 -- Safe VFX creation helper function
 local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
-    if not vfx then 
-        print("DEBUG: VFX system is nil")
-        return false 
+    if not vfx then
+        Log.debug("DEBUG: VFX system is nil")
+        return false
     end
     
     -- Make sure x and y are valid numbers
     if not x or not y or type(x) ~= "number" or type(y) ~= "number" then
         x = 0
         y = 0
-        print("DEBUG: Invalid coordinates for VFX, using (0,0)")
+        Log.debug("DEBUG: Invalid coordinates for VFX, using (0,0)")
     end
     
     -- Debug the parameters
-    print(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)", 
+    Log.debug(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)",
         methodName, tostring(fallbackType), x or 0, y or 0))
         
     -- Try to call the specific method
@@ -9423,21 +10226,21 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         local success, err = pcall(function() 
             if methodName == "createEffect" then
                 -- Print the type of vfx and fallbackType for debugging
-                print("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
+                Log.debug("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
                 
                 -- IMPORTANT: Need to use dot notation and pass VFX module as first arg for module functions
                 -- DO NOT use colon notation (vfx:createEffect) as it passes vfx as self which makes effectName a table
-                print("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
+                Log.debug("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
                 vfx.createEffect(fallbackType, x, y, nil, nil, params)
             else
                 -- For other methods
-                print("[safeCreateVFX] Calling vfx." .. methodName)
+                Log.debug("[safeCreateVFX] Calling vfx." .. methodName)
                 vfx[methodName](vfx, x, y, params) 
             end
         end)
         
         if not success then
-            print("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
+            Log.debug("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
             -- Try fallback on error
             if methodName ~= "createEffect" and type(vfx.createEffect) == "function" then
                 pcall(function() vfx.createEffect(fallbackType, x, y, nil, nil, params) end)
@@ -9451,12 +10254,12 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         end)
         
         if not success then
-            print("DEBUG: Error calling createEffect: " .. tostring(err))
+            Log.debug("DEBUG: Error calling createEffect: " .. tostring(err))
         end
         return true
     else
         -- Debug output if no VFX methods are available
-        print("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
+        Log.debug("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
         return false
     end
 end
@@ -9904,18 +10707,26 @@ EventRunner.EVENT_HANDLERS = {
         -- Initialize status effects table if it doesn't exist
         targetWizard.statusEffects = targetWizard.statusEffects or {}
         
-        -- Add or update the status effect - Store relevant fields from the event
-        targetWizard.statusEffects[event.statusType] = {
-            active = true, -- Mark as active
-            duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
-            tickDamage = event.tickDamage, -- For DoTs like burn
-            tickInterval = event.tickInterval, -- For DoTs like burn
-            magnitude = event.magnitude, -- For effects like slow (cast time increase)
-            targetSlot = event.targetSlot, -- For effects like slow (specific slot)
-            elapsed = 0, -- Timer for DoT ticks
-            totalTime = 0, -- Timer for overall duration
-            source = caster -- Who applied the status
+        -- Build effect data table
+        local effectData = {
+            active = true,
+            duration = event.duration or 0,
+            tickDamage = event.tickDamage,
+            tickInterval = event.tickInterval,
+            magnitude = event.magnitude,
+            targetSlot = event.targetSlot,
+            elapsed = 0,
+            totalTime = 0,
+            source = caster
         }
+
+        if event.statusType == Constants.StatusType.STUN then
+            -- Explicitly store under "stun" key for easy access
+            targetWizard.statusEffects[Constants.StatusType.STUN] = effectData
+        else
+            -- Generic status effect storage
+            targetWizard.statusEffects[event.statusType] = effectData
+        end
         
         -- Log the application
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
@@ -10657,17 +11468,17 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Debug logging for onBlock
         if event.onBlock then
-            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
-            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            Log.debug("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
             
             -- Check if it's actually a function
             if type(event.onBlock) == "function" then
-                print("[EVENT DEBUG] onBlock is a valid function")
+                Log.debug("[EVENT DEBUG] onBlock is a valid function")
             else
-                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+                Log.debug("[EVENT DEBUG] WARNING: onBlock is not a function!")
             end
         else
-            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
         end
         
         -- Check if the wizard has a createShield method
@@ -10686,7 +11497,7 @@ EventRunner.EVENT_HANDLERS = {
             for _, tokenData in ipairs(slot.tokens) do
                 if tokenData.token then
                     tokenData.token:setState(Constants.TokenStatus.SHIELDING)
-                    print("DEBUG: Marked token as SHIELDING to prevent return to pool")
+                    Log.debug("DEBUG: Marked token as SHIELDING to prevent return to pool")
                 end
             end
         else
@@ -10817,25 +11628,25 @@ EventRunner.EVENT_HANDLERS = {
     
     -- Add a new EFFECT event handler for pure visual effects
     EFFECT = function(event, caster, target, spellSlot, results)
-        print("[EFFECT EVENT] Processing EFFECT event")
+        Log.debug("[EFFECT EVENT] Processing EFFECT event")
         
         -- Detailed event inspection for debugging
-        print("[EFFECT EVENT] Full event details:")
-        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
-        print(string.format("  effectType=%s", tostring(event.effectType)))
-        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
-            tostring(event.affinity), 
-            tostring(event.attackType), 
+        Log.debug("[EFFECT EVENT] Full event details:")
+        Log.debug(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        Log.debug(string.format("  effectType=%s", tostring(event.effectType)))
+        Log.debug(string.format("  affinity=%s, attackType=%s, damageType=%s",
+            tostring(event.affinity),
+            tostring(event.attackType),
             tostring(event.damageType)))
-        print(string.format("  source=%s, target=%s", 
-            tostring(event.source), 
+        Log.debug(string.format("  source=%s, target=%s",
+            tostring(event.source),
             tostring(event.target)))
             
         -- Check if spell has override
         if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
            caster.spellSlots[spellSlot].spell then
             local spell = caster.spellSlots[spellSlot].spell
-            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+            Log.debug(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s",
                 tostring(spell.name), tostring(spell.effectOverride)))
         end
         
@@ -10848,7 +11659,7 @@ EventRunner.EVENT_HANDLERS = {
             srcY = event.vfxParams.y
             tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
             tgtY = event.vfxParams.targetY or srcY
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)",
                 srcX, srcY, tgtX, tgtY))
         
         -- CASE 2: Otherwise resolve based on source/target entities
@@ -10863,13 +11674,13 @@ EventRunner.EVENT_HANDLERS = {
                 local targetWizard = targetInfo.wizard
                 tgtX = targetWizard.x
                 tgtY = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                Log.debug(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)",
                     srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
                 -- If target resolution fails, use same coordinates as source
                 tgtX = srcX
                 tgtY = srcY
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
+                Log.debug("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
         end
         
@@ -10880,16 +11691,16 @@ EventRunner.EVENT_HANDLERS = {
         if event.effectOverride then
             -- First check the event for an effectOverride (highest priority)
             overrideName = event.effectOverride
-            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
         elseif event.effectType then
             -- Then check if there's an effectType directly in the event (legacy VFX keyword)
             overrideName = event.effectType
-            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
         elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
                caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
             -- Finally check the spell slot for effectOverride (set by vfx keyword)
             overrideName = caster.spellSlots[spellSlot].spell.effectOverride
-            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
@@ -10898,13 +11709,13 @@ EventRunner.EVENT_HANDLERS = {
             local baseEffectName, vfxOpts
             
             -- Debug before VisualResolver.pick
-            print("[EFFECT EVENT] About to call VisualResolver.pick()")
-            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            Log.debug("[EFFECT EVENT] About to call VisualResolver.pick()")
+            Log.debug("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
             
             if overrideName then
                 -- Manual override - use it directly but still get options from resolver
                 event.effectOverride = overrideName -- Ensure the event has the override
-                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                Log.debug("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
                 baseEffectName, vfxOpts = VisualResolver.pick(event)
             else
                 -- Standard resolver path using event metadata
@@ -10912,13 +11723,13 @@ EventRunner.EVENT_HANDLERS = {
             end
             
             -- Debug after VisualResolver.pick
-            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
-                tostring(baseEffectName), 
+            Log.debug(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s",
+                tostring(baseEffectName),
                 vfxOpts and "present" or "nil"))
             
             -- Skip VFX if no valid base effect name
             if not baseEffectName then
-                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                Log.debug("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
                 return false
             end
             
@@ -10940,23 +11751,23 @@ EventRunner.EVENT_HANDLERS = {
                 vfxOpts.amount = event.amount or vfxOpts.amount or 10
                 
                 -- Debug entity references
-                print(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
+                Log.debug(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
             end
             if target and target.name then
                 vfxOpts.target = target.name
                 vfxOpts.targetEntity = target
-                print(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
+                Log.debug(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
             end
             
             -- For SHIELD_BLOCKED events, make sure we have all needed references
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
+                Log.debug("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
                 vfxOpts.gameState = caster.gameState
             end
             
             -- Handle shield blocked effects
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] Processing shield blocked effect")
+                Log.debug("[EFFECT EVENT] Processing shield blocked effect")
                 
                 -- Pass blockInfo to VFX system
                 if event.blockInfo then
@@ -10970,10 +11781,10 @@ EventRunner.EVENT_HANDLERS = {
                         vfxOpts.shieldType = event.blockInfo.blockType
                     end
                     
-                    print("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
                 else
                     -- Create fallback blockInfo if missing but event has SHIELD_BLOCKED tag
-                    print("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
+                    Log.debug("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
                     vfxOpts.blockInfo = {
                         blockable = true,
                         blockType = event.shieldType or "ward",
@@ -10986,11 +11797,11 @@ EventRunner.EVENT_HANDLERS = {
                     vfxOpts.tags = vfxOpts.tags or {}
                     vfxOpts.tags.SHIELD_BLOCKED = true
                     
-                    print("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
                 end
             elseif event.blockInfo then
                 -- Legacy handling for other events with blockInfo
-                print("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
+                Log.debug("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
                 vfxOpts.blockInfo = event.blockInfo
                 
                 -- Add standard blockPoint ratio for visual impact
@@ -11013,7 +11824,7 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Check if we need to add delayed damage to the options
             if event.delayedDamage and event.delayedDamageTarget then
-                print(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
+                Log.debug(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
                 vfxOpts.delayedDamage = event.delayedDamage
                 vfxOpts.delayedDamageTarget = event.delayedDamageTarget
                 
@@ -11037,7 +11848,7 @@ EventRunner.EVENT_HANDLERS = {
                                 local intensity = math.min(10, 5 + (amount / 10))
                                 target.gameState.triggerShake(0.35, intensity)
                                 target.gameState.triggerHitstop(0.12)
-                                print(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.35, intensity, 0.12))
                             end
                         elseif amount >= 8 then
@@ -11045,26 +11856,26 @@ EventRunner.EVENT_HANDLERS = {
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.25, 6)
                                 target.gameState.triggerHitstop(0.08)
-                                print(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.25, 6, 0.08))
                             end
                         elseif amount >= 3 then
                             -- Light hit
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.15, 4)
-                                print(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
                                     0.15, 4))
                             end
                         end
                         
-                        print(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d", 
+                        Log.debug(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d",
                             amount, target.name, target.health))
                     end
                 end
             end
             
             -- Extra debug info
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)",
                 tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
             -- Call VFX.createEffect directly instead of using safeCreateVFX
@@ -11081,11 +11892,11 @@ EventRunner.EVENT_HANDLERS = {
                     return false
                 end
             else
-                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                Log.debug("[EFFECT EVENT] ERROR: VFX.createEffect not available")
                 return false
             end
         else
-            print("[EFFECT EVENT] ERROR: VFX system not available")
+            Log.debug("[EFFECT EVENT] ERROR: VFX system not available")
             return false
         end
         
@@ -11095,19 +11906,19 @@ EventRunner.EVENT_HANDLERS = {
 
 -- Debug function to print all events
 function EventRunner.debugPrintEvents(events)
-    print("===== DEBUG: Event List =====")
+    Log.debug("===== DEBUG: Event List =====")
     for i, event in ipairs(events) do
-        print(string.format("[%d] %s - Source: %s, Target: %s", 
+        Log.debug(string.format("[%d] %s - Source: %s, Target: %s",
             i, event.type, event.source, event.target))
         
         -- Print additional event-specific fields
         for k, v in pairs(event) do
             if k ~= "type" and k ~= "source" and k ~= "target" then
-                print(string.format("  %s: %s", k, tostring(v)))
+                Log.debug(string.format("  %s: %s", k, tostring(v)))
             end
         end
     end
-    print("=============================")
+    Log.debug("=============================")
 end
 
 return EventRunner```
@@ -11603,6 +12414,7 @@ return ShieldSystem```
 -- Centralized management system for sustained spells (shields, traps, etc.)
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local SustainedSpellManager = {}
 
 -- Track all active sustained spells
@@ -11611,10 +12423,8 @@ local SustainedSpellManager = {}
 --   wizard = reference to wizard who cast the spell,
 --   slotIndex = index of the spell slot,
 --   spell = reference to the spell,
---   windowData = expiry conditions (duration or state),
 --   triggerData = trigger conditions (for traps),
 --   effectData = effect to apply when triggered (for traps),
---   expiryTimer = countdown for duration-based expiry,
 --   type = "shield" or "trap" or "generic"
 -- }
 SustainedSpellManager.activeSpells = {}
@@ -11624,6 +12434,44 @@ local function generateUniqueId(wizard, slotIndex)
     return wizard.name .. "_" .. slotIndex .. "_" .. os.time() .. "_" .. math.random(1000)
 end
 
+-- Apply field status effect to both wizards
+local function applyFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        wiz.statusEffects = wiz.statusEffects or {}
+        wiz.statusEffects[entry.fieldStatus.statusType] = wiz.statusEffects[entry.fieldStatus.statusType] or {}
+        local effect = wiz.statusEffects[entry.fieldStatus.statusType]
+        effect.active = true
+        effect.duration = 0
+        effect.tickDamage = entry.fieldStatus.tickDamage
+        effect.tickInterval = entry.fieldStatus.tickInterval
+        effect.magnitude = entry.fieldStatus.magnitude
+        effect.elapsed = 0
+        effect.totalTime = 0
+    end
+end
+
+-- Remove field status effect from both wizards
+local function removeFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        if wiz.statusEffects and wiz.statusEffects[entry.fieldStatus.statusType] then
+            wiz.statusEffects[entry.fieldStatus.statusType].active = false
+            wiz.statusEffects[entry.fieldStatus.statusType].duration = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].elapsed = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].totalTime = 0
+        end
+    end
+end
+
 -- Add a sustained spell to the manager
 function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if not wizard or not slotIndex or not spellData then
@@ -11631,11 +12479,12 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         return nil
     end
     
-    print("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
-    print("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
-    print("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
-    print("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
-    print("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
+    Log.debug("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
+    Log.debug("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
+    Log.debug("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
+    Log.debug("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG]   fieldStatus exists: " .. tostring(spellData.fieldStatus ~= nil))
     
     -- Generate a unique ID for this sustained spell
     local uniqueId = generateUniqueId(wizard, slotIndex)
@@ -11646,6 +12495,18 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         spellType = "shield"
     elseif spellData.trapTrigger then
         spellType = "trap"
+    elseif spellData.fieldStatus then
+        spellType = "field"
+    end
+
+    -- If a field already exists, remove it before adding the new one
+    if spellType == "field" then
+        for id, existing in pairs(SustainedSpellManager.activeSpells) do
+            if existing.type == "field" then
+                existing.wizard:resetSpellSlot(existing.slotIndex)
+                break
+            end
+        end
     end
     
     -- Create the entry
@@ -11662,24 +12523,28 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if spellType == "trap" then
         entry.triggerData = spellData.trapTrigger or {}
         entry.effectData = spellData.trapEffect or {}
-        entry.windowData = spellData.trapWindow or {}
-        
-        -- Initialize expiry timer if a duration is specified
-        if entry.windowData.duration and type(entry.windowData.duration) == "number" then
-            entry.expiryTimer = entry.windowData.duration
-        end
     end
     
     -- Add shield-specific data if present
     if spellType == "shield" then
         entry.shieldParams = spellData.shieldParams or {}
     end
+
+    -- Add field-specific data if present
+    if spellType == "field" then
+        entry.fieldStatus = spellData.fieldStatus or {}
+    end
     
     -- Store the entry in the activeSpells table
     SustainedSpellManager.activeSpells[uniqueId] = entry
-    
+
+    -- Apply field status immediately
+    if spellType == "field" then
+        applyFieldStatus(entry)
+    end
+
     -- Log the addition
-    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d",
         spellType, entry.spell.name or "unnamed spell", wizard.name, slotIndex))
     
     return uniqueId
@@ -11694,9 +12559,13 @@ function SustainedSpellManager.removeSustainedSpell(id)
     end
     
     -- Log removal
-    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d",
         entry.type, entry.spell.name or "unnamed spell", entry.wizard.name, entry.slotIndex))
-    
+
+    if entry.type == "field" then
+        removeFieldStatus(entry)
+    end
+
     -- Remove from the active spells table
     SustainedSpellManager.activeSpells[id] = nil
     
@@ -11708,6 +12577,7 @@ function SustainedSpellManager.update(dt)
     -- Count active spells by type
     local shieldCount = 0
     local trapCount = 0
+    local fieldCount = 0
     local genericCount = 0
     
     -- Spells to remove after iteration
@@ -11717,7 +12587,7 @@ function SustainedSpellManager.update(dt)
     for id, entry in pairs(SustainedSpellManager.activeSpells) do
         -- Debug: check what types of sustained spells we have
         if math.floor(os.time()) % 10 == 0 then -- Only log every 10 seconds to avoid spam
-            print(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s", 
+            Log.debug(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s",
                 id, entry.type, entry.spell and entry.spell.name or "unknown"))
         end
         
@@ -11726,54 +12596,12 @@ function SustainedSpellManager.update(dt)
             shieldCount = shieldCount + 1
         elseif entry.type == "trap" then
             trapCount = trapCount + 1
+        elseif entry.type == "field" then
+            fieldCount = fieldCount + 1
         else
             genericCount = genericCount + 1
         end
         
-        -- Check for expiry conditions (BEFORE trigger checks)
-        if entry.windowData then
-            -- Duration-based expiry (already implemented)
-            if entry.windowData.duration and entry.expiryTimer and not entry.expired then
-                entry.expiryTimer = entry.expiryTimer - dt
-                
-                -- Check if the duration has expired
-                if entry.expiryTimer <= 0 then
-                    entry.expired = true
-                    print(string.format("[SustainedManager] Spell expired (duration) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                    table.insert(spellsToRemove, id)
-                end
-            end
-            
-            -- Condition-based expiry
-            if entry.windowData.condition and not entry.expired then
-                local condition = entry.windowData.condition
-                local conditionMet = false
-                
-                -- Check until_next_conjure condition
-                if condition == "until_next_conjure" and entry.wizard.justConjuredMana then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (conjure condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check while_elevated condition
-                if condition == "while_elevated" and entry.wizard.elevation ~= Constants.ElevationState.AERIAL then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (elevation condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check other conditions as needed
-                -- Add new condition checks here as the system expands
-                
-                -- If any condition is met, mark for expiry
-                if conditionMet then
-                    entry.expired = true
-                    table.insert(spellsToRemove, id)
-                end
-            end
-        end
         
         -- Process trap trigger conditions if this is a trap
         if entry.type == "trap" and entry.triggerData and not entry.triggered then
@@ -11939,43 +12767,15 @@ function SustainedSpellManager.update(dt)
                 table.insert(spellsToRemove, id)
             end
         end
-        
-        -- Duration-based expiry now handled at the top of the loop
-        
+
         ::continue::
     end
     
-    -- Remove expired and triggered spells after iteration
+    -- Remove triggered spells after iteration
     for _, id in ipairs(spellsToRemove) do
         local entry = SustainedSpellManager.activeSpells[id]
         if entry then
-            -- Expire spells without triggering trap effects
-            if entry.expired and not entry.triggered and not entry.processed then
-                print(string.format("[SustainedManager] Cleaning up expired spell for %s slot %d", 
-                    entry.wizard.name, entry.slotIndex))
-                
-                -- Clean up expired spell
-                local TokenManager = require("systems.TokenManager")
-                
-                -- Get the spell slot
-                local slot = entry.wizard.spellSlots[entry.slotIndex]
-                if slot then
-                    -- Return tokens to the mana pool
-                    if #slot.tokens > 0 then
-                        TokenManager.returnTokensToPool(slot.tokens)
-                        print(string.format("[SustainedManager] Returning %d tokens from expired spell", 
-                            #slot.tokens))
-                    end
-                    
-                    -- Reset the spell slot
-                    entry.wizard:resetSpellSlot(entry.slotIndex)
-                end
-                
-                -- Mark as processed to prevent duplicate processing
-                entry.processed = true
-            end
-            
-            -- Remove the spell from the manager, whether it was triggered or expired
+            -- Remove the spell from the manager
             SustainedSpellManager.removeSustainedSpell(id)
         end
     end
@@ -11983,7 +12783,7 @@ function SustainedSpellManager.update(dt)
     -- Log active spell counts (reduced frequency to avoid console spam)
     if math.floor(os.time()) % 5 == 0 then  -- Log every 5 seconds
         -- If we have at least one spell, log more details
-        if shieldCount + trapCount + genericCount > 0 then
+        if shieldCount + trapCount + fieldCount + genericCount > 0 then
             for id, entry in pairs(SustainedSpellManager.activeSpells) do
                 local wizardName = entry.wizard and entry.wizard.name or "unknown"
                 local spellName = entry.spell and entry.spell.name or "unknown spell"
@@ -12526,6 +13326,40 @@ function TokenManager.validateTokenState(token, expectedState)
 end
 
 return TokenManager```
+
+## ./systems/UnlockSystem.lua
+```lua
+-- systems/UnlockSystem.lua
+-- Simple character unlock logic
+
+local UnlockSystem = {}
+
+--- Check if a spell unlocks any characters
+-- Currently unlocks Silex when a Salt spell is cast
+-- @param spell table Executed spell definition
+-- @param caster table Wizard casting the spell
+function UnlockSystem.checkSpellUnlock(spell, caster)
+    if not spell or not caster then return end
+    if spell.affinity == "salt" and game and not game.unlockedCharacters.Silex then
+        game.unlockedCharacters.Silex = true
+        print("[UNLOCK] Silex has been unlocked!")
+        if caster.spellCastNotification then
+            caster.spellCastNotification.text = "Unlocked Silex!"
+            caster.spellCastNotification.timer = 2.0
+        else
+            caster.spellCastNotification = {
+                text = "Unlocked Silex!",
+                timer = 2.0,
+                x = caster.x,
+                y = caster.y + 70,
+                color = {1,1,0,1}
+            }
+        end
+    end
+end
+
+return UnlockSystem
+```
 
 ## ./systems/VisualResolver.lua
 ```lua
@@ -13157,17 +13991,18 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw STUN duration if active
-    if wizard.stunTimer > 0 then
+    if wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Calculate progress (1.0 to 0.0 as time depletes)
-        local maxDuration = 3.0  -- Assuming 3 seconds is max stun duration
-        local progress = wizard.stunTimer / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
+        local stun = wizard.statusEffects.stun
+        local maxDuration = stun.duration
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        local progress = maxDuration > 0 and remaining / maxDuration or 0
+
         -- Get color for stun state
-        local color = WizardVisuals.getStatusEffectColor("stun")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.STUN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -13196,12 +14031,12 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw BURN effect if active
-    if wizard.statusEffects.burn and wizard.statusEffects.burn.active then
+    if wizard.statusEffects[Constants.StatusType.BURN] and wizard.statusEffects[Constants.StatusType.BURN].active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Get burn effect data
-        local burnEffect = wizard.statusEffects.burn
+        local burnEffect = wizard.statusEffects[Constants.StatusType.BURN]
         
         -- Calculate progress (1.0 to 0.0 as time depletes)
         local progress = 1.0
@@ -13215,7 +14050,7 @@ function WizardVisuals.drawStatusEffects(wizard)
         local pulseEffect = math.sin(tickProgress * math.pi) * 0.2  -- Pulse effect strongest right before tick
         
         -- Get color for burn state
-        local color = WizardVisuals.getStatusEffectColor("burn")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.BURN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -13543,6 +14378,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                         end
 
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.field_status then
+                        orbitColor = {0.3, 1.0, 0.3, 0.7}
+                        stateText = "FIELD"
+                        stateTextColor = {0.3, 1.0, 0.3, 0.8}
+                        
                     elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
                         orbitColor = {0.9, 0.9, 0.9, 0.7} -- Light grey for sustained
                         stateText = "SUSTAIN"
@@ -13851,7 +14691,7 @@ function WizardVisuals.drawWizard(wizard)
         wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
         
         -- Flash effect is now implemented with additive blending
-    elseif wizard.stunTimer > 0 then
+    elseif wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
         wizardColor = {1, 1, flashIntensity, 1}
@@ -13876,20 +14716,39 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
-        local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
+        -- Determine facing direction so wizards always face each other
+        local opponent = nil
+        if wizard.gameState and wizard.gameState.wizards then
+            if wizard == wizard.gameState.wizards[1] then
+                opponent = wizard.gameState.wizards[2]
+            else
+                opponent = wizard.gameState.wizards[1]
+            end
+        end
 
-        -- Determine which sprite to draw (casting, idle animation, or static)
-        local spriteToDraw = nil
-
-        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
-            -- Use cast frame if we're in the middle of casting
-            spriteToDraw = wizard.castFrameSprite
-        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
-            -- Use current idle animation frame if available
-            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        local facingRight = true
+        if opponent then
+            local oppX = opponent.x + (opponent.currentXOffset or 0)
+            facingRight = (wizard.x + xOffset) <= oppX
         else
-            -- Fallback to the original static sprite if no animation frames are available
+            local centerX = love.graphics.getWidth() / 2
+            facingRight = (wizard.x + xOffset) <= centerX
+        end
+
+        local flipX = facingRight and 1 or -1
+        local adjustedScale = wizard.scale * flipX
+
+        -- Determine which sprite to draw based on positional animation sets
+        local spriteToDraw
+        local posKey = wizard:getPositionalKey()
+        local castSprite = wizard:getCastFrameForKey(posKey)
+        local idleFrames = wizard:getIdleFramesForKey(posKey)
+
+        if wizard.castFrameTimer > 0 and castSprite then
+            spriteToDraw = castSprite
+        elseif idleFrames and #idleFrames > 0 then
+            spriteToDraw = idleFrames[wizard.currentIdleFrame]
+        else
             spriteToDraw = wizard.sprite
         end
 
@@ -14150,8 +15009,7 @@ local function scanFile(filepath)
                         -- Ignore if it's in a comment at end of line
                         if not line:match("%-%-.*" .. pattern) then
                             -- Ignore if it appears to be in a block definition context (for legacy compatibility)
-                            if not line:match("blockableBy%s*=%s*{.*" .. pattern .. ".*}") and
-                               not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
+                            if not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("cost%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("return%s+.*" .. pattern) then
                                 table.insert(issues, {
@@ -21243,6 +22101,7 @@ local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
+local UnlockSystem = require("systems.UnlockSystem")
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -21281,7 +22140,7 @@ local function getCompiledSpell(spellId, wizard)
     end
 end
 
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     
     self.name = name
@@ -21293,7 +22152,6 @@ function Wizard.new(name, x, y, color)
     self.health = 100
     self.elevation = Constants.ElevationState.GROUNDED  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
-    self.stunTimer = 0           -- Stun timer in seconds
     
     -- Position animation state
     self.positionAnimation = {
@@ -21308,13 +22166,19 @@ function Wizard.new(name, x, y, color)
     
     -- Status effects
     self.statusEffects = {
-        burn = {
+        [Constants.StatusType.BURN] = {
             active = false,
             duration = 0,
             tickDamage = 0,
             tickInterval = 1.0,
             elapsed = 0,         -- Time since last tick
             totalTime = 0        -- Total time effect has been active
+        },
+        [Constants.StatusType.STUN] = {
+            active = false,
+            duration = 0,
+            elapsed = 0,
+            totalTime = 0
         }
     }
     
@@ -21339,6 +22203,9 @@ function Wizard.new(name, x, y, color)
     self.currentIdleFrame = 1
     self.idleFrameTimer = 0
     self.idleFrameDuration = 0.15 -- seconds per frame
+    -- Positional animation sets (per range/elevation combo)
+    self.positionalAnimations = {}
+    self.lastPositionalKey = nil
 
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
@@ -21351,55 +22218,8 @@ function Wizard.new(name, x, y, color)
     }
     self.currentKeyedSpell = nil
     
-    -- Spell loadout based on wizard name
-    if name == "Ashgar" then
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
-
-            -- Two key combos
-            ["12"] = Spells.battleshield,
-            ["13"] = Spells.blastwave,
-            ["23"] = Spells.emberlift,
-
-            -- Three key combo
-            ["123"] = Spells.meteor
-        }
-
-    elseif name == "Silex" then   -- New salt-themed wizard
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuresalt,
-            ["2"]  = Spells.glitterfang,
-            ["3"]  = Spells.imprison,
-
-            -- Two key combos
-            ["12"] = Spells.saltcircle,
-            ["13"] = Spells.stoneshield,
-            ["23"] = Spells.shieldbreaker,
-
-            -- Three key combo
-            ["123"] = Spells.saltstorm
-        }
-
-    else -- Default to Selene
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.wrapinmoonlight,
-            ["3"]  = Spells.moondance,
-            
-            -- Two key combos
-            ["12"] = Spells.infiniteprocession,
-            ["13"] = Spells.eclipse,
-            ["23"] = Spells.gravityTrap,
-            
-            -- Three key combo
-            ["123"] = Spells.fullmoonbeam
-        }
-    end
+    -- Spell loadout provided by character data
+    self.spellbook = spellbook or {}
     
     -- Create 3 spell slots for this wizard
     self.spellSlots = {}
@@ -21452,7 +22272,7 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
     end
 
-    -- Load idle animation frames specifically for Ashgar
+    -- Load default idle animation frames (used as fallback for positional sets)
     if name == "Ashgar" then
         local AssetCache = require("core.AssetCache")
         for i = 1, 7 do
@@ -21462,19 +22282,19 @@ function Wizard.new(name, x, y, color)
                 table.insert(self.idleAnimationFrames, frameImg)
             else
                 print("Warning: Could not load Ashgar idle frame: " .. framePath)
-                -- Fallback to using the main sprite if we can't load the idle frame
                 table.insert(self.idleAnimationFrames, self.sprite)
             end
         end
-        -- If no idle frames loaded, use the main sprite as a single-frame animation
         if #self.idleAnimationFrames == 0 then
             print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
             table.insert(self.idleAnimationFrames, self.sprite)
         end
     else
-        -- For other wizards, populate with their main sprite for now
         table.insert(self.idleAnimationFrames, self.sprite)
     end
+
+    -- Load positional animation sets (idle + cast for range/elevation combos)
+    self:loadPositionalAnimations()
 
     self.scale = 1.0
     
@@ -21508,19 +22328,27 @@ function Wizard:update(dt)
         self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
     end
 
-    -- Update idle animation timer and frame
-    -- Only animate idle if not casting or in another special visual state
-    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+    -- Update idle animation timer and frame based on positional state
+    local posKey = self:getPositionalKey()
+
+    if posKey ~= self.lastPositionalKey then
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
+        self.lastPositionalKey = posKey
+    end
+
+    local idleFrames = self:getIdleFramesForKey(posKey)
+
+    if self.castFrameTimer <= 0 then
         self.idleFrameTimer = self.idleFrameTimer + dt
         if self.idleFrameTimer >= self.idleFrameDuration then
-            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration
             self.currentIdleFrame = self.currentIdleFrame + 1
-            if self.currentIdleFrame > #self.idleAnimationFrames then
-                self.currentIdleFrame = 1 -- Loop animation
+            if self.currentIdleFrame > #idleFrames then
+                self.currentIdleFrame = 1
             end
         end
     else
-        -- If casting, reset idle animation to first frame to look clean when cast finishes
         self.currentIdleFrame = 1
         self.idleFrameTimer = 0
     end
@@ -21538,10 +22366,13 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update stun timer
-    if self.stunTimer > 0 then
-        self.stunTimer = math.max(0, self.stunTimer - dt)
-        if self.stunTimer == 0 then
+    -- Update stun status effect
+    if self.statusEffects[Constants.StatusType.STUN] and self.statusEffects[Constants.StatusType.STUN].active then
+        local stun = self.statusEffects[Constants.StatusType.STUN]
+        stun.totalTime = stun.totalTime + dt
+        if stun.duration > 0 and stun.totalTime >= stun.duration then
+            stun.active = false
+            stun.totalTime = stun.duration
             print(self.name .. " is no longer stunned")
         end
     end
@@ -21598,7 +22429,7 @@ function Wizard:update(dt)
                 end
                 
                 -- If this is a burn effect, handle damage ticks
-                if effectType == "burn" and effectData.active then
+                if effectType == Constants.StatusType.BURN and effectData.active then
                     effectData.elapsed = effectData.elapsed + dt
                     if effectData.elapsed >= effectData.tickInterval then
                         -- Apply burn damage
@@ -21760,8 +22591,10 @@ end
 -- Handle key press and update currently keyed spell
 function Wizard:keySpell(keyIndex, isPressed)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 and isPressed then
-        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active and isPressed then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -21801,8 +22634,10 @@ end
 -- Cast the currently keyed spell
 function Wizard:castKeyedSpell()
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -21840,8 +22675,10 @@ end
 
 function Wizard:queueSpell(spell)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -21950,8 +22787,8 @@ function Wizard:queueSpell(spell)
 
                 -- Check for and apply Slow status effect
                 local finalCastTime = baseCastTime
-                if self.statusEffects and self.statusEffects.slow and self.statusEffects.slow.active then
-                    local slowEffect = self.statusEffects.slow
+                if self.statusEffects and self.statusEffects[Constants.StatusType.SLOW] and self.statusEffects[Constants.StatusType.SLOW].active then
+                    local slowEffect = self.statusEffects[Constants.StatusType.SLOW]
                     local targetSlot = slowEffect.targetSlot -- Slot the slow effect targets (nil for any)
                     local queueingSlot = i -- Slot we are currently queueing into
 
@@ -22233,6 +23070,9 @@ function Wizard:castSpell(spellSlot)
             print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
         end
     end
+
+    -- Check for character unlocks based on this spell
+    UnlockSystem.checkSpellUnlock(spellToUse, self)
     
     -- Get attack type for shield checking
     local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE
@@ -22420,7 +23260,7 @@ function Wizard:castSpell(spellSlot)
                 local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
                     self,        -- wizard who cast the spell
                     spellSlot,   -- slot index where the spell is
-                    effect       -- effect table from executeAll (contains trapTrigger, trapWindow, trapEffect, etc.)
+                    effect       -- effect table from executeAll (contains trapTrigger, trapEffect, etc.)
                 )
                 
                 -- Store the sustained spell ID in the slot for reference
@@ -22522,7 +23362,68 @@ function Wizard:handleShieldBlock(slotIndex, incomingSpell)
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
 end
 
-return Wizard```
+-- Determine the current positional key string for animation lookup
+function Wizard:getPositionalKey()
+    local range = self.gameState and self.gameState.rangeState or Constants.RangeState.FAR
+    local elevation = self.elevation or Constants.ElevationState.GROUNDED
+    return string.lower(range .. "-" .. elevation)
+end
+
+-- Retrieve idle frames for a given positional key
+function Wizard:getIdleFramesForKey(key)
+    if self.positionalAnimations[key] and self.positionalAnimations[key].idle then
+        return self.positionalAnimations[key].idle
+    end
+    return self.idleAnimationFrames
+end
+
+-- Retrieve cast frame for a given positional key
+function Wizard:getCastFrameForKey(key)
+    if self.positionalAnimations[key] then
+        return self.positionalAnimations[key].cast or self.castFrameSprite
+    end
+    return self.castFrameSprite
+end
+
+-- Load positional animation assets for all range/elevation combinations
+function Wizard:loadPositionalAnimations()
+    local AssetCache = require("core.AssetCache")
+    for _, range in pairs(Constants.RangeState) do
+        for _, elevation in pairs(Constants.ElevationState) do
+            local key = string.lower(range .. "-" .. elevation)
+            local dir = string.format("assets/sprites/%s-%s-%s", string.lower(self.name), string.lower(range), string.lower(elevation))
+            local anim = { idle = {}, cast = nil }
+
+            if love.filesystem.getInfo(dir, "directory") then
+                local files = love.filesystem.getDirectoryItems(dir)
+                table.sort(files)
+                for _, file in ipairs(files) do
+                    if file:match("%.png$") then
+                        local path = dir .. "/" .. file
+                        if file:lower():find("cast") then
+                            anim.cast = AssetCache.getImage(path)
+                        else
+                            local img = AssetCache.getImage(path)
+                            if img then table.insert(anim.idle, img) end
+                        end
+                    end
+                end
+            end
+
+            if #anim.idle == 0 then
+                anim.idle = self.idleAnimationFrames
+            end
+            if not anim.cast then
+                anim.cast = self.castFrameSprite
+            end
+
+            self.positionalAnimations[key] = anim
+        end
+    end
+end
+
+return Wizard
+```
 
 # Documentation
 
@@ -22659,7 +23560,7 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ### Support "Field" spell type/keyword as an additional type of ongoing effect/"sustained spell"
 
-## Content
+### Better consistent rules for Burn stacking rather than quasi-overlapping shared timer thing. Use in Brightwulf design.
 
 ## docs/VFX_Audit_Report.md
 # Spells VFX Audit Report
@@ -23313,6 +24214,15 @@ Constants.PlayerSide.OPPONENT  -- "OPPONENT"
 Constants.PlayerSide.NEUTRAL   -- "NEUTRAL"
 ```
 
+### Status Types
+
+```lua
+Constants.StatusType.BURN    -- "burn"
+Constants.StatusType.SLOW    -- "slow"
+Constants.StatusType.STUN    -- "stun"
+Constants.StatusType.REFLECT -- "reflect"
+```
+
 ## Helper Functions
 
 The Constants module also provides helper functions:
@@ -23560,7 +24470,7 @@ This system is transitioning towards a pure event-based architecture, where spel
     *   **Basic Info:** `id`, `name`, `description`.
     *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-    *   **Optional:** `vfx`, `sfx`, `blockableBy` (array of shield types), `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef
@@ -23611,6 +24521,39 @@ This system is transitioning towards a pure event-based architecture, where spel
 ---
 
 This modular system allows defining complex spell effects by combining simple, reusable keywords. The event-based execution ensures effects are applied consistently and in the correct order, making the system easier to manage and extend.
+
+## docs/status_effects.md
+# Status Effects
+
+This document lists the built-in status effects available in the game and their expected behavior. All status types are defined in `core/Constants.lua` under `Constants.StatusType`.
+
+## Available Statuses
+
+| Status | Description |
+|--------|-------------|
+| `BURN` | Deals periodic damage over time. Damage ticks use `tickDamage` at intervals defined by `tickInterval` for the duration of the effect. |
+| `SLOW` | Increases the cast time of the next spell by `magnitude` seconds. Can optionally target a specific slot. Consumed after affecting a cast or when the duration expires. |
+| `STUN` | Prevents the affected wizard from keying or casting spells for the duration. |
+| `REFLECT` | Causes the wizard to reflect incoming spells while active. |
+
+## Usage
+
+Status effects are applied through `APPLY_STATUS` events emitted by keywords or spell logic. Event handlers store the effect data on the target wizard in the `statusEffects` table.
+
+```lua
+-- Example APPLY_STATUS event
+{
+    type = "APPLY_STATUS",
+    source = "caster",
+    target = "enemy",
+    statusType = Constants.StatusType.BURN,
+    duration = 3.0,
+    tickDamage = 2,
+    tickInterval = 1.0
+}
+```
+
+The `EventRunner` module processes these events and manages status state each frame.
 
 ## docs/token_lifecycle.md
 # Mana Token Lifecycle State Machine
@@ -23886,7 +24829,8 @@ The `wizard.lua` module defines the "class" for the player characters in Manasto
 Each `Wizard` instance maintains a comprehensive set of state variables:
 
 *   **Identity & Position:** `name`, `x`, `y`, `color`.
-*   **Combat:** `health`, `stunTimer`.
+*   **Combat:** `health`.
+    * `statusEffects[Constants.StatusType.STUN]`: Tracks stun duration.
 *   **Positioning:**
     *   `elevation`: String ("GROUNDED" or "AERIAL").
     *   `elevationTimer`: Duration for temporary AERIAL state.
@@ -23914,7 +24858,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 
 ### 2. Core Methods
 
-*   **`Wizard.new(name, x, y, color)`:** Constructor. Initializes all state variables, loads sprite, sets up spellbook based on `name`.
+*   **`Wizard.new(name, x, y, color, spellbook)`:** Constructor. Initializes all state variables, loads sprite, and assigns the provided `spellbook`.
 *   **`Wizard:update(dt)`:** Per-frame update logic. Manages timers (stun, elevation, status effects), applies burn damage ticks, updates shield token orbits, increments spell casting `progress`. Calls `castSpell` upon completion.
 *   **`Wizard:draw()`:** Main drawing function. Draws the wizard sprite (applying offsets/effects), elevation visuals, status bars (`drawStatusEffects`), and spell slots (`drawSpellSlots`).
 *   **`Wizard:drawSpellSlots()`:** Visualizes casting/shields. Draws elliptical orbits, progress arcs (colored by state: casting, shield, frozen), shield type names, and orbiting mana tokens (with Z-ordering for depth).
@@ -24169,6 +25113,17 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ### General
 - ESC: Quit the game
+
+## Unlocking Characters
+
+Casting any Salt-affinity spell during a match unlocks the wizard **Silex** for
+future character selection.
+
+## Debug Logging
+
+Verbose debug output can be toggled at runtime. Require the `core.Log` module and
+call `Log.setVerbose(true)` to enable detailed logging. Set it to `false` (the
+default) to silence development traces.
 
 ## Development Status
 
@@ -24191,7 +25146,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Sun May 18 01:04:43 CDT 2025
+Generated: Mon May 19 14:49:32 CDT 2025
 
 # Source Code
 
@@ -25390,6 +26345,70 @@ end
 
 return SelenePersonality```
 
+## ./characterData.lua
+```lua
+-- characterData.lua
+-- Defines color and spellbook data for each playable character
+
+local SpellsModule = require("spells")
+local Spells = SpellsModule.spells
+
+local characterData = {}
+
+characterData.Ashgar = {
+    color = {255,100,100},
+    spellbook = {
+        ["1"]  = Spells.conjurefire,
+        ["2"]  = Spells.burnToAsh,
+        ["3"]  = Spells.firebolt,
+        ["12"] = Spells.saltcircle,
+        ["13"] = Spells.blastwave,
+        ["23"] = Spells.fireball,
+        ["123"] = Spells.eruption,
+    }
+}
+
+characterData.Selene = {
+    color = {100,100,255},
+    spellbook = {
+        ["1"]  = Spells.conjuremoonlight,
+        ["2"]  = Spells.wrapinmoonlight,
+        ["3"]  = Spells.moondance,
+        ["12"] = Spells.infiniteprocession,
+        ["13"] = Spells.eclipse,
+        ["23"] = Spells.gravityTrap,
+        ["123"] = Spells.fullmoonbeam,
+    }
+}
+
+characterData.Silex = {
+    color = {200,200,200},
+    spellbook = {
+        ["1"]  = Spells.conjuresalt,
+        ["2"]  = Spells.glitterfang,
+        ["3"]  = Spells.imprison,
+        ["12"] = Spells.saltcircle,
+        ["13"] = Spells.stoneshield,
+        ["23"] = Spells.shieldbreaker,
+        ["123"] = Spells.saltstorm,
+    }
+}
+
+-- Placeholder spellbooks for other characters, defaulting to Ashgar's spells
+local defaultSpellbook = characterData.Ashgar.spellbook
+local defaultColor = {255,255,255}
+
+local roster = {"Borrak","Brightwulf","Klaus","Ohm","Archive","End"}
+for _, name in ipairs(roster) do
+    characterData[name] = {
+        color = defaultColor,
+        spellbook = defaultSpellbook,
+    }
+end
+
+return characterData
+```
+
 ## ./conf.lua
 ```lua
 -- Configuration
@@ -25748,20 +26767,36 @@ Constants.VisualShape = {
     WAVE = "wave",
 }
 
-Constants.CastSpeed = {
-    VERY_SLOW = 15,
-    SLOW = 12,
-    NORMAL = 9,
-    FAST = 6,
-    VERY_FAST = 3,
-    ONE_TIER = 3
+local function buildCastSpeedSet(oneTier)
+    return {
+        ONE_TIER = oneTier,
+        VERY_SLOW = oneTier * 5,
+        SLOW = oneTier * 4,
+        NORMAL = oneTier * 3,
+        FAST = oneTier * 2,
+        VERY_FAST = oneTier
+    }
+end
+
+Constants.CastSpeedSets = {
+    FAST = buildCastSpeedSet(3),
+    SLOW = buildCastSpeedSet(5)
 }
+
+Constants.CastSpeed = Constants.CastSpeedSets.FAST
+
+function Constants.setCastSpeedSet(name)
+    if Constants.CastSpeedSets[name] then
+        Constants.CastSpeed = Constants.CastSpeedSets[name]
+    end
+end
 
 -- Target types for keywords
 Constants.TargetType = {
     -- Simple targeting - used in spell definitions
     SELF = "SELF",             -- Target the caster
     ENEMY = "ENEMY",           -- Target the opponent
+    ALL = "ALL",               -- Target all wizards
     
     -- Complex targeting - used in keyword behaviors
     SLOT_SELF = "SLOT_SELF",     -- Target caster's spell slots
@@ -25794,6 +26829,14 @@ Constants.PlayerSide = {
     PLAYER = "PLAYER",
     OPPONENT = "OPPONENT",
     NEUTRAL = "NEUTRAL"
+}
+
+-- Status effect types applied to wizards
+Constants.StatusType = {
+    BURN = "burn",       -- Damage over time
+    SLOW = "slow",       -- Increases next cast time
+    STUN = "stun",       -- Prevents actions
+    REFLECT = "reflect"  -- Reflects incoming spells
 }
 
 -- Helper functions for dynamic string generation
@@ -25854,15 +26897,6 @@ function Constants.getAllAttackTypes()
         Constants.AttackType.UTILITY
     }
 end
--- Utility function to get all spell metadata fields
-function Constants.getAllSpellMetadataFields()
-    local fields = {}
-    for _, value in pairs(Constants.SpellMetadata) do
-        table.insert(fields, value)
-    end
-    return fields
-end
-
 -- Spell metadata field names for consistent reference
 Constants.SpellMetadata = {
     ID = "id",
@@ -25876,7 +26910,6 @@ Constants.SpellMetadata = {
     VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
-    BLOCKABLE_BY = "blockableBy",
     ZONE = "zone"
 }
 
@@ -26104,6 +27137,24 @@ end
 function Input.handleKey(key, scancode, isrepeat)
     -- Log key presses for debugging
     print("DEBUG: Key pressed: '" .. key .. "'")
+
+    -- Handle settings key capture
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local action = gameState.settingsMenu.waitingForKey
+        local controls = gameState.settings.get("controls")
+        controls[action.player][action.key] = key
+        gameState.settings.set("controls", controls)
+        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
+        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
+            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
+            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+        else
+            gameState.settingsMenu.waitingForKey = nil
+            gameState.settingsMenu.mode = nil
+        end
+        Input.setupRoutes()
+        return true
+    end
     
     -- First check gameOver state - these have highest priority
     if gameState and gameState.gameOver then
@@ -26130,10 +27181,14 @@ function Input.handleKey(key, scancode, isrepeat)
         end
     end
     
-    -- Check UI controls (always active)
+    -- Check UI controls (always active). Only stop processing if handled
     local uiHandler = Input.Routes.ui[key]
     if uiHandler then
-        return uiHandler(key, scancode, isrepeat)
+        local handled = uiHandler(key, scancode, isrepeat)
+        if handled then
+            return true
+        end
+        -- fall through to player controls when not handled
     end
     
     -- Check player 1 controls
@@ -26166,18 +27221,19 @@ end
 
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
+    local controls = gameState.settings.get("controls")
     -- Handle player 1 key releases
-    if key == "q" or key == "w" or key == "e" then
-        local slotIndex = key == "q" and 1 or (key == "w" and 2 or 3)
+    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
+        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[1] then
             gameState.wizards[1]:keySpell(slotIndex, false)
             return true
         end
     end
-    
+
     -- Handle player 2 key releases
-    if key == "i" or key == "o" or key == "p" then
-        local slotIndex = key == "i" and 1 or (key == "o" and 2 or 3)
+    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
+        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[2] then
             gameState.wizards[2]:keySpell(slotIndex, false)
             return true
@@ -26189,6 +27245,14 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
+    -- Reset route tables
+    Input.Routes.system = {}
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+    Input.Routes.debug = {}
+    Input.Routes.test = {}
+    Input.Routes.ui = {}
+    Input.Routes.gameOver = {}
     -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
         -- If in MENU state, quit the game
@@ -26200,11 +27264,18 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             print("Returning to main menu")
             return true
-        -- If in GAME_OVER state, return to menu 
+        -- If in GAME_OVER state, return to menu
         elseif gameState.currentState == "GAME_OVER" then
             gameState.currentState = "MENU"
             gameState.resetGame()
             print("Returning to main menu")
+            return true
+        -- If in CHARACTER_SELECT, go back to menu
+        elseif gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectBack(true)
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.currentState = "MENU"
             return true
         end
         return false
@@ -26252,50 +27323,131 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Start Two-Player game from menu
+    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game")
+            print("Campaign mode not implemented yet")
             return true
         end
         return false
     end
-    
-    -- Start vs AI game from menu
+
+    -- Character Duel - goes to character select screen
     Input.Routes.ui["2"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to use AI
-            gameState.useAI = true
-            -- Reset game state for a fresh start
-            gameState.resetGame() -- This will initialize the AI
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new game against AI")
+            gameState.startCharacterSelect()
             return true
         end
         return false
     end
-    
-    -- Legacy enter key support (defaults to two-player)
+
+    -- Research Duel stub
+    Input.Routes.ui["3"] = function()
+        if gameState.currentState == "MENU" then
+            print("Research Duel not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Compendium stub
+    Input.Routes.ui["4"] = function()
+        if gameState.currentState == "MENU" then
+            print("Compendium not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Open settings menu
+    Input.Routes.ui["5"] = function()
+        if gameState.currentState == "MENU" then
+            gameState.startSettings()
+            return true
+        end
+        return false
+    end
+
+    -- Exit the game
+    Input.Routes.ui["6"] = function()
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        end
+        return false
+    end
+
+    -- Legacy enter key starts Character Duel
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game (via Enter key)")
+            gameState.startCharacterSelect()
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.settingsSelect()
             return true
         end
         return false
     end
+
+    -- SETTINGS CONTROLS
+    Input.Routes.ui["up"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["down"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["left"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["right"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(1)
+            return true
+        end
+        return false
+    end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
+            return true
+        end
+        return false
+    end
+
+    -- Confirm selection / Fight
+    Input.Routes.ui["f"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectConfirm()
+            return true
+        end
+        return false
+    end
+
+    -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
@@ -26309,72 +27461,76 @@ function Input.setupRoutes()
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
+    local c = gameState.settings.get("controls")
+    local p1 = c.p1
+    local p2 = c.p2
+
     -- Key spell slots
-    Input.Routes.p1["q"] = function()
+    Input.Routes.p1[p1.slot1] = function()
         gameState.wizards[1]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p1["w"] = function()
+
+    Input.Routes.p1[p1.slot2] = function()
         gameState.wizards[1]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p1["e"] = function()
+
+    Input.Routes.p1[p1.slot3] = function()
         gameState.wizards[1]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p1["f"] = function()
+    Input.Routes.p1[p1.cast] = function()
         gameState.wizards[1]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p1["g"] = function()
+    Input.Routes.p1[p1.free] = function()
         gameState.wizards[1]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p1["b"] = function()
+    Input.Routes.p1[p1.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(1)
         return true
     end
-    
+
     -- PLAYER 2 CONTROLS (Selene)
     -- Key spell slots
-    Input.Routes.p2["i"] = function()
+    Input.Routes.p2[p2.slot1] = function()
         gameState.wizards[2]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p2["o"] = function()
+
+    Input.Routes.p2[p2.slot2] = function()
         gameState.wizards[2]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p2["p"] = function()
+
+    Input.Routes.p2[p2.slot3] = function()
         gameState.wizards[2]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p2["j"] = function()
+    Input.Routes.p2[p2.cast] = function()
         gameState.wizards[2]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p2["h"] = function()
+    Input.Routes.p2[p2.free] = function()
         gameState.wizards[2]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p2["m"] = function()
+    Input.Routes.p2[p2.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(2)
         return true
@@ -26578,14 +27734,19 @@ Input.reservedKeys = {
     },
     
     menu = {
-        "1", -- Start two-player game from menu
-        "2", -- Start vs AI game from menu
-        "Enter", -- Start two-player game from menu (legacy)
+        "1", "2", "3", "4", "5", "6", -- Main menu options
+        "Enter", -- Start character duel (shortcut)
         "Escape", -- Quit game from menu
     },
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    characterSelect = {
+        "Q", "E", -- Move cursor
+        "F", -- Confirm
+        "Escape" -- Back
     },
     
     gameOver = {
@@ -26622,6 +27783,29 @@ Input.reservedKeys = {
 }
 
 return Input```
+
+## ./core/Log.lua
+```lua
+local Log = {}
+
+-- Flag to enable verbose debug logging
+Log.verbose = false
+
+--- Set verbose logging flag
+-- @param enabled boolean
+function Log.setVerbose(enabled)
+    Log.verbose = not not enabled
+end
+
+--- Print a debug message if verbose logging is enabled
+function Log.debug(...)
+    if Log.verbose then
+        print(...)
+    end
+end
+
+return Log
+```
 
 ## ./core/Pool.lua
 ```lua
@@ -26892,6 +28076,95 @@ end
 
 return Pool```
 
+## ./core/Settings.lua
+```lua
+local Settings = {}
+
+-- Default configuration
+local defaults = {
+    dummyFlag = false,
+    gameSpeed = "FAST",
+    controls = {
+        p1 = { slot1 = "q", slot2 = "w", slot3 = "e", cast = "f", free = "g", book = "b" },
+        p2 = { slot1 = "i", slot2 = "o", slot3 = "p", cast = "j", free = "h", book = "m" }
+    }
+}
+
+local function deepcopy(tbl)
+    if type(tbl) ~= "table" then return tbl end
+    local result = {}
+    for k, v in pairs(tbl) do
+        result[k] = deepcopy(v)
+    end
+    return result
+end
+
+local function serialize(tbl, indent)
+    indent = indent or 0
+    local parts = {"{\n"}
+    local pad = string.rep(" ", indent + 2)
+    for k, v in pairs(tbl) do
+        local key
+        if type(k) == "string" then
+            key = k .. " = "
+        else
+            key = "[" .. k .. "] = "
+        end
+        if type(v) == "table" then
+            table.insert(parts, pad .. key .. serialize(v, indent + 2) .. ",\n")
+        elseif type(v) == "string" then
+            table.insert(parts, pad .. key .. string.format("%q", v) .. ",\n")
+        else
+            table.insert(parts, pad .. key .. tostring(v) .. ",\n")
+        end
+    end
+    table.insert(parts, string.rep(" ", indent) .. "}")
+    return table.concat(parts)
+end
+
+Settings.data = nil
+
+function Settings.load()
+    if love.filesystem.getInfo("settings.lua") then
+        local chunk = love.filesystem.load("settings.lua")
+        local ok, result = pcall(chunk)
+        if ok and type(result) == "table" then
+            Settings.data = result
+            -- Backwards compatibility: convert numeric gameSpeed
+            if type(Settings.data.gameSpeed) ~= "string" then
+                Settings.data.gameSpeed = "FAST"
+            end
+            return
+        end
+    end
+    Settings.data = deepcopy(defaults)
+    Settings.save()
+end
+
+function Settings.save()
+    if not Settings.data then return end
+    local serialized = "return " .. serialize(Settings.data) .. "\n"
+    love.filesystem.write("settings.lua", serialized)
+end
+
+function Settings.get(key)
+    if not Settings.data then Settings.load() end
+    return Settings.data[key]
+end
+
+function Settings.set(key, value)
+    if not Settings.data then Settings.load() end
+    Settings.data[key] = value
+    Settings.save()
+end
+
+function Settings.getDefaults()
+    return deepcopy(defaults)
+end
+
+return Settings
+```
+
 ## ./core/assetPreloader.lua
 ```lua
 -- assetPreloader.lua
@@ -27151,7 +28424,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "        }\n"
     output = output .. "    },\n"
     output = output .. "    vfx = \"arcane_reversal\",\n"
-    output = output .. "    blockableBy = {\"ward\", \"field\"}\n"
     output = output .. "}\n```\n\n"
     
     -- Fireball example
@@ -27179,7 +28451,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "    },\n"
     output = output .. "    vfx = \"fireball\",\n"
     output = output .. "    sfx = \"explosion\",\n"
-    output = output .. "    blockableBy = {\"barrier\"}\n"
     output = output .. "}\n```\n\n"
     
     return output
@@ -27415,32 +28686,6 @@ Keywords.trap_trigger = {
     end
 }
 
--- trap_window: Defines the duration or condition for a trap spell's expiration
-Keywords.trap_window = {
-    -- Behavior definition
-    behavior = {
-        storesWindowCondition = true,
-        category = "TRAP"
-    },
-    
-    -- Implementation function - Stores window condition/duration
-    execute = function(params, caster, target, results, events)
-        results.trapWindow = params
-        
-        -- Log info based on whether it's duration or condition-based
-        if params.duration then
-            print(string.format("[TRAP] Stored window duration: %.1f seconds", 
-                params.duration))
-        elseif params.condition then
-            print(string.format("[TRAP] Stored window condition: %s", 
-                params.condition))
-        else
-            print("[TRAP] Warning: Window with no duration or condition")
-        end
-        
-        return results
-    end
-}
 
 -- trap_effect: Defines the effect that occurs when a trap is triggered
 Keywords.trap_effect = {
@@ -27468,6 +28713,21 @@ Keywords.trap_effect = {
             print("[TRAP] Warning: Effect payload with no effects defined")
         end
         
+        return results
+    end
+}
+
+-- field_status: Defines a persistent status applied while the field is active
+Keywords.field_status = {
+    behavior = {
+        marksSpellAsSustained = true,
+        category = "FIELD"
+    },
+
+    execute = function(params, caster, target, results, events)
+        results.fieldStatus = params
+        results.isField = true
+        results.isSustained = true
         return results
     end
 }
@@ -27548,7 +28808,7 @@ Keywords.burn = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "burn",
+        statusType = Constants.StatusType.BURN,
         dealsDamageOverTime = true,
         targetType = Constants.TargetType.ENEMY,
         category = "DOT",
@@ -27566,25 +28826,64 @@ Keywords.burn = {
         if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
             manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
-        
-        table.insert(events or {}, {
-            type = "APPLY_STATUS",
-            source = "caster",
-            target = "enemy",
-            statusType = "burn",
-            duration = params.duration or 3.0,
-            tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0,
-            
-            -- Visual metadata for VisualResolver
-            affinity = spell and spell.affinity or nil,
-            attackType = spell and spell.attackType or nil,
-            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
-            manaCost = manaCost,
-            tags = { BURN = true, DOT = true },
-            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
-            elevation = caster and caster.elevation or nil
-        })
+
+        if params.target == Constants.TargetType.ALL then
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "self",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "enemy",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        else
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = params.target or "enemy",
+                statusType = Constants.StatusType.BURN,
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        end
         return results
     end
 }
@@ -27594,7 +28893,7 @@ Keywords.stagger = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Assuming stagger applies a stun/daze status
-        statusType = "stun",      -- Using "stun" status for simplicity
+        statusType = Constants.StatusType.STUN,      -- Using "stun" status for simplicity
         interruptsSpell = true,    -- Stagger implies interruption
         targetType = "ENEMY",     -- Typically targets enemy
         category = "TIMING",
@@ -27608,7 +28907,7 @@ Keywords.stagger = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy",
+            target = params.target or "enemy",
             statusType = "stun", -- Using "stun" as the status effect
             duration = params.duration or 3.0
         })
@@ -27958,7 +29257,7 @@ Keywords.slow = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "slow",
+        statusType = Constants.StatusType.SLOW,
         targetType = Constants.TargetType.ENEMY, -- Applies status to enemy wizard
         category = "TIMING",
         
@@ -27973,8 +29272,8 @@ Keywords.slow = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy", -- Target the enemy wizard entity
-            statusType = "slow",
+            target = params.target or "enemy", -- Target the enemy wizard entity
+            statusType = Constants.StatusType.SLOW,
             magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
@@ -28158,7 +29457,7 @@ Keywords.reflect = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Reflect handled as a status effect
-        statusType = "reflect",
+        statusType = Constants.StatusType.REFLECT,
         targetType = "SELF",
         category = "DEFENSE",
         
@@ -28172,7 +29471,7 @@ Keywords.reflect = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "self",
-            statusType = "reflect",
+            statusType = Constants.StatusType.REFLECT,
             duration = params.duration or 3.0
         })
         return results
@@ -28342,7 +29641,9 @@ Keywords.vfx = {
     end
 }
 
-return Keywords```
+return Keywords
+
+```
 
 ## ./main.lua
 ```lua
@@ -28363,9 +29664,11 @@ local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local CharacterData = require("characterData")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -28386,6 +29689,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
+    characterData = CharacterData,
     rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
@@ -28394,13 +29698,30 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
     ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
+    settings = Settings,
+    settingsMenu = {
+        selected = 1,
+        mode = nil,
+        waitingForKey = nil,
+        bindOrder = {
+            {"p1","slot1","P1 Slot 1"},
+            {"p1","slot2","P1 Slot 2"},
+            {"p1","slot3","P1 Slot 3"},
+            {"p1","cast","P1 Cast"},
+            {"p2","slot1","P2 Slot 1"},
+            {"p2","slot2","P2 Slot 2"},
+            {"p2","slot3","P2 Slot 3"},
+            {"p2","cast","P2 Cast"}
+        },
+        rebindIndex = 1
+    },
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -28448,6 +29769,47 @@ game.tokenImages = {
     [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
     [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
     [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
+}
+
+-- Character roster and unlocks
+game.characterRoster = {
+    "Ashgar", "Borrak", "Silex",
+    "Brightwulf", "Selene", "Klaus",
+    "Ohm", "Archive", "End"
+}
+
+game.unlockedCharacters = {
+    Ashgar = true,
+    Selene = true,
+    Silex = false
+}
+
+-- Get a list of all unlocked characters in the roster
+local function getUnlockedCharacterList()
+    local list = {}
+    for _, name in ipairs(game.characterRoster) do
+        if game.unlockedCharacters[name] then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+-- Helper to grab an AI personality for a given character name
+local function getPersonalityFor(name)
+    if name == "Selene" then
+        return SelenePersonality
+    elseif name == "Ashgar" then
+        return AshgarPersonality
+    else
+        return nil
+    end
+end
+
+game.characterSelect = {
+    stage = 1, -- 1: choose player, 2: choose opponent, 3: confirm
+    cursor = 1,
+    selected = {nil, nil}
 }
 
 -- Helper function to add a random token to the mana pool
@@ -28517,6 +29879,10 @@ function love.load()
                         preloadStats.imageCount,
                         preloadStats.soundCount,
                         preloadStats.loadTime))
+
+    -- Load persisted settings
+    Settings.load()
+    Constants.setCastSpeedSet(Settings.get("gameSpeed") or "FAST")
     
     -- Set up game object to have calculateScaling function that can be called by Input
     game.calculateScaling = calculateScaling
@@ -28541,8 +29907,10 @@ function love.load()
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
-    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    local d1 = CharacterData.Ashgar
+    local d2 = CharacterData.Selene
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, d1.color, d1.spellbook)
+    game.wizards[2] = Wizard.new("Selene", 600, 370, d2.color, d2.spellbook)
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -28601,7 +29969,6 @@ function love.load()
         },
         vfx = "moon_ward",
         sfx = "shield_up",
-        blockableBy = {}
     }
     
     -- Define Mirror Shield with minimal dependencies
@@ -28623,7 +29990,6 @@ function love.load()
         },
         vfx = "mirror_shield",
         sfx = "crystal_ring",
-        blockableBy = {}
     }
     
     -- Compile custom spells too
@@ -28728,7 +30094,12 @@ function resetGame()
         wizard.health = 100
         wizard.elevation = Constants.ElevationState.GROUNDED
         wizard.elevationTimer = 0
-        wizard.stunTimer = 0
+        if wizard.statusEffects and wizard.statusEffects[Constants.StatusType.STUN] then
+            wizard.statusEffects[Constants.StatusType.STUN].active = false
+            wizard.statusEffects[Constants.StatusType.STUN].duration = 0
+            wizard.statusEffects[Constants.StatusType.STUN].elapsed = 0
+            wizard.statusEffects[Constants.StatusType.STUN].totalTime = 0
+        end
         
         -- Reset spell slots
         for i = 1, 3 do
@@ -28747,12 +30118,12 @@ function resetGame()
         end
         
         -- Reset status effects
-        wizard.statusEffects.burn.active = false
-        wizard.statusEffects.burn.duration = 0
-        wizard.statusEffects.burn.tickDamage = 0
-        wizard.statusEffects.burn.tickInterval = 1.0
-        wizard.statusEffects.burn.elapsed = 0
-        wizard.statusEffects.burn.totalTime = 0
+        wizard.statusEffects[Constants.StatusType.BURN].active = false
+        wizard.statusEffects[Constants.StatusType.BURN].duration = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickDamage = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickInterval = 1.0
+        wizard.statusEffects[Constants.StatusType.BURN].elapsed = 0
+        wizard.statusEffects[Constants.StatusType.BURN].totalTime = 0
         
         -- Reset blockers
         if wizard.blockers then
@@ -28837,6 +30208,21 @@ function startGameAttractMode()
     -- Reset the game to clear any existing state
     resetGame()
 
+    -- Choose two random unlocked characters
+    local unlocked = getUnlockedCharacterList()
+    if #unlocked < 2 then
+        print("Not enough unlocked characters for attract mode")
+        return
+    end
+
+    local name1 = unlocked[math.random(#unlocked)]
+    local name2 = unlocked[math.random(#unlocked)]
+    while name2 == name1 do
+        name2 = unlocked[math.random(#unlocked)]
+    end
+
+    setupWizards(name1, name2)
+
     -- Temporarily store input routes so we can restore them later
     game.savedInputRoutes = {
         p1 = Input.Routes.p1,
@@ -28851,13 +30237,9 @@ function startGameAttractMode()
     -- This way we can have two AI players without affecting the normal mode
     game.useAI = false
 
-    -- Create AI for player 1 (Ashgar)
-    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-    game.player1AI = player1AI
-
-    -- Create AI for player 2 (Selene)
-    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-    game.player2AI = player2AI
+    -- Create AIs for both players
+    game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+    game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
 
     -- Reset idle timer
     game.menuIdleTimer = 0
@@ -28896,6 +30278,123 @@ function exitAttractMode()
     game.currentState = "MENU"
 
     print("Attract mode ended, returned to menu")
+end
+
+-- Initialize wizards for battle based on selected names
+function setupWizards(name1, name2)
+    local data1 = game.characterData[name1] or {}
+    local data2 = game.characterData[name2] or {}
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    for _, wizard in ipairs(game.wizards) do
+        wizard.manaPool = game.manaPool
+        wizard.gameState = game
+    end
+end
+
+-- Start character selection
+function game.startCharacterSelect()
+    game.characterSelect.stage = 1
+    game.characterSelect.cursor = 1
+    game.characterSelect.selected = {nil,nil}
+    game.currentState = "CHARACTER_SELECT"
+end
+
+-- Move selection cursor
+function game.characterSelectMove(dir)
+    local count = #game.characterRoster
+    local idx = game.characterSelect.cursor
+    repeat
+        idx = ((idx -1 + dir -1) % count) + 1
+    until game.unlockedCharacters[game.characterRoster[idx]]
+    game.characterSelect.cursor = idx
+end
+
+-- Confirm selection or start fight
+function game.characterSelectConfirm()
+    local idx = game.characterSelect.cursor
+    local name = game.characterRoster[idx]
+    if not game.unlockedCharacters[name] then return end
+
+    if game.characterSelect.stage == 1 then
+        game.characterSelect.selected[1] = name
+        game.characterSelect.stage = 2
+    elseif game.characterSelect.stage == 2 then
+        game.characterSelect.selected[2] = name
+        game.characterSelect.stage = 3
+    else
+        setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
+        game.useAI = true
+        resetGame()
+        game.currentState = "BATTLE"
+    end
+end
+
+-- Back out of selection
+function game.characterSelectBack(toMenu)
+    if toMenu then
+        game.currentState = "MENU"
+        return
+    end
+    if game.characterSelect.stage == 2 then
+        game.characterSelect.stage = 1
+        game.characterSelect.selected[1] = nil
+    elseif game.characterSelect.stage == 3 then
+        game.characterSelect.stage = 2
+        game.characterSelect.selected[2] = nil
+    else
+        game.currentState = "MENU"
+    end
+end
+
+-- Start settings menu
+function game.startSettings()
+    game.settingsMenu.selected = 1
+    game.settingsMenu.mode = nil
+    game.settingsMenu.waitingForKey = nil
+    game.settingsMenu.rebindIndex = 1
+    game.currentState = "SETTINGS"
+end
+
+function game.settingsMove(dir)
+    if game.settingsMenu.mode then return end
+    local count = 3
+    local idx = game.settingsMenu.selected + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.settingsMenu.selected = idx
+end
+
+function game.settingsAdjust(dir)
+    if game.settingsMenu.mode then return end
+    if game.settingsMenu.selected == 1 then
+        if dir ~= 0 then
+            local val = Settings.get("dummyFlag")
+            Settings.set("dummyFlag", not val)
+        end
+    elseif game.settingsMenu.selected == 2 then
+        if dir ~= 0 then
+            local current = Settings.get("gameSpeed") or "FAST"
+            if current == "FAST" then
+                current = "SLOW"
+            else
+                current = "FAST"
+            end
+            Settings.set("gameSpeed", current)
+            Constants.setCastSpeedSet(current)
+        end
+    end
+end
+
+function game.settingsSelect()
+    if game.settingsMenu.selected == 3 then
+        game.settingsMenu.mode = "rebind"
+        game.settingsMenu.rebindIndex = 1
+        local a = game.settingsMenu.bindOrder[1]
+        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    else
+        game.settingsAdjust(1)
+    end
 end
 
 function love.update(dt)
@@ -28937,6 +30436,17 @@ function love.update(dt)
         end
 
         -- No other updates needed in menu state
+        return
+    elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CHARACTER_SELECT" then
+        -- Simple animations for character select
+        if game.vfx then
+            game.vfx.update(dt)
+        end
         return
     elseif game.currentState == "BATTLE" then
         -- Check for win condition before updates
@@ -29115,13 +30625,17 @@ function love.update(dt)
             -- Reset game and start another attract mode battle
             resetGame()
 
-            -- Create AI for player 1 (Ashgar)
-            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-            game.player1AI = player1AI
-
-            -- Create AI for player 2 (Selene)
-            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-            game.player2AI = player2AI
+            local unlocked = getUnlockedCharacterList()
+            if #unlocked >= 2 then
+                local name1 = unlocked[math.random(#unlocked)]
+                local name2 = unlocked[math.random(#unlocked)]
+                while name2 == name1 do
+                    name2 = unlocked[math.random(#unlocked)]
+                end
+                setupWizards(name1, name2)
+                game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+                game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
+            end
 
             -- Keep attract mode active
             game.attractModeActive = true
@@ -29157,6 +30671,10 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
+    elseif game.currentState == "SETTINGS" then
+        drawSettingsMenu()
+    elseif game.currentState == "CHARACTER_SELECT" then
+        drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
@@ -29745,57 +31263,139 @@ function drawMainMenu()
     )
     
     -- Draw menu options
-    local menuY = screenHeight * 0.6
-    local menuSpacing = 50
-    local menuScale = 1.5
-    
-    -- Two-player duel option
-    local twoPlayerText = "[1] Two-Player Duel"
-    local twoPlayerWidth = game.font:getWidth(twoPlayerText) * menuScale
-    
-    -- Pulse effect for two-player option
-    local twoPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(0.9, 0.7, 0.1, twoPlayerPulse)
-    love.graphics.print(
-        twoPlayerText,
-        screenWidth/2 - twoPlayerWidth/2,
-        menuY,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Single-player vs AI option
-    local aiPlayerText = "[2] Duel Against AI"
-    local aiPlayerWidth = game.font:getWidth(aiPlayerText) * menuScale
-    
-    -- Pulse effect for AI option (slightly out of phase)
-    local aiPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3 + 1)
-    love.graphics.setColor(0.7, 0.9, 0.2, aiPlayerPulse)
-    love.graphics.print(
-        aiPlayerText,
-        screenWidth/2 - aiPlayerWidth/2,
-        menuY + menuSpacing,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Quit option
-    local quitText = "[Esc] Quit"
-    local quitWidth = game.font:getWidth(quitText) * menuScale
-    
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
-    love.graphics.print(
-        quitText,
-        screenWidth/2 - quitWidth/2,
-        menuY + menuSpacing * 2, -- Move down one more row
-        0,
-        menuScale, menuScale
-    )
+    local menuY = screenHeight * 0.55
+    local menuSpacing = 40
+    local menuScale = 1.4
+
+    local options = {
+        {"[1] Campaign", {0.9, 0.9, 0.9, 0.9}},
+        {"[2] Character Duel", {0.9, 0.7, 0.1, 0.9}},
+        {"[3] Research Duel", {0.7, 0.9, 0.2, 0.9}},
+        {"[4] Compendium", {0.7, 0.8, 1.0, 0.9}},
+        {"[5] Settings", {0.8, 0.8, 0.8, 0.9}},
+        {"[6] Exit", {0.7, 0.7, 0.7, 0.9}}
+    }
+
+    for i, option in ipairs(options) do
+        local text, color = option[1], option[2]
+        local width = game.font:getWidth(text) * menuScale
+        love.graphics.setColor(color)
+        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+    end
     
     -- Draw version and credit
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the character selection screen
+function drawCharacterSelect()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local paneWidth = screenWidth/3
+    local cellSize = 60
+    local padding = 10
+    local gridWidth = cellSize*3 + padding*2
+    local gridHeight = cellSize*3 + padding*2
+    local gridX = paneWidth + (paneWidth - gridWidth)/2
+    local gridY = screenHeight/2 - gridHeight/2
+
+    -- Helper to draw a character sprite
+    local function drawSprite(name,x,y,scale)
+        local sprite = AssetCache.getImage("assets/sprites/"..string.lower(name)..".png")
+        if sprite then
+            love.graphics.draw(sprite,x,y,0,scale,scale,sprite:getWidth()/2,sprite:getHeight()/2)
+        else
+            love.graphics.print(name,x-20,y-5)
+        end
+    end
+
+    -- Draw selected characters in side panes
+    if game.characterSelect.selected[1] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[1],paneWidth/2,screenHeight/2,2)
+    end
+    if game.characterSelect.selected[2] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[2],screenWidth-paneWidth/2,screenHeight/2,2)
+    end
+
+    -- Draw grid of characters
+    for i,name in ipairs(game.characterRoster) do
+        local col=(i-1)%3
+        local row=math.floor((i-1)/3)
+        local x=gridX+col*(cellSize+padding)
+        local y=gridY+row*(cellSize+padding)
+
+        local unlocked = game.unlockedCharacters[name]
+        love.graphics.setColor(0.4,0.4,0.4)
+        love.graphics.rectangle("fill",x,y,cellSize,cellSize)
+
+        local scale = cellSize/64
+        if unlocked then
+            love.graphics.setColor(1,1,1)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        else
+            love.graphics.setColor(0,0,0)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        end
+
+        if game.characterSelect.cursor==i then
+            love.graphics.setColor(1,1,0)
+            love.graphics.rectangle("line",x-2,y-2,cellSize+4,cellSize+4)
+        end
+    end
+
+    -- Instruction text
+    love.graphics.setColor(1,1,1,0.8)
+    local msg
+    if game.characterSelect.stage==1 then
+        msg = "Select Your Wizard"
+    elseif game.characterSelect.stage==2 then
+        msg = "Select Opponent"
+    else
+        msg = "Press F to Fight!"
+    end
+    local w = game.font:getWidth(msg)
+    love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+end
+
+-- Draw the settings menu
+function drawSettingsMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local options = {
+        "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
+        "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Rebind Controls"
+    }
+
+    for i, text in ipairs(options) do
+        local scale = 1.4
+        local y = screenHeight * 0.4 + (i-1) * 40
+        local w = game.font:getWidth(text) * scale
+        if i == game.settingsMenu.selected and not game.settingsMenu.mode then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new key for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
 end
 
 -- Draw attract mode overlay
@@ -31486,7 +33086,6 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
-        blockableBy = spellDef.blockableBy,
         -- Create empty behavior table to store merged behavior data
         behavior = {}
     }
@@ -31733,25 +33332,20 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 print("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
             end
         end
-        
-        if compiledSpell.behavior.trap_window then
-            -- Make sure trapWindow data is in the results
-            if not results.trapWindow then
-                results.trapWindow = compiledSpell.behavior.trap_window.params or {}
-                print("DEBUG: Adding trapWindow data to results: " .. tostring(results.trapWindow))
-                
-                -- Debug what's in the params
-                for k, v in pairs(compiledSpell.behavior.trap_window.params or {}) do
-                    print("DEBUG:   trapWindow param: " .. k .. " = " .. tostring(v))
-                end
-            end
-        end
-        
+
+
         if compiledSpell.behavior.trap_effect then
             -- Make sure trapEffect data is in the results
             if not results.trapEffect then
                 results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
                 print("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
+            end
+        end
+
+        if compiledSpell.behavior.field_status then
+            if not results.fieldStatus then
+                results.fieldStatus = compiledSpell.behavior.field_status.params or {}
+                print("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
             end
         end
         
@@ -32001,7 +33595,6 @@ FireSpells.conjurefire = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
@@ -32045,7 +33638,6 @@ FireSpells.firebolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Fireball spell
@@ -32066,7 +33658,6 @@ FireSpells.fireball = {
                 duration = 2
             }
         },
-        blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
     }
 }
 
@@ -32142,7 +33733,6 @@ FireSpells.blazingAscent = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Eruption spell
@@ -32157,7 +33747,9 @@ FireSpells.eruption = {
     cost = {"fire", "fire", "salt"},
     keywords = {
         zoneAnchor = {
-            range = "NEAR",
+            range = function(caster, target)
+                return caster.gameState.rangeState
+            end,
             elevation = "GROUNDED",
             requireAll = true
         },
@@ -32165,14 +33757,12 @@ FireSpells.eruption = {
             amount = 16,
             type = "fire"
         },
-        ground = true,
         burn = {
             duration = 4.0,
             tickDamage = 3
         },
     },
     sfx = "volcano_rumble",
-    blockableBy = {Constants.ShieldType.BARRIER},
     
     onMiss = function(caster, target, slot)
         print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
@@ -32217,7 +33807,7 @@ FireSpells.battleshield = {
                         type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        statusType = "burn",
+                        statusType = Constants.StatusType.BURN,
                         duration = 1.5,
                         tickDamage = 4,
                         targetSlot = "NEAR"
@@ -32239,7 +33829,6 @@ FireSpells.battleshield = {
         },
     },
     sfx = "fire_shield",
-    blockableBy = {}
 }
 
 return FireSpells```
@@ -32311,7 +33900,6 @@ MoonSpells.conjuremoonlight = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -32350,7 +33938,6 @@ MoonSpells.tidalforce = {
         },
     },
     sfx = "tidal_wave",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Lunar Disjunction spell
@@ -32377,7 +33964,6 @@ MoonSpells.lunardisjunction = {
         },
     },
     sfx = "lunardisjunction_sound",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Moon Dance spell
@@ -32442,7 +34028,6 @@ MoonSpells.gravity = {
         },
     },
     sfx = "gravity_slam",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Eclipse spell
@@ -32467,7 +34052,6 @@ MoonSpells.eclipse = {
         },
     },
     sfx = "eclipse_shatter",
-    blockableBy = {}
 }
 
 -- Full Moon Beam spell
@@ -32510,7 +34094,6 @@ MoonSpells.fullmoonbeam = {
         }
     },
     sfx = "beam_charge",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Lunar Tides spell
@@ -32543,7 +34126,6 @@ MoonSpells.lunarTides = {
         },
     },
     sfx = "tide_rush",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Wings of Moonlight (shield spell)
@@ -32580,7 +34162,6 @@ MoonSpells.wrapinmoonlight = {
         },
     },
     sfx = "mist_shimmer",
-    blockableBy = {},
 }
 
 -- Gravity Trap spell
@@ -32600,9 +34181,6 @@ MoonSpells.gravityTrap = {
             condition = "on_opponent_elevate" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 
@@ -32622,7 +34200,6 @@ MoonSpells.gravityTrap = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {}
 }
 
 -- Infinite Procession spell
@@ -32687,7 +34264,6 @@ MoonSpells.enhancedmirrorshield = {
         },
     },
     sfx = "crystal_ring",
-    blockableBy = {}
 }
 
 return MoonSpells```
@@ -32716,7 +34292,6 @@ SaltSpells.conjuresalt = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -32752,7 +34327,23 @@ SaltSpells.glitterfang = {
         },
     },
     sfx = "glitter_fang",
-    blockableBy = {}
+}
+
+SaltSpells.burnToAsh = {
+    id = "burnToAsh",
+    name = "Burn to Ash",
+    affinity = "salt",
+    description = "Disrupts opponent channeling, burning one token to Salt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "zap",
+    cost = {Constants.TokenType.FIRE},
+    keywords = {
+        disruptAndShift = {
+            targetType = "salt"
+        },
+        consume = true,
+    }
 }
 
 -- Salt Storm spell
@@ -32773,7 +34364,6 @@ SaltSpells.saltstorm = {
         shieldBreaker = 2,
     },
     sfx = "salt_storm",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Imprison spell (Salt trap)
@@ -32792,9 +34382,6 @@ SaltSpells.imprison = {
             condition = "on_opponent_far" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 
@@ -32808,7 +34395,6 @@ SaltSpells.imprison = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {} 
 }
 
 -- Jagged Earth spell (Salt trap)
@@ -32833,7 +34419,6 @@ SaltSpells.jaggedearth = {
         },
     },
     sfx = "jagged_earth",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Salt Circle spell (Ward)
@@ -32852,7 +34437,6 @@ SaltSpells.saltcircle = {
         }
     },
     sfx = "salt_circle",
-    blockableBy = {}
 }
 
 -- Stone Shield spell (Barrier)
@@ -32871,7 +34455,6 @@ SaltSpells.stoneshield = {
         }
     },
     sfx = "stone_shield",
-    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -32905,7 +34488,6 @@ SaltSpells.shieldbreaker = {
     },
     shieldBreaker = 3,
     sfx = "shield_break",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD},
     
     onBlock = function(caster, target, slot, blockInfo)
         print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
@@ -32947,7 +34529,6 @@ StarSpells.conjurestars = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -33001,7 +34582,6 @@ StarSpells.adaptive_surge = {
         ),
     },
     sfx = "adaptive_sound",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Cosmic Rift spell
@@ -33026,7 +34606,6 @@ StarSpells.cosmicRift = {
         zoneMulti = true,
     },
     sfx = "space_tear",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return StarSpells```
@@ -33063,7 +34642,6 @@ SunSpells.radiantbolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Meteor spell
@@ -33094,7 +34672,6 @@ SunSpells.meteor = {
         }
     },
     sfx = "meteor_impact",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }
 
 -- Emberlift spell
@@ -33125,7 +34702,6 @@ SunSpells.emberlift = {
         }
     },
     sfx = "whoosh_up",
-    blockableBy = {}
 }
 
 -- Nova Conjuring (Combine 3 x FIRE into SUN)
@@ -33148,7 +34724,171 @@ SunSpells.novaconjuring = {
         },
     },
     sfx = "conjure_nova",
-    blockableBy = {}
+}
+
+-- Burn the Soul (Inflict Burn on self to conjure a Sun token)
+SunSpells.burnTheSoul = {
+    id = "burnTheSoul",
+    name = "Burn the Soul",
+    affinity = "sun",
+    description = "Inflict Burn on self to conjure a Sun token.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
+    cost = {},
+    keywords = {
+        burn = {
+            amount = 1,
+            duration = 10,
+            target = Constants.TargetType.SELF
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.SpaceRipper = {
+    id = "SpaceRipper",
+    name = "Space Ripper",
+    affinity = "sun",
+    description = "Range swap to NEAR. Burn both self and target. Turn SUN to VOID.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
+    cost = {Constants.TokenType.SUN},
+    keywords = {
+        rangeShift = {
+            position = Constants.RangeState.NEAR
+        },
+        burn = {
+            amount = 3,
+            duration = 3,
+            target = Constants.TargetType.ALL
+        },
+        consume = true,
+        conjure = {
+            token = Constants.TokenType.VOID,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.StingingEyes = {
+    id = "StingingEyes",
+    name = "Stinging Eyes",
+    affinity = "sun",
+    description = "Damage based on user's Burn level.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 3
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 8 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local totalDamage = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                return totalDamage
+            end,
+            type = Constants.DamageType.SUN
+        },
+        burn = {
+            amount = function(caster, target)
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    local selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                    return selfBurnIntensity
+                end
+                return 0
+            end,
+            duration = 1,
+            target = Constants.TargetType.ENEMY
+        }
+    }
+}
+
+SunSpells.CoreBolt = {
+    id = "CoreBolt",
+    name = "Core Bolt",
+    affinity = "sun",
+    description = "Expend SUN and VOID for a powerful energy bolt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.VOID, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = 25,
+            target = Constants.TargetType.ENEMY
+        },
+        consume = true,
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+SunSpells.NuclearFurnace = {
+    id = "NuclearFurnace",
+    name = "Nuclear Furnace",
+    affinity = "sun",
+    description = "Damage based on user's Burn level. Burn user further. Conjure Fire.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.ZONE,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 10
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 10 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local attackStrength = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                if caster.elevation ~= target.elevation then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                if caster.gameState.rangeState ~= Constants.RangeState.NEAR then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                return attackStrength
+            end,
+            type = Constants.DamageType.SUN
+        },
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
+        burn = {
+            amount = 2,
+            duration = 7,
+            target = Constants.TargetType.SELF
+        }
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Force Barrier spell (Sun-based shield)
@@ -33168,10 +34908,29 @@ SunSpells.forcebarrier = {
         },
     },
     sfx = "shield_up",
-    blockableBy = {}
 }
 
-return SunSpells```
+-- Radiant Field spell applying slow to both wizards
+SunSpells.radiantfield = {
+    id = "radiantfield",
+    name = "Radiant Field",
+    affinity = "sun",
+    description = "Blinding field that slows both wizards while active.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        field_status = {
+            statusType = Constants.StatusType.SLOW,
+            magnitude = Constants.CastSpeed.ONE_TIER
+        }
+    },
+    sfx = "radiant_field"
+}
+
+return SunSpells
+```
 
 ## ./spells/elements/void.lua
 ```lua
@@ -33214,6 +34973,19 @@ VoidSpells.riteofemptiness = {
     }
 }
 
+VoidSpells.quenchPower = {
+    id = "quenchPower",
+    name = "Quench Power",
+    affinity = "void",
+    description = "Consumes Celestial or Material mana to create VOID.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {},
+    keywords = {
+        --todo
+    }
+}
+
 -- One-shot kill combo payoff/mega-nuke
 VoidSpells.heartripper = {
     id = "heartripper",
@@ -33230,7 +35002,6 @@ VoidSpells.heartripper = {
         }
     },
     sfx = "heartripper",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 return VoidSpells```
@@ -33266,7 +35037,6 @@ WaterSpells.watergun = {
         }
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Force blast spell (Steam Vent) - water and fire combo
@@ -33289,7 +35059,6 @@ WaterSpells.forceBlast = {
         },
     },
     sfx = "force_wind",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return WaterSpells```
@@ -33407,7 +35176,6 @@ local Schema = {}
 -- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
--- blockableBy: Array of shield types that can block this spell (array, optional)
 --
 -- Shield Types and Blocking Rules:
 -- * barrier: Physical shield that blocks projectiles and zones
@@ -33500,17 +35268,6 @@ function Schema.validateSpell(spell, spellId)
         spell.keywords = {}
     end
     
-    -- Check blockableBy (if present)
-    if spell.blockableBy then
-        if type(spell.blockableBy) ~= "table" then
-            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
-            spell.blockableBy = {}
-        end
-    else
-        -- Create empty blockableBy table
-        spell.blockableBy = {}
-    end
-    
     return true
 end
 
@@ -33540,6 +35297,7 @@ return Schema```
 
 local Constants = require("core.Constants")
 local VisualResolver = require("systems.VisualResolver")
+local Log = require("core.Log")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -33593,20 +35351,20 @@ end
 
 -- Safe VFX creation helper function
 local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
-    if not vfx then 
-        print("DEBUG: VFX system is nil")
-        return false 
+    if not vfx then
+        Log.debug("DEBUG: VFX system is nil")
+        return false
     end
     
     -- Make sure x and y are valid numbers
     if not x or not y or type(x) ~= "number" or type(y) ~= "number" then
         x = 0
         y = 0
-        print("DEBUG: Invalid coordinates for VFX, using (0,0)")
+        Log.debug("DEBUG: Invalid coordinates for VFX, using (0,0)")
     end
     
     -- Debug the parameters
-    print(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)", 
+    Log.debug(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)",
         methodName, tostring(fallbackType), x or 0, y or 0))
         
     -- Try to call the specific method
@@ -33615,21 +35373,21 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         local success, err = pcall(function() 
             if methodName == "createEffect" then
                 -- Print the type of vfx and fallbackType for debugging
-                print("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
+                Log.debug("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
                 
                 -- IMPORTANT: Need to use dot notation and pass VFX module as first arg for module functions
                 -- DO NOT use colon notation (vfx:createEffect) as it passes vfx as self which makes effectName a table
-                print("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
+                Log.debug("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
                 vfx.createEffect(fallbackType, x, y, nil, nil, params)
             else
                 -- For other methods
-                print("[safeCreateVFX] Calling vfx." .. methodName)
+                Log.debug("[safeCreateVFX] Calling vfx." .. methodName)
                 vfx[methodName](vfx, x, y, params) 
             end
         end)
         
         if not success then
-            print("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
+            Log.debug("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
             -- Try fallback on error
             if methodName ~= "createEffect" and type(vfx.createEffect) == "function" then
                 pcall(function() vfx.createEffect(fallbackType, x, y, nil, nil, params) end)
@@ -33643,12 +35401,12 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         end)
         
         if not success then
-            print("DEBUG: Error calling createEffect: " .. tostring(err))
+            Log.debug("DEBUG: Error calling createEffect: " .. tostring(err))
         end
         return true
     else
         -- Debug output if no VFX methods are available
-        print("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
+        Log.debug("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
         return false
     end
 end
@@ -34096,18 +35854,26 @@ EventRunner.EVENT_HANDLERS = {
         -- Initialize status effects table if it doesn't exist
         targetWizard.statusEffects = targetWizard.statusEffects or {}
         
-        -- Add or update the status effect - Store relevant fields from the event
-        targetWizard.statusEffects[event.statusType] = {
-            active = true, -- Mark as active
-            duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
-            tickDamage = event.tickDamage, -- For DoTs like burn
-            tickInterval = event.tickInterval, -- For DoTs like burn
-            magnitude = event.magnitude, -- For effects like slow (cast time increase)
-            targetSlot = event.targetSlot, -- For effects like slow (specific slot)
-            elapsed = 0, -- Timer for DoT ticks
-            totalTime = 0, -- Timer for overall duration
-            source = caster -- Who applied the status
+        -- Build effect data table
+        local effectData = {
+            active = true,
+            duration = event.duration or 0,
+            tickDamage = event.tickDamage,
+            tickInterval = event.tickInterval,
+            magnitude = event.magnitude,
+            targetSlot = event.targetSlot,
+            elapsed = 0,
+            totalTime = 0,
+            source = caster
         }
+
+        if event.statusType == Constants.StatusType.STUN then
+            -- Explicitly store under "stun" key for easy access
+            targetWizard.statusEffects[Constants.StatusType.STUN] = effectData
+        else
+            -- Generic status effect storage
+            targetWizard.statusEffects[event.statusType] = effectData
+        end
         
         -- Log the application
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
@@ -34849,17 +36615,17 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Debug logging for onBlock
         if event.onBlock then
-            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
-            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            Log.debug("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
             
             -- Check if it's actually a function
             if type(event.onBlock) == "function" then
-                print("[EVENT DEBUG] onBlock is a valid function")
+                Log.debug("[EVENT DEBUG] onBlock is a valid function")
             else
-                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+                Log.debug("[EVENT DEBUG] WARNING: onBlock is not a function!")
             end
         else
-            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
         end
         
         -- Check if the wizard has a createShield method
@@ -34878,7 +36644,7 @@ EventRunner.EVENT_HANDLERS = {
             for _, tokenData in ipairs(slot.tokens) do
                 if tokenData.token then
                     tokenData.token:setState(Constants.TokenStatus.SHIELDING)
-                    print("DEBUG: Marked token as SHIELDING to prevent return to pool")
+                    Log.debug("DEBUG: Marked token as SHIELDING to prevent return to pool")
                 end
             end
         else
@@ -35009,25 +36775,25 @@ EventRunner.EVENT_HANDLERS = {
     
     -- Add a new EFFECT event handler for pure visual effects
     EFFECT = function(event, caster, target, spellSlot, results)
-        print("[EFFECT EVENT] Processing EFFECT event")
+        Log.debug("[EFFECT EVENT] Processing EFFECT event")
         
         -- Detailed event inspection for debugging
-        print("[EFFECT EVENT] Full event details:")
-        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
-        print(string.format("  effectType=%s", tostring(event.effectType)))
-        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
-            tostring(event.affinity), 
-            tostring(event.attackType), 
+        Log.debug("[EFFECT EVENT] Full event details:")
+        Log.debug(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        Log.debug(string.format("  effectType=%s", tostring(event.effectType)))
+        Log.debug(string.format("  affinity=%s, attackType=%s, damageType=%s",
+            tostring(event.affinity),
+            tostring(event.attackType),
             tostring(event.damageType)))
-        print(string.format("  source=%s, target=%s", 
-            tostring(event.source), 
+        Log.debug(string.format("  source=%s, target=%s",
+            tostring(event.source),
             tostring(event.target)))
             
         -- Check if spell has override
         if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
            caster.spellSlots[spellSlot].spell then
             local spell = caster.spellSlots[spellSlot].spell
-            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+            Log.debug(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s",
                 tostring(spell.name), tostring(spell.effectOverride)))
         end
         
@@ -35040,7 +36806,7 @@ EventRunner.EVENT_HANDLERS = {
             srcY = event.vfxParams.y
             tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
             tgtY = event.vfxParams.targetY or srcY
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)",
                 srcX, srcY, tgtX, tgtY))
         
         -- CASE 2: Otherwise resolve based on source/target entities
@@ -35055,13 +36821,13 @@ EventRunner.EVENT_HANDLERS = {
                 local targetWizard = targetInfo.wizard
                 tgtX = targetWizard.x
                 tgtY = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                Log.debug(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)",
                     srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
                 -- If target resolution fails, use same coordinates as source
                 tgtX = srcX
                 tgtY = srcY
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
+                Log.debug("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
         end
         
@@ -35072,16 +36838,16 @@ EventRunner.EVENT_HANDLERS = {
         if event.effectOverride then
             -- First check the event for an effectOverride (highest priority)
             overrideName = event.effectOverride
-            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
         elseif event.effectType then
             -- Then check if there's an effectType directly in the event (legacy VFX keyword)
             overrideName = event.effectType
-            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
         elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
                caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
             -- Finally check the spell slot for effectOverride (set by vfx keyword)
             overrideName = caster.spellSlots[spellSlot].spell.effectOverride
-            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
@@ -35090,13 +36856,13 @@ EventRunner.EVENT_HANDLERS = {
             local baseEffectName, vfxOpts
             
             -- Debug before VisualResolver.pick
-            print("[EFFECT EVENT] About to call VisualResolver.pick()")
-            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            Log.debug("[EFFECT EVENT] About to call VisualResolver.pick()")
+            Log.debug("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
             
             if overrideName then
                 -- Manual override - use it directly but still get options from resolver
                 event.effectOverride = overrideName -- Ensure the event has the override
-                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                Log.debug("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
                 baseEffectName, vfxOpts = VisualResolver.pick(event)
             else
                 -- Standard resolver path using event metadata
@@ -35104,13 +36870,13 @@ EventRunner.EVENT_HANDLERS = {
             end
             
             -- Debug after VisualResolver.pick
-            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
-                tostring(baseEffectName), 
+            Log.debug(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s",
+                tostring(baseEffectName),
                 vfxOpts and "present" or "nil"))
             
             -- Skip VFX if no valid base effect name
             if not baseEffectName then
-                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                Log.debug("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
                 return false
             end
             
@@ -35132,23 +36898,23 @@ EventRunner.EVENT_HANDLERS = {
                 vfxOpts.amount = event.amount or vfxOpts.amount or 10
                 
                 -- Debug entity references
-                print(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
+                Log.debug(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
             end
             if target and target.name then
                 vfxOpts.target = target.name
                 vfxOpts.targetEntity = target
-                print(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
+                Log.debug(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
             end
             
             -- For SHIELD_BLOCKED events, make sure we have all needed references
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
+                Log.debug("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
                 vfxOpts.gameState = caster.gameState
             end
             
             -- Handle shield blocked effects
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] Processing shield blocked effect")
+                Log.debug("[EFFECT EVENT] Processing shield blocked effect")
                 
                 -- Pass blockInfo to VFX system
                 if event.blockInfo then
@@ -35162,10 +36928,10 @@ EventRunner.EVENT_HANDLERS = {
                         vfxOpts.shieldType = event.blockInfo.blockType
                     end
                     
-                    print("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
                 else
                     -- Create fallback blockInfo if missing but event has SHIELD_BLOCKED tag
-                    print("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
+                    Log.debug("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
                     vfxOpts.blockInfo = {
                         blockable = true,
                         blockType = event.shieldType or "ward",
@@ -35178,11 +36944,11 @@ EventRunner.EVENT_HANDLERS = {
                     vfxOpts.tags = vfxOpts.tags or {}
                     vfxOpts.tags.SHIELD_BLOCKED = true
                     
-                    print("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
                 end
             elseif event.blockInfo then
                 -- Legacy handling for other events with blockInfo
-                print("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
+                Log.debug("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
                 vfxOpts.blockInfo = event.blockInfo
                 
                 -- Add standard blockPoint ratio for visual impact
@@ -35205,7 +36971,7 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Check if we need to add delayed damage to the options
             if event.delayedDamage and event.delayedDamageTarget then
-                print(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
+                Log.debug(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
                 vfxOpts.delayedDamage = event.delayedDamage
                 vfxOpts.delayedDamageTarget = event.delayedDamageTarget
                 
@@ -35229,7 +36995,7 @@ EventRunner.EVENT_HANDLERS = {
                                 local intensity = math.min(10, 5 + (amount / 10))
                                 target.gameState.triggerShake(0.35, intensity)
                                 target.gameState.triggerHitstop(0.12)
-                                print(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.35, intensity, 0.12))
                             end
                         elseif amount >= 8 then
@@ -35237,26 +37003,26 @@ EventRunner.EVENT_HANDLERS = {
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.25, 6)
                                 target.gameState.triggerHitstop(0.08)
-                                print(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.25, 6, 0.08))
                             end
                         elseif amount >= 3 then
                             -- Light hit
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.15, 4)
-                                print(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
                                     0.15, 4))
                             end
                         end
                         
-                        print(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d", 
+                        Log.debug(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d",
                             amount, target.name, target.health))
                     end
                 end
             end
             
             -- Extra debug info
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)",
                 tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
             -- Call VFX.createEffect directly instead of using safeCreateVFX
@@ -35273,11 +37039,11 @@ EventRunner.EVENT_HANDLERS = {
                     return false
                 end
             else
-                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                Log.debug("[EFFECT EVENT] ERROR: VFX.createEffect not available")
                 return false
             end
         else
-            print("[EFFECT EVENT] ERROR: VFX system not available")
+            Log.debug("[EFFECT EVENT] ERROR: VFX system not available")
             return false
         end
         
@@ -35287,19 +37053,19 @@ EventRunner.EVENT_HANDLERS = {
 
 -- Debug function to print all events
 function EventRunner.debugPrintEvents(events)
-    print("===== DEBUG: Event List =====")
+    Log.debug("===== DEBUG: Event List =====")
     for i, event in ipairs(events) do
-        print(string.format("[%d] %s - Source: %s, Target: %s", 
+        Log.debug(string.format("[%d] %s - Source: %s, Target: %s",
             i, event.type, event.source, event.target))
         
         -- Print additional event-specific fields
         for k, v in pairs(event) do
             if k ~= "type" and k ~= "source" and k ~= "target" then
-                print(string.format("  %s: %s", k, tostring(v)))
+                Log.debug(string.format("  %s: %s", k, tostring(v)))
             end
         end
     end
-    print("=============================")
+    Log.debug("=============================")
 end
 
 return EventRunner```
@@ -35795,6 +37561,7 @@ return ShieldSystem```
 -- Centralized management system for sustained spells (shields, traps, etc.)
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local SustainedSpellManager = {}
 
 -- Track all active sustained spells
@@ -35803,10 +37570,8 @@ local SustainedSpellManager = {}
 --   wizard = reference to wizard who cast the spell,
 --   slotIndex = index of the spell slot,
 --   spell = reference to the spell,
---   windowData = expiry conditions (duration or state),
 --   triggerData = trigger conditions (for traps),
 --   effectData = effect to apply when triggered (for traps),
---   expiryTimer = countdown for duration-based expiry,
 --   type = "shield" or "trap" or "generic"
 -- }
 SustainedSpellManager.activeSpells = {}
@@ -35816,6 +37581,44 @@ local function generateUniqueId(wizard, slotIndex)
     return wizard.name .. "_" .. slotIndex .. "_" .. os.time() .. "_" .. math.random(1000)
 end
 
+-- Apply field status effect to both wizards
+local function applyFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        wiz.statusEffects = wiz.statusEffects or {}
+        wiz.statusEffects[entry.fieldStatus.statusType] = wiz.statusEffects[entry.fieldStatus.statusType] or {}
+        local effect = wiz.statusEffects[entry.fieldStatus.statusType]
+        effect.active = true
+        effect.duration = 0
+        effect.tickDamage = entry.fieldStatus.tickDamage
+        effect.tickInterval = entry.fieldStatus.tickInterval
+        effect.magnitude = entry.fieldStatus.magnitude
+        effect.elapsed = 0
+        effect.totalTime = 0
+    end
+end
+
+-- Remove field status effect from both wizards
+local function removeFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        if wiz.statusEffects and wiz.statusEffects[entry.fieldStatus.statusType] then
+            wiz.statusEffects[entry.fieldStatus.statusType].active = false
+            wiz.statusEffects[entry.fieldStatus.statusType].duration = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].elapsed = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].totalTime = 0
+        end
+    end
+end
+
 -- Add a sustained spell to the manager
 function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if not wizard or not slotIndex or not spellData then
@@ -35823,11 +37626,12 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         return nil
     end
     
-    print("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
-    print("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
-    print("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
-    print("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
-    print("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
+    Log.debug("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
+    Log.debug("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
+    Log.debug("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
+    Log.debug("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG]   fieldStatus exists: " .. tostring(spellData.fieldStatus ~= nil))
     
     -- Generate a unique ID for this sustained spell
     local uniqueId = generateUniqueId(wizard, slotIndex)
@@ -35838,6 +37642,18 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         spellType = "shield"
     elseif spellData.trapTrigger then
         spellType = "trap"
+    elseif spellData.fieldStatus then
+        spellType = "field"
+    end
+
+    -- If a field already exists, remove it before adding the new one
+    if spellType == "field" then
+        for id, existing in pairs(SustainedSpellManager.activeSpells) do
+            if existing.type == "field" then
+                existing.wizard:resetSpellSlot(existing.slotIndex)
+                break
+            end
+        end
     end
     
     -- Create the entry
@@ -35854,24 +37670,28 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if spellType == "trap" then
         entry.triggerData = spellData.trapTrigger or {}
         entry.effectData = spellData.trapEffect or {}
-        entry.windowData = spellData.trapWindow or {}
-        
-        -- Initialize expiry timer if a duration is specified
-        if entry.windowData.duration and type(entry.windowData.duration) == "number" then
-            entry.expiryTimer = entry.windowData.duration
-        end
     end
     
     -- Add shield-specific data if present
     if spellType == "shield" then
         entry.shieldParams = spellData.shieldParams or {}
     end
+
+    -- Add field-specific data if present
+    if spellType == "field" then
+        entry.fieldStatus = spellData.fieldStatus or {}
+    end
     
     -- Store the entry in the activeSpells table
     SustainedSpellManager.activeSpells[uniqueId] = entry
-    
+
+    -- Apply field status immediately
+    if spellType == "field" then
+        applyFieldStatus(entry)
+    end
+
     -- Log the addition
-    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d",
         spellType, entry.spell.name or "unnamed spell", wizard.name, slotIndex))
     
     return uniqueId
@@ -35886,9 +37706,13 @@ function SustainedSpellManager.removeSustainedSpell(id)
     end
     
     -- Log removal
-    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d",
         entry.type, entry.spell.name or "unnamed spell", entry.wizard.name, entry.slotIndex))
-    
+
+    if entry.type == "field" then
+        removeFieldStatus(entry)
+    end
+
     -- Remove from the active spells table
     SustainedSpellManager.activeSpells[id] = nil
     
@@ -35900,6 +37724,7 @@ function SustainedSpellManager.update(dt)
     -- Count active spells by type
     local shieldCount = 0
     local trapCount = 0
+    local fieldCount = 0
     local genericCount = 0
     
     -- Spells to remove after iteration
@@ -35909,7 +37734,7 @@ function SustainedSpellManager.update(dt)
     for id, entry in pairs(SustainedSpellManager.activeSpells) do
         -- Debug: check what types of sustained spells we have
         if math.floor(os.time()) % 10 == 0 then -- Only log every 10 seconds to avoid spam
-            print(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s", 
+            Log.debug(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s",
                 id, entry.type, entry.spell and entry.spell.name or "unknown"))
         end
         
@@ -35918,54 +37743,12 @@ function SustainedSpellManager.update(dt)
             shieldCount = shieldCount + 1
         elseif entry.type == "trap" then
             trapCount = trapCount + 1
+        elseif entry.type == "field" then
+            fieldCount = fieldCount + 1
         else
             genericCount = genericCount + 1
         end
         
-        -- Check for expiry conditions (BEFORE trigger checks)
-        if entry.windowData then
-            -- Duration-based expiry (already implemented)
-            if entry.windowData.duration and entry.expiryTimer and not entry.expired then
-                entry.expiryTimer = entry.expiryTimer - dt
-                
-                -- Check if the duration has expired
-                if entry.expiryTimer <= 0 then
-                    entry.expired = true
-                    print(string.format("[SustainedManager] Spell expired (duration) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                    table.insert(spellsToRemove, id)
-                end
-            end
-            
-            -- Condition-based expiry
-            if entry.windowData.condition and not entry.expired then
-                local condition = entry.windowData.condition
-                local conditionMet = false
-                
-                -- Check until_next_conjure condition
-                if condition == "until_next_conjure" and entry.wizard.justConjuredMana then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (conjure condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check while_elevated condition
-                if condition == "while_elevated" and entry.wizard.elevation ~= Constants.ElevationState.AERIAL then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Spell expired (elevation condition) for %s slot %d", 
-                        entry.wizard.name, entry.slotIndex))
-                end
-                
-                -- Check other conditions as needed
-                -- Add new condition checks here as the system expands
-                
-                -- If any condition is met, mark for expiry
-                if conditionMet then
-                    entry.expired = true
-                    table.insert(spellsToRemove, id)
-                end
-            end
-        end
         
         -- Process trap trigger conditions if this is a trap
         if entry.type == "trap" and entry.triggerData and not entry.triggered then
@@ -36131,43 +37914,15 @@ function SustainedSpellManager.update(dt)
                 table.insert(spellsToRemove, id)
             end
         end
-        
-        -- Duration-based expiry now handled at the top of the loop
-        
+
         ::continue::
     end
     
-    -- Remove expired and triggered spells after iteration
+    -- Remove triggered spells after iteration
     for _, id in ipairs(spellsToRemove) do
         local entry = SustainedSpellManager.activeSpells[id]
         if entry then
-            -- Expire spells without triggering trap effects
-            if entry.expired and not entry.triggered and not entry.processed then
-                print(string.format("[SustainedManager] Cleaning up expired spell for %s slot %d", 
-                    entry.wizard.name, entry.slotIndex))
-                
-                -- Clean up expired spell
-                local TokenManager = require("systems.TokenManager")
-                
-                -- Get the spell slot
-                local slot = entry.wizard.spellSlots[entry.slotIndex]
-                if slot then
-                    -- Return tokens to the mana pool
-                    if #slot.tokens > 0 then
-                        TokenManager.returnTokensToPool(slot.tokens)
-                        print(string.format("[SustainedManager] Returning %d tokens from expired spell", 
-                            #slot.tokens))
-                    end
-                    
-                    -- Reset the spell slot
-                    entry.wizard:resetSpellSlot(entry.slotIndex)
-                end
-                
-                -- Mark as processed to prevent duplicate processing
-                entry.processed = true
-            end
-            
-            -- Remove the spell from the manager, whether it was triggered or expired
+            -- Remove the spell from the manager
             SustainedSpellManager.removeSustainedSpell(id)
         end
     end
@@ -36175,7 +37930,7 @@ function SustainedSpellManager.update(dt)
     -- Log active spell counts (reduced frequency to avoid console spam)
     if math.floor(os.time()) % 5 == 0 then  -- Log every 5 seconds
         -- If we have at least one spell, log more details
-        if shieldCount + trapCount + genericCount > 0 then
+        if shieldCount + trapCount + fieldCount + genericCount > 0 then
             for id, entry in pairs(SustainedSpellManager.activeSpells) do
                 local wizardName = entry.wizard and entry.wizard.name or "unknown"
                 local spellName = entry.spell and entry.spell.name or "unknown spell"
@@ -36718,6 +38473,40 @@ function TokenManager.validateTokenState(token, expectedState)
 end
 
 return TokenManager```
+
+## ./systems/UnlockSystem.lua
+```lua
+-- systems/UnlockSystem.lua
+-- Simple character unlock logic
+
+local UnlockSystem = {}
+
+--- Check if a spell unlocks any characters
+-- Currently unlocks Silex when a Salt spell is cast
+-- @param spell table Executed spell definition
+-- @param caster table Wizard casting the spell
+function UnlockSystem.checkSpellUnlock(spell, caster)
+    if not spell or not caster then return end
+    if spell.affinity == "salt" and game and not game.unlockedCharacters.Silex then
+        game.unlockedCharacters.Silex = true
+        print("[UNLOCK] Silex has been unlocked!")
+        if caster.spellCastNotification then
+            caster.spellCastNotification.text = "Unlocked Silex!"
+            caster.spellCastNotification.timer = 2.0
+        else
+            caster.spellCastNotification = {
+                text = "Unlocked Silex!",
+                timer = 2.0,
+                x = caster.x,
+                y = caster.y + 70,
+                color = {1,1,0,1}
+            }
+        end
+    end
+end
+
+return UnlockSystem
+```
 
 ## ./systems/VisualResolver.lua
 ```lua
@@ -37349,17 +39138,18 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw STUN duration if active
-    if wizard.stunTimer > 0 then
+    if wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Calculate progress (1.0 to 0.0 as time depletes)
-        local maxDuration = 3.0  -- Assuming 3 seconds is max stun duration
-        local progress = wizard.stunTimer / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
+        local stun = wizard.statusEffects.stun
+        local maxDuration = stun.duration
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        local progress = maxDuration > 0 and remaining / maxDuration or 0
+
         -- Get color for stun state
-        local color = WizardVisuals.getStatusEffectColor("stun")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.STUN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -37388,12 +39178,12 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw BURN effect if active
-    if wizard.statusEffects.burn and wizard.statusEffects.burn.active then
+    if wizard.statusEffects[Constants.StatusType.BURN] and wizard.statusEffects[Constants.StatusType.BURN].active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Get burn effect data
-        local burnEffect = wizard.statusEffects.burn
+        local burnEffect = wizard.statusEffects[Constants.StatusType.BURN]
         
         -- Calculate progress (1.0 to 0.0 as time depletes)
         local progress = 1.0
@@ -37407,7 +39197,7 @@ function WizardVisuals.drawStatusEffects(wizard)
         local pulseEffect = math.sin(tickProgress * math.pi) * 0.2  -- Pulse effect strongest right before tick
         
         -- Get color for burn state
-        local color = WizardVisuals.getStatusEffectColor("burn")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.BURN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -37735,6 +39525,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                         end
 
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.field_status then
+                        orbitColor = {0.3, 1.0, 0.3, 0.7}
+                        stateText = "FIELD"
+                        stateTextColor = {0.3, 1.0, 0.3, 0.8}
+                        
                     elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
                         orbitColor = {0.9, 0.9, 0.9, 0.7} -- Light grey for sustained
                         stateText = "SUSTAIN"
@@ -38043,7 +39838,7 @@ function WizardVisuals.drawWizard(wizard)
         wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
         
         -- Flash effect is now implemented with additive blending
-    elseif wizard.stunTimer > 0 then
+    elseif wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
         wizardColor = {1, 1, flashIntensity, 1}
@@ -38068,20 +39863,39 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
-        local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
+        -- Determine facing direction so wizards always face each other
+        local opponent = nil
+        if wizard.gameState and wizard.gameState.wizards then
+            if wizard == wizard.gameState.wizards[1] then
+                opponent = wizard.gameState.wizards[2]
+            else
+                opponent = wizard.gameState.wizards[1]
+            end
+        end
 
-        -- Determine which sprite to draw (casting, idle animation, or static)
-        local spriteToDraw = nil
-
-        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
-            -- Use cast frame if we're in the middle of casting
-            spriteToDraw = wizard.castFrameSprite
-        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
-            -- Use current idle animation frame if available
-            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        local facingRight = true
+        if opponent then
+            local oppX = opponent.x + (opponent.currentXOffset or 0)
+            facingRight = (wizard.x + xOffset) <= oppX
         else
-            -- Fallback to the original static sprite if no animation frames are available
+            local centerX = love.graphics.getWidth() / 2
+            facingRight = (wizard.x + xOffset) <= centerX
+        end
+
+        local flipX = facingRight and 1 or -1
+        local adjustedScale = wizard.scale * flipX
+
+        -- Determine which sprite to draw based on positional animation sets
+        local spriteToDraw
+        local posKey = wizard:getPositionalKey()
+        local castSprite = wizard:getCastFrameForKey(posKey)
+        local idleFrames = wizard:getIdleFramesForKey(posKey)
+
+        if wizard.castFrameTimer > 0 and castSprite then
+            spriteToDraw = castSprite
+        elseif idleFrames and #idleFrames > 0 then
+            spriteToDraw = idleFrames[wizard.currentIdleFrame]
+        else
             spriteToDraw = wizard.sprite
         end
 
@@ -38342,8 +40156,7 @@ local function scanFile(filepath)
                         -- Ignore if it's in a comment at end of line
                         if not line:match("%-%-.*" .. pattern) then
                             -- Ignore if it appears to be in a block definition context (for legacy compatibility)
-                            if not line:match("blockableBy%s*=%s*{.*" .. pattern .. ".*}") and
-                               not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
+                            if not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("cost%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("return%s+.*" .. pattern) then
                                 table.insert(issues, {
@@ -45435,6 +47248,7 @@ local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
+local UnlockSystem = require("systems.UnlockSystem")
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -45473,7 +47287,7 @@ local function getCompiledSpell(spellId, wizard)
     end
 end
 
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     
     self.name = name
@@ -45485,7 +47299,6 @@ function Wizard.new(name, x, y, color)
     self.health = 100
     self.elevation = Constants.ElevationState.GROUNDED  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
-    self.stunTimer = 0           -- Stun timer in seconds
     
     -- Position animation state
     self.positionAnimation = {
@@ -45500,13 +47313,19 @@ function Wizard.new(name, x, y, color)
     
     -- Status effects
     self.statusEffects = {
-        burn = {
+        [Constants.StatusType.BURN] = {
             active = false,
             duration = 0,
             tickDamage = 0,
             tickInterval = 1.0,
             elapsed = 0,         -- Time since last tick
             totalTime = 0        -- Total time effect has been active
+        },
+        [Constants.StatusType.STUN] = {
+            active = false,
+            duration = 0,
+            elapsed = 0,
+            totalTime = 0
         }
     }
     
@@ -45531,6 +47350,9 @@ function Wizard.new(name, x, y, color)
     self.currentIdleFrame = 1
     self.idleFrameTimer = 0
     self.idleFrameDuration = 0.15 -- seconds per frame
+    -- Positional animation sets (per range/elevation combo)
+    self.positionalAnimations = {}
+    self.lastPositionalKey = nil
 
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
@@ -45543,55 +47365,8 @@ function Wizard.new(name, x, y, color)
     }
     self.currentKeyedSpell = nil
     
-    -- Spell loadout based on wizard name
-    if name == "Ashgar" then
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
-
-            -- Two key combos
-            ["12"] = Spells.battleshield,
-            ["13"] = Spells.blastwave,
-            ["23"] = Spells.emberlift,
-
-            -- Three key combo
-            ["123"] = Spells.meteor
-        }
-
-    elseif name == "Silex" then   -- New salt-themed wizard
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuresalt,
-            ["2"]  = Spells.glitterfang,
-            ["3"]  = Spells.imprison,
-
-            -- Two key combos
-            ["12"] = Spells.saltcircle,
-            ["13"] = Spells.stoneshield,
-            ["23"] = Spells.shieldbreaker,
-
-            -- Three key combo
-            ["123"] = Spells.saltstorm
-        }
-
-    else -- Default to Selene
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.wrapinmoonlight,
-            ["3"]  = Spells.moondance,
-            
-            -- Two key combos
-            ["12"] = Spells.infiniteprocession,
-            ["13"] = Spells.eclipse,
-            ["23"] = Spells.gravityTrap,
-            
-            -- Three key combo
-            ["123"] = Spells.fullmoonbeam
-        }
-    end
+    -- Spell loadout provided by character data
+    self.spellbook = spellbook or {}
     
     -- Create 3 spell slots for this wizard
     self.spellSlots = {}
@@ -45644,7 +47419,7 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
     end
 
-    -- Load idle animation frames specifically for Ashgar
+    -- Load default idle animation frames (used as fallback for positional sets)
     if name == "Ashgar" then
         local AssetCache = require("core.AssetCache")
         for i = 1, 7 do
@@ -45654,19 +47429,19 @@ function Wizard.new(name, x, y, color)
                 table.insert(self.idleAnimationFrames, frameImg)
             else
                 print("Warning: Could not load Ashgar idle frame: " .. framePath)
-                -- Fallback to using the main sprite if we can't load the idle frame
                 table.insert(self.idleAnimationFrames, self.sprite)
             end
         end
-        -- If no idle frames loaded, use the main sprite as a single-frame animation
         if #self.idleAnimationFrames == 0 then
             print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
             table.insert(self.idleAnimationFrames, self.sprite)
         end
     else
-        -- For other wizards, populate with their main sprite for now
         table.insert(self.idleAnimationFrames, self.sprite)
     end
+
+    -- Load positional animation sets (idle + cast for range/elevation combos)
+    self:loadPositionalAnimations()
 
     self.scale = 1.0
     
@@ -45700,19 +47475,27 @@ function Wizard:update(dt)
         self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
     end
 
-    -- Update idle animation timer and frame
-    -- Only animate idle if not casting or in another special visual state
-    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+    -- Update idle animation timer and frame based on positional state
+    local posKey = self:getPositionalKey()
+
+    if posKey ~= self.lastPositionalKey then
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
+        self.lastPositionalKey = posKey
+    end
+
+    local idleFrames = self:getIdleFramesForKey(posKey)
+
+    if self.castFrameTimer <= 0 then
         self.idleFrameTimer = self.idleFrameTimer + dt
         if self.idleFrameTimer >= self.idleFrameDuration then
-            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration
             self.currentIdleFrame = self.currentIdleFrame + 1
-            if self.currentIdleFrame > #self.idleAnimationFrames then
-                self.currentIdleFrame = 1 -- Loop animation
+            if self.currentIdleFrame > #idleFrames then
+                self.currentIdleFrame = 1
             end
         end
     else
-        -- If casting, reset idle animation to first frame to look clean when cast finishes
         self.currentIdleFrame = 1
         self.idleFrameTimer = 0
     end
@@ -45730,10 +47513,13 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update stun timer
-    if self.stunTimer > 0 then
-        self.stunTimer = math.max(0, self.stunTimer - dt)
-        if self.stunTimer == 0 then
+    -- Update stun status effect
+    if self.statusEffects[Constants.StatusType.STUN] and self.statusEffects[Constants.StatusType.STUN].active then
+        local stun = self.statusEffects[Constants.StatusType.STUN]
+        stun.totalTime = stun.totalTime + dt
+        if stun.duration > 0 and stun.totalTime >= stun.duration then
+            stun.active = false
+            stun.totalTime = stun.duration
             print(self.name .. " is no longer stunned")
         end
     end
@@ -45790,7 +47576,7 @@ function Wizard:update(dt)
                 end
                 
                 -- If this is a burn effect, handle damage ticks
-                if effectType == "burn" and effectData.active then
+                if effectType == Constants.StatusType.BURN and effectData.active then
                     effectData.elapsed = effectData.elapsed + dt
                     if effectData.elapsed >= effectData.tickInterval then
                         -- Apply burn damage
@@ -45952,8 +47738,10 @@ end
 -- Handle key press and update currently keyed spell
 function Wizard:keySpell(keyIndex, isPressed)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 and isPressed then
-        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active and isPressed then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -45993,8 +47781,10 @@ end
 -- Cast the currently keyed spell
 function Wizard:castKeyedSpell()
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -46032,8 +47822,10 @@ end
 
 function Wizard:queueSpell(spell)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -46142,8 +47934,8 @@ function Wizard:queueSpell(spell)
 
                 -- Check for and apply Slow status effect
                 local finalCastTime = baseCastTime
-                if self.statusEffects and self.statusEffects.slow and self.statusEffects.slow.active then
-                    local slowEffect = self.statusEffects.slow
+                if self.statusEffects and self.statusEffects[Constants.StatusType.SLOW] and self.statusEffects[Constants.StatusType.SLOW].active then
+                    local slowEffect = self.statusEffects[Constants.StatusType.SLOW]
                     local targetSlot = slowEffect.targetSlot -- Slot the slow effect targets (nil for any)
                     local queueingSlot = i -- Slot we are currently queueing into
 
@@ -46425,6 +48217,9 @@ function Wizard:castSpell(spellSlot)
             print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
         end
     end
+
+    -- Check for character unlocks based on this spell
+    UnlockSystem.checkSpellUnlock(spellToUse, self)
     
     -- Get attack type for shield checking
     local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE
@@ -46612,7 +48407,7 @@ function Wizard:castSpell(spellSlot)
                 local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
                     self,        -- wizard who cast the spell
                     spellSlot,   -- slot index where the spell is
-                    effect       -- effect table from executeAll (contains trapTrigger, trapWindow, trapEffect, etc.)
+                    effect       -- effect table from executeAll (contains trapTrigger, trapEffect, etc.)
                 )
                 
                 -- Store the sustained spell ID in the slot for reference
@@ -46714,7 +48509,68 @@ function Wizard:handleShieldBlock(slotIndex, incomingSpell)
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
 end
 
-return Wizard```
+-- Determine the current positional key string for animation lookup
+function Wizard:getPositionalKey()
+    local range = self.gameState and self.gameState.rangeState or Constants.RangeState.FAR
+    local elevation = self.elevation or Constants.ElevationState.GROUNDED
+    return string.lower(range .. "-" .. elevation)
+end
+
+-- Retrieve idle frames for a given positional key
+function Wizard:getIdleFramesForKey(key)
+    if self.positionalAnimations[key] and self.positionalAnimations[key].idle then
+        return self.positionalAnimations[key].idle
+    end
+    return self.idleAnimationFrames
+end
+
+-- Retrieve cast frame for a given positional key
+function Wizard:getCastFrameForKey(key)
+    if self.positionalAnimations[key] then
+        return self.positionalAnimations[key].cast or self.castFrameSprite
+    end
+    return self.castFrameSprite
+end
+
+-- Load positional animation assets for all range/elevation combinations
+function Wizard:loadPositionalAnimations()
+    local AssetCache = require("core.AssetCache")
+    for _, range in pairs(Constants.RangeState) do
+        for _, elevation in pairs(Constants.ElevationState) do
+            local key = string.lower(range .. "-" .. elevation)
+            local dir = string.format("assets/sprites/%s-%s-%s", string.lower(self.name), string.lower(range), string.lower(elevation))
+            local anim = { idle = {}, cast = nil }
+
+            if love.filesystem.getInfo(dir, "directory") then
+                local files = love.filesystem.getDirectoryItems(dir)
+                table.sort(files)
+                for _, file in ipairs(files) do
+                    if file:match("%.png$") then
+                        local path = dir .. "/" .. file
+                        if file:lower():find("cast") then
+                            anim.cast = AssetCache.getImage(path)
+                        else
+                            local img = AssetCache.getImage(path)
+                            if img then table.insert(anim.idle, img) end
+                        end
+                    end
+                end
+            end
+
+            if #anim.idle == 0 then
+                anim.idle = self.idleAnimationFrames
+            end
+            if not anim.cast then
+                anim.cast = self.castFrameSprite
+            end
+
+            self.positionalAnimations[key] = anim
+        end
+    end
+end
+
+return Wizard
+```
 
 # Documentation
 
@@ -46851,7 +48707,7 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ### Support "Field" spell type/keyword as an additional type of ongoing effect/"sustained spell"
 
-## Content
+### Better consistent rules for Burn stacking rather than quasi-overlapping shared timer thing. Use in Brightwulf design.
 
 ## docs/VFX_Audit_Report.md
 # Spells VFX Audit Report
@@ -47505,6 +49361,15 @@ Constants.PlayerSide.OPPONENT  -- "OPPONENT"
 Constants.PlayerSide.NEUTRAL   -- "NEUTRAL"
 ```
 
+### Status Types
+
+```lua
+Constants.StatusType.BURN    -- "burn"
+Constants.StatusType.SLOW    -- "slow"
+Constants.StatusType.STUN    -- "stun"
+Constants.StatusType.REFLECT -- "reflect"
+```
+
 ## Helper Functions
 
 The Constants module also provides helper functions:
@@ -47752,7 +49617,7 @@ This system is transitioning towards a pure event-based architecture, where spel
     *   **Basic Info:** `id`, `name`, `description`.
     *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-    *   **Optional:** `vfx`, `sfx`, `blockableBy` (array of shield types), `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef
@@ -47803,6 +49668,39 @@ This system is transitioning towards a pure event-based architecture, where spel
 ---
 
 This modular system allows defining complex spell effects by combining simple, reusable keywords. The event-based execution ensures effects are applied consistently and in the correct order, making the system easier to manage and extend.
+
+## docs/status_effects.md
+# Status Effects
+
+This document lists the built-in status effects available in the game and their expected behavior. All status types are defined in `core/Constants.lua` under `Constants.StatusType`.
+
+## Available Statuses
+
+| Status | Description |
+|--------|-------------|
+| `BURN` | Deals periodic damage over time. Damage ticks use `tickDamage` at intervals defined by `tickInterval` for the duration of the effect. |
+| `SLOW` | Increases the cast time of the next spell by `magnitude` seconds. Can optionally target a specific slot. Consumed after affecting a cast or when the duration expires. |
+| `STUN` | Prevents the affected wizard from keying or casting spells for the duration. |
+| `REFLECT` | Causes the wizard to reflect incoming spells while active. |
+
+## Usage
+
+Status effects are applied through `APPLY_STATUS` events emitted by keywords or spell logic. Event handlers store the effect data on the target wizard in the `statusEffects` table.
+
+```lua
+-- Example APPLY_STATUS event
+{
+    type = "APPLY_STATUS",
+    source = "caster",
+    target = "enemy",
+    statusType = Constants.StatusType.BURN,
+    duration = 3.0,
+    tickDamage = 2,
+    tickInterval = 1.0
+}
+```
+
+The `EventRunner` module processes these events and manages status state each frame.
 
 ## docs/token_lifecycle.md
 # Mana Token Lifecycle State Machine
@@ -48078,7 +49976,8 @@ The `wizard.lua` module defines the "class" for the player characters in Manasto
 Each `Wizard` instance maintains a comprehensive set of state variables:
 
 *   **Identity & Position:** `name`, `x`, `y`, `color`.
-*   **Combat:** `health`, `stunTimer`.
+*   **Combat:** `health`.
+    * `statusEffects[Constants.StatusType.STUN]`: Tracks stun duration.
 *   **Positioning:**
     *   `elevation`: String ("GROUNDED" or "AERIAL").
     *   `elevationTimer`: Duration for temporary AERIAL state.
@@ -48106,7 +50005,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 
 ### 2. Core Methods
 
-*   **`Wizard.new(name, x, y, color)`:** Constructor. Initializes all state variables, loads sprite, sets up spellbook based on `name`.
+*   **`Wizard.new(name, x, y, color, spellbook)`:** Constructor. Initializes all state variables, loads sprite, and assigns the provided `spellbook`.
 *   **`Wizard:update(dt)`:** Per-frame update logic. Manages timers (stun, elevation, status effects), applies burn damage ticks, updates shield token orbits, increments spell casting `progress`. Calls `castSpell` upon completion.
 *   **`Wizard:draw()`:** Main drawing function. Draws the wizard sprite (applying offsets/effects), elevation visuals, status bars (`drawStatusEffects`), and spell slots (`drawSpellSlots`).
 *   **`Wizard:drawSpellSlots()`:** Visualizes casting/shields. Draws elliptical orbits, progress arcs (colored by state: casting, shield, frozen), shield type names, and orbiting mana tokens (with Z-ordering for depth).
@@ -48361,6 +50260,17 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ### General
 - ESC: Quit the game
+
+## Unlocking Characters
+
+Casting any Salt-affinity spell during a match unlocks the wizard **Silex** for
+future character selection.
+
+## Debug Logging
+
+Verbose debug output can be toggled at runtime. Require the `core.Log` module and
+call `Log.setVerbose(true)` to enable detailed logging. Set it to `false` (the
+default) to silence development traces.
 
 ## Development Status
 
@@ -48912,7 +50822,7 @@ Lua
 Modify Wizard.new (wizard.lua):
 For Ashgar, load and store the idle animation frames.
 Add new properties to the Wizard instance for animation control.
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     -- ... (existing properties) ...
 

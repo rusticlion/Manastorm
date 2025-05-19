@@ -132,8 +132,9 @@ game.characterRoster = {
 
 game.unlockedCharacters = {
     Ashgar = true,
-    Selene = true,
-    Silex = false
+    Borrak = true,
+    Silex = false,
+    Selene = true
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -153,6 +154,8 @@ local function getPersonalityFor(name)
         return SelenePersonality
     elseif name == "Ashgar" then
         return AshgarPersonality
+    elseif name == "Borrak" then
+        return BorrakPersonality
     elseif name == "Silex" then
         return SilexPersonality
     else

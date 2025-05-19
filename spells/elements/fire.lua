@@ -174,7 +174,9 @@ FireSpells.eruption = {
     cost = {"fire", "fire", "salt"},
     keywords = {
         zoneAnchor = {
-            range = "NEAR",
+            range = function(caster, target)
+                return caster.gameState.rangeState
+            end,
             elevation = "GROUNDED",
             requireAll = true
         },
@@ -182,7 +184,6 @@ FireSpells.eruption = {
             amount = 16,
             type = "fire"
         },
-        ground = true,
         burn = {
             duration = 4.0,
             tickDamage = 3
