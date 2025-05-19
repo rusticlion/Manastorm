@@ -860,8 +860,27 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
-        local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
+        -- Determine facing direction so wizards always face each other
+        local opponent = nil
+        if wizard.gameState and wizard.gameState.wizards then
+            if wizard == wizard.gameState.wizards[1] then
+                opponent = wizard.gameState.wizards[2]
+            else
+                opponent = wizard.gameState.wizards[1]
+            end
+        end
+
+        local facingRight = true
+        if opponent then
+            local oppX = opponent.x + (opponent.currentXOffset or 0)
+            facingRight = (wizard.x + xOffset) <= oppX
+        else
+            local centerX = love.graphics.getWidth() / 2
+            facingRight = (wizard.x + xOffset) <= centerX
+        end
+
+        local flipX = facingRight and 1 or -1
+        local adjustedScale = wizard.scale * flipX
 
         -- Determine which sprite to draw based on positional animation sets
         local spriteToDraw
