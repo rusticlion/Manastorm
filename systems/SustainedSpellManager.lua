@@ -22,6 +22,44 @@ local function generateUniqueId(wizard, slotIndex)
     return wizard.name .. "_" .. slotIndex .. "_" .. os.time() .. "_" .. math.random(1000)
 end
 
+-- Apply field status effect to both wizards
+local function applyFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        wiz.statusEffects = wiz.statusEffects or {}
+        wiz.statusEffects[entry.fieldStatus.statusType] = wiz.statusEffects[entry.fieldStatus.statusType] or {}
+        local effect = wiz.statusEffects[entry.fieldStatus.statusType]
+        effect.active = true
+        effect.duration = 0
+        effect.tickDamage = entry.fieldStatus.tickDamage
+        effect.tickInterval = entry.fieldStatus.tickInterval
+        effect.magnitude = entry.fieldStatus.magnitude
+        effect.elapsed = 0
+        effect.totalTime = 0
+    end
+end
+
+-- Remove field status effect from both wizards
+local function removeFieldStatus(entry)
+    if not entry or not entry.fieldStatus then return end
+
+    local gameState = entry.wizard and entry.wizard.gameState
+    if not gameState or not gameState.wizards then return end
+
+    for _, wiz in ipairs(gameState.wizards) do
+        if wiz.statusEffects and wiz.statusEffects[entry.fieldStatus.statusType] then
+            wiz.statusEffects[entry.fieldStatus.statusType].active = false
+            wiz.statusEffects[entry.fieldStatus.statusType].duration = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].elapsed = 0
+            wiz.statusEffects[entry.fieldStatus.statusType].totalTime = 0
+        end
+    end
+end
+
 -- Add a sustained spell to the manager
 function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if not wizard or not slotIndex or not spellData then
@@ -34,6 +72,7 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     Log.debug("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
     Log.debug("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
     Log.debug("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG]   fieldStatus exists: " .. tostring(spellData.fieldStatus ~= nil))
     
     -- Generate a unique ID for this sustained spell
     local uniqueId = generateUniqueId(wizard, slotIndex)
@@ -44,6 +83,18 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         spellType = "shield"
     elseif spellData.trapTrigger then
         spellType = "trap"
+    elseif spellData.fieldStatus then
+        spellType = "field"
+    end
+
+    -- If a field already exists, remove it before adding the new one
+    if spellType == "field" then
+        for id, existing in pairs(SustainedSpellManager.activeSpells) do
+            if existing.type == "field" then
+                existing.wizard:resetSpellSlot(existing.slotIndex)
+                break
+            end
+        end
     end
     
     -- Create the entry
@@ -66,12 +117,22 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     if spellType == "shield" then
         entry.shieldParams = spellData.shieldParams or {}
     end
+
+    -- Add field-specific data if present
+    if spellType == "field" then
+        entry.fieldStatus = spellData.fieldStatus or {}
+    end
     
     -- Store the entry in the activeSpells table
     SustainedSpellManager.activeSpells[uniqueId] = entry
-    
+
+    -- Apply field status immediately
+    if spellType == "field" then
+        applyFieldStatus(entry)
+    end
+
     -- Log the addition
-    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d",
         spellType, entry.spell.name or "unnamed spell", wizard.name, slotIndex))
     
     return uniqueId
@@ -86,9 +147,13 @@ function SustainedSpellManager.removeSustainedSpell(id)
     end
     
     -- Log removal
-    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d", 
+    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d",
         entry.type, entry.spell.name or "unnamed spell", entry.wizard.name, entry.slotIndex))
-    
+
+    if entry.type == "field" then
+        removeFieldStatus(entry)
+    end
+
     -- Remove from the active spells table
     SustainedSpellManager.activeSpells[id] = nil
     
@@ -100,6 +165,7 @@ function SustainedSpellManager.update(dt)
     -- Count active spells by type
     local shieldCount = 0
     local trapCount = 0
+    local fieldCount = 0
     local genericCount = 0
     
     -- Spells to remove after iteration
@@ -118,6 +184,8 @@ function SustainedSpellManager.update(dt)
             shieldCount = shieldCount + 1
         elseif entry.type == "trap" then
             trapCount = trapCount + 1
+        elseif entry.type == "field" then
+            fieldCount = fieldCount + 1
         else
             genericCount = genericCount + 1
         end
@@ -303,7 +371,7 @@ function SustainedSpellManager.update(dt)
     -- Log active spell counts (reduced frequency to avoid console spam)
     if math.floor(os.time()) % 5 == 0 then  -- Log every 5 seconds
         -- If we have at least one spell, log more details
-        if shieldCount + trapCount + genericCount > 0 then
+        if shieldCount + trapCount + fieldCount + genericCount > 0 then
             for id, entry in pairs(SustainedSpellManager.activeSpells) do
                 local wizardName = entry.wizard and entry.wizard.name or "unknown"
                 local spellName = entry.spell and entry.spell.name or "unknown spell"
