@@ -116,10 +116,6 @@ function Schema.validateSpell(spell, spellId)
         spell.keywords = {}
     end
     
-        end
-    else
-    end
-    
     return true
 end
 
