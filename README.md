@@ -30,6 +30,11 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 ### General
 - ESC: Quit the game
 
+## Unlocking Characters
+
+Casting any Salt-affinity spell during a match unlocks the wizard **Silex** for
+future character selection.
+
 ## Debug Logging
 
 Verbose debug output can be toggled at runtime. Require the `core.Log` module and

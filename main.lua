@@ -131,7 +131,8 @@ game.characterRoster = {
 
 game.unlockedCharacters = {
     Ashgar = true,
-    Selene = true
+    Selene = true,
+    Silex = false
 }
 
 -- Get a list of all unlocked characters in the roster

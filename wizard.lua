@@ -10,6 +10,7 @@ local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
+local UnlockSystem = require("systems.UnlockSystem")
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -978,6 +979,9 @@ function Wizard:castSpell(spellSlot)
             print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
         end
     end
+
+    -- Check for character unlocks based on this spell
+    UnlockSystem.checkSpellUnlock(spellToUse, self)
     
     -- Get attack type for shield checking
     local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE
