@@ -75,7 +75,7 @@ function Wizard.new(name, x, y, color)
     
     -- Status effects
     self.statusEffects = {
-        burn = {
+        [Constants.StatusType.BURN] = {
             active = false,
             duration = 0,
             tickDamage = 0,
@@ -365,7 +365,7 @@ function Wizard:update(dt)
                 end
                 
                 -- If this is a burn effect, handle damage ticks
-                if effectType == "burn" and effectData.active then
+                if effectType == Constants.StatusType.BURN and effectData.active then
                     effectData.elapsed = effectData.elapsed + dt
                     if effectData.elapsed >= effectData.tickInterval then
                         -- Apply burn damage
@@ -717,8 +717,8 @@ function Wizard:queueSpell(spell)
 
                 -- Check for and apply Slow status effect
                 local finalCastTime = baseCastTime
-                if self.statusEffects and self.statusEffects.slow and self.statusEffects.slow.active then
-                    local slowEffect = self.statusEffects.slow
+                if self.statusEffects and self.statusEffects[Constants.StatusType.SLOW] and self.statusEffects[Constants.StatusType.SLOW].active then
+                    local slowEffect = self.statusEffects[Constants.StatusType.SLOW]
                     local targetSlot = slowEffect.targetSlot -- Slot the slow effect targets (nil for any)
                     local queueingSlot = i -- Slot we are currently queueing into
 
