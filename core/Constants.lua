@@ -145,14 +145,29 @@ Constants.VisualShape = {
     WAVE = "wave",
 }
 
-Constants.CastSpeed = {
-    VERY_SLOW = 15,
-    SLOW = 12,
-    NORMAL = 9,
-    FAST = 6,
-    VERY_FAST = 3,
-    ONE_TIER = 3
+local function buildCastSpeedSet(oneTier)
+    return {
+        ONE_TIER = oneTier,
+        VERY_SLOW = oneTier * 5,
+        SLOW = oneTier * 4,
+        NORMAL = oneTier * 3,
+        FAST = oneTier * 2,
+        VERY_FAST = oneTier
+    }
+end
+
+Constants.CastSpeedSets = {
+    FAST = buildCastSpeedSet(3),
+    SLOW = buildCastSpeedSet(5)
 }
+
+Constants.CastSpeed = Constants.CastSpeedSets.FAST
+
+function Constants.setCastSpeedSet(name)
+    if Constants.CastSpeedSets[name] then
+        Constants.CastSpeed = Constants.CastSpeedSets[name]
+    end
+end
 
 -- Target types for keywords
 Constants.TargetType = {
