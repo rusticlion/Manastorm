@@ -22,7 +22,6 @@ FireSpells.conjurefire = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     -- Custom cast time calculation based on existing fire tokens
     getCastTime = function(caster)
@@ -66,7 +65,6 @@ FireSpells.firebolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Fireball spell
@@ -87,7 +85,6 @@ FireSpells.fireball = {
                 duration = 2
             }
         },
-        blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
     }
 }
 
@@ -163,7 +160,6 @@ FireSpells.blazingAscent = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Eruption spell
@@ -193,7 +189,6 @@ FireSpells.eruption = {
         },
     },
     sfx = "volcano_rumble",
-    blockableBy = {Constants.ShieldType.BARRIER},
     
     onMiss = function(caster, target, slot)
         print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
@@ -238,7 +233,7 @@ FireSpells.battleshield = {
                         type = "APPLY_STATUS",
                         source = "caster",
                         target = "enemy",
-                        statusType = "burn",
+                        statusType = Constants.StatusType.BURN,
                         duration = 1.5,
                         tickDamage = 4,
                         targetSlot = "NEAR"
@@ -260,7 +255,6 @@ FireSpells.battleshield = {
         },
     },
     sfx = "fire_shield",
-    blockableBy = {}
 }
 
 return FireSpells

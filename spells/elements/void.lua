@@ -66,7 +66,6 @@ VoidSpells.heartripper = {
         }
     },
     sfx = "heartripper",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 return VoidSpells

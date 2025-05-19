@@ -28,7 +28,7 @@ This system is transitioning towards a pure event-based architecture, where spel
     *   **Basic Info:** `id`, `name`, `description`.
     *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-    *   **Optional:** `vfx`, `sfx`, `blockableBy` (array of shield types), `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef

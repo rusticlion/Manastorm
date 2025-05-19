@@ -24,7 +24,6 @@ local Schema = {}
 -- visualShape: Visual shape identifier to override default template based on attackType (string, optional)
 -- vfx: Visual effect identifier (string, optional)
 -- sfx: Sound effect identifier (string, optional)
--- blockableBy: Array of shield types that can block this spell (array, optional)
 --
 -- Shield Types and Blocking Rules:
 -- * barrier: Physical shield that blocks projectiles and zones
@@ -117,15 +116,8 @@ function Schema.validateSpell(spell, spellId)
         spell.keywords = {}
     end
     
-    -- Check blockableBy (if present)
-    if spell.blockableBy then
-        if type(spell.blockableBy) ~= "table" then
-            print("WARNING: Spell " .. spellId .. " blockableBy must be a table, fixing")
-            spell.blockableBy = {}
         end
     else
-        -- Create empty blockableBy table
-        spell.blockableBy = {}
     end
     
     return true

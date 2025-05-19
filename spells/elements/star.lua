@@ -22,7 +22,6 @@ StarSpells.conjurestars = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -76,7 +75,6 @@ StarSpells.adaptive_surge = {
         ),
     },
     sfx = "adaptive_sound",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Cosmic Rift spell
@@ -101,7 +99,6 @@ StarSpells.cosmicRift = {
         zoneMulti = true,
     },
     sfx = "space_tear",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return StarSpells

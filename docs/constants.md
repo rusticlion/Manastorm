@@ -117,6 +117,15 @@ Constants.PlayerSide.OPPONENT  -- "OPPONENT"
 Constants.PlayerSide.NEUTRAL   -- "NEUTRAL"
 ```
 
+### Status Types
+
+```lua
+Constants.StatusType.BURN    -- "burn"
+Constants.StatusType.SLOW    -- "slow"
+Constants.StatusType.STUN    -- "stun"
+Constants.StatusType.REFLECT -- "reflect"
+```
+
 ## Helper Functions
 
 The Constants module also provides helper functions:

@@ -194,6 +194,14 @@ Constants.PlayerSide = {
     NEUTRAL = "NEUTRAL"
 }
 
+-- Status effect types applied to wizards
+Constants.StatusType = {
+    BURN = "burn",       -- Damage over time
+    SLOW = "slow",       -- Increases next cast time
+    STUN = "stun",       -- Prevents actions
+    REFLECT = "reflect"  -- Reflects incoming spells
+}
+
 -- Helper functions for dynamic string generation
 -- E.g., replaces patterns like "POOL_" .. side with Constants.poolSide(side)
 
@@ -274,7 +282,6 @@ Constants.SpellMetadata = {
     VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
-    BLOCKABLE_BY = "blockableBy",
     ZONE = "zone"
 }
 

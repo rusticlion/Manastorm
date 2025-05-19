@@ -27,7 +27,6 @@ WaterSpells.watergun = {
         }
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Force blast spell (Steam Vent) - water and fire combo
@@ -50,7 +49,6 @@ WaterSpells.forceBlast = {
         },
     },
     sfx = "force_wind",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 return WaterSpells

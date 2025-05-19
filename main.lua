@@ -253,7 +253,6 @@ function love.load()
         },
         vfx = "moon_ward",
         sfx = "shield_up",
-        blockableBy = {}
     }
     
     -- Define Mirror Shield with minimal dependencies
@@ -275,7 +274,6 @@ function love.load()
         },
         vfx = "mirror_shield",
         sfx = "crystal_ring",
-        blockableBy = {}
     }
     
     -- Compile custom spells too
@@ -399,12 +397,12 @@ function resetGame()
         end
         
         -- Reset status effects
-        wizard.statusEffects.burn.active = false
-        wizard.statusEffects.burn.duration = 0
-        wizard.statusEffects.burn.tickDamage = 0
-        wizard.statusEffects.burn.tickInterval = 1.0
-        wizard.statusEffects.burn.elapsed = 0
-        wizard.statusEffects.burn.totalTime = 0
+        wizard.statusEffects[Constants.StatusType.BURN].active = false
+        wizard.statusEffects[Constants.StatusType.BURN].duration = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickDamage = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickInterval = 1.0
+        wizard.statusEffects[Constants.StatusType.BURN].elapsed = 0
+        wizard.statusEffects[Constants.StatusType.BURN].totalTime = 0
         
         -- Reset blockers
         if wizard.blockers then

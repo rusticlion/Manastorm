@@ -90,8 +90,7 @@ local function scanFile(filepath)
                         -- Ignore if it's in a comment at end of line
                         if not line:match("%-%-.*" .. pattern) then
                             -- Ignore if it appears to be in a block definition context (for legacy compatibility)
-                            if not line:match("blockableBy%s*=%s*{.*" .. pattern .. ".*}") and
-                               not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
+                            if not line:match("supportedTypes%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("cost%s*=%s*{.*" .. pattern .. ".*}") and
                                not line:match("return%s+.*" .. pattern) then
                                 table.insert(issues, {
