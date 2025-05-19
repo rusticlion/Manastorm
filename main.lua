@@ -116,6 +116,28 @@ game.unlockedCharacters = {
     Selene = true
 }
 
+-- Get a list of all unlocked characters in the roster
+local function getUnlockedCharacterList()
+    local list = {}
+    for _, name in ipairs(game.characterRoster) do
+        if game.unlockedCharacters[name] then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+-- Helper to grab an AI personality for a given character name
+local function getPersonalityFor(name)
+    if name == "Selene" then
+        return SelenePersonality
+    elseif name == "Ashgar" then
+        return AshgarPersonality
+    else
+        return nil
+    end
+end
+
 game.characterSelect = {
     stage = 1, -- 1: choose player, 2: choose opponent, 3: confirm
     cursor = 1,
@@ -514,6 +536,21 @@ function startGameAttractMode()
     -- Reset the game to clear any existing state
     resetGame()
 
+    -- Choose two random unlocked characters
+    local unlocked = getUnlockedCharacterList()
+    if #unlocked < 2 then
+        print("Not enough unlocked characters for attract mode")
+        return
+    end
+
+    local name1 = unlocked[math.random(#unlocked)]
+    local name2 = unlocked[math.random(#unlocked)]
+    while name2 == name1 do
+        name2 = unlocked[math.random(#unlocked)]
+    end
+
+    setupWizards(name1, name2)
+
     -- Temporarily store input routes so we can restore them later
     game.savedInputRoutes = {
         p1 = Input.Routes.p1,
@@ -528,13 +565,9 @@ function startGameAttractMode()
     -- This way we can have two AI players without affecting the normal mode
     game.useAI = false
 
-    -- Create AI for player 1 (Ashgar)
-    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-    game.player1AI = player1AI
-
-    -- Create AI for player 2 (Selene)
-    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-    game.player2AI = player2AI
+    -- Create AIs for both players
+    game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+    game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
 
     -- Reset idle timer
     game.menuIdleTimer = 0
@@ -865,13 +898,17 @@ function love.update(dt)
             -- Reset game and start another attract mode battle
             resetGame()
 
-            -- Create AI for player 1 (Ashgar)
-            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-            game.player1AI = player1AI
-
-            -- Create AI for player 2 (Selene)
-            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-            game.player2AI = player2AI
+            local unlocked = getUnlockedCharacterList()
+            if #unlocked >= 2 then
+                local name1 = unlocked[math.random(#unlocked)]
+                local name2 = unlocked[math.random(#unlocked)]
+                while name2 == name1 do
+                    name2 = unlocked[math.random(#unlocked)]
+                end
+                setupWizards(name1, name2)
+                game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+                game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
+            end
 
             -- Keep attract mode active
             game.attractModeActive = true
