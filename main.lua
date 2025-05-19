@@ -18,6 +18,7 @@ local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local CharacterData = require("characterData")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -38,6 +39,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
+    characterData = CharacterData,
     rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
@@ -46,7 +48,7 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
@@ -100,6 +102,24 @@ game.tokenImages = {
     [Constants.TokenType.LIFE] = "assets/sprites/v2Tokens/life-token.png",
     [Constants.TokenType.MIND] = "assets/sprites/v2Tokens/mind-token.png",
     [Constants.TokenType.VOID] = "assets/sprites/v2Tokens/void-token.png"
+}
+
+-- Character roster and unlocks
+game.characterRoster = {
+    "Ashgar", "Borrak", "Silex",
+    "Brightwulf", "Selene", "Klaus",
+    "Ohm", "Archive", "End"
+}
+
+game.unlockedCharacters = {
+    Ashgar = true,
+    Selene = true
+}
+
+game.characterSelect = {
+    stage = 1, -- 1: choose player, 2: choose opponent, 3: confirm
+    cursor = 1,
+    selected = {nil, nil}
 }
 
 -- Helper function to add a random token to the mana pool
@@ -193,8 +213,10 @@ function love.load()
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
-    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    local d1 = CharacterData.Ashgar
+    local d2 = CharacterData.Selene
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, d1.color, d1.spellbook)
+    game.wizards[2] = Wizard.new("Selene", 600, 370, d2.color, d2.spellbook)
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -553,6 +575,73 @@ function exitAttractMode()
     print("Attract mode ended, returned to menu")
 end
 
+-- Initialize wizards for battle based on selected names
+local function setupWizards(name1, name2)
+    local data1 = game.characterData[name1] or {}
+    local data2 = game.characterData[name2] or {}
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    for _, wizard in ipairs(game.wizards) do
+        wizard.manaPool = game.manaPool
+        wizard.gameState = game
+    end
+end
+
+-- Start character selection
+function game.startCharacterSelect()
+    game.characterSelect.stage = 1
+    game.characterSelect.cursor = 1
+    game.characterSelect.selected = {nil,nil}
+    game.currentState = "CHARACTER_SELECT"
+end
+
+-- Move selection cursor
+function game.characterSelectMove(dir)
+    local count = #game.characterRoster
+    local idx = game.characterSelect.cursor
+    repeat
+        idx = ((idx -1 + dir -1) % count) + 1
+    until game.unlockedCharacters[game.characterRoster[idx]]
+    game.characterSelect.cursor = idx
+end
+
+-- Confirm selection or start fight
+function game.characterSelectConfirm()
+    local idx = game.characterSelect.cursor
+    local name = game.characterRoster[idx]
+    if not game.unlockedCharacters[name] then return end
+
+    if game.characterSelect.stage == 1 then
+        game.characterSelect.selected[1] = name
+        game.characterSelect.stage = 2
+    elseif game.characterSelect.stage == 2 then
+        game.characterSelect.selected[2] = name
+        game.characterSelect.stage = 3
+    else
+        setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
+        game.useAI = true
+        resetGame()
+        game.currentState = "BATTLE"
+    end
+end
+
+-- Back out of selection
+function game.characterSelectBack(toMenu)
+    if toMenu then
+        game.currentState = "MENU"
+        return
+    end
+    if game.characterSelect.stage == 2 then
+        game.characterSelect.stage = 1
+        game.characterSelect.selected[1] = nil
+    elseif game.characterSelect.stage == 3 then
+        game.characterSelect.stage = 2
+        game.characterSelect.selected[2] = nil
+    else
+        game.currentState = "MENU"
+    end
+end
+
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -592,6 +681,12 @@ function love.update(dt)
         end
 
         -- No other updates needed in menu state
+        return
+    elseif game.currentState == "CHARACTER_SELECT" then
+        -- Simple animations for character select
+        if game.vfx then
+            game.vfx.update(dt)
+        end
         return
     elseif game.currentState == "BATTLE" then
         -- Check for win condition before updates
@@ -812,6 +907,8 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
+    elseif game.currentState == "CHARACTER_SELECT" then
+        drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
         -- Draw background image
         love.graphics.setColor(1, 1, 1, 1)
@@ -1400,57 +1497,105 @@ function drawMainMenu()
     )
     
     -- Draw menu options
-    local menuY = screenHeight * 0.6
-    local menuSpacing = 50
-    local menuScale = 1.5
-    
-    -- Two-player duel option
-    local twoPlayerText = "[1] Two-Player Duel"
-    local twoPlayerWidth = game.font:getWidth(twoPlayerText) * menuScale
-    
-    -- Pulse effect for two-player option
-    local twoPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(0.9, 0.7, 0.1, twoPlayerPulse)
-    love.graphics.print(
-        twoPlayerText,
-        screenWidth/2 - twoPlayerWidth/2,
-        menuY,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Single-player vs AI option
-    local aiPlayerText = "[2] Duel Against AI"
-    local aiPlayerWidth = game.font:getWidth(aiPlayerText) * menuScale
-    
-    -- Pulse effect for AI option (slightly out of phase)
-    local aiPlayerPulse = 0.7 + 0.3 * math.sin(love.timer.getTime() * 3 + 1)
-    love.graphics.setColor(0.7, 0.9, 0.2, aiPlayerPulse)
-    love.graphics.print(
-        aiPlayerText,
-        screenWidth/2 - aiPlayerWidth/2,
-        menuY + menuSpacing,
-        0,
-        menuScale, menuScale
-    )
-    
-    -- Quit option
-    local quitText = "[Esc] Quit"
-    local quitWidth = game.font:getWidth(quitText) * menuScale
-    
-    love.graphics.setColor(0.7, 0.7, 0.7, 0.9)
-    love.graphics.print(
-        quitText,
-        screenWidth/2 - quitWidth/2,
-        menuY + menuSpacing * 2, -- Move down one more row
-        0,
-        menuScale, menuScale
-    )
+    local menuY = screenHeight * 0.55
+    local menuSpacing = 40
+    local menuScale = 1.4
+
+    local options = {
+        {"[1] Campaign", {0.9, 0.9, 0.9, 0.9}},
+        {"[2] Character Duel", {0.9, 0.7, 0.1, 0.9}},
+        {"[3] Research Duel", {0.7, 0.9, 0.2, 0.9}},
+        {"[4] Compendium", {0.7, 0.8, 1.0, 0.9}},
+        {"[5] Settings", {0.8, 0.8, 0.8, 0.9}},
+        {"[6] Exit", {0.7, 0.7, 0.7, 0.9}}
+    }
+
+    for i, option in ipairs(options) do
+        local text, color = option[1], option[2]
+        local width = game.font:getWidth(text) * menuScale
+        love.graphics.setColor(color)
+        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+    end
     
     -- Draw version and credit
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the character selection screen
+function drawCharacterSelect()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local paneWidth = screenWidth/3
+    local cellSize = 60
+    local padding = 10
+    local gridWidth = cellSize*3 + padding*2
+    local gridHeight = cellSize*3 + padding*2
+    local gridX = paneWidth + (paneWidth - gridWidth)/2
+    local gridY = screenHeight/2 - gridHeight/2
+
+    -- Helper to draw a character sprite
+    local function drawSprite(name,x,y,scale)
+        local sprite = AssetCache.getImage("assets/sprites/"..string.lower(name)..".png")
+        if sprite then
+            love.graphics.draw(sprite,x,y,0,scale,scale,sprite:getWidth()/2,sprite:getHeight()/2)
+        else
+            love.graphics.print(name,x-20,y-5)
+        end
+    end
+
+    -- Draw selected characters in side panes
+    if game.characterSelect.selected[1] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[1],paneWidth/2,screenHeight/2,2)
+    end
+    if game.characterSelect.selected[2] then
+        love.graphics.setColor(1,1,1)
+        drawSprite(game.characterSelect.selected[2],screenWidth-paneWidth/2,screenHeight/2,2)
+    end
+
+    -- Draw grid of characters
+    for i,name in ipairs(game.characterRoster) do
+        local col=(i-1)%3
+        local row=math.floor((i-1)/3)
+        local x=gridX+col*(cellSize+padding)
+        local y=gridY+row*(cellSize+padding)
+
+        local unlocked = game.unlockedCharacters[name]
+        love.graphics.setColor(0.4,0.4,0.4)
+        love.graphics.rectangle("fill",x,y,cellSize,cellSize)
+
+        local scale = cellSize/64
+        if unlocked then
+            love.graphics.setColor(1,1,1)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        else
+            love.graphics.setColor(0,0,0)
+            drawSprite(name,x+cellSize/2,y+cellSize/2,scale)
+        end
+
+        if game.characterSelect.cursor==i then
+            love.graphics.setColor(1,1,0)
+            love.graphics.rectangle("line",x-2,y-2,cellSize+4,cellSize+4)
+        end
+    end
+
+    -- Instruction text
+    love.graphics.setColor(1,1,1,0.8)
+    local msg
+    if game.characterSelect.stage==1 then
+        msg = "Select Your Wizard"
+    elseif game.characterSelect.stage==2 then
+        msg = "Select Opponent"
+    else
+        msg = "Press F to Fight!"
+    end
+    local w = game.font:getWidth(msg)
+    love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
 end
 
 -- Draw attract mode overlay
