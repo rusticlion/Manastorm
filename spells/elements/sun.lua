@@ -28,7 +28,6 @@ SunSpells.radiantbolt = {
         },
     },
     sfx = "fire_whoosh",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Meteor spell
@@ -59,7 +58,6 @@ SunSpells.meteor = {
         }
     },
     sfx = "meteor_impact",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.FIELD}
 }
 
 -- Emberlift spell
@@ -90,7 +88,6 @@ SunSpells.emberlift = {
         }
     },
     sfx = "whoosh_up",
-    blockableBy = {}
 }
 
 -- Nova Conjuring (Combine 3 x FIRE into SUN)
@@ -113,7 +110,6 @@ SunSpells.novaconjuring = {
         },
     },
     sfx = "conjure_nova",
-    blockableBy = {}
 }
 
 -- Force Barrier spell (Sun-based shield)
@@ -133,7 +129,6 @@ SunSpells.forcebarrier = {
         },
     },
     sfx = "shield_up",
-    blockableBy = {}
 }
 
 return SunSpells

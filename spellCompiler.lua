@@ -60,7 +60,6 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
         visualShape = spellDef.visualShape, -- Copy visualShape for template override
         vfx = spellDef.vfx,
         sfx = spellDef.sfx,
-        blockableBy = spellDef.blockableBy,
         -- Create empty behavior table to store merged behavior data
         behavior = {}
     }

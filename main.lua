@@ -253,7 +253,6 @@ function love.load()
         },
         vfx = "moon_ward",
         sfx = "shield_up",
-        blockableBy = {}
     }
     
     -- Define Mirror Shield with minimal dependencies
@@ -275,7 +274,6 @@ function love.load()
         },
         vfx = "mirror_shield",
         sfx = "crystal_ring",
-        blockableBy = {}
     }
     
     -- Compile custom spells too

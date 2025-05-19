@@ -273,7 +273,6 @@ Constants.SpellMetadata = {
     VISUAL_SHAPE = "visualShape",
     VFX = "vfx",
     SFX = "sfx",
-    BLOCKABLE_BY = "blockableBy",
     ZONE = "zone"
 }
 
