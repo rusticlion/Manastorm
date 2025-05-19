@@ -136,11 +136,15 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             print("Returning to main menu")
             return true
-        -- If in GAME_OVER state, return to menu 
+        -- If in GAME_OVER state, return to menu
         elseif gameState.currentState == "GAME_OVER" then
             gameState.currentState = "MENU"
             gameState.resetGame()
             print("Returning to main menu")
+            return true
+        -- If in CHARACTER_SELECT, go back to menu
+        elseif gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectBack(true)
             return true
         end
         return false
@@ -188,50 +192,98 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Start Two-Player game from menu
+    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game")
+            print("Campaign mode not implemented yet")
             return true
         end
         return false
     end
-    
-    -- Start vs AI game from menu
+
+    -- Character Duel - goes to character select screen
     Input.Routes.ui["2"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to use AI
-            gameState.useAI = true
-            -- Reset game state for a fresh start
-            gameState.resetGame() -- This will initialize the AI
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new game against AI")
+            gameState.startCharacterSelect()
             return true
         end
         return false
     end
-    
-    -- Legacy enter key support (defaults to two-player)
+
+    -- Research Duel stub
+    Input.Routes.ui["3"] = function()
+        if gameState.currentState == "MENU" then
+            print("Research Duel not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Compendium stub
+    Input.Routes.ui["4"] = function()
+        if gameState.currentState == "MENU" then
+            print("Compendium not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Settings stub
+    Input.Routes.ui["5"] = function()
+        if gameState.currentState == "MENU" then
+            print("Settings not implemented yet")
+            return true
+        end
+        return false
+    end
+
+    -- Exit the game
+    Input.Routes.ui["6"] = function()
+        if gameState.currentState == "MENU" then
+            love.event.quit()
+            return true
+        end
+        return false
+    end
+
+    -- Legacy enter key starts Character Duel
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
-            -- Set the game mode to PvP (no AI)
-            gameState.useAI = false
-            -- Reset game state for a fresh start
-            gameState.resetGame()
-            -- Change to battle state
-            gameState.currentState = "BATTLE"
-            print("Starting new two-player game (via Enter key)")
+            gameState.startCharacterSelect()
             return true
         end
         return false
     end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
+            return true
+        end
+        return false
+    end
+
+    -- Confirm selection / Fight
+    Input.Routes.ui["f"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectConfirm()
+            return true
+        end
+        return false
+    end
+
+    -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
     -- Reset game on space bar press during game over
@@ -514,14 +566,19 @@ Input.reservedKeys = {
     },
     
     menu = {
-        "1", -- Start two-player game from menu
-        "2", -- Start vs AI game from menu
-        "Enter", -- Start two-player game from menu (legacy)
+        "1", "2", "3", "4", "5", "6", -- Main menu options
+        "Enter", -- Start character duel (shortcut)
         "Escape", -- Quit game from menu
     },
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    characterSelect = {
+        "Q", "E", -- Move cursor
+        "F", -- Confirm
+        "Escape" -- Back
     },
     
     gameOver = {

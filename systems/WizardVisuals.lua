@@ -90,8 +90,8 @@ function WizardVisuals.drawStatusEffects(wizard)
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
-    local x = (wizard.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
+    -- Position bars above the wizard with the same offsets as the sprite
+    local x = wizard.x + xOffset
     
     local Constants = require("core.Constants")
     
@@ -789,10 +789,21 @@ function WizardVisuals.drawWizard(wizard)
     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
     local centerX = love.graphics.getWidth() / 2
     
+    -- Determine relative position compared to the other combatant
+    local isLeft = true
+    if wizard.gameState and wizard.gameState.wizards then
+        for _, other in ipairs(wizard.gameState.wizards) do
+            if other ~= wizard then
+                isLeft = wizard.x <= other.x
+                break
+            end
+        end
+    end
+
     -- Push wizards closer to center in NEAR mode, further in FAR mode
-    if wizard.name == "Ashgar" then -- Player 1 (left side)
+    if isLeft then
         targetXOffset = isNear and 60 or 0 -- Move right when NEAR
-    else -- Player 2 (right side)
+    else
         targetXOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
@@ -860,8 +871,18 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
-        local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
+        -- Flip sprite based on whether this wizard is on the left or right
+        local isLeft = true
+        if wizard.gameState and wizard.gameState.wizards then
+            for _, other in ipairs(wizard.gameState.wizards) do
+                if other ~= wizard then
+                    isLeft = wizard.x <= other.x
+                    break
+                end
+            end
+        end
+        local flipX = isLeft and 1 or -1
+        local adjustedScale = wizard.scale * flipX
 
         -- Determine which sprite to draw based on positional animation sets
         local spriteToDraw
