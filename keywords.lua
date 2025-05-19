@@ -252,7 +252,7 @@ Keywords.burn = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "burn",
+        statusType = Constants.StatusType.BURN,
         dealsDamageOverTime = true,
         targetType = Constants.TargetType.ENEMY,
         category = "DOT",
@@ -275,7 +275,7 @@ Keywords.burn = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "enemy",
-            statusType = "burn",
+            statusType = Constants.StatusType.BURN,
             duration = params.duration or 3.0,
             tickDamage = params.tickDamage or 2,
             tickInterval = params.tickInterval or 1.0,
@@ -298,7 +298,7 @@ Keywords.stagger = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Assuming stagger applies a stun/daze status
-        statusType = "stun",      -- Using "stun" status for simplicity
+        statusType = Constants.StatusType.STUN,      -- Using "stun" status for simplicity
         interruptsSpell = true,    -- Stagger implies interruption
         targetType = "ENEMY",     -- Typically targets enemy
         category = "TIMING",
@@ -313,7 +313,7 @@ Keywords.stagger = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "enemy",
-            statusType = "stun", -- Using "stun" as the status effect
+            statusType = Constants.StatusType.STUN, -- Using "stun" as the status effect
             duration = params.duration or 3.0
         })
         
@@ -662,7 +662,7 @@ Keywords.slow = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true,
-        statusType = "slow",
+        statusType = Constants.StatusType.SLOW,
         targetType = Constants.TargetType.ENEMY, -- Applies status to enemy wizard
         category = "TIMING",
         
@@ -678,7 +678,7 @@ Keywords.slow = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "enemy", -- Target the enemy wizard entity
-            statusType = "slow",
+            statusType = Constants.StatusType.SLOW,
             magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast
             targetSlot = params.slot or nil -- Which slot to affect (nil for any)
@@ -862,7 +862,7 @@ Keywords.reflect = {
     -- Behavior definition
     behavior = {
         appliesStatusEffect = true, -- Reflect handled as a status effect
-        statusType = "reflect",
+        statusType = Constants.StatusType.REFLECT,
         targetType = "SELF",
         category = "DEFENSE",
         
@@ -876,7 +876,7 @@ Keywords.reflect = {
             type = "APPLY_STATUS",
             source = "caster",
             target = "self",
-            statusType = "reflect",
+            statusType = Constants.StatusType.REFLECT,
             duration = params.duration or 3.0
         })
         return results
