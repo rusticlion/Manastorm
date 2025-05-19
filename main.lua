@@ -15,6 +15,7 @@ local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
@@ -55,6 +56,23 @@ game = {
     attractModeActive = false,
     menuIdleTimer = 0,
     ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
+    settings = Settings,
+    settingsMenu = {
+        selected = 1,
+        mode = nil,
+        waitingForKey = nil,
+        bindOrder = {
+            {"p1","slot1","P1 Slot 1"},
+            {"p1","slot2","P1 Slot 2"},
+            {"p1","slot3","P1 Slot 3"},
+            {"p1","cast","P1 Cast"},
+            {"p2","slot1","P2 Slot 1"},
+            {"p2","slot2","P2 Slot 2"},
+            {"p2","slot3","P2 Slot 3"},
+            {"p2","cast","P2 Cast"}
+        },
+        rebindIndex = 1
+    }
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -211,6 +229,10 @@ function love.load()
                         preloadStats.imageCount,
                         preloadStats.soundCount,
                         preloadStats.loadTime))
+
+    -- Load persisted settings
+    Settings.load()
+    Constants.setCastSpeedSet(Settings.get("gameSpeed") or "FAST")
     
     -- Set up game object to have calculateScaling function that can be called by Input
     game.calculateScaling = calculateScaling
@@ -675,6 +697,56 @@ function game.characterSelectBack(toMenu)
     end
 end
 
+-- Start settings menu
+function game.startSettings()
+    game.settingsMenu.selected = 1
+    game.settingsMenu.mode = nil
+    game.settingsMenu.waitingForKey = nil
+    game.settingsMenu.rebindIndex = 1
+    game.currentState = "SETTINGS"
+end
+
+function game.settingsMove(dir)
+    if game.settingsMenu.mode then return end
+    local count = 3
+    local idx = game.settingsMenu.selected + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.settingsMenu.selected = idx
+end
+
+function game.settingsAdjust(dir)
+    if game.settingsMenu.mode then return end
+    if game.settingsMenu.selected == 1 then
+        if dir ~= 0 then
+            local val = Settings.get("dummyFlag")
+            Settings.set("dummyFlag", not val)
+        end
+    elseif game.settingsMenu.selected == 2 then
+        if dir ~= 0 then
+            local current = Settings.get("gameSpeed") or "FAST"
+            if current == "FAST" then
+                current = "SLOW"
+            else
+                current = "FAST"
+            end
+            Settings.set("gameSpeed", current)
+            Constants.setCastSpeedSet(current)
+        end
+    end
+end
+
+function game.settingsSelect()
+    if game.settingsMenu.selected == 3 then
+        game.settingsMenu.mode = "rebind"
+        game.settingsMenu.rebindIndex = 1
+        local a = game.settingsMenu.bindOrder[1]
+        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    else
+        game.settingsAdjust(1)
+    end
+end
+
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -714,6 +786,11 @@ function love.update(dt)
         end
 
         -- No other updates needed in menu state
+        return
+    elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
         return
     elseif game.currentState == "CHARACTER_SELECT" then
         -- Simple animations for character select
@@ -944,6 +1021,8 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
+    elseif game.currentState == "SETTINGS" then
+        drawSettingsMenu()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -1633,6 +1712,40 @@ function drawCharacterSelect()
     end
     local w = game.font:getWidth(msg)
     love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+end
+
+-- Draw the settings menu
+function drawSettingsMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local options = {
+        "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
+        "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Rebind Controls"
+    }
+
+    for i, text in ipairs(options) do
+        local scale = 1.4
+        local y = screenHeight * 0.4 + (i-1) * 40
+        local w = game.font:getWidth(text) * scale
+        if i == game.settingsMenu.selected and not game.settingsMenu.mode then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new key for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
 end
 
 -- Draw attract mode overlay
