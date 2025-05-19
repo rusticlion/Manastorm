@@ -863,17 +863,17 @@ function WizardVisuals.drawWizard(wizard)
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
 
-        -- Determine which sprite to draw (casting, idle animation, or static)
-        local spriteToDraw = nil
+        -- Determine which sprite to draw based on positional animation sets
+        local spriteToDraw
+        local posKey = wizard:getPositionalKey()
+        local castSprite = wizard:getCastFrameForKey(posKey)
+        local idleFrames = wizard:getIdleFramesForKey(posKey)
 
-        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
-            -- Use cast frame if we're in the middle of casting
-            spriteToDraw = wizard.castFrameSprite
-        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
-            -- Use current idle animation frame if available
-            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        if wizard.castFrameTimer > 0 and castSprite then
+            spriteToDraw = castSprite
+        elseif idleFrames and #idleFrames > 0 then
+            spriteToDraw = idleFrames[wizard.currentIdleFrame]
         else
-            -- Fallback to the original static sprite if no animation frames are available
             spriteToDraw = wizard.sprite
         end
 
