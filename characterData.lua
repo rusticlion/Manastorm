@@ -45,6 +45,19 @@ characterData.Silex = {
     }
 }
 
+characterData.Borrak = {
+    color = {100,180,255},
+    spellbook = {
+        ["1"]  = Spells.conjurewater,
+        ["2"]  = Spells.watergun,
+        ["3"]  = Spells.riptideguard,
+        ["12"] = Spells.tidalforce,
+        ["13"] = Spells.brinechain,
+        ["23"] = Spells.maelstrom,
+        ["123"] = Spells.wavecrash,
+    }
+}
+
 -- Placeholder spellbooks for other characters, defaulting to Ashgar's spells
 local defaultSpellbook = characterData.Ashgar.spellbook
 local defaultColor = {255,255,255}

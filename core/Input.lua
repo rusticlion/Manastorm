@@ -341,6 +341,25 @@ function Input.setupRoutes()
         return false
     end
 
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
+            return true
+        end
+        return false
+    end
+
     -- Confirm selection / Fight
     Input.Routes.ui["f"] = function()
         if gameState.currentState == "CHARACTER_SELECT" then
