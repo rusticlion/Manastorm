@@ -37,6 +37,19 @@ VoidSpells.riteofemptiness = {
     }
 }
 
+VoidSpells.quenchPower = {
+    id = "quenchPower",
+    name = "Quench Power",
+    affinity = "void",
+    description = "Consumes Celestial or Material mana to create VOID.",
+    attackType = Constants.AttackType.UTILITY,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {},
+    keywords = {
+        --todo
+    }
+}
+
 -- One-shot kill combo payoff/mega-nuke
 VoidSpells.heartripper = {
     id = "heartripper",

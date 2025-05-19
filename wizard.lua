@@ -122,17 +122,17 @@ function Wizard.new(name, x, y, color)
     if name == "Ashgar" then
         self.spellbook = {
             -- Single key spells
-            ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
+            ["1"]  = Spells.burnTheSoul,
+            ["2"]  = Spells.SpaceRipper,
+            ["3"]  = Spells.StingingEyes,
 
             -- Two key combos
             ["12"] = Spells.battleshield,
-            ["13"] = Spells.blastwave,
-            ["23"] = Spells.emberlift,
+            ["13"] = Spells.NuclearFurnace,
+            ["23"] = Spells.firebolt,
 
             -- Three key combo
-            ["123"] = Spells.meteor
+            ["123"] = Spells.CoreBolt
         }
 
     elseif name == "Silex" then   -- New salt-themed wizard

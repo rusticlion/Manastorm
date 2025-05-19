@@ -270,25 +270,64 @@ Keywords.burn = {
         if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
             manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
         end
-        
-        table.insert(events or {}, {
-            type = "APPLY_STATUS",
-            source = "caster",
-            target = "enemy",
-            statusType = "burn",
-            duration = params.duration or 3.0,
-            tickDamage = params.tickDamage or 2,
-            tickInterval = params.tickInterval or 1.0,
-            
-            -- Visual metadata for VisualResolver
-            affinity = spell and spell.affinity or nil,
-            attackType = spell and spell.attackType or nil,
-            visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
-            manaCost = manaCost,
-            tags = { BURN = true, DOT = true },
-            rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
-            elevation = caster and caster.elevation or nil
-        })
+
+        if params.target == Constants.TargetType.ALL then
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "self",
+                statusType = "burn",
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = "enemy",
+                statusType = "burn",
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        else
+            table.insert(events or {}, {
+                type = "APPLY_STATUS",
+                source = "caster",
+                target = params.target or "enemy",
+                statusType = "burn",
+                duration = params.duration or 3.0,
+                tickDamage = params.tickDamage or 2,
+                tickInterval = params.tickInterval or 1.0,
+                
+                -- Visual metadata for VisualResolver
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                visualShape = spell and spell.visualShape or nil, -- Copy visualShape if present
+                manaCost = manaCost,
+                tags = { BURN = true, DOT = true },
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil
+            })
+        end
         return results
     end
 }
@@ -312,7 +351,7 @@ Keywords.stagger = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy",
+            target = params.target or "enemy",
             statusType = "stun", -- Using "stun" as the status effect
             duration = params.duration or 3.0
         })
@@ -677,7 +716,7 @@ Keywords.slow = {
         table.insert(events or {}, {
             type = "APPLY_STATUS",
             source = "caster",
-            target = "enemy", -- Target the enemy wizard entity
+            target = params.target or "enemy", -- Target the enemy wizard entity
             statusType = "slow",
             magnitude = params.magnitude or Constants.CastSpeed.ONE_TIER, -- How much time to add
             duration = params.duration or 10.0, -- How long effect persists waiting for cast

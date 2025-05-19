@@ -116,6 +116,171 @@ SunSpells.novaconjuring = {
     blockableBy = {}
 }
 
+-- Burn the Soul (Inflict Burn on self to conjure a Sun token)
+SunSpells.burnTheSoul = {
+    id = "burnTheSoul",
+    name = "Burn the Soul",
+    affinity = "sun",
+    description = "Inflict Burn on self to conjure a Sun token.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "surge",
+    cost = {},
+    keywords = {
+        burn = {
+            amount = 1,
+            duration = 10,
+            target = Constants.TargetType.SELF
+        },
+        conjure = {
+            token = Constants.TokenType.SUN,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.SpaceRipper = {
+    id = "SpaceRipper",
+    name = "Space Ripper",
+    affinity = "sun",
+    description = "Range swap to NEAR. Burn both self and target. Turn SUN to VOID.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = "warp",
+    cost = {Constants.TokenType.SUN},
+    keywords = {
+        rangeShift = {
+            position = Constants.RangeState.NEAR
+        },
+        burn = {
+            amount = 3,
+            duration = 3,
+            target = Constants.TargetType.ALL
+        },
+        consume = true,
+        conjure = {
+            token = Constants.TokenType.VOID,
+            amount = 1
+        }
+    }
+}
+
+SunSpells.StingingEyes = {
+    id = "StingingEyes",
+    name = "Stinging Eyes",
+    affinity = "sun",
+    description = "Damage based on user's Burn level.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 3
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 8 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local totalDamage = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                return totalDamage
+            end,
+            type = Constants.DamageType.SUN
+        },
+        burn = {
+            amount = function(caster, target)
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    local selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                    return selfBurnIntensity
+                end
+                return 0
+            end,
+            duration = 1,
+            target = Constants.TargetType.ENEMY
+        }
+    }
+}
+
+SunSpells.CoreBolt = {
+    id = "CoreBolt",
+    name = "Core Bolt",
+    affinity = "sun",
+    description = "Expend SUN and VOID for a powerful energy bolt.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "bolt",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.VOID, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = 25,
+            target = Constants.TargetType.ENEMY
+        },
+        consume = true,
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
+}
+SunSpells.NuclearFurnace = {
+    id = "NuclearFurnace",
+    name = "Nuclear Furnace",
+    affinity = "sun",
+    description = "Damage based on user's Burn level. Burn user further. Conjure Fire.",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.ZONE,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local baseDamage = 10
+                local selfBurnIntensity = 0
+                local bonusPerIntensityPoint = 10 -- How much extra damage per point of self-burn tickDamage
+
+                -- Check if the caster is burning
+                if caster.statusEffects and
+                   caster.statusEffects.burn and
+                   caster.statusEffects.burn.active then
+                    selfBurnIntensity = caster.statusEffects.burn.tickDamage or 0
+                end
+
+                local attackStrength = baseDamage + (selfBurnIntensity * bonusPerIntensityPoint)
+
+                if caster.elevation ~= target.elevation then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                if caster.gameState.rangeState ~= Constants.RangeState.NEAR then
+                    attackStrength = attackStrength * 0.5
+                end
+
+                return attackStrength
+            end,
+            type = Constants.DamageType.SUN
+        },
+        conjure = {
+            token = Constants.TokenType.FIRE,
+            amount = 1
+        },
+        burn = {
+            amount = 2,
+            duration = 7,
+            target = Constants.TargetType.SELF
+        }
+    },
+    sfx = "fire_whoosh",
+    blockableBy = {Constants.ShieldType.BARRIER}
+}
+
 -- Force Barrier spell (Sun-based shield)
 SunSpells.forcebarrier = {
     id = "forcebarrier",

@@ -46,4 +46,5 @@ This is a hybrid to-do list and bluesky whiteboard, organized by task type.
 
 ### Support "Field" spell type/keyword as an additional type of ongoing effect/"sustained spell"
 
-## Content
+### Better consistent rules for Burn stacking rather than quasi-overlapping shared timer thing. Use in Brightwulf design.
+

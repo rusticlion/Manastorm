@@ -159,6 +159,7 @@ Constants.TargetType = {
     -- Simple targeting - used in spell definitions
     SELF = "SELF",             -- Target the caster
     ENEMY = "ENEMY",           -- Target the opponent
+    ALL = "ALL",               -- Target all wizards
     
     -- Complex targeting - used in keyword behaviors
     SLOT_SELF = "SLOT_SELF",     -- Target caster's spell slots
