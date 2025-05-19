@@ -303,9 +303,6 @@ MoonSpells.gravityTrap = {
             condition = "on_opponent_elevate" 
         },
         
-        trap_window = { 
-            duration = 600.0
-        },
         
         trap_effect = {
             damage = { 
