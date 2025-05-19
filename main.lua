@@ -747,7 +747,6 @@ function game.settingsSelect()
         game.settingsAdjust(1)
     end
 end
-
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then

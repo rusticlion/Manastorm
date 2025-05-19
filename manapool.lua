@@ -926,10 +926,19 @@ function ManaPool:update(dt)
                     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
                     
                     -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
-                    if wizard.name == "Ashgar" then -- Player 1 (left side)
-                        xOffset = isNear and 60 or 0 -- Move right when NEAR
-                    else -- Player 2 (right side)
-                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    local isLeft = true
+                    if wizard.gameState and wizard.gameState.wizards then
+                        for _, other in ipairs(wizard.gameState.wizards) do
+                            if other ~= wizard then
+                                isLeft = wizard.x <= other.x
+                                break
+                            end
+                        end
+                    end
+                    if isLeft then
+                        xOffset = isNear and 60 or 0
+                    else
+                        xOffset = isNear and -60 or 0
                     end
                     
                     local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
