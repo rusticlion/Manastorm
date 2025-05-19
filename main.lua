@@ -20,6 +20,7 @@ local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
 local SilexPersonality = require("ai.personalities.SilexPersonality")
+local BorrakPersonality = require("ai.personalities.BorrakPersonality")
 local CharacterData = require("characterData")
 
 -- Resolution settings
