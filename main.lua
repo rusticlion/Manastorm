@@ -18,6 +18,7 @@ local SustainedSpellManager = require("systems.SustainedSpellManager")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local CharacterData = require("characterData")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -38,6 +39,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
+    characterData = CharacterData,
     rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
@@ -211,8 +213,10 @@ function love.load()
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
-    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    local d1 = CharacterData.Ashgar
+    local d2 = CharacterData.Selene
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, d1.color, d1.spellbook)
+    game.wizards[2] = Wizard.new("Selene", 600, 370, d2.color, d2.spellbook)
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -573,12 +577,10 @@ end
 
 -- Initialize wizards for battle based on selected names
 local function setupWizards(name1, name2)
-    local colorMap = {
-        Ashgar = {255,100,100},
-        Selene = {100,100,255}
-    }
-    game.wizards[1] = Wizard.new(name1, 200, 370, colorMap[name1] or {255,255,255})
-    game.wizards[2] = Wizard.new(name2, 600, 370, colorMap[name2] or {255,255,255})
+    local data1 = game.characterData[name1] or {}
+    local data2 = game.characterData[name2] or {}
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
     for _, wizard in ipairs(game.wizards) do
         wizard.manaPool = game.manaPool
         wizard.gameState = game
