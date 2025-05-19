@@ -134,7 +134,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "        }\n"
     output = output .. "    },\n"
     output = output .. "    vfx = \"arcane_reversal\",\n"
-    output = output .. "    blockableBy = {\"ward\", \"field\"}\n"
     output = output .. "}\n```\n\n"
     
     -- Fireball example
@@ -162,7 +161,6 @@ function DocGenerator.generateMarkdown()
     output = output .. "    },\n"
     output = output .. "    vfx = \"fireball\",\n"
     output = output .. "    sfx = \"explosion\",\n"
-    output = output .. "    blockableBy = {\"barrier\"}\n"
     output = output .. "}\n```\n\n"
     
     return output

@@ -22,7 +22,6 @@ MoonSpells.conjuremoonlight = {
             amount = 1
         },
     },
-    blockableBy = {},
     
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -61,7 +60,6 @@ MoonSpells.tidalforce = {
         },
     },
     sfx = "tidal_wave",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Lunar Disjunction spell
@@ -88,7 +86,6 @@ MoonSpells.lunardisjunction = {
         },
     },
     sfx = "lunardisjunction_sound",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Moon Dance spell
@@ -153,7 +150,6 @@ MoonSpells.gravity = {
         },
     },
     sfx = "gravity_slam",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Eclipse spell
@@ -178,7 +174,6 @@ MoonSpells.eclipse = {
         },
     },
     sfx = "eclipse_shatter",
-    blockableBy = {}
 }
 
 -- Full Moon Beam spell
@@ -221,7 +216,6 @@ MoonSpells.fullmoonbeam = {
         }
     },
     sfx = "beam_charge",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD}
 }
 
 -- Lunar Tides spell
@@ -254,7 +248,6 @@ MoonSpells.lunarTides = {
         },
     },
     sfx = "tide_rush",
-    blockableBy = {Constants.ShieldType.WARD}
 }
 
 -- Wings of Moonlight (shield spell)
@@ -291,7 +284,6 @@ MoonSpells.wrapinmoonlight = {
         },
     },
     sfx = "mist_shimmer",
-    blockableBy = {},
 }
 
 -- Gravity Trap spell
@@ -333,7 +325,6 @@ MoonSpells.gravityTrap = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {}
 }
 
 -- Infinite Procession spell
@@ -398,7 +389,6 @@ MoonSpells.enhancedmirrorshield = {
         },
     },
     sfx = "crystal_ring",
-    blockableBy = {}
 }
 
 return MoonSpells

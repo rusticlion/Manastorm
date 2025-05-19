@@ -50,6 +50,5 @@ Each spell must follow this schema:
 - `castTime`: Duration in seconds (number)
 - `cost`: Array of token types required (array)
 - `keywords`: Table of effect keywords and parameters (table)
-- `blockableBy`: Array of shield types that can block this spell (array, optional)
 
 See `schema.lua` for detailed validation logic.

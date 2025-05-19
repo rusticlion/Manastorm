@@ -20,7 +20,6 @@ SaltSpells.conjuresalt = {
             amount = 1
         },
     },
-    blockableBy = {},
 
     getCastTime = function(caster)
         local baseCastTime = Constants.CastSpeed.FAST
@@ -56,7 +55,6 @@ SaltSpells.glitterfang = {
         },
     },
     sfx = "glitter_fang",
-    blockableBy = {}
 }
 
 -- Salt Storm spell
@@ -77,7 +75,6 @@ SaltSpells.saltstorm = {
         shieldBreaker = 2,
     },
     sfx = "salt_storm",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Imprison spell (Salt trap)
@@ -112,7 +109,6 @@ SaltSpells.imprison = {
         },
     },
     sfx = "gravity_trap_set",
-    blockableBy = {} 
 }
 
 -- Jagged Earth spell (Salt trap)
@@ -137,7 +133,6 @@ SaltSpells.jaggedearth = {
         },
     },
     sfx = "jagged_earth",
-    blockableBy = {Constants.ShieldType.BARRIER}
 }
 
 -- Salt Circle spell (Ward)
@@ -156,7 +151,6 @@ SaltSpells.saltcircle = {
         }
     },
     sfx = "salt_circle",
-    blockableBy = {}
 }
 
 -- Stone Shield spell (Barrier)
@@ -175,7 +169,6 @@ SaltSpells.stoneshield = {
         }
     },
     sfx = "stone_shield",
-    blockableBy = {}
 }
 
 -- Shield-breaking spell
@@ -209,7 +202,6 @@ SaltSpells.shieldbreaker = {
     },
     shieldBreaker = 3,
     sfx = "shield_break",
-    blockableBy = {Constants.ShieldType.BARRIER, Constants.ShieldType.WARD},
     
     onBlock = function(caster, target, slot, blockInfo)
         print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
