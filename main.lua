@@ -72,7 +72,7 @@ game = {
             {"p2","cast","P2 Cast"}
         },
         rebindIndex = 1
-    }
+    },
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
