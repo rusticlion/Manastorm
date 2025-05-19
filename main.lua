@@ -19,6 +19,7 @@ local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local SilexPersonality = require("ai.personalities.SilexPersonality")
 local CharacterData = require("characterData")
 
 -- Resolution settings
@@ -152,6 +153,8 @@ local function getPersonalityFor(name)
         return SelenePersonality
     elseif name == "Ashgar" then
         return AshgarPersonality
+    elseif name == "Silex" then
+        return SilexPersonality
     else
         return nil
     end
@@ -515,6 +518,9 @@ function resetGame()
         elseif aiWizard.name == "Ashgar" then
             personality = AshgarPersonality
             print("Initializing Ashgar AI personality")
+        elseif aiWizard.name == "Silex" then
+            personality = SilexPersonality
+            print("Initializing Silex AI personality")
         else
             -- Default to base personality for unknown wizards
             print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
