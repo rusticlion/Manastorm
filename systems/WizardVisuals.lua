@@ -135,17 +135,18 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw STUN duration if active
-    if wizard.stunTimer > 0 then
+    if wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Calculate progress (1.0 to 0.0 as time depletes)
-        local maxDuration = 3.0  -- Assuming 3 seconds is max stun duration
-        local progress = wizard.stunTimer / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
+        local stun = wizard.statusEffects.stun
+        local maxDuration = stun.duration
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        local progress = maxDuration > 0 and remaining / maxDuration or 0
+
         -- Get color for stun state
-        local color = WizardVisuals.getStatusEffectColor("stun")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.STUN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -174,12 +175,12 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw BURN effect if active
-    if wizard.statusEffects.burn and wizard.statusEffects.burn.active then
+    if wizard.statusEffects[Constants.StatusType.BURN] and wizard.statusEffects[Constants.StatusType.BURN].active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Get burn effect data
-        local burnEffect = wizard.statusEffects.burn
+        local burnEffect = wizard.statusEffects[Constants.StatusType.BURN]
         
         -- Calculate progress (1.0 to 0.0 as time depletes)
         local progress = 1.0
@@ -193,7 +194,7 @@ function WizardVisuals.drawStatusEffects(wizard)
         local pulseEffect = math.sin(tickProgress * math.pi) * 0.2  -- Pulse effect strongest right before tick
         
         -- Get color for burn state
-        local color = WizardVisuals.getStatusEffectColor("burn")
+        local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.BURN)
         
         -- Draw background bar (darker)
         love.graphics.setColor(color[1] * 0.5, color[2] * 0.5, color[3] * 0.5, color[4] * 0.5)
@@ -829,7 +830,7 @@ function WizardVisuals.drawWizard(wizard)
         wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
         
         -- Flash effect is now implemented with additive blending
-    elseif wizard.stunTimer > 0 then
+    elseif wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
         wizardColor = {1, 1, flashIntensity, 1}

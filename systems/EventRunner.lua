@@ -576,18 +576,26 @@ EventRunner.EVENT_HANDLERS = {
         -- Initialize status effects table if it doesn't exist
         targetWizard.statusEffects = targetWizard.statusEffects or {}
         
-        -- Add or update the status effect - Store relevant fields from the event
-        targetWizard.statusEffects[event.statusType] = {
-            active = true, -- Mark as active
-            duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
-            tickDamage = event.tickDamage, -- For DoTs like burn
-            tickInterval = event.tickInterval, -- For DoTs like burn
-            magnitude = event.magnitude, -- For effects like slow (cast time increase)
-            targetSlot = event.targetSlot, -- For effects like slow (specific slot)
-            elapsed = 0, -- Timer for DoT ticks
-            totalTime = 0, -- Timer for overall duration
-            source = caster -- Who applied the status
+        -- Build effect data table
+        local effectData = {
+            active = true,
+            duration = event.duration or 0,
+            tickDamage = event.tickDamage,
+            tickInterval = event.tickInterval,
+            magnitude = event.magnitude,
+            targetSlot = event.targetSlot,
+            elapsed = 0,
+            totalTime = 0,
+            source = caster
         }
+
+        if event.statusType == Constants.StatusType.STUN then
+            -- Explicitly store under "stun" key for easy access
+            targetWizard.statusEffects[Constants.StatusType.STUN] = effectData
+        else
+            -- Generic status effect storage
+            targetWizard.statusEffects[event.statusType] = effectData
+        end
         
         -- Log the application
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 

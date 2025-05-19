@@ -60,7 +60,6 @@ function Wizard.new(name, x, y, color)
     self.health = 100
     self.elevation = Constants.ElevationState.GROUNDED  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
-    self.stunTimer = 0           -- Stun timer in seconds
     
     -- Position animation state
     self.positionAnimation = {
@@ -75,13 +74,19 @@ function Wizard.new(name, x, y, color)
     
     -- Status effects
     self.statusEffects = {
-        burn = {
+        [Constants.StatusType.BURN] = {
             active = false,
             duration = 0,
             tickDamage = 0,
             tickInterval = 1.0,
             elapsed = 0,         -- Time since last tick
             totalTime = 0        -- Total time effect has been active
+        },
+        [Constants.StatusType.STUN] = {
+            active = false,
+            duration = 0,
+            elapsed = 0,
+            totalTime = 0
         }
     }
     
@@ -305,10 +310,13 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update stun timer
-    if self.stunTimer > 0 then
-        self.stunTimer = math.max(0, self.stunTimer - dt)
-        if self.stunTimer == 0 then
+    -- Update stun status effect
+    if self.statusEffects[Constants.StatusType.STUN] and self.statusEffects[Constants.StatusType.STUN].active then
+        local stun = self.statusEffects[Constants.StatusType.STUN]
+        stun.totalTime = stun.totalTime + dt
+        if stun.duration > 0 and stun.totalTime >= stun.duration then
+            stun.active = false
+            stun.totalTime = stun.duration
             print(self.name .. " is no longer stunned")
         end
     end
@@ -365,7 +373,7 @@ function Wizard:update(dt)
                 end
                 
                 -- If this is a burn effect, handle damage ticks
-                if effectType == "burn" and effectData.active then
+                if effectType == Constants.StatusType.BURN and effectData.active then
                     effectData.elapsed = effectData.elapsed + dt
                     if effectData.elapsed >= effectData.tickInterval then
                         -- Apply burn damage
@@ -527,8 +535,10 @@ end
 -- Handle key press and update currently keyed spell
 function Wizard:keySpell(keyIndex, isPressed)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 and isPressed then
-        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active and isPressed then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -568,8 +578,10 @@ end
 -- Cast the currently keyed spell
 function Wizard:castKeyedSpell()
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -607,8 +619,10 @@ end
 
 function Wizard:queueSpell(spell)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -717,8 +731,8 @@ function Wizard:queueSpell(spell)
 
                 -- Check for and apply Slow status effect
                 local finalCastTime = baseCastTime
-                if self.statusEffects and self.statusEffects.slow and self.statusEffects.slow.active then
-                    local slowEffect = self.statusEffects.slow
+                if self.statusEffects and self.statusEffects[Constants.StatusType.SLOW] and self.statusEffects[Constants.StatusType.SLOW].active then
+                    local slowEffect = self.statusEffects[Constants.StatusType.SLOW]
                     local targetSlot = slowEffect.targetSlot -- Slot the slow effect targets (nil for any)
                     local queueingSlot = i -- Slot we are currently queueing into
 

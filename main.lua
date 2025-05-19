@@ -378,7 +378,12 @@ function resetGame()
         wizard.health = 100
         wizard.elevation = Constants.ElevationState.GROUNDED
         wizard.elevationTimer = 0
-        wizard.stunTimer = 0
+        if wizard.statusEffects and wizard.statusEffects[Constants.StatusType.STUN] then
+            wizard.statusEffects[Constants.StatusType.STUN].active = false
+            wizard.statusEffects[Constants.StatusType.STUN].duration = 0
+            wizard.statusEffects[Constants.StatusType.STUN].elapsed = 0
+            wizard.statusEffects[Constants.StatusType.STUN].totalTime = 0
+        end
         
         -- Reset spell slots
         for i = 1, 3 do
@@ -397,12 +402,12 @@ function resetGame()
         end
         
         -- Reset status effects
-        wizard.statusEffects.burn.active = false
-        wizard.statusEffects.burn.duration = 0
-        wizard.statusEffects.burn.tickDamage = 0
-        wizard.statusEffects.burn.tickInterval = 1.0
-        wizard.statusEffects.burn.elapsed = 0
-        wizard.statusEffects.burn.totalTime = 0
+        wizard.statusEffects[Constants.StatusType.BURN].active = false
+        wizard.statusEffects[Constants.StatusType.BURN].duration = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickDamage = 0
+        wizard.statusEffects[Constants.StatusType.BURN].tickInterval = 1.0
+        wizard.statusEffects[Constants.StatusType.BURN].elapsed = 0
+        wizard.statusEffects[Constants.StatusType.BURN].totalTime = 0
         
         -- Reset blockers
         if wizard.blockers then
