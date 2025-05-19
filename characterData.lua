@@ -10,12 +10,12 @@ characterData.Ashgar = {
     color = {255,100,100},
     spellbook = {
         ["1"]  = Spells.conjurefire,
-        ["2"]  = Spells.novaconjuring,
-        ["3"]  = Spells.firebolt,
-        ["12"] = Spells.battleshield,
+        ["2"]  = Spells.firebolt,
+        ["3"]  = Spells.fireball,
+        ["12"] = Spells.burnToAsh,
         ["13"] = Spells.blastwave,
-        ["23"] = Spells.emberlift,
-        ["123"] = Spells.meteor,
+        ["23"] = Spells.saltcircle,
+        ["123"] = Spells.eruption,
     }
 }
 
@@ -62,7 +62,7 @@ characterData.Borrak = {
 local defaultSpellbook = characterData.Ashgar.spellbook
 local defaultColor = {255,255,255}
 
-local roster = {"Borrak","Brightwulf","Klaus","Ohm","Archive","End"}
+local roster = {"Brightwulf","Klaus","Ohm","Archive","End"}
 for _, name in ipairs(roster) do
     characterData[name] = {
         color = defaultColor,

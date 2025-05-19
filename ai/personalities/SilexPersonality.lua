@@ -123,6 +123,7 @@ end
 
 -- Get the best conjuration spell for the current situation
 function SilexPersonality:getConjureSpell(ai, perception, spellbook)
+    print("Silex:getConjureSpell")
     if ai:hasAvailableSpellSlot() then
         local spell = spellbook["1"] -- Conjure Salt
         if spell and ai.wizard:canPayManaCost(spell.cost) then
