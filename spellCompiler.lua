@@ -306,13 +306,20 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 print("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
             end
         end
-        
-        
+
+
         if compiledSpell.behavior.trap_effect then
             -- Make sure trapEffect data is in the results
             if not results.trapEffect then
                 results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
                 print("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
+            end
+        end
+
+        if compiledSpell.behavior.field_status then
+            if not results.fieldStatus then
+                results.fieldStatus = compiledSpell.behavior.field_status.params or {}
+                print("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
             end
         end
         

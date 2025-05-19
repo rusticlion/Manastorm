@@ -149,6 +149,21 @@ Keywords.trap_effect = {
         return results
     end
 }
+
+-- field_status: Defines a persistent status applied while the field is active
+Keywords.field_status = {
+    behavior = {
+        marksSpellAsSustained = true,
+        category = "FIELD"
+    },
+
+    execute = function(params, caster, target, results, events)
+        results.fieldStatus = params
+        results.isField = true
+        results.isSustained = true
+        return results
+    end
+}
 Keywords.targetTypes = Constants.TargetType
 
 -- ===== Core Combat Keywords =====
@@ -1021,3 +1036,4 @@ Keywords.vfx = {
 }
 
 return Keywords
+

@@ -522,6 +522,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                         end
 
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.field_status then
+                        orbitColor = {0.3, 1.0, 0.3, 0.7}
+                        stateText = "FIELD"
+                        stateTextColor = {0.3, 1.0, 0.3, 0.8}
+                        
                     elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
                         orbitColor = {0.9, 0.9, 0.9, 0.7} -- Light grey for sustained
                         stateText = "SUSTAIN"
