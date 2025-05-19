@@ -48,7 +48,7 @@ local function getCompiledSpell(spellId, wizard)
     end
 end
 
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     
     self.name = name
@@ -126,55 +126,8 @@ function Wizard.new(name, x, y, color)
     }
     self.currentKeyedSpell = nil
     
-    -- Spell loadout based on wizard name
-    if name == "Ashgar" then
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
-
-            -- Two key combos
-            ["12"] = Spells.battleshield,
-            ["13"] = Spells.blastwave,
-            ["23"] = Spells.emberlift,
-
-            -- Three key combo
-            ["123"] = Spells.meteor
-        }
-
-    elseif name == "Silex" then   -- New salt-themed wizard
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuresalt,
-            ["2"]  = Spells.glitterfang,
-            ["3"]  = Spells.imprison,
-
-            -- Two key combos
-            ["12"] = Spells.saltcircle,
-            ["13"] = Spells.stoneshield,
-            ["23"] = Spells.shieldbreaker,
-
-            -- Three key combo
-            ["123"] = Spells.saltstorm
-        }
-
-    else -- Default to Selene
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.wrapinmoonlight,
-            ["3"]  = Spells.moondance,
-            
-            -- Two key combos
-            ["12"] = Spells.infiniteprocession,
-            ["13"] = Spells.eclipse,
-            ["23"] = Spells.gravityTrap,
-            
-            -- Three key combo
-            ["123"] = Spells.fullmoonbeam
-        }
-    end
+    -- Spell loadout provided by character data
+    self.spellbook = spellbook or {}
     
     -- Create 3 spell slots for this wizard
     self.spellSlots = {}
