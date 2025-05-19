@@ -15,9 +15,11 @@ local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local CharacterData = require("characterData")
 
 -- Resolution settings
 local baseWidth = 800    -- Base design resolution width
@@ -38,6 +40,7 @@ game = {
     wizards = {},
     manaPool = nil,
     font = nil,
+    characterData = CharacterData,
     rangeState = Constants.RangeState.FAR,  -- Initial range state (NEAR or FAR)
     gameOver = false,
     winner = nil,
@@ -53,6 +56,23 @@ game = {
     attractModeActive = false,
     menuIdleTimer = 0,
     ATTRACT_MODE_DELAY = 15, -- Start attract mode after 15 seconds of inactivity
+    settings = Settings,
+    settingsMenu = {
+        selected = 1,
+        mode = nil,
+        waitingForKey = nil,
+        bindOrder = {
+            {"p1","slot1","P1 Slot 1"},
+            {"p1","slot2","P1 Slot 2"},
+            {"p1","slot3","P1 Slot 3"},
+            {"p1","cast","P1 Cast"},
+            {"p2","slot1","P2 Slot 1"},
+            {"p2","slot2","P2 Slot 2"},
+            {"p2","slot3","P2 Slot 3"},
+            {"p2","cast","P2 Cast"}
+        },
+        rebindIndex = 1
+    }
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
@@ -111,8 +131,31 @@ game.characterRoster = {
 
 game.unlockedCharacters = {
     Ashgar = true,
-    Selene = true
+    Selene = true,
+    Silex = false
 }
+
+-- Get a list of all unlocked characters in the roster
+local function getUnlockedCharacterList()
+    local list = {}
+    for _, name in ipairs(game.characterRoster) do
+        if game.unlockedCharacters[name] then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+-- Helper to grab an AI personality for a given character name
+local function getPersonalityFor(name)
+    if name == "Selene" then
+        return SelenePersonality
+    elseif name == "Ashgar" then
+        return AshgarPersonality
+    else
+        return nil
+    end
+end
 
 game.characterSelect = {
     stage = 1, -- 1: choose player, 2: choose opponent, 3: confirm
@@ -187,6 +230,10 @@ function love.load()
                         preloadStats.imageCount,
                         preloadStats.soundCount,
                         preloadStats.loadTime))
+
+    -- Load persisted settings
+    Settings.load()
+    Constants.setCastSpeedSet(Settings.get("gameSpeed") or "FAST")
     
     -- Set up game object to have calculateScaling function that can be called by Input
     game.calculateScaling = calculateScaling
@@ -211,8 +258,10 @@ function love.load()
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
     
     -- Create wizards - moved lower on screen to allow more room for aerial movement
-    game.wizards[1] = Wizard.new("Ashgar", 200, 370, {255, 100, 100})
-    game.wizards[2] = Wizard.new("Selene", 600, 370, {100, 100, 255})
+    local d1 = CharacterData.Ashgar
+    local d2 = CharacterData.Selene
+    game.wizards[1] = Wizard.new("Ashgar", 200, 370, d1.color, d1.spellbook)
+    game.wizards[2] = Wizard.new("Selene", 600, 370, d2.color, d2.spellbook)
     
     -- Set up references
     for _, wizard in ipairs(game.wizards) do
@@ -510,6 +559,21 @@ function startGameAttractMode()
     -- Reset the game to clear any existing state
     resetGame()
 
+    -- Choose two random unlocked characters
+    local unlocked = getUnlockedCharacterList()
+    if #unlocked < 2 then
+        print("Not enough unlocked characters for attract mode")
+        return
+    end
+
+    local name1 = unlocked[math.random(#unlocked)]
+    local name2 = unlocked[math.random(#unlocked)]
+    while name2 == name1 do
+        name2 = unlocked[math.random(#unlocked)]
+    end
+
+    setupWizards(name1, name2)
+
     -- Temporarily store input routes so we can restore them later
     game.savedInputRoutes = {
         p1 = Input.Routes.p1,
@@ -524,13 +588,9 @@ function startGameAttractMode()
     -- This way we can have two AI players without affecting the normal mode
     game.useAI = false
 
-    -- Create AI for player 1 (Ashgar)
-    local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-    game.player1AI = player1AI
-
-    -- Create AI for player 2 (Selene)
-    local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-    game.player2AI = player2AI
+    -- Create AIs for both players
+    game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+    game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
 
     -- Reset idle timer
     game.menuIdleTimer = 0
@@ -573,12 +633,10 @@ end
 
 -- Initialize wizards for battle based on selected names
 local function setupWizards(name1, name2)
-    local colorMap = {
-        Ashgar = {255,100,100},
-        Selene = {100,100,255}
-    }
-    game.wizards[1] = Wizard.new(name1, 200, 370, colorMap[name1] or {255,255,255})
-    game.wizards[2] = Wizard.new(name2, 600, 370, colorMap[name2] or {255,255,255})
+    local data1 = game.characterData[name1] or {}
+    local data2 = game.characterData[name2] or {}
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
     for _, wizard in ipairs(game.wizards) do
         wizard.manaPool = game.manaPool
         wizard.gameState = game
@@ -640,6 +698,55 @@ function game.characterSelectBack(toMenu)
     end
 end
 
+-- Start settings menu
+function game.startSettings()
+    game.settingsMenu.selected = 1
+    game.settingsMenu.mode = nil
+    game.settingsMenu.waitingForKey = nil
+    game.settingsMenu.rebindIndex = 1
+    game.currentState = "SETTINGS"
+end
+
+function game.settingsMove(dir)
+    if game.settingsMenu.mode then return end
+    local count = 3
+    local idx = game.settingsMenu.selected + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.settingsMenu.selected = idx
+end
+
+function game.settingsAdjust(dir)
+    if game.settingsMenu.mode then return end
+    if game.settingsMenu.selected == 1 then
+        if dir ~= 0 then
+            local val = Settings.get("dummyFlag")
+            Settings.set("dummyFlag", not val)
+        end
+    elseif game.settingsMenu.selected == 2 then
+        if dir ~= 0 then
+            local current = Settings.get("gameSpeed") or "FAST"
+            if current == "FAST" then
+                current = "SLOW"
+            else
+                current = "FAST"
+            end
+            Settings.set("gameSpeed", current)
+            Constants.setCastSpeedSet(current)
+        end
+    end
+end
+
+function game.settingsSelect()
+    if game.settingsMenu.selected == 3 then
+        game.settingsMenu.mode = "rebind"
+        game.settingsMenu.rebindIndex = 1
+        local a = game.settingsMenu.bindOrder[1]
+        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    else
+        game.settingsAdjust(1)
+    end
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -679,6 +786,11 @@ function love.update(dt)
         end
 
         -- No other updates needed in menu state
+        return
+    elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
         return
     elseif game.currentState == "CHARACTER_SELECT" then
         -- Simple animations for character select
@@ -863,13 +975,17 @@ function love.update(dt)
             -- Reset game and start another attract mode battle
             resetGame()
 
-            -- Create AI for player 1 (Ashgar)
-            local player1AI = OpponentAI.new(game.wizards[1], game, AshgarPersonality)
-            game.player1AI = player1AI
-
-            -- Create AI for player 2 (Selene)
-            local player2AI = OpponentAI.new(game.wizards[2], game, SelenePersonality)
-            game.player2AI = player2AI
+            local unlocked = getUnlockedCharacterList()
+            if #unlocked >= 2 then
+                local name1 = unlocked[math.random(#unlocked)]
+                local name2 = unlocked[math.random(#unlocked)]
+                while name2 == name1 do
+                    name2 = unlocked[math.random(#unlocked)]
+                end
+                setupWizards(name1, name2)
+                game.player1AI = OpponentAI.new(game.wizards[1], game, getPersonalityFor(name1))
+                game.player2AI = OpponentAI.new(game.wizards[2], game, getPersonalityFor(name2))
+            end
 
             -- Keep attract mode active
             game.attractModeActive = true
@@ -905,6 +1021,8 @@ function love.draw()
     if game.currentState == "MENU" then
         -- Draw the main menu
         drawMainMenu()
+    elseif game.currentState == "SETTINGS" then
+        drawSettingsMenu()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -1594,6 +1712,40 @@ function drawCharacterSelect()
     end
     local w = game.font:getWidth(msg)
     love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+end
+
+-- Draw the settings menu
+function drawSettingsMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local options = {
+        "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
+        "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Rebind Controls"
+    }
+
+    for i, text in ipairs(options) do
+        local scale = 1.4
+        local y = screenHeight * 0.4 + (i-1) * 40
+        local w = game.font:getWidth(text) * scale
+        if i == game.settingsMenu.selected and not game.settingsMenu.mode then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new key for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
 end
 
 -- Draw attract mode overlay

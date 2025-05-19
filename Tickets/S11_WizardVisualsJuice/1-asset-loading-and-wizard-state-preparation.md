@@ -17,7 +17,7 @@ Lua
 Modify Wizard.new (wizard.lua):
 For Ashgar, load and store the idle animation frames.
 Add new properties to the Wizard instance for animation control.
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     -- ... (existing properties) ...
 

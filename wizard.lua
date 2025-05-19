@@ -10,6 +10,7 @@ local Spells = SpellsModule.spells
 local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
+local UnlockSystem = require("systems.UnlockSystem")
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -48,7 +49,7 @@ local function getCompiledSpell(spellId, wizard)
     end
 end
 
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     
     self.name = name
@@ -126,55 +127,8 @@ function Wizard.new(name, x, y, color)
     }
     self.currentKeyedSpell = nil
     
-    -- Spell loadout based on wizard name
-    if name == "Ashgar" then
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjurefire,
-            ["2"]  = Spells.novaconjuring,
-            ["3"]  = Spells.firebolt,
-
-            -- Two key combos
-            ["12"] = Spells.battleshield,
-            ["13"] = Spells.blastwave,
-            ["23"] = Spells.emberlift,
-
-            -- Three key combo
-            ["123"] = Spells.meteor
-        }
-
-    elseif name == "Silex" then   -- New salt-themed wizard
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuresalt,
-            ["2"]  = Spells.glitterfang,
-            ["3"]  = Spells.imprison,
-
-            -- Two key combos
-            ["12"] = Spells.saltcircle,
-            ["13"] = Spells.stoneshield,
-            ["23"] = Spells.shieldbreaker,
-
-            -- Three key combo
-            ["123"] = Spells.saltstorm
-        }
-
-    else -- Default to Selene
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.wrapinmoonlight,
-            ["3"]  = Spells.moondance,
-            
-            -- Two key combos
-            ["12"] = Spells.infiniteprocession,
-            ["13"] = Spells.eclipse,
-            ["23"] = Spells.gravityTrap,
-            
-            -- Three key combo
-            ["123"] = Spells.fullmoonbeam
-        }
-    end
+    -- Spell loadout provided by character data
+    self.spellbook = spellbook or {}
     
     -- Create 3 spell slots for this wizard
     self.spellSlots = {}
@@ -1025,6 +979,9 @@ function Wizard:castSpell(spellSlot)
             print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
         end
     end
+
+    -- Check for character unlocks based on this spell
+    UnlockSystem.checkSpellUnlock(spellToUse, self)
     
     -- Get attack type for shield checking
     local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE

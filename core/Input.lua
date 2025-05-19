@@ -40,6 +40,24 @@ end
 function Input.handleKey(key, scancode, isrepeat)
     -- Log key presses for debugging
     print("DEBUG: Key pressed: '" .. key .. "'")
+
+    -- Handle settings key capture
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local action = gameState.settingsMenu.waitingForKey
+        local controls = gameState.settings.get("controls")
+        controls[action.player][action.key] = key
+        gameState.settings.set("controls", controls)
+        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
+        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
+            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
+            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+        else
+            gameState.settingsMenu.waitingForKey = nil
+            gameState.settingsMenu.mode = nil
+        end
+        Input.setupRoutes()
+        return true
+    end
     
     -- First check gameOver state - these have highest priority
     if gameState and gameState.gameOver then
@@ -66,10 +84,14 @@ function Input.handleKey(key, scancode, isrepeat)
         end
     end
     
-    -- Check UI controls (always active)
+    -- Check UI controls (always active). Only stop processing if handled
     local uiHandler = Input.Routes.ui[key]
     if uiHandler then
-        return uiHandler(key, scancode, isrepeat)
+        local handled = uiHandler(key, scancode, isrepeat)
+        if handled then
+            return true
+        end
+        -- fall through to player controls when not handled
     end
     
     -- Check player 1 controls
@@ -102,18 +124,19 @@ end
 
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
+    local controls = gameState.settings.get("controls")
     -- Handle player 1 key releases
-    if key == "q" or key == "w" or key == "e" then
-        local slotIndex = key == "q" and 1 or (key == "w" and 2 or 3)
+    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
+        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[1] then
             gameState.wizards[1]:keySpell(slotIndex, false)
             return true
         end
     end
-    
+
     -- Handle player 2 key releases
-    if key == "i" or key == "o" or key == "p" then
-        local slotIndex = key == "i" and 1 or (key == "o" and 2 or 3)
+    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
+        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[2] then
             gameState.wizards[2]:keySpell(slotIndex, false)
             return true
@@ -125,6 +148,14 @@ end
 
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
+    -- Reset route tables
+    Input.Routes.system = {}
+    Input.Routes.p1 = {}
+    Input.Routes.p2 = {}
+    Input.Routes.debug = {}
+    Input.Routes.test = {}
+    Input.Routes.ui = {}
+    Input.Routes.gameOver = {}
     -- Exit / Quit the game or return to menu
     Input.Routes.ui["escape"] = function()
         -- If in MENU state, quit the game
@@ -145,6 +176,9 @@ function Input.setupRoutes()
         -- If in CHARACTER_SELECT, go back to menu
         elseif gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectBack(true)
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.currentState = "MENU"
             return true
         end
         return false
@@ -228,10 +262,10 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Settings stub
+    -- Open settings menu
     Input.Routes.ui["5"] = function()
         if gameState.currentState == "MENU" then
-            print("Settings not implemented yet")
+            gameState.startSettings()
             return true
         end
         return false
@@ -250,6 +284,58 @@ function Input.setupRoutes()
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
             gameState.startCharacterSelect()
+            return true
+        elseif gameState.currentState == "SETTINGS" then
+            gameState.settingsSelect()
+            return true
+        end
+        return false
+    end
+
+    -- SETTINGS CONTROLS
+    Input.Routes.ui["up"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["down"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsMove(1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["left"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(-1)
+            return true
+        end
+        return false
+    end
+    Input.Routes.ui["right"] = function()
+        if gameState.currentState == "SETTINGS" then
+            gameState.settingsAdjust(1)
+            return true
+        end
+        return false
+    end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
             return true
         end
         return false
@@ -297,72 +383,76 @@ function Input.setupRoutes()
     end
     
     -- PLAYER 1 CONTROLS (Ashgar)
+    local c = gameState.settings.get("controls")
+    local p1 = c.p1
+    local p2 = c.p2
+
     -- Key spell slots
-    Input.Routes.p1["q"] = function()
+    Input.Routes.p1[p1.slot1] = function()
         gameState.wizards[1]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p1["w"] = function()
+
+    Input.Routes.p1[p1.slot2] = function()
         gameState.wizards[1]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p1["e"] = function()
+
+    Input.Routes.p1[p1.slot3] = function()
         gameState.wizards[1]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p1["f"] = function()
+    Input.Routes.p1[p1.cast] = function()
         gameState.wizards[1]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p1["g"] = function()
+    Input.Routes.p1[p1.free] = function()
         gameState.wizards[1]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p1["b"] = function()
+    Input.Routes.p1[p1.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(1)
         return true
     end
-    
+
     -- PLAYER 2 CONTROLS (Selene)
     -- Key spell slots
-    Input.Routes.p2["i"] = function()
+    Input.Routes.p2[p2.slot1] = function()
         gameState.wizards[2]:keySpell(1, true)
         return true
     end
-    
-    Input.Routes.p2["o"] = function()
+
+    Input.Routes.p2[p2.slot2] = function()
         gameState.wizards[2]:keySpell(2, true)
         return true
     end
-    
-    Input.Routes.p2["p"] = function()
+
+    Input.Routes.p2[p2.slot3] = function()
         gameState.wizards[2]:keySpell(3, true)
         return true
     end
-    
+
     -- Cast keyed spell
-    Input.Routes.p2["j"] = function()
+    Input.Routes.p2[p2.cast] = function()
         gameState.wizards[2]:castKeyedSpell()
         return true
     end
-    
+
     -- Free all spells
-    Input.Routes.p2["h"] = function()
+    Input.Routes.p2[p2.free] = function()
         gameState.wizards[2]:freeAllSpells()
         return true
     end
-    
+
     -- Toggle spellbook
-    Input.Routes.p2["m"] = function()
+    Input.Routes.p2[p2.book] = function()
         local UI = require("ui")
         UI.toggleSpellbook(2)
         return true
