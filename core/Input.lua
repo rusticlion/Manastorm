@@ -66,10 +66,14 @@ function Input.handleKey(key, scancode, isrepeat)
         end
     end
     
-    -- Check UI controls (always active)
+    -- Check UI controls (always active). Only stop processing if handled
     local uiHandler = Input.Routes.ui[key]
     if uiHandler then
-        return uiHandler(key, scancode, isrepeat)
+        local handled = uiHandler(key, scancode, isrepeat)
+        if handled then
+            return true
+        end
+        -- fall through to player controls when not handled
     end
     
     -- Check player 1 controls
