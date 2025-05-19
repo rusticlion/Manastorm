@@ -20,6 +20,7 @@
 
 local Constants = require("core.Constants")
 local VisualResolver = require("systems.VisualResolver")
+local Log = require("core.Log")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -73,20 +74,20 @@ end
 
 -- Safe VFX creation helper function
 local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
-    if not vfx then 
-        print("DEBUG: VFX system is nil")
-        return false 
+    if not vfx then
+        Log.debug("DEBUG: VFX system is nil")
+        return false
     end
     
     -- Make sure x and y are valid numbers
     if not x or not y or type(x) ~= "number" or type(y) ~= "number" then
         x = 0
         y = 0
-        print("DEBUG: Invalid coordinates for VFX, using (0,0)")
+        Log.debug("DEBUG: Invalid coordinates for VFX, using (0,0)")
     end
     
     -- Debug the parameters
-    print(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)", 
+    Log.debug(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)",
         methodName, tostring(fallbackType), x or 0, y or 0))
         
     -- Try to call the specific method
@@ -95,21 +96,21 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         local success, err = pcall(function() 
             if methodName == "createEffect" then
                 -- Print the type of vfx and fallbackType for debugging
-                print("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
+                Log.debug("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
                 
                 -- IMPORTANT: Need to use dot notation and pass VFX module as first arg for module functions
                 -- DO NOT use colon notation (vfx:createEffect) as it passes vfx as self which makes effectName a table
-                print("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
+                Log.debug("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
                 vfx.createEffect(fallbackType, x, y, nil, nil, params)
             else
                 -- For other methods
-                print("[safeCreateVFX] Calling vfx." .. methodName)
+                Log.debug("[safeCreateVFX] Calling vfx." .. methodName)
                 vfx[methodName](vfx, x, y, params) 
             end
         end)
         
         if not success then
-            print("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
+            Log.debug("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
             -- Try fallback on error
             if methodName ~= "createEffect" and type(vfx.createEffect) == "function" then
                 pcall(function() vfx.createEffect(fallbackType, x, y, nil, nil, params) end)
@@ -123,12 +124,12 @@ local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
         end)
         
         if not success then
-            print("DEBUG: Error calling createEffect: " .. tostring(err))
+            Log.debug("DEBUG: Error calling createEffect: " .. tostring(err))
         end
         return true
     else
         -- Debug output if no VFX methods are available
-        print("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
+        Log.debug("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
         return false
     end
 end
@@ -576,18 +577,26 @@ EventRunner.EVENT_HANDLERS = {
         -- Initialize status effects table if it doesn't exist
         targetWizard.statusEffects = targetWizard.statusEffects or {}
         
-        -- Add or update the status effect - Store relevant fields from the event
-        targetWizard.statusEffects[event.statusType] = {
-            active = true, -- Mark as active
-            duration = event.duration or 0, -- How long the status lasts (or waits, for slow)
-            tickDamage = event.tickDamage, -- For DoTs like burn
-            tickInterval = event.tickInterval, -- For DoTs like burn
-            magnitude = event.magnitude, -- For effects like slow (cast time increase)
-            targetSlot = event.targetSlot, -- For effects like slow (specific slot)
-            elapsed = 0, -- Timer for DoT ticks
-            totalTime = 0, -- Timer for overall duration
-            source = caster -- Who applied the status
+        -- Build effect data table
+        local effectData = {
+            active = true,
+            duration = event.duration or 0,
+            tickDamage = event.tickDamage,
+            tickInterval = event.tickInterval,
+            magnitude = event.magnitude,
+            targetSlot = event.targetSlot,
+            elapsed = 0,
+            totalTime = 0,
+            source = caster
         }
+
+        if event.statusType == Constants.StatusType.STUN then
+            -- Explicitly store under "stun" key for easy access
+            targetWizard.statusEffects[Constants.StatusType.STUN] = effectData
+        else
+            -- Generic status effect storage
+            targetWizard.statusEffects[event.statusType] = effectData
+        end
         
         -- Log the application
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
@@ -1329,17 +1338,17 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Debug logging for onBlock
         if event.onBlock then
-            print("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
-            print("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event contains onBlock handler")
+            Log.debug("[EVENT DEBUG] Type of onBlock: " .. type(event.onBlock))
             
             -- Check if it's actually a function
             if type(event.onBlock) == "function" then
-                print("[EVENT DEBUG] onBlock is a valid function")
+                Log.debug("[EVENT DEBUG] onBlock is a valid function")
             else
-                print("[EVENT DEBUG] WARNING: onBlock is not a function!")
+                Log.debug("[EVENT DEBUG] WARNING: onBlock is not a function!")
             end
         else
-            print("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
+            Log.debug("[EVENT DEBUG] CREATE_SHIELD event has no onBlock handler")
         end
         
         -- Check if the wizard has a createShield method
@@ -1358,7 +1367,7 @@ EventRunner.EVENT_HANDLERS = {
             for _, tokenData in ipairs(slot.tokens) do
                 if tokenData.token then
                     tokenData.token:setState(Constants.TokenStatus.SHIELDING)
-                    print("DEBUG: Marked token as SHIELDING to prevent return to pool")
+                    Log.debug("DEBUG: Marked token as SHIELDING to prevent return to pool")
                 end
             end
         else
@@ -1489,25 +1498,25 @@ EventRunner.EVENT_HANDLERS = {
     
     -- Add a new EFFECT event handler for pure visual effects
     EFFECT = function(event, caster, target, spellSlot, results)
-        print("[EFFECT EVENT] Processing EFFECT event")
+        Log.debug("[EFFECT EVENT] Processing EFFECT event")
         
         -- Detailed event inspection for debugging
-        print("[EFFECT EVENT] Full event details:")
-        print(string.format("  effectOverride=%s", tostring(event.effectOverride)))
-        print(string.format("  effectType=%s", tostring(event.effectType)))
-        print(string.format("  affinity=%s, attackType=%s, damageType=%s", 
-            tostring(event.affinity), 
-            tostring(event.attackType), 
+        Log.debug("[EFFECT EVENT] Full event details:")
+        Log.debug(string.format("  effectOverride=%s", tostring(event.effectOverride)))
+        Log.debug(string.format("  effectType=%s", tostring(event.effectType)))
+        Log.debug(string.format("  affinity=%s, attackType=%s, damageType=%s",
+            tostring(event.affinity),
+            tostring(event.attackType),
             tostring(event.damageType)))
-        print(string.format("  source=%s, target=%s", 
-            tostring(event.source), 
+        Log.debug(string.format("  source=%s, target=%s",
+            tostring(event.source),
             tostring(event.target)))
             
         -- Check if spell has override
         if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
            caster.spellSlots[spellSlot].spell then
             local spell = caster.spellSlots[spellSlot].spell
-            print(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s", 
+            Log.debug(string.format("[EFFECT EVENT] Associated spell: name=%s, effectOverride=%s",
                 tostring(spell.name), tostring(spell.effectOverride)))
         end
         
@@ -1520,7 +1529,7 @@ EventRunner.EVENT_HANDLERS = {
             srcY = event.vfxParams.y
             tgtX = event.vfxParams.targetX or srcX  -- Use target coords if provided, otherwise same as source
             tgtY = event.vfxParams.targetY or srcY
-            print(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Using direct coordinates from vfxParams: (%d, %d) -> (%d, %d)",
                 srcX, srcY, tgtX, tgtY))
         
         -- CASE 2: Otherwise resolve based on source/target entities
@@ -1535,13 +1544,13 @@ EventRunner.EVENT_HANDLERS = {
                 local targetWizard = targetInfo.wizard
                 tgtX = targetWizard.x
                 tgtY = targetWizard.y
-                print(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)", 
+                Log.debug(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)",
                     srcX, srcY, tgtX or srcX, tgtY or srcY))
             else
                 -- If target resolution fails, use same coordinates as source
                 tgtX = srcX
                 tgtY = srcY
-                print("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
+                Log.debug("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
             end
         end
         
@@ -1552,16 +1561,16 @@ EventRunner.EVENT_HANDLERS = {
         if event.effectOverride then
             -- First check the event for an effectOverride (highest priority)
             overrideName = event.effectOverride
-            print("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectOverride: " .. tostring(overrideName))
         elseif event.effectType then
             -- Then check if there's an effectType directly in the event (legacy VFX keyword)
             overrideName = event.effectType
-            print("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using event effectType: " .. tostring(overrideName))
         elseif spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
                caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
             -- Finally check the spell slot for effectOverride (set by vfx keyword)
             overrideName = caster.spellSlots[spellSlot].spell.effectOverride
-            print("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
+            Log.debug("[EFFECT EVENT] Using spell effectOverride: " .. tostring(overrideName))
         end
         
         -- Create visual effect if VFX system is available
@@ -1570,13 +1579,13 @@ EventRunner.EVENT_HANDLERS = {
             local baseEffectName, vfxOpts
             
             -- Debug before VisualResolver.pick
-            print("[EFFECT EVENT] About to call VisualResolver.pick()")
-            print("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
+            Log.debug("[EFFECT EVENT] About to call VisualResolver.pick()")
+            Log.debug("[EFFECT EVENT] Override strategy: " .. (overrideName and "Using override: " .. tostring(overrideName) or "Using metadata resolution"))
             
             if overrideName then
                 -- Manual override - use it directly but still get options from resolver
                 event.effectOverride = overrideName -- Ensure the event has the override
-                print("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
+                Log.debug("[EFFECT EVENT] Set event.effectOverride = " .. tostring(overrideName))
                 baseEffectName, vfxOpts = VisualResolver.pick(event)
             else
                 -- Standard resolver path using event metadata
@@ -1584,13 +1593,13 @@ EventRunner.EVENT_HANDLERS = {
             end
             
             -- Debug after VisualResolver.pick
-            print(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s", 
-                tostring(baseEffectName), 
+            Log.debug(string.format("[EFFECT EVENT] VisualResolver.pick() returned: effectName=%s, options=%s",
+                tostring(baseEffectName),
                 vfxOpts and "present" or "nil"))
             
             -- Skip VFX if no valid base effect name
             if not baseEffectName then
-                print("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
+                Log.debug("[EFFECT EVENT] Warning: No valid effect name provided by VisualResolver")
                 return false
             end
             
@@ -1612,23 +1621,23 @@ EventRunner.EVENT_HANDLERS = {
                 vfxOpts.amount = event.amount or vfxOpts.amount or 10
                 
                 -- Debug entity references
-                print(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
+                Log.debug(string.format("[EFFECT EVENT] Setting sourceEntity = %s", tostring(caster)))
             end
             if target and target.name then
                 vfxOpts.target = target.name
                 vfxOpts.targetEntity = target
-                print(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
+                Log.debug(string.format("[EFFECT EVENT] Setting targetEntity = %s", tostring(target)))
             end
             
             -- For SHIELD_BLOCKED events, make sure we have all needed references
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
+                Log.debug("[EFFECT EVENT] This is a SHIELD_BLOCKED event")
                 vfxOpts.gameState = caster.gameState
             end
             
             -- Handle shield blocked effects
             if event.tags and event.tags.SHIELD_BLOCKED then
-                print("[EFFECT EVENT] Processing shield blocked effect")
+                Log.debug("[EFFECT EVENT] Processing shield blocked effect")
                 
                 -- Pass blockInfo to VFX system
                 if event.blockInfo then
@@ -1642,10 +1651,10 @@ EventRunner.EVENT_HANDLERS = {
                         vfxOpts.shieldType = event.blockInfo.blockType
                     end
                     
-                    print("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Shield block visual at " .. tostring(vfxOpts.blockPoint))
                 else
                     -- Create fallback blockInfo if missing but event has SHIELD_BLOCKED tag
-                    print("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
+                    Log.debug("[EFFECT EVENT] WARNING: SHIELD_BLOCKED tag but no blockInfo, creating default blockInfo")
                     vfxOpts.blockInfo = {
                         blockable = true,
                         blockType = event.shieldType or "ward",
@@ -1658,11 +1667,11 @@ EventRunner.EVENT_HANDLERS = {
                     vfxOpts.tags = vfxOpts.tags or {}
                     vfxOpts.tags.SHIELD_BLOCKED = true
                     
-                    print("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
+                    Log.debug("[EFFECT EVENT] Created fallback shield block visual at " .. tostring(vfxOpts.blockPoint))
                 end
             elseif event.blockInfo then
                 -- Legacy handling for other events with blockInfo
-                print("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
+                Log.debug("[EFFECT EVENT] Found blockInfo in event, passing to VFX system")
                 vfxOpts.blockInfo = event.blockInfo
                 
                 -- Add standard blockPoint ratio for visual impact
@@ -1685,7 +1694,7 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Check if we need to add delayed damage to the options
             if event.delayedDamage and event.delayedDamageTarget then
-                print(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
+                Log.debug(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
                 vfxOpts.delayedDamage = event.delayedDamage
                 vfxOpts.delayedDamageTarget = event.delayedDamageTarget
                 
@@ -1709,7 +1718,7 @@ EventRunner.EVENT_HANDLERS = {
                                 local intensity = math.min(10, 5 + (amount / 10))
                                 target.gameState.triggerShake(0.35, intensity)
                                 target.gameState.triggerHitstop(0.12)
-                                print(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.35, intensity, 0.12))
                             end
                         elseif amount >= 8 then
@@ -1717,26 +1726,26 @@ EventRunner.EVENT_HANDLERS = {
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.25, 6)
                                 target.gameState.triggerHitstop(0.08)
-                                print(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
                                     0.25, 6, 0.08))
                             end
                         elseif amount >= 3 then
                             -- Light hit
                             if target.gameState and target.gameState.triggerShake then
                                 target.gameState.triggerShake(0.15, 4)
-                                print(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
+                                Log.debug(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
                                     0.15, 4))
                             end
                         end
                         
-                        print(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d", 
+                        Log.debug(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d",
                             amount, target.name, target.health))
                     end
                 end
             end
             
             -- Extra debug info
-            print(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)", 
+            Log.debug(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)",
                 tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
             -- Call VFX.createEffect directly instead of using safeCreateVFX
@@ -1753,11 +1762,11 @@ EventRunner.EVENT_HANDLERS = {
                     return false
                 end
             else
-                print("[EFFECT EVENT] ERROR: VFX.createEffect not available")
+                Log.debug("[EFFECT EVENT] ERROR: VFX.createEffect not available")
                 return false
             end
         else
-            print("[EFFECT EVENT] ERROR: VFX system not available")
+            Log.debug("[EFFECT EVENT] ERROR: VFX system not available")
             return false
         end
         
@@ -1767,19 +1776,19 @@ EventRunner.EVENT_HANDLERS = {
 
 -- Debug function to print all events
 function EventRunner.debugPrintEvents(events)
-    print("===== DEBUG: Event List =====")
+    Log.debug("===== DEBUG: Event List =====")
     for i, event in ipairs(events) do
-        print(string.format("[%d] %s - Source: %s, Target: %s", 
+        Log.debug(string.format("[%d] %s - Source: %s, Target: %s",
             i, event.type, event.source, event.target))
         
         -- Print additional event-specific fields
         for k, v in pairs(event) do
             if k ~= "type" and k ~= "source" and k ~= "target" then
-                print(string.format("  %s: %s", k, tostring(v)))
+                Log.debug(string.format("  %s: %s", k, tostring(v)))
             end
         end
     end
-    print("=============================")
+    Log.debug("=============================")
 end
 
 return EventRunner

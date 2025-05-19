@@ -30,6 +30,12 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 ### General
 - ESC: Quit the game
 
+## Debug Logging
+
+Verbose debug output can be toggled at runtime. Require the `core.Log` module and
+call `Log.setVerbose(true)` to enable detailed logging. Set it to `false` (the
+default) to silence development traces.
+
 ## Development Status
 
 This is a late prototype with basic full engine functionality:

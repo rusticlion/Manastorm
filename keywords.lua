@@ -119,32 +119,6 @@ Keywords.trap_trigger = {
     end
 }
 
--- trap_window: Defines the duration or condition for a trap spell's expiration
-Keywords.trap_window = {
-    -- Behavior definition
-    behavior = {
-        storesWindowCondition = true,
-        category = "TRAP"
-    },
-    
-    -- Implementation function - Stores window condition/duration
-    execute = function(params, caster, target, results, events)
-        results.trapWindow = params
-        
-        -- Log info based on whether it's duration or condition-based
-        if params.duration then
-            print(string.format("[TRAP] Stored window duration: %.1f seconds", 
-                params.duration))
-        elseif params.condition then
-            print(string.format("[TRAP] Stored window condition: %s", 
-                params.condition))
-        else
-            print("[TRAP] Warning: Window with no duration or condition")
-        end
-        
-        return results
-    end
-}
 
 -- trap_effect: Defines the effect that occurs when a trap is triggered
 Keywords.trap_effect = {
@@ -172,6 +146,21 @@ Keywords.trap_effect = {
             print("[TRAP] Warning: Effect payload with no effects defined")
         end
         
+        return results
+    end
+}
+
+-- field_status: Defines a persistent status applied while the field is active
+Keywords.field_status = {
+    behavior = {
+        marksSpellAsSustained = true,
+        category = "FIELD"
+    },
+
+    execute = function(params, caster, target, results, events)
+        results.fieldStatus = params
+        results.isField = true
+        results.isSustained = true
         return results
     end
 }
@@ -1086,3 +1075,4 @@ Keywords.vfx = {
 }
 
 return Keywords
+

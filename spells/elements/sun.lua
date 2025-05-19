@@ -296,4 +296,23 @@ SunSpells.forcebarrier = {
     sfx = "shield_up",
 }
 
+-- Radiant Field spell applying slow to both wizards
+SunSpells.radiantfield = {
+    id = "radiantfield",
+    name = "Radiant Field",
+    affinity = "sun",
+    description = "Blinding field that slows both wizards while active.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "blast",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        field_status = {
+            statusType = Constants.StatusType.SLOW,
+            magnitude = Constants.CastSpeed.ONE_TIER
+        }
+    },
+    sfx = "radiant_field"
+}
+
 return SunSpells

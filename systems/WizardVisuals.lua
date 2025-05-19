@@ -135,15 +135,16 @@ function WizardVisuals.drawStatusEffects(wizard)
     end
     
     -- Draw STUN duration if active
-    if wizard.stunTimer > 0 then
+    if wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         effectCount = effectCount + 1
         local y = baseY - (effectCount * (barHeight + barPadding))
-        
+
         -- Calculate progress (1.0 to 0.0 as time depletes)
-        local maxDuration = 3.0  -- Assuming 3 seconds is max stun duration
-        local progress = wizard.stunTimer / maxDuration
-        progress = math.min(1.0, progress)  -- Cap at 1.0
-        
+        local stun = wizard.statusEffects.stun
+        local maxDuration = stun.duration
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        local progress = maxDuration > 0 and remaining / maxDuration or 0
+
         -- Get color for stun state
         local color = WizardVisuals.getStatusEffectColor(Constants.StatusType.STUN)
         
@@ -521,6 +522,11 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                         end
 
+                    elseif slot.spell and slot.spell.behavior and slot.spell.behavior.field_status then
+                        orbitColor = {0.3, 1.0, 0.3, 0.7}
+                        stateText = "FIELD"
+                        stateTextColor = {0.3, 1.0, 0.3, 0.8}
+                        
                     elseif slot.spell and slot.spell.behavior and slot.spell.behavior.sustain then
                         orbitColor = {0.9, 0.9, 0.9, 0.7} -- Light grey for sustained
                         stateText = "SUSTAIN"
@@ -829,7 +835,7 @@ function WizardVisuals.drawWizard(wizard)
         wizardColor = {2.0, 2.0, 2.0, 1} -- Super bright white
         
         -- Flash effect is now implemented with additive blending
-    elseif wizard.stunTimer > 0 then
+    elseif wizard.statusEffects.stun and wizard.statusEffects.stun.active then
         -- Apply a yellow/white flash for stunned wizards
         local flashIntensity = 0.5 + math.sin(love.timer.getTime() * 10) * 0.5
         wizardColor = {1, 1, flashIntensity, 1}
@@ -857,17 +863,17 @@ function WizardVisuals.drawWizard(wizard)
         local flipX = (wizard.name == "Selene") and -1 or 1  -- Flip Selene to face left
         local adjustedScale = wizard.scale * flipX  -- Apply flip for Selene
 
-        -- Determine which sprite to draw (casting, idle animation, or static)
-        local spriteToDraw = nil
+        -- Determine which sprite to draw based on positional animation sets
+        local spriteToDraw
+        local posKey = wizard:getPositionalKey()
+        local castSprite = wizard:getCastFrameForKey(posKey)
+        local idleFrames = wizard:getIdleFramesForKey(posKey)
 
-        if wizard.castFrameTimer > 0 and wizard.castFrameSprite then
-            -- Use cast frame if we're in the middle of casting
-            spriteToDraw = wizard.castFrameSprite
-        elseif wizard.idleAnimationFrames and #wizard.idleAnimationFrames > 0 then
-            -- Use current idle animation frame if available
-            spriteToDraw = wizard.idleAnimationFrames[wizard.currentIdleFrame]
+        if wizard.castFrameTimer > 0 and castSprite then
+            spriteToDraw = castSprite
+        elseif idleFrames and #idleFrames > 0 then
+            spriteToDraw = idleFrames[wizard.currentIdleFrame]
         else
-            -- Fallback to the original static sprite if no animation frames are available
             spriteToDraw = wizard.sprite
         end
 

@@ -48,7 +48,7 @@ local function getCompiledSpell(spellId, wizard)
     end
 end
 
-function Wizard.new(name, x, y, color)
+function Wizard.new(name, x, y, color, spellbook)
     local self = setmetatable({}, Wizard)
     
     self.name = name
@@ -60,7 +60,6 @@ function Wizard.new(name, x, y, color)
     self.health = 100
     self.elevation = Constants.ElevationState.GROUNDED  -- GROUNDED or AERIAL
     self.elevationTimer = 0      -- Timer for temporary elevation changes
-    self.stunTimer = 0           -- Stun timer in seconds
     
     -- Position animation state
     self.positionAnimation = {
@@ -82,6 +81,12 @@ function Wizard.new(name, x, y, color)
             tickInterval = 1.0,
             elapsed = 0,         -- Time since last tick
             totalTime = 0        -- Total time effect has been active
+        },
+        [Constants.StatusType.STUN] = {
+            active = false,
+            duration = 0,
+            elapsed = 0,
+            totalTime = 0
         }
     }
     
@@ -106,6 +111,9 @@ function Wizard.new(name, x, y, color)
     self.currentIdleFrame = 1
     self.idleFrameTimer = 0
     self.idleFrameDuration = 0.15 -- seconds per frame
+    -- Positional animation sets (per range/elevation combo)
+    self.positionalAnimations = {}
+    self.lastPositionalKey = nil
 
     -- Spell cast notification (temporary until proper VFX)
     self.spellCastNotification = nil
@@ -118,55 +126,8 @@ function Wizard.new(name, x, y, color)
     }
     self.currentKeyedSpell = nil
     
-    -- Spell loadout based on wizard name
-    if name == "Ashgar" then
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.burnTheSoul,
-            ["2"]  = Spells.SpaceRipper,
-            ["3"]  = Spells.StingingEyes,
-
-            -- Two key combos
-            ["12"] = Spells.battleshield,
-            ["13"] = Spells.NuclearFurnace,
-            ["23"] = Spells.firebolt,
-
-            -- Three key combo
-            ["123"] = Spells.CoreBolt
-        }
-
-    elseif name == "Silex" then   -- New salt-themed wizard
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuresalt,
-            ["2"]  = Spells.glitterfang,
-            ["3"]  = Spells.imprison,
-
-            -- Two key combos
-            ["12"] = Spells.saltcircle,
-            ["13"] = Spells.stoneshield,
-            ["23"] = Spells.shieldbreaker,
-
-            -- Three key combo
-            ["123"] = Spells.saltstorm
-        }
-
-    else -- Default to Selene
-        self.spellbook = {
-            -- Single key spells
-            ["1"]  = Spells.conjuremoonlight,
-            ["2"]  = Spells.wrapinmoonlight,
-            ["3"]  = Spells.moondance,
-            
-            -- Two key combos
-            ["12"] = Spells.infiniteprocession,
-            ["13"] = Spells.eclipse,
-            ["23"] = Spells.gravityTrap,
-            
-            -- Three key combo
-            ["123"] = Spells.fullmoonbeam
-        }
-    end
+    -- Spell loadout provided by character data
+    self.spellbook = spellbook or {}
     
     -- Create 3 spell slots for this wizard
     self.spellSlots = {}
@@ -219,7 +180,7 @@ function Wizard.new(name, x, y, color)
         print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
     end
 
-    -- Load idle animation frames specifically for Ashgar
+    -- Load default idle animation frames (used as fallback for positional sets)
     if name == "Ashgar" then
         local AssetCache = require("core.AssetCache")
         for i = 1, 7 do
@@ -229,19 +190,19 @@ function Wizard.new(name, x, y, color)
                 table.insert(self.idleAnimationFrames, frameImg)
             else
                 print("Warning: Could not load Ashgar idle frame: " .. framePath)
-                -- Fallback to using the main sprite if we can't load the idle frame
                 table.insert(self.idleAnimationFrames, self.sprite)
             end
         end
-        -- If no idle frames loaded, use the main sprite as a single-frame animation
         if #self.idleAnimationFrames == 0 then
             print("Warning: Ashgar has no idle animation frames loaded, using static sprite.")
             table.insert(self.idleAnimationFrames, self.sprite)
         end
     else
-        -- For other wizards, populate with their main sprite for now
         table.insert(self.idleAnimationFrames, self.sprite)
     end
+
+    -- Load positional animation sets (idle + cast for range/elevation combos)
+    self:loadPositionalAnimations()
 
     self.scale = 1.0
     
@@ -275,19 +236,27 @@ function Wizard:update(dt)
         self.castFrameTimer = math.max(0, self.castFrameTimer - dt)
     end
 
-    -- Update idle animation timer and frame
-    -- Only animate idle if not casting or in another special visual state
-    if self.castFrameTimer <= 0 then -- Play idle if not in cast animation
+    -- Update idle animation timer and frame based on positional state
+    local posKey = self:getPositionalKey()
+
+    if posKey ~= self.lastPositionalKey then
+        self.currentIdleFrame = 1
+        self.idleFrameTimer = 0
+        self.lastPositionalKey = posKey
+    end
+
+    local idleFrames = self:getIdleFramesForKey(posKey)
+
+    if self.castFrameTimer <= 0 then
         self.idleFrameTimer = self.idleFrameTimer + dt
         if self.idleFrameTimer >= self.idleFrameDuration then
-            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration -- Subtract to carry over excess time
+            self.idleFrameTimer = self.idleFrameTimer - self.idleFrameDuration
             self.currentIdleFrame = self.currentIdleFrame + 1
-            if self.currentIdleFrame > #self.idleAnimationFrames then
-                self.currentIdleFrame = 1 -- Loop animation
+            if self.currentIdleFrame > #idleFrames then
+                self.currentIdleFrame = 1
             end
         end
     else
-        -- If casting, reset idle animation to first frame to look clean when cast finishes
         self.currentIdleFrame = 1
         self.idleFrameTimer = 0
     end
@@ -305,10 +274,13 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update stun timer
-    if self.stunTimer > 0 then
-        self.stunTimer = math.max(0, self.stunTimer - dt)
-        if self.stunTimer == 0 then
+    -- Update stun status effect
+    if self.statusEffects[Constants.StatusType.STUN] and self.statusEffects[Constants.StatusType.STUN].active then
+        local stun = self.statusEffects[Constants.StatusType.STUN]
+        stun.totalTime = stun.totalTime + dt
+        if stun.duration > 0 and stun.totalTime >= stun.duration then
+            stun.active = false
+            stun.totalTime = stun.duration
             print(self.name .. " is no longer stunned")
         end
     end
@@ -527,8 +499,10 @@ end
 -- Handle key press and update currently keyed spell
 function Wizard:keySpell(keyIndex, isPressed)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 and isPressed then
-        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active and isPressed then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -568,8 +542,10 @@ end
 -- Cast the currently keyed spell
 function Wizard:castKeyedSpell()
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -607,8 +583,10 @@ end
 
 function Wizard:queueSpell(spell)
     -- Check if wizard is stunned
-    if self.stunTimer > 0 then
-        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", self.stunTimer) .. " more seconds")
+    local stun = self.statusEffects[Constants.StatusType.STUN]
+    if stun and stun.active then
+        local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
+        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -1187,7 +1165,7 @@ function Wizard:castSpell(spellSlot)
                 local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
                     self,        -- wizard who cast the spell
                     spellSlot,   -- slot index where the spell is
-                    effect       -- effect table from executeAll (contains trapTrigger, trapWindow, trapEffect, etc.)
+                    effect       -- effect table from executeAll (contains trapTrigger, trapEffect, etc.)
                 )
                 
                 -- Store the sustained spell ID in the slot for reference
@@ -1287,6 +1265,66 @@ function Wizard:handleShieldBlock(slotIndex, incomingSpell)
     end
     
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
+end
+
+-- Determine the current positional key string for animation lookup
+function Wizard:getPositionalKey()
+    local range = self.gameState and self.gameState.rangeState or Constants.RangeState.FAR
+    local elevation = self.elevation or Constants.ElevationState.GROUNDED
+    return string.lower(range .. "-" .. elevation)
+end
+
+-- Retrieve idle frames for a given positional key
+function Wizard:getIdleFramesForKey(key)
+    if self.positionalAnimations[key] and self.positionalAnimations[key].idle then
+        return self.positionalAnimations[key].idle
+    end
+    return self.idleAnimationFrames
+end
+
+-- Retrieve cast frame for a given positional key
+function Wizard:getCastFrameForKey(key)
+    if self.positionalAnimations[key] then
+        return self.positionalAnimations[key].cast or self.castFrameSprite
+    end
+    return self.castFrameSprite
+end
+
+-- Load positional animation assets for all range/elevation combinations
+function Wizard:loadPositionalAnimations()
+    local AssetCache = require("core.AssetCache")
+    for _, range in pairs(Constants.RangeState) do
+        for _, elevation in pairs(Constants.ElevationState) do
+            local key = string.lower(range .. "-" .. elevation)
+            local dir = string.format("assets/sprites/%s-%s-%s", string.lower(self.name), string.lower(range), string.lower(elevation))
+            local anim = { idle = {}, cast = nil }
+
+            if love.filesystem.getInfo(dir, "directory") then
+                local files = love.filesystem.getDirectoryItems(dir)
+                table.sort(files)
+                for _, file in ipairs(files) do
+                    if file:match("%.png$") then
+                        local path = dir .. "/" .. file
+                        if file:lower():find("cast") then
+                            anim.cast = AssetCache.getImage(path)
+                        else
+                            local img = AssetCache.getImage(path)
+                            if img then table.insert(anim.idle, img) end
+                        end
+                    end
+                end
+            end
+
+            if #anim.idle == 0 then
+                anim.idle = self.idleAnimationFrames
+            end
+            if not anim.cast then
+                anim.cast = self.castFrameSprite
+            end
+
+            self.positionalAnimations[key] = anim
+        end
+    end
 end
 
 return Wizard

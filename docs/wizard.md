@@ -11,7 +11,8 @@ The `wizard.lua` module defines the "class" for the player characters in Manasto
 Each `Wizard` instance maintains a comprehensive set of state variables:
 
 *   **Identity & Position:** `name`, `x`, `y`, `color`.
-*   **Combat:** `health`, `stunTimer`.
+*   **Combat:** `health`.
+    * `statusEffects[Constants.StatusType.STUN]`: Tracks stun duration.
 *   **Positioning:**
     *   `elevation`: String ("GROUNDED" or "AERIAL").
     *   `elevationTimer`: Duration for temporary AERIAL state.
@@ -39,7 +40,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 
 ### 2. Core Methods
 
-*   **`Wizard.new(name, x, y, color)`:** Constructor. Initializes all state variables, loads sprite, sets up spellbook based on `name`.
+*   **`Wizard.new(name, x, y, color, spellbook)`:** Constructor. Initializes all state variables, loads sprite, and assigns the provided `spellbook`.
 *   **`Wizard:update(dt)`:** Per-frame update logic. Manages timers (stun, elevation, status effects), applies burn damage ticks, updates shield token orbits, increments spell casting `progress`. Calls `castSpell` upon completion.
 *   **`Wizard:draw()`:** Main drawing function. Draws the wizard sprite (applying offsets/effects), elevation visuals, status bars (`drawStatusEffects`), and spell slots (`drawSpellSlots`).
 *   **`Wizard:drawSpellSlots()`:** Visualizes casting/shields. Draws elliptical orbits, progress arcs (colored by state: casting, shield, frozen), shield type names, and orbiting mana tokens (with Z-ordering for depth).
