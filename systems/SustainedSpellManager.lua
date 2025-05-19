@@ -2,6 +2,7 @@
 -- Centralized management system for sustained spells (shields, traps, etc.)
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local SustainedSpellManager = {}
 
 -- Track all active sustained spells
@@ -28,10 +29,11 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
         return nil
     end
     
-    print("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
-    print("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
-    print("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
-    print("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
+    Log.debug("[DEBUG] SustainedSpellManager.addSustainedSpell: Spell data:")
+    Log.debug("[DEBUG]   isSustained: " .. tostring(spellData.isSustained))
+    Log.debug("[DEBUG]   trapTrigger exists: " .. tostring(spellData.trapTrigger ~= nil))
+    Log.debug("[DEBUG]   trapWindow exists: " .. tostring(spellData.trapWindow ~= nil))
+    Log.debug("[DEBUG]   trapEffect exists: " .. tostring(spellData.trapEffect ~= nil))
     
     -- Generate a unique ID for this sustained spell
     local uniqueId = generateUniqueId(wizard, slotIndex)
@@ -107,7 +109,7 @@ function SustainedSpellManager.update(dt)
     for id, entry in pairs(SustainedSpellManager.activeSpells) do
         -- Debug: check what types of sustained spells we have
         if math.floor(os.time()) % 10 == 0 then -- Only log every 10 seconds to avoid spam
-            print(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s", 
+            Log.debug(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s",
                 id, entry.type, entry.spell and entry.spell.name or "unknown"))
         end
         

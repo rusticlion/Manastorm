@@ -144,3 +144,9 @@ The Pool system was primarily implemented in three areas:
 3. VFX Particle Pooling (`vfx.lua`)
 
 Test scripts are available in `tools/test_pools.lua` to verify correct behavior.
+
+## Log
+
+`core.Log` provides a simple configurable logger used across systems. Call
+`require("core.Log").setVerbose(true)` to enable verbose debug output or disable
+it with `false` (the default).
