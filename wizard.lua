@@ -1187,7 +1187,7 @@ function Wizard:castSpell(spellSlot)
                 local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
                     self,        -- wizard who cast the spell
                     spellSlot,   -- slot index where the spell is
-                    effect       -- effect table from executeAll (contains trapTrigger, trapWindow, trapEffect, etc.)
+                    effect       -- effect table from executeAll (contains trapTrigger, trapEffect, etc.)
                 )
                 
                 -- Store the sustained spell ID in the slot for reference
