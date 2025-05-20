@@ -2325,8 +2325,8 @@ function drawCompendium()
         if isUnlocked then
             love.graphics.setColor(1, 1, 1)
         else
-            -- Silhouette color - dark with slight transparency
-            love.graphics.setColor(0.1, 0.1, 0.2, 0.8)
+            -- Silhouette color - complete black for a more compelling tease
+            love.graphics.setColor(0, 0, 0, 1)
         end
         
         -- Calculate scaled dimensions to fit in the pane while maintaining aspect ratio
@@ -2381,10 +2381,16 @@ function drawCompendium()
         end
     else
         -- Fallback if sprite not found
-        love.graphics.setColor(0.7, 0.7, 0.7)
-        love.graphics.print("Character sprite not available", 
-                            pane.x + 20, 
-                            pane.y + 100)
+        if isUnlocked then
+            love.graphics.setColor(0.7, 0.7, 0.7)
+            love.graphics.print("Character sprite not available", 
+                                pane.x + 20, 
+                                pane.y + 100)
+        else
+            -- Black rectangle silhouette as fallback for locked characters
+            love.graphics.setColor(0, 0, 0, 1)
+            love.graphics.rectangle("fill", pane.x + pane.w/2 - 40, pane.y + 100, 80, 120)
+        end
     end
     
     love.graphics.setScissor()
@@ -2409,7 +2415,11 @@ function drawCompendium()
     
     -- Instructions
     love.graphics.setColor(0.8, 0.8, 0.8)
-    love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
+    if isUnlocked then
+        love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
+    else
+        love.graphics.print("Unlock this character to modify spells", pane.x + 15, pane.y + 40)
+    end
     
     -- Draw each slot
     for i, key in ipairs(slotKeys) do
@@ -2418,12 +2428,12 @@ function drawCompendium()
         
         -- Check if a number key is being held to highlight slot
         local isSlotSelected = false
-        if game.currentState == "COMPENDIUM" and game.menuInput and game.menuInput[tostring(i)] then
+        if isUnlocked and game.currentState == "COMPENDIUM" and game.menuInput and game.menuInput[tostring(i)] then
             isSlotSelected = true
         end
         
         -- Check if this slot has the assignment feedback active
-        local isAssignFeedback = game.compendium.assignFeedback.active and 
+        local isAssignFeedback = isUnlocked and game.compendium.assignFeedback.active and 
                                 game.compendium.assignFeedback.slot == i
         
         -- Slot background
@@ -2450,12 +2460,18 @@ function drawCompendium()
         
         -- Slot assigned spell
         local displayText
-        if spell then
-            love.graphics.setColor(1, 1, 1)
-            displayText = spell.name
+        if isUnlocked then
+            if spell then
+                love.graphics.setColor(1, 1, 1)
+                displayText = spell.name
+            else
+                love.graphics.setColor(0.6, 0.6, 0.6)
+                displayText = "--- Empty ---"
+            end
         else
+            -- For locked characters, show redacted text
             love.graphics.setColor(0.6, 0.6, 0.6)
-            displayText = "--- Empty ---"
+            displayText = "??? ?????"
         end
         
         -- Calculate position for the spell name so it's properly spaced from the input hint
@@ -2466,12 +2482,22 @@ function drawCompendium()
     -- Draw explanatory text about the slot system
     love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
     local explanationY = pane.y + 70 + 7 * 28 + 15
-    love.graphics.printf(
-        "Combine keys to cast different spells. For example, pressing 1+2 together will cast the spell assigned to slot 4.",
-        pane.x + 15, 
-        explanationY,
-        pane.w - 30
-    )
+    
+    if isUnlocked then
+        love.graphics.printf(
+            "Combine keys to cast different spells. For example, pressing 1+2 together will cast the spell assigned to slot 4.",
+            pane.x + 15, 
+            explanationY,
+            pane.w - 30
+        )
+    else
+        love.graphics.printf(
+            "???????? ???? ?? ???? ????????? ?????? ???????? ??? ???????? ???? ???? ?? ???? ? ??????",
+            pane.x + 15, 
+            explanationY,
+            pane.w - 30
+        )
+    end
     
     love.graphics.setScissor()
     
