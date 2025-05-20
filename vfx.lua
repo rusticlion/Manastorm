@@ -1324,13 +1324,15 @@ function VFX.update(dt)
             -- Once block is triggered, increment a block timer
             if effect.blockTimerStarted then
                 effect.blockTimer = effect.blockTimer + dt
-                -- Force effect completion after a longer time (1.2 seconds) to ensure player sees it
+                -- Keep the effect alive until the block timer elapses
                 if effect.blockTimer > 1.2 then
-                    effect.progress = 1.0 -- Mark effect as complete
+                    -- After the hold period, mark the effect complete
+                    effect.progress = 1.0
                     print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
                 else
-                    -- Keep visual progress fixed at block point - this is crucial for seeing the projectile stop
+                    -- Lock both visual and logical progress at the block point so the effect isn't removed early
                     effect.visualProgress = effect.options.blockPoint
+                    effect.progress = math.min(effect.progress, effect.options.blockPoint)
                 end
             end
         end
