@@ -16,6 +16,17 @@ characterData.Ashgar = {
         ["13"] = Spells.blastwave,
         ["23"] = Spells.saltcircle,
         ["123"] = Spells.eruption,
+    },
+    spells = {
+        Spells.conjurefire,
+        Spells.firebolt,
+        Spells.fireball,
+        Spells.burnToAsh,
+        Spells.blastwave,
+        Spells.saltcircle,
+        Spells.eruption,
+        Spells.combustMana,
+        Spells.blazingAscent,
     }
 }
 
@@ -29,6 +40,17 @@ characterData.Selene = {
         ["13"] = Spells.eclipse,
         ["23"] = Spells.gravityTrap,
         ["123"] = Spells.fullmoonbeam,
+    },
+    spells = {
+        Spells.conjuremoonlight,
+        Spells.wrapinmoonlight,
+        Spells.moondance,
+        Spells.infiniteprocession,
+        Spells.eclipse,
+        Spells.gravityTrap,
+        Spells.fullmoonbeam,
+        Spells.lunardisjunction,
+        Spells.lunarTides,
     }
 }
 
@@ -42,6 +64,16 @@ characterData.Silex = {
         ["13"] = Spells.stoneshield,
         ["23"] = Spells.shieldbreaker,
         ["123"] = Spells.saltstorm,
+    },
+    spells = {
+        Spells.conjuresalt,
+        Spells.glitterfang,
+        Spells.imprison,
+        Spells.saltcircle,
+        Spells.stoneshield,
+        Spells.shieldbreaker,
+        Spells.saltstorm,
+        Spells.jaggedearth,
     }
 }
 
@@ -55,6 +87,16 @@ characterData.Borrak = {
         ["13"] = Spells.brinechain,
         ["23"] = Spells.maelstrom,
         ["123"] = Spells.wavecrash,
+    },
+    spells = {
+        Spells.conjurewater,
+        Spells.watergun,
+        Spells.riptideguard,
+        Spells.tidalforce,
+        Spells.brinechain,
+        Spells.maelstrom,
+        Spells.wavecrash,
+        Spells.forceBlast,
     }
 }
 

@@ -138,6 +138,48 @@ game.unlockedCharacters = {
     Selene = true
 }
 
+-- Spells unlocked for customization
+game.unlockedSpells = {
+    conjurefire = true,
+    firebolt = true,
+    fireball = true,
+    burnToAsh = true,
+    blastwave = true,
+    saltcircle = true,
+    eruption = true,
+
+    conjuremoonlight = true,
+    wrapinmoonlight = true,
+    moondance = true,
+    infiniteprocession = true,
+    eclipse = true,
+    gravityTrap = true,
+    fullmoonbeam = true,
+
+    conjuresalt = true,
+    glitterfang = true,
+    imprison = true,
+    stoneshield = true,
+    shieldbreaker = true,
+    saltstorm = true,
+
+    conjurewater = true,
+    watergun = true,
+    riptideguard = true,
+    tidalforce = true,
+    brinechain = true,
+    maelstrom = true,
+    wavecrash = true,
+}
+
+-- Custom spellbooks configured by the player
+game.customSpellbooks = {}
+
+game.compendium = {
+    page = 1,
+    cursor = 1,
+}
+
 -- Get a list of all unlocked characters in the roster
 local function getUnlockedCharacterList()
     local list = {}
@@ -645,8 +687,10 @@ end
 function setupWizards(name1, name2)
     local data1 = game.characterData[name1] or {}
     local data2 = game.characterData[name2] or {}
-    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
-    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    local book1 = game.customSpellbooks[name1] or data1.spellbook
+    local book2 = game.customSpellbooks[name2] or data2.spellbook
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, book1)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, book2)
     for _, wizard in ipairs(game.wizards) do
         wizard.manaPool = game.manaPool
         wizard.gameState = game
@@ -757,6 +801,42 @@ function game.settingsSelect()
         game.settingsAdjust(1)
     end
 end
+
+function game.startCompendium()
+    game.compendium.page = 1
+    game.compendium.cursor = 1
+    game.currentState = "COMPENDIUM"
+end
+
+function game.compendiumMove(dir)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local count = #spells
+    if count == 0 then return end
+    local idx = ((game.compendium.cursor-1 + dir-1) % count) + 1
+    game.compendium.cursor = idx
+end
+
+function game.compendiumChangePage(dir)
+    local count = #game.characterRoster
+    game.compendium.page = ((game.compendium.page-1 + dir-1) % count) + 1
+    game.compendium.cursor = 1
+end
+
+local slotKeys = {"1","2","3","12","13","23","123"}
+function game.compendiumAssign(slot)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local spell = spells[game.compendium.cursor]
+    if not spell or not game.unlockedSpells[spell.id] then return end
+    if not game.customSpellbooks[name] then
+        -- copy default spellbook
+        local copy = {}
+        for k,v in pairs(game.characterData[name].spellbook) do copy[k]=v end
+        game.customSpellbooks[name] = copy
+    end
+    game.customSpellbooks[name][slotKeys[slot]] = spell
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -798,6 +878,11 @@ function love.update(dt)
         -- No other updates needed in menu state
         return
     elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "COMPENDIUM" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -1033,6 +1118,8 @@ function love.draw()
         drawMainMenu()
     elseif game.currentState == "SETTINGS" then
         drawSettingsMenu()
+    elseif game.currentState == "COMPENDIUM" then
+        drawCompendium()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -1756,6 +1843,41 @@ function drawSettingsMenu()
         love.graphics.setColor(1, 0.6, 0.6, 1)
         love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
     end
+end
+
+function drawCompendium()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local name = game.characterRoster[game.compendium.page]
+    local data = game.characterData[name]
+    love.graphics.setColor(1,1,1)
+    local title = name .. " Spellbook"
+    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2, 30)
+
+    local active = game.customSpellbooks[name] or data.spellbook
+    for i,key in ipairs(slotKeys) do
+        local spell = active[key]
+        local y = 60 + (i-1)*20
+        love.graphics.print(string.format("[%s] %s", key, spell and spell.name or "-"), screenWidth/2 - 100, y)
+    end
+
+    local spells = data.spells or {}
+    for i,spell in ipairs(spells) do
+        local y = 200 + (i-1)*20
+        if i == game.compendium.cursor then
+            love.graphics.setColor(1,1,0)
+        else
+            love.graphics.setColor(0.9,0.9,0.9)
+        end
+        local text = game.unlockedSpells[spell.id] and spell.name or "???"
+        love.graphics.print(text, 60, y)
+    end
+
+    love.graphics.setColor(1,1,1,0.7)
+    love.graphics.print("Left/Right to change wizard, Up/Down select, 1-7 to assign",60,screenHeight-30,0,0.8,0.8)
 end
 
 -- Draw attract mode overlay

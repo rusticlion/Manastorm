@@ -172,6 +172,7 @@ FireSpells.eruption = {
     visualShape = "groundBurst",
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
+    unlockSpell = "blazingascent",
     keywords = {
         zoneAnchor = {
             range = function(caster, target)

@@ -176,6 +176,7 @@ WaterSpells.wavecrash = {
     visualShape = Constants.VisualShape.WAVE,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.WATER, Constants.TokenType.WATER, Constants.TokenType.WATER},
+    unlockSpell = "forceblast",
     keywords = {
         damage = {
             amount = function(caster, target)
