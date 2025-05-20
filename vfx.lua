@@ -94,6 +94,9 @@ function VFX.init()
         -- Generic effects
         sparkle = "assets/sprites/sparkle.png",
         impactRing = "assets/sprites/impact-ring.png",
+        onePx = "assets/sprites/1px.png",
+        twinkle1 = "assets/sprites/3px-twinkle1.png",
+        twinkle2 = "assets/sprites/3px-twinkle2.png",
         
         -- Bolt effects
         boltFrames = {
@@ -146,6 +149,14 @@ function VFX.init()
     -- Preload sparkle asset (used in many effects)
     print("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
+
+    -- Preload pixel primitive assets used for bolt trails
+    print("[VFX] Preloading essential asset: onePx")
+    VFX.assets.onePx = AssetCache.getImage(VFX.assetPaths.onePx)
+    print("[VFX] Preloading essential asset: twinkle1")
+    VFX.assets.twinkle1 = AssetCache.getImage(VFX.assetPaths.twinkle1)
+    print("[VFX] Preloading essential asset: twinkle2")
+    VFX.assets.twinkle2 = AssetCache.getImage(VFX.assetPaths.twinkle2)
     
     -- Preload bolt frames for the bolt effects
     print("[VFX] Preloading bolt frame assets")
@@ -220,7 +231,7 @@ function VFX.init()
             spriteTint = true,            -- Whether to apply color tinting to sprites
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true,     -- Track target position
-            criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+            criticalAssets = {"boltFrames", "onePx", "twinkle1", "twinkle2"} -- Include pixel primitives
         },
 
         warp_base = {

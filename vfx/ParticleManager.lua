@@ -152,6 +152,16 @@ function ParticleManager.createProjectileTrailParticle(effect, headX, headY)
     particle.maxLife = math.random() * 0.3 + 0.1
     particle.color = effect.color or {1, 1, 1}
 
+    -- Use pixel primitive sprites for the trail
+    if math.random() < 0.2 then
+        -- Occasional sparkle highlight
+        particle.assetId = math.random() < 0.5 and "twinkle1" or "twinkle2"
+        particle.size = 3
+    else
+        particle.assetId = "onePx"
+        particle.size = 1
+    end
+
     return particle
 end
 

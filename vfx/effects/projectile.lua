@@ -315,6 +315,9 @@ local function drawProjectile(effect)
     -- Get assets
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
+    local onePxImage = getAssetInternal("onePx")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     local impactImage = getAssetInternal("impactRing")
     
     -- Get bolt frames if needed
@@ -343,33 +346,23 @@ local function drawProjectile(effect)
     
     -- If we have a trail, draw it
     if effect.useTrail and #effect.trailPoints > 1 then
-        -- Draw trail (from oldest to newest)
+        -- Draw trail points using pixel primitives
         for i = #effect.trailPoints, 1, -1 do
             local point = effect.trailPoints[i]
-            local trailSize = (effect.size or 1.0) * 3 * (1 - (i-1)/#effect.trailPoints)
-            local trailAlpha = point.alpha * 0.4
-            
-            -- Draw trail glow at each point
-            local color = effect.color or {1, 1, 1} -- Default to white if no color
-            love.graphics.setColor(
-                color[1], 
-                color[2], 
-                color[3], 
-                trailAlpha
-            )
-            
-            -- Draw a circle for each trail point
-            if glowImage then
-                love.graphics.draw(
-                    glowImage,
-                    point.x, point.y,
-                    0,
-                    trailSize, trailSize,
-                    glowImage:getWidth()/2, glowImage:getHeight()/2
-                )
-            else
-                -- Fallback to a circle if glow asset is missing
-                love.graphics.circle("fill", point.x, point.y, trailSize * 10)
+            local trailAlpha = point.alpha
+            local color = effect.color or {1, 1, 1}
+            love.graphics.setColor(color[1], color[2], color[3], trailAlpha)
+
+            if onePxImage then
+                love.graphics.draw(onePxImage, point.x, point.y, 0, 1, 1, 0.5, 0.5)
+            end
+
+            -- Occasional twinkle highlights on newer points
+            if i <= 4 and math.random() < 0.3 then
+                local twinkle = (math.random() < 0.5) and twinkle1Image or twinkle2Image
+                if twinkle then
+                    love.graphics.draw(twinkle, point.x, point.y, 0, 1, 1, 1.5, 1.5)
+                end
             end
         end
     end
@@ -381,7 +374,7 @@ local function drawProjectile(effect)
             if not particle then
                 goto next_draw_particle
             end
-            
+
             local particleColor = particle.color or effect.color or {1, 1, 1}
             love.graphics.setColor(
                 particleColor[1],
@@ -389,21 +382,27 @@ local function drawProjectile(effect)
                 particleColor[3],
                 (particle.alpha or 0.5) * 0.7
             )
-            
+
             -- Draw particle
-            if particleImage then
+            local asset = nil
+            if particle.assetId then
+                asset = getAssetInternal(particle.assetId)
+            else
+                asset = particleImage
+            end
+
+            if asset then
                 love.graphics.draw(
-                    particleImage,
+                    asset,
                     particle.x, particle.y,
                     0,
-                    (particle.size or 5)/20, (particle.size or 5)/20,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    1, 1,
+                    (asset:getWidth()/2), (asset:getHeight()/2)
                 )
             else
-                -- Fallback to a circle if particle asset is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.size or 5)
+                love.graphics.circle("fill", particle.x, particle.y, particle.size or 2)
             end
-            
+
             ::next_draw_particle::
         end
     end
