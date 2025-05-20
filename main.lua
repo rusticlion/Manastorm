@@ -178,6 +178,12 @@ game.customSpellbooks = {}
 game.compendium = {
     page = 1,
     cursor = 1,
+    scrollOffset = 0,
+    assignFeedback = {
+        active = false,
+        slot = 0,
+        timer = 0
+    }
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -805,6 +811,13 @@ end
 function game.startCompendium()
     game.compendium.page = 1
     game.compendium.cursor = 1
+    game.compendium.scrollOffset = 0
+    game.compendium.assignFeedback = {
+        active = false,
+        slot = 0,
+        timer = 0
+    }
+    game.assignmentError = nil
     game.currentState = "COMPENDIUM"
 end
 
@@ -813,14 +826,60 @@ function game.compendiumMove(dir)
     local spells = game.characterData[name].spells or {}
     local count = #spells
     if count == 0 then return end
-    local idx = ((game.compendium.cursor-1 + dir-1) % count) + 1
-    game.compendium.cursor = idx
+    
+    -- Simple approach: add dir (+1 for down, -1 for up) and handle wrapping
+    local newIdx = game.compendium.cursor + dir
+    
+    -- Handle wrapping around the list
+    if newIdx < 1 then 
+        newIdx = count
+    elseif newIdx > count then
+        newIdx = 1
+    end
+    
+    game.compendium.cursor = newIdx
+    
+    -- Scrolling logic: Calculate visible items based on pane height
+    if game.compendiumPanes then
+        local pane = game.compendiumPanes.bottomLeft
+        local spellLineHeight = 20 -- Height of each spell entry in the list
+        local maxVisibleSpells = math.floor((pane.h - 50) / spellLineHeight) -- 50px for padding/header
+        
+        -- Adjust scroll offset if cursor moves outside visible range
+        if game.compendium.cursor <= game.compendium.scrollOffset then
+            -- Cursor moved above visible top
+            game.compendium.scrollOffset = math.max(0, game.compendium.cursor - 1)
+        elseif game.compendium.cursor > game.compendium.scrollOffset + maxVisibleSpells then
+            -- Cursor moved below visible bottom
+            game.compendium.scrollOffset = game.compendium.cursor - maxVisibleSpells
+        end
+    end
 end
 
 function game.compendiumChangePage(dir)
     local count = #game.characterRoster
-    game.compendium.page = ((game.compendium.page-1 + dir-1) % count) + 1
-    game.compendium.cursor = 1
+    
+    -- Use same approach as compendiumMove for consistency
+    local newPage = game.compendium.page + dir
+    
+    -- Handle wrapping
+    if newPage < 1 then
+        newPage = count
+    elseif newPage > count then
+        newPage = 1
+    end
+    
+    game.compendium.page = newPage
+    game.compendium.cursor = 1 -- Reset cursor when changing pages
+    game.compendium.scrollOffset = 0 -- Reset scroll offset when changing pages
+    
+    -- Reset feedback states
+    game.compendium.assignFeedback = {
+        active = false,
+        slot = 0,
+        timer = 0
+    }
+    game.assignmentError = nil
 end
 
 local slotKeys = {"1","2","3","12","13","23","123"}
@@ -828,14 +887,45 @@ function game.compendiumAssign(slot)
     local name = game.characterRoster[game.compendium.page]
     local spells = game.characterData[name].spells or {}
     local spell = spells[game.compendium.cursor]
-    if not spell or not game.unlockedSpells[spell.id] then return end
+    
+    -- Check if spell is valid and unlocked
+    if not spell then
+        -- No spell selected
+        return
+    end
+    
+    if not game.unlockedSpells[spell.id] then
+        -- Spell is locked, provide feedback
+        game.assignmentError = {
+            message = "Spell is locked and cannot be assigned",
+            timer = 2.0 -- Show message for 2 seconds
+        }
+        return
+    end
+    
+    -- Create custom spellbook if it doesn't exist yet
     if not game.customSpellbooks[name] then
-        -- copy default spellbook
+        -- Copy default spellbook
         local copy = {}
         for k,v in pairs(game.characterData[name].spellbook) do copy[k]=v end
         game.customSpellbooks[name] = copy
     end
+    
+    -- Assign the spell to the selected slot
     game.customSpellbooks[name][slotKeys[slot]] = spell
+    
+    -- Trigger visual feedback
+    game.compendium.assignFeedback = {
+        active = true,
+        slot = slot,
+        timer = 0.5 -- Show highlight for 0.5 seconds
+    }
+    
+    -- Play a sound effect for feedback (if available)
+    if love.audio and game.sounds and game.sounds.click then
+        game.sounds.click:stop()
+        game.sounds.click:play()
+    end
 end
 function love.update(dt)
     -- Update shake timer
@@ -844,6 +934,21 @@ function love.update(dt)
         if shakeTimer < 0 then
             shakeTimer = 0
             shakeIntensity = 0
+        end
+    end
+    
+    -- Update Compendium assignment feedback timers
+    if game.currentState == "COMPENDIUM" then
+        if game.compendium.assignFeedback.active then
+            game.compendium.assignFeedback.timer = game.compendium.assignFeedback.timer - dt
+            if game.compendium.assignFeedback.timer <= 0 then
+                game.compendium.assignFeedback.active = false
+            end
+        end
+        
+        -- Update assignment error message timer
+        if game.assignmentError and game.assignmentError.timer > 0 then
+            game.assignmentError.timer = game.assignmentError.timer - dt
         end
     end
     
@@ -1848,36 +1953,474 @@ end
 function drawCompendium()
     local screenWidth = baseWidth
     local screenHeight = baseHeight
-    love.graphics.setColor(20/255,20/255,40/255,1)
-    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
-
+    
+    -- Background with gradient effect
+    local bgColorTop = {15/255, 15/255, 35/255, 1}
+    local bgColorBottom = {30/255, 30/255, 50/255, 1}
+    
+    -- Draw gradient background
+    love.graphics.setColor(bgColorTop)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight/2)
+    love.graphics.setColor(bgColorBottom)
+    love.graphics.rectangle("fill", 0, screenHeight/2, screenWidth, screenHeight/2)
+    
+    -- Calculate pane dimensions with padding
+    local panePadding = 12
+    local headerHeight = 70 -- Height for the title area
+    local paneWidth = (screenWidth - panePadding * 3) / 2
+    local paneHeight = (screenHeight - panePadding * 3 - headerHeight) / 2
+    
+    -- Define pane coordinates
+    local panes = {
+        topLeft = {
+            x = panePadding,
+            y = panePadding + headerHeight,
+            w = paneWidth,
+            h = paneHeight,
+            title = "Spell Details"
+        },
+        topRight = {
+            x = panePadding * 2 + paneWidth,
+            y = panePadding + headerHeight,
+            w = paneWidth,
+            h = paneHeight,
+            title = "Character Info"
+        },
+        bottomLeft = {
+            x = panePadding,
+            y = panePadding * 2 + paneHeight + headerHeight,
+            w = paneWidth,
+            h = paneHeight,
+            title = "Available Spells"
+        },
+        bottomRight = {
+            x = panePadding * 2 + paneWidth,
+            y = panePadding * 2 + paneHeight + headerHeight,
+            w = paneWidth,
+            h = paneHeight,
+            title = "Equipped Spells"
+        }
+    }
+    
+    -- Get character data
     local name = game.characterRoster[game.compendium.page]
     local data = game.characterData[name]
-    love.graphics.setColor(1,1,1)
-    local title = name .. " Spellbook"
-    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2, 30)
-
-    local active = game.customSpellbooks[name] or data.spellbook
-    for i,key in ipairs(slotKeys) do
-        local spell = active[key]
-        local y = 60 + (i-1)*20
-        love.graphics.print(string.format("[%s] %s", key, spell and spell.name or "-"), screenWidth/2 - 100, y)
-    end
-
-    local spells = data.spells or {}
-    for i,spell in ipairs(spells) do
-        local y = 200 + (i-1)*20
-        if i == game.compendium.cursor then
-            love.graphics.setColor(1,1,0)
-        else
-            love.graphics.setColor(0.9,0.9,0.9)
+    
+    -- Draw decorative header line
+    love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
+    love.graphics.rectangle("fill", 20, headerHeight - 5, screenWidth - 40, 2)
+    
+    -- Draw main title with shadow effect
+    local title = "Compendium - " .. name
+    
+    -- Shadow
+    love.graphics.setColor(0.2, 0.2, 0.4, 0.6)
+    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2 + 2, 22, 0, 1.5, 1.5)
+    
+    -- Title text
+    love.graphics.setColor(0.9, 0.9, 1)
+    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2, 20, 0, 1.5, 1.5)
+    
+    -- Draw the four panes with distinct colors and titles
+    for paneName, pane in pairs(panes) do
+        -- Draw pane background with slight transparency and gradient
+        local bgColor1, bgColor2
+        
+        -- Different subtle coloring for each pane
+        if paneName == "topLeft" then
+            bgColor1 = {0.12, 0.12, 0.22, 0.9}
+            bgColor2 = {0.15, 0.15, 0.25, 0.9}
+        elseif paneName == "topRight" then
+            bgColor1 = {0.14, 0.12, 0.22, 0.9}
+            bgColor2 = {0.17, 0.15, 0.25, 0.9}
+        elseif paneName == "bottomLeft" then
+            bgColor1 = {0.12, 0.14, 0.22, 0.9}
+            bgColor2 = {0.15, 0.17, 0.25, 0.9}
+        else -- bottomRight
+            bgColor1 = {0.13, 0.13, 0.23, 0.9}
+            bgColor2 = {0.16, 0.16, 0.26, 0.9}
         end
-        local text = game.unlockedSpells[spell.id] and spell.name or "???"
-        love.graphics.print(text, 60, y)
+        
+        -- Draw gradient background
+        love.graphics.setColor(bgColor1)
+        love.graphics.rectangle("fill", pane.x, pane.y, pane.w, pane.h/2)
+        love.graphics.setColor(bgColor2)
+        love.graphics.rectangle("fill", pane.x, pane.y + pane.h/2, pane.w, pane.h/2)
+        
+        -- Draw pane border with rounded corners
+        love.graphics.setColor(0.4, 0.4, 0.6, 0.8)
+        love.graphics.rectangle("line", pane.x, pane.y, pane.w, pane.h, 3, 3)
+        
+        -- Draw title background
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.8)
+        love.graphics.rectangle("fill", pane.x, pane.y, pane.w, 30, 3, 3)
+        
+        -- Draw separator line under title
+        love.graphics.setColor(0.4, 0.4, 0.6, 0.5)
+        love.graphics.rectangle("fill", pane.x + 5, pane.y + 30, pane.w - 10, 1)
+        
+        -- Draw pane title with slight shadow
+        love.graphics.setColor(0.3, 0.3, 0.4, 0.8)
+        love.graphics.print(pane.title, pane.x + 11, pane.y + 8)
+        love.graphics.setColor(0.9, 0.9, 1)
+        love.graphics.print(pane.title, pane.x + 10, pane.y + 7)
     end
-
-    love.graphics.setColor(1,1,1,0.7)
-    love.graphics.print("Left/Right to change wizard, Up/Down select, 1-7 to assign",60,screenHeight-30,0,0.8,0.8)
+    
+    -- Draw detailed content for each pane
+    
+    -- Top Left: Selected Spell Details
+    local selectedSpell = nil
+    local spells = data.spells or {}
+    if #spells > 0 and game.compendium.cursor <= #spells then
+        selectedSpell = spells[game.compendium.cursor]
+    end
+    
+    local pane = panes.topLeft
+    if selectedSpell then
+        -- Set scissor to clip content to pane
+        love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+        
+        -- Spell name with larger font
+        love.graphics.setColor(1, 1, 0.8)
+        local nameY = pane.y + 40
+        love.graphics.print(selectedSpell.name, pane.x + 15, nameY, 0, 1.3, 1.3)
+        
+        -- Spell properties
+        love.graphics.setColor(0.9, 0.9, 0.9)
+        local propY = nameY + 30
+        
+        -- Affinity
+        love.graphics.print("Affinity: " .. (selectedSpell.affinity or "None"), pane.x + 15, propY)
+        
+        -- Attack Type
+        love.graphics.print("Type: " .. (selectedSpell.attackType or "None"), pane.x + 15, propY + 20)
+        
+        -- Cast Time
+        local castTimeText = "Cast Time: " .. (selectedSpell.castTime or 0) .. "s"
+        love.graphics.print(castTimeText, pane.x + 15, propY + 40)
+        
+        -- Mana Cost with token icons
+        love.graphics.setColor(0.9, 0.9, 0.9)
+        love.graphics.print("Cost:", pane.x + 15, propY + 60)
+        
+        if selectedSpell.cost and #selectedSpell.cost > 0 then
+            local iconSize = 16
+            local spacing = 5
+            local startX = pane.x + 60
+            
+            for i, tokenType in ipairs(selectedSpell.cost) do
+                -- Position for this token icon
+                local x = startX + (i-1) * (iconSize + spacing)
+                
+                -- Get token image if available
+                if game.tokenImages and game.tokenImages[tokenType] then
+                    local tokenImg = AssetCache.getImage(game.tokenImages[tokenType])
+                    if tokenImg then
+                        love.graphics.setColor(1, 1, 1)
+                        love.graphics.draw(tokenImg, x, propY + 57, 0, iconSize/tokenImg:getWidth(), iconSize/tokenImg:getHeight())
+                    else
+                        -- Fallback if image not loaded
+                        love.graphics.setColor(0.8, 0.7, 0.9)
+                        love.graphics.print(tokenType, x, propY + 60)
+                    end
+                else
+                    -- Fallback if no image defined
+                    love.graphics.setColor(0.8, 0.7, 0.9)
+                    love.graphics.print(tokenType, x, propY + 60)
+                end
+            end
+        else
+            love.graphics.setColor(0.7, 0.7, 0.7)
+            love.graphics.print("None", pane.x + 60, propY + 60)
+        end
+        
+        -- Description (with word wrapping)
+        if selectedSpell.description then
+            love.graphics.setColor(0.8, 0.8, 0.8)
+            local descY = propY + 90
+            love.graphics.printf("Description:", pane.x + 15, descY, pane.w - 30)
+            love.graphics.setColor(0.7, 0.7, 0.8)
+            love.graphics.printf(selectedSpell.description, pane.x + 15, descY + 25, pane.w - 30)
+        end
+        
+        -- Draw keywords if present
+        if selectedSpell.keywords and next(selectedSpell.keywords) then
+            local keywordY = propY + 170
+            love.graphics.setColor(0.8, 0.8, 0.8)
+            love.graphics.print("Keywords:", pane.x + 15, keywordY)
+            
+            love.graphics.setColor(0.6, 0.8, 0.6)
+            local y = keywordY + 25
+            for keyword, params in pairs(selectedSpell.keywords) do
+                local keywordText = "- " .. keyword
+                if type(params) == "table" and next(params) then
+                    keywordText = keywordText .. " (" 
+                    local paramTexts = {}
+                    for k, v in pairs(params) do
+                        table.insert(paramTexts, k .. ": " .. tostring(v))
+                    end
+                    keywordText = keywordText .. table.concat(paramTexts, ", ") .. ")"
+                end
+                love.graphics.print(keywordText, pane.x + 20, y)
+                y = y + 20
+            end
+        end
+        
+        -- Reset scissor
+        love.graphics.setScissor()
+    else
+        -- No spell selected
+        love.graphics.setColor(0.7, 0.7, 0.7)
+        love.graphics.print("Select a spell to see details", pane.x + 15, pane.y + 60)
+    end
+    
+    -- Bottom Left: Available spells with scrolling
+    local pane = panes.bottomLeft
+    local spells = data.spells or {}
+    local spellCount = #spells
+    local spellLineHeight = 20 -- Height of each spell entry
+    local maxVisibleSpells = math.floor((pane.h - 50) / spellLineHeight) -- 50px for padding/header
+    
+    -- Set a scissor to clip content to the pane
+    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    
+    -- Draw visible spells
+    for i = 1, maxVisibleSpells do
+        local spellIdx = i + game.compendium.scrollOffset
+        if spellIdx <= spellCount then
+            local spell = spells[spellIdx]
+            local y = pane.y + 40 + (i-1)*spellLineHeight
+            
+            -- Highlight selected spell
+            if spellIdx == game.compendium.cursor then
+                love.graphics.setColor(0.3, 0.3, 0.5, 0.7)
+                love.graphics.rectangle("fill", pane.x + 5, y - 2, pane.w - 10, spellLineHeight)
+                love.graphics.setColor(1, 1, 0)
+            else
+                love.graphics.setColor(0.9, 0.9, 0.9)
+            end
+            
+            -- Show spell name, grayed out if locked
+            local text = spell.name
+            if not game.unlockedSpells[spell.id] then
+                text = "[LOCKED] " .. text
+                love.graphics.setColor(0.6, 0.6, 0.6)
+            end
+            love.graphics.print(text, pane.x + 20, y)
+        end
+    end
+    
+    -- Draw scrollbar if needed
+    if spellCount > maxVisibleSpells then
+        love.graphics.setColor(0.4, 0.4, 0.6, 0.8)
+        local scrollBarHeight = pane.h - 45
+        local scrollThumbHeight = math.max(20, scrollBarHeight * (maxVisibleSpells / spellCount))
+        local scrollThumbPos = (game.compendium.scrollOffset / (spellCount - maxVisibleSpells)) * 
+                               (scrollBarHeight - scrollThumbHeight)
+        
+        -- Draw track
+        love.graphics.setColor(0.2, 0.2, 0.3, 0.5)
+        love.graphics.rectangle("fill", pane.x + pane.w - 15, pane.y + 40, 10, scrollBarHeight)
+        
+        -- Draw thumb
+        love.graphics.setColor(0.4, 0.4, 0.6, 0.8)
+        love.graphics.rectangle("fill", 
+                                pane.x + pane.w - 15, 
+                                pane.y + 40 + scrollThumbPos, 
+                                10, 
+                                scrollThumbHeight)
+    end
+    
+    -- Reset scissor
+    love.graphics.setScissor()
+    
+    -- Top Right: Character View
+    local pane = panes.topRight
+    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    
+    -- Character name with larger font
+    love.graphics.setColor(1, 1, 0.8)
+    love.graphics.print(name, pane.x + pane.w/2 - game.font:getWidth(name)/2, pane.y + 45, 0, 1.3, 1.3)
+    
+    -- Character sprite
+    local spriteY = pane.y + 80
+    local spriteFileName = "assets/sprites/" .. string.lower(name) .. ".png"
+    local sprite = AssetCache.getImage(spriteFileName)
+    
+    if sprite then
+        love.graphics.setColor(1, 1, 1)
+        
+        -- Calculate scaled dimensions to fit in the pane while maintaining aspect ratio
+        local scale = 1
+        local maxWidth = pane.w - 40
+        local maxHeight = pane.h - 150
+        
+        local spriteWidth = sprite:getWidth()
+        local spriteHeight = sprite:getHeight()
+        
+        if spriteWidth > maxWidth or spriteHeight > maxHeight then
+            local scaleX = maxWidth / spriteWidth
+            local scaleY = maxHeight / spriteHeight
+            scale = math.min(scaleX, scaleY)
+        end
+        
+        local scaledWidth = spriteWidth * scale
+        local scaledHeight = spriteHeight * scale
+        local x = pane.x + (pane.w - scaledWidth) / 2
+        
+        love.graphics.draw(sprite, x, spriteY, 0, scale, scale)
+        
+        -- Character color display as a color box
+        if data.color then
+            local colorY = spriteY + scaledHeight + 20
+            love.graphics.setColor(data.color[1]/255, data.color[2]/255, data.color[3]/255)
+            love.graphics.rectangle("fill", pane.x + pane.w/2 - 40, colorY, 80, 20)
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.rectangle("line", pane.x + pane.w/2 - 40, colorY, 80, 20)
+            
+            -- Label for the color
+            love.graphics.setColor(0.9, 0.9, 0.9)
+            love.graphics.print("Character Color", 
+                                pane.x + pane.w/2 - game.font:getWidth("Character Color")/2, 
+                                colorY + 30)
+        end
+    else
+        -- Fallback if sprite not found
+        love.graphics.setColor(0.7, 0.7, 0.7)
+        love.graphics.print("Character sprite not available", 
+                            pane.x + 20, 
+                            pane.y + 100)
+    end
+    
+    love.graphics.setScissor()
+    
+    -- Bottom Right: Configured Spellbook View
+    local pane = panes.bottomRight
+    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    
+    -- Slot key input mappings
+    local keyMapping = {
+        ["1"] = "1",
+        ["2"] = "2",
+        ["3"] = "3",
+        ["12"] = "1+2",
+        ["13"] = "1+3",
+        ["23"] = "2+3",
+        ["123"] = "1+2+3"
+    }
+    
+    -- Get active spellbook (custom or default)
+    local active = game.customSpellbooks[name] or data.spellbook
+    
+    -- Instructions
+    love.graphics.setColor(0.8, 0.8, 0.8)
+    love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
+    
+    -- Draw each slot
+    for i, key in ipairs(slotKeys) do
+        local spell = active[key]
+        local y = pane.y + 70 + (i-1)*28
+        
+        -- Check if a number key is being held to highlight slot
+        local isSlotSelected = false
+        if game.currentState == "COMPENDIUM" and game.menuInput and game.menuInput[tostring(i)] then
+            isSlotSelected = true
+        end
+        
+        -- Check if this slot has the assignment feedback active
+        local isAssignFeedback = game.compendium.assignFeedback.active and 
+                                game.compendium.assignFeedback.slot == i
+        
+        -- Slot background
+        if isAssignFeedback then
+            -- Bright successful assignment highlight
+            love.graphics.setColor(0.3, 0.8, 0.3, 0.7)
+        elseif isSlotSelected then
+            -- Selection highlight when hovering
+            love.graphics.setColor(0.4, 0.5, 0.4, 0.7)
+        else
+            -- Normal background
+            love.graphics.setColor(0.25, 0.25, 0.35, 0.7)
+        end
+        love.graphics.rectangle("fill", pane.x + 10, y - 3, pane.w - 20, 24)
+        
+        -- Slot border
+        love.graphics.setColor(0.4, 0.4, 0.6)
+        love.graphics.rectangle("line", pane.x + 10, y - 3, pane.w - 20, 24)
+        
+        -- Slot input hint
+        love.graphics.setColor(1, 1, 0.6)
+        local inputHint = "[" .. keyMapping[key] .. "]"
+        love.graphics.print(inputHint, pane.x + 15, y)
+        
+        -- Slot assigned spell
+        local displayText
+        if spell then
+            love.graphics.setColor(1, 1, 1)
+            displayText = spell.name
+        else
+            love.graphics.setColor(0.6, 0.6, 0.6)
+            displayText = "--- Empty ---"
+        end
+        
+        -- Calculate position for the spell name so it's properly spaced from the input hint
+        local hintWidth = game.font:getWidth(inputHint)
+        love.graphics.print(displayText, pane.x + 25 + hintWidth, y)
+    end
+    
+    -- Draw explanatory text about the slot system
+    love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
+    local explanationY = pane.y + 70 + 7 * 28 + 15
+    love.graphics.printf(
+        "Combine keys to cast different spells. For example, pressing 1+2 together will cast the spell assigned to slot 4.",
+        pane.x + 15, 
+        explanationY,
+        pane.w - 30
+    )
+    
+    love.graphics.setScissor()
+    
+    -- Display assignment error message if present
+    if game.assignmentError and game.assignmentError.timer > 0 then
+        love.graphics.setColor(1, 0.3, 0.3, math.min(1, game.assignmentError.timer))
+        love.graphics.printf(
+            game.assignmentError.message,
+            screenWidth/2 - 200,
+            screenHeight - 60,
+            400,
+            "center"
+        )
+    end
+    
+    -- Draw footer background
+    love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
+    love.graphics.rectangle("fill", 0, screenHeight - 40, screenWidth, 40)
+    
+    -- Draw footer separator line
+    love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
+    love.graphics.rectangle("fill", 20, screenHeight - 40, screenWidth - 40, 1)
+    
+    -- Instructions at the bottom with key highlighting
+    local instructions = {
+        {text = "Left/Right", color = {1, 0.8, 0.4}},
+        {text = " to change wizard, ", color = {0.8, 0.8, 0.9}},
+        {text = "Up/Down", color = {1, 0.8, 0.4}},
+        {text = " to select spell, ", color = {0.8, 0.8, 0.9}},
+        {text = "1-7", color = {1, 0.8, 0.4}},
+        {text = " to assign spell to slot", color = {0.8, 0.8, 0.9}}
+    }
+    
+    local x = 20
+    local y = screenHeight - 27
+    
+    for _, part in ipairs(instructions) do
+        love.graphics.setColor(part.color)
+        love.graphics.print(part.text, x, y, 0, 0.9, 0.9)
+        x = x + game.font:getWidth(part.text) * 0.9
+    end
+    
+    -- Store pane layout in the game state for future reference
+    game.compendiumPanes = panes
 end
 
 -- Draw attract mode overlay

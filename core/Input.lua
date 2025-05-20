@@ -256,8 +256,17 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Open Compendium screen
+    -- Open Compendium screen (with number key 4)
     Input.Routes.ui["4"] = function()
+        if gameState.currentState == "MENU" then
+            gameState.startCompendium()
+            return true
+        end
+        return false
+    end
+    
+    -- Open Compendium screen (with letter C for easier access)
+    Input.Routes.ui["c"] = function()
         if gameState.currentState == "MENU" then
             gameState.startCompendium()
             return true

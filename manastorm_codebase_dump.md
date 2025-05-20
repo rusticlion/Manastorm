@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Mon May 19 14:49:32 CDT 2025
+Generated: Tue May 20 14:30:49 CDT 2025
 
 # Source Code
 
@@ -894,6 +894,118 @@ end
 
 return AshgarPersonality```
 
+## ./ai/personalities/BorrakPersonality.lua
+```lua
+-- ai/personalities/BorrakPersonality.lua
+-- AI personality module for Borrak, the water warlock
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+local ManaHelpers = require("systems.ManaHelpers")
+
+-- Define the BorrakPersonality module
+local BorrakPersonality = PersonalityBase.new("Borrak")
+
+-- Utility to randomly choose a spell from a list that the wizard can afford
+local function chooseRandomAffordable(ai, spells)
+    -- shuffle order for randomness
+    for i = #spells, 2, -1 do
+        local j = math.random(i)
+        spells[i], spells[j] = spells[j], spells[i]
+    end
+
+    for _, spell in ipairs(spells) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    return nil
+end
+
+-- Get the best offensive spell for the current situation
+function BorrakPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local options = {}
+
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["123"]) -- Wave Crash
+    end
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["23"]) -- Maelstrom
+        table.insert(options, spellbook["13"]) -- Brine Chain
+        table.insert(options, spellbook["12"]) -- Tidal Force
+    end
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["2"]) -- Water Gun
+    end
+
+    return chooseRandomAffordable(ai, options)
+end
+
+-- Get the best defensive spell for the current situation
+function BorrakPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local shield = spellbook["3"] -- Riptide Guard
+        if shield and ai.wizard:canPayManaCost(shield.cost) then
+            return shield
+        end
+    end
+    return nil
+end
+
+-- Counters simply fall back to defensive options
+function BorrakPersonality:getCounterSpell(ai, perception, spellbook)
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Escape behavior is also to put up a shield
+function BorrakPersonality:getEscapeSpell(ai, perception, spellbook)
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Conjure Water whenever possible
+function BorrakPersonality:getConjureSpell(ai, perception, spellbook)
+    if ai:hasAvailableSpellSlot() then
+        local spell = spellbook["1"] -- Conjure Water
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    return nil
+end
+
+-- Borrak generally has no special positioning logic
+function BorrakPersonality:getPositioningSpell(ai, perception, spellbook)
+    return nil
+end
+
+-- Suggest AI state based on Borrak's strategy
+function BorrakPersonality:suggestState(ai, perception)
+    local p = perception
+    local waterCount = p.availableTokens[Constants.TokenType.WATER] or 0
+
+    -- Focus on conjuring until we have at least 3 Water tokens
+    if waterCount < 3 then
+        return ai.STATE.IDLE
+    end
+
+    -- Maintain a shield if we don't have one
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.DEFEND
+    end
+
+    -- Alternate between attacking and conjuring
+    if math.random() < 0.5 then
+        return ai.STATE.ATTACK
+    else
+        return ai.STATE.IDLE
+    end
+end
+
+return BorrakPersonality
+```
+
 ## ./ai/personalities/SelenePersonality.lua
 ```lua
 -- ai/personalities/SelenePersonality.lua
@@ -1198,6 +1310,174 @@ end
 
 return SelenePersonality```
 
+## ./ai/personalities/SilexPersonality.lua
+```lua
+-- ai/personalities/SilexPersonality.lua
+-- AI personality module for Silex, the salt mage
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the SilexPersonality module
+local SilexPersonality = PersonalityBase.new("Silex")
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SilexPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- Big area damage when we have plenty of tokens
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["123"]) -- Salt Storm
+    end
+
+    -- Use Shield Breaker to punish opponents hiding behind shields
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["23"]) -- Shield Breaker
+    end
+
+    -- Trap the opponent to maintain advantage
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- Imprison
+    end
+
+    -- Quick poke
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- Glitter Fang
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+function SilexPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- Always try to keep a Salt Circle up
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+    end
+
+    -- Add Stone Shield as backup protection
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Stone Shield
+    end
+
+    -- Build resources if we can't shield
+    if p.totalFreeTokens == 0 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Salt
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+function SilexPersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    if p.opponentHasDangerousSpell then
+        -- Put up Salt Circle to ward off incoming spells
+        if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+            table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+        end
+        -- Try to break the spell with Shield Breaker
+        if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+            table.insert(spellsToTry, spellbook["23"]) -- Shield Breaker
+        end
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Get the best escape spell for the current situation
+function SilexPersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Stone Shield
+    end
+
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+function SilexPersonality:getConjureSpell(ai, perception, spellbook)
+    print("Silex:getConjureSpell")
+    if ai:hasAvailableSpellSlot() then
+        local spell = spellbook["1"] -- Conjure Salt
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Positioning is not a focus for Silex
+function SilexPersonality:getPositioningSpell(ai, perception, spellbook)
+    return nil
+end
+
+-- Suggest AI state based on Silex's strategy
+function SilexPersonality:suggestState(ai, perception)
+    local p = perception
+
+    -- Prioritize keeping a shield up
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.DEFEND
+    end
+
+    -- If shielded and have resources, press the attack
+    if p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.ATTACK
+    end
+
+    -- Build resources when low
+    if p.totalFreeTokens == 0 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.IDLE
+    end
+
+    return nil
+end
+
+return SilexPersonality
+```
+
 ## ./characterData.lua
 ```lua
 -- characterData.lua
@@ -1212,12 +1492,23 @@ characterData.Ashgar = {
     color = {255,100,100},
     spellbook = {
         ["1"]  = Spells.conjurefire,
-        ["2"]  = Spells.burnToAsh,
-        ["3"]  = Spells.firebolt,
-        ["12"] = Spells.saltcircle,
+        ["2"]  = Spells.firebolt,
+        ["3"]  = Spells.fireball,
+        ["12"] = Spells.burnToAsh,
         ["13"] = Spells.blastwave,
-        ["23"] = Spells.fireball,
+        ["23"] = Spells.saltcircle,
         ["123"] = Spells.eruption,
+    },
+    spells = {
+        Spells.conjurefire,
+        Spells.firebolt,
+        Spells.fireball,
+        Spells.burnToAsh,
+        Spells.blastwave,
+        Spells.saltcircle,
+        Spells.eruption,
+        Spells.combustMana,
+        Spells.blazingAscent,
     }
 }
 
@@ -1231,6 +1522,17 @@ characterData.Selene = {
         ["13"] = Spells.eclipse,
         ["23"] = Spells.gravityTrap,
         ["123"] = Spells.fullmoonbeam,
+    },
+    spells = {
+        Spells.conjuremoonlight,
+        Spells.wrapinmoonlight,
+        Spells.moondance,
+        Spells.infiniteprocession,
+        Spells.eclipse,
+        Spells.gravityTrap,
+        Spells.fullmoonbeam,
+        Spells.lunardisjunction,
+        Spells.lunarTides,
     }
 }
 
@@ -1244,6 +1546,39 @@ characterData.Silex = {
         ["13"] = Spells.stoneshield,
         ["23"] = Spells.shieldbreaker,
         ["123"] = Spells.saltstorm,
+    },
+    spells = {
+        Spells.conjuresalt,
+        Spells.glitterfang,
+        Spells.imprison,
+        Spells.saltcircle,
+        Spells.stoneshield,
+        Spells.shieldbreaker,
+        Spells.saltstorm,
+        Spells.jaggedearth,
+    }
+}
+
+characterData.Borrak = {
+    color = {100,180,255},
+    spellbook = {
+        ["1"]  = Spells.conjurewater,
+        ["2"]  = Spells.watergun,
+        ["3"]  = Spells.riptideguard,
+        ["12"] = Spells.tidalforce,
+        ["13"] = Spells.brinechain,
+        ["23"] = Spells.maelstrom,
+        ["123"] = Spells.wavecrash,
+    },
+    spells = {
+        Spells.conjurewater,
+        Spells.watergun,
+        Spells.riptideguard,
+        Spells.tidalforce,
+        Spells.brinechain,
+        Spells.maelstrom,
+        Spells.wavecrash,
+        Spells.forceBlast,
     }
 }
 
@@ -1251,7 +1586,7 @@ characterData.Silex = {
 local defaultSpellbook = characterData.Ashgar.spellbook
 local defaultColor = {255,255,255}
 
-local roster = {"Borrak","Brightwulf","Klaus","Ohm","Archive","End"}
+local roster = {"Brightwulf","Klaus","Ohm","Archive","End"}
 for _, name in ipairs(roster) do
     characterData[name] = {
         color = defaultColor,
@@ -1514,6 +1849,12 @@ Constants.TokenStatus = {
     ORBITING = "ORBITING",     -- Animating from pool center to orbit (transition state)
     DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
     POOLED = "POOLED"          -- Released to the object pool
+}
+
+-- Visual constants for tokens
+Constants.TokenVisuals = {
+    -- Scale applied when a token is placed in a spell slot
+    CHANNELED_SCALE = 1.0
 }
 
 -- Range positioning between wizards
@@ -2130,6 +2471,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.currentState = "MENU"
+            return true
         end
         return false
     end
@@ -2203,10 +2547,10 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Compendium stub
+    -- Open Compendium screen
     Input.Routes.ui["4"] = function()
         if gameState.currentState == "MENU" then
-            print("Compendium not implemented yet")
+            gameState.startCompendium()
             return true
         end
         return false
@@ -2242,10 +2586,13 @@ function Input.setupRoutes()
         return false
     end
 
-    -- SETTINGS CONTROLS
+    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(-1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(-1)
             return true
         end
         return false
@@ -2254,6 +2601,9 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(1)
+            return true
         end
         return false
     end
@@ -2261,12 +2611,51 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(-1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(-1)
+            return true
         end
         return false
     end
     Input.Routes.ui["right"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(1)
+            return true
+        end
+        return false
+    end
+
+    -- Assign spells to slots when in Compendium
+    for i=1,7 do
+        local existing = Input.Routes.ui[tostring(i)]
+        Input.Routes.ui[tostring(i)] = function()
+            if gameState.currentState == "COMPENDIUM" then
+                gameState.compendiumAssign(i)
+                return true
+            elseif existing then
+                return existing()
+            end
+            return false
+        end
+    end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
             return true
         end
         return false
@@ -4521,6 +4910,8 @@ local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local SilexPersonality = require("ai.personalities.SilexPersonality")
+local BorrakPersonality = require("ai.personalities.BorrakPersonality")
 local CharacterData = require("characterData")
 
 -- Resolution settings
@@ -4633,8 +5024,51 @@ game.characterRoster = {
 
 game.unlockedCharacters = {
     Ashgar = true,
-    Selene = true,
-    Silex = false
+    Borrak = true,
+    Silex = false,
+    Selene = true
+}
+
+-- Spells unlocked for customization
+game.unlockedSpells = {
+    conjurefire = true,
+    firebolt = true,
+    fireball = true,
+    burnToAsh = true,
+    blastwave = true,
+    saltcircle = true,
+    eruption = true,
+
+    conjuremoonlight = true,
+    wrapinmoonlight = true,
+    moondance = true,
+    infiniteprocession = true,
+    eclipse = true,
+    gravityTrap = true,
+    fullmoonbeam = true,
+
+    conjuresalt = true,
+    glitterfang = true,
+    imprison = true,
+    stoneshield = true,
+    shieldbreaker = true,
+    saltstorm = true,
+
+    conjurewater = true,
+    watergun = true,
+    riptideguard = true,
+    tidalforce = true,
+    brinechain = true,
+    maelstrom = true,
+    wavecrash = true,
+}
+
+-- Custom spellbooks configured by the player
+game.customSpellbooks = {}
+
+game.compendium = {
+    page = 1,
+    cursor = 1,
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -4654,6 +5088,10 @@ local function getPersonalityFor(name)
         return SelenePersonality
     elseif name == "Ashgar" then
         return AshgarPersonality
+    elseif name == "Borrak" then
+        return BorrakPersonality
+    elseif name == "Silex" then
+        return SilexPersonality
     else
         return nil
     end
@@ -5017,6 +5455,9 @@ function resetGame()
         elseif aiWizard.name == "Ashgar" then
             personality = AshgarPersonality
             print("Initializing Ashgar AI personality")
+        elseif aiWizard.name == "Silex" then
+            personality = SilexPersonality
+            print("Initializing Silex AI personality")
         else
             -- Default to base personality for unknown wizards
             print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
@@ -5137,8 +5578,10 @@ end
 function setupWizards(name1, name2)
     local data1 = game.characterData[name1] or {}
     local data2 = game.characterData[name2] or {}
-    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
-    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    local book1 = game.customSpellbooks[name1] or data1.spellbook
+    local book2 = game.customSpellbooks[name2] or data2.spellbook
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, book1)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, book2)
     for _, wizard in ipairs(game.wizards) do
         wizard.manaPool = game.manaPool
         wizard.gameState = game
@@ -5250,6 +5693,41 @@ function game.settingsSelect()
     end
 end
 
+function game.startCompendium()
+    game.compendium.page = 1
+    game.compendium.cursor = 1
+    game.currentState = "COMPENDIUM"
+end
+
+function game.compendiumMove(dir)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local count = #spells
+    if count == 0 then return end
+    local idx = ((game.compendium.cursor-1 + dir-1) % count) + 1
+    game.compendium.cursor = idx
+end
+
+function game.compendiumChangePage(dir)
+    local count = #game.characterRoster
+    game.compendium.page = ((game.compendium.page-1 + dir-1) % count) + 1
+    game.compendium.cursor = 1
+end
+
+local slotKeys = {"1","2","3","12","13","23","123"}
+function game.compendiumAssign(slot)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local spell = spells[game.compendium.cursor]
+    if not spell or not game.unlockedSpells[spell.id] then return end
+    if not game.customSpellbooks[name] then
+        -- copy default spellbook
+        local copy = {}
+        for k,v in pairs(game.characterData[name].spellbook) do copy[k]=v end
+        game.customSpellbooks[name] = copy
+    end
+    game.customSpellbooks[name][slotKeys[slot]] = spell
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -5291,6 +5769,11 @@ function love.update(dt)
         -- No other updates needed in menu state
         return
     elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "COMPENDIUM" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -5526,6 +6009,8 @@ function love.draw()
         drawMainMenu()
     elseif game.currentState == "SETTINGS" then
         drawSettingsMenu()
+    elseif game.currentState == "COMPENDIUM" then
+        drawCompendium()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -6251,6 +6736,41 @@ function drawSettingsMenu()
     end
 end
 
+function drawCompendium()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local name = game.characterRoster[game.compendium.page]
+    local data = game.characterData[name]
+    love.graphics.setColor(1,1,1)
+    local title = name .. " Spellbook"
+    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2, 30)
+
+    local active = game.customSpellbooks[name] or data.spellbook
+    for i,key in ipairs(slotKeys) do
+        local spell = active[key]
+        local y = 60 + (i-1)*20
+        love.graphics.print(string.format("[%s] %s", key, spell and spell.name or "-"), screenWidth/2 - 100, y)
+    end
+
+    local spells = data.spells or {}
+    for i,spell in ipairs(spells) do
+        local y = 200 + (i-1)*20
+        if i == game.compendium.cursor then
+            love.graphics.setColor(1,1,0)
+        else
+            love.graphics.setColor(0.9,0.9,0.9)
+        end
+        local text = game.unlockedSpells[spell.id] and spell.name or "???"
+        love.graphics.print(text, 60, y)
+    end
+
+    love.graphics.setColor(1,1,1,0.7)
+    love.graphics.print("Left/Right to change wizard, Up/Down select, 1-7 to assign",60,screenHeight-30,0,0.8,0.8)
+end
+
 -- Draw attract mode overlay
 function drawAttractModeOverlay()
     local screenWidth = baseWidth
@@ -6370,13 +6890,25 @@ local TokenMethods = {}
 -- Set the token's state with validation
 function TokenMethods:setState(newStatus)
     local oldStatus = self.status
-    
+
     -- Validate state transitions
     if self.status == Constants.TokenStatus.POOLED then
         print("[TOKEN LIFECYCLE] WARNING: Cannot transition from POOLED state!")
         return false
     end
-    
+
+    -- Finalize scale if leaving an animation state that modifies scale
+    if (oldStatus == Constants.TokenStatus.APPEARING or oldStatus == Constants.TokenStatus.ORBITING) and
+       (newStatus == Constants.TokenStatus.CHANNELED or
+        newStatus == Constants.TokenStatus.SHIELDING or
+        newStatus == Constants.TokenStatus.FREE) then
+        if self.targetScale then
+            self.scale = self.targetScale
+        else
+            self.scale = 0.85 + math.random() * 0.3
+        end
+    end
+
     -- Update the token's status
     self.status = newStatus
     
@@ -6595,6 +7127,13 @@ function TokenMethods:finalizeOrbit()
     -- Update position to make sure it's at the target
     self.x = self.targetOrbitX
     self.y = self.targetOrbitY
+
+    -- Ensure scale is finalized
+    if self.targetScale then
+        self.scale = self.targetScale
+    else
+        self.scale = 0.85 + math.random() * 0.3
+    end
     
     -- Clean up orbit animation properties
     self.startOrbitX = nil
@@ -6718,8 +7257,9 @@ function TokenMethods:finalizeAppear()
     self.targetRadiusY = valence.radiusY
     self.currentRadiusX = valence.radiusX
     self.currentRadiusY = valence.radiusY
-    
+
     -- Visual variance set during appearing animation
+    self.scale = self.targetScale
     self.zOrder = math.random()
     
     return true
@@ -7246,10 +7786,19 @@ function ManaPool:update(dt)
                     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
                     
                     -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
-                    if wizard.name == "Ashgar" then -- Player 1 (left side)
-                        xOffset = isNear and 60 or 0 -- Move right when NEAR
-                    else -- Player 2 (right side)
-                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    local isLeft = true
+                    if wizard.gameState and wizard.gameState.wizards then
+                        for _, other in ipairs(wizard.gameState.wizards) do
+                            if other ~= wizard then
+                                isLeft = wizard.x <= other.x
+                                break
+                            end
+                        end
+                    end
+                    if isLeft then
+                        xOffset = isNear and 60 or 0
+                    else
+                        xOffset = isNear and -60 or 0
                     end
                     
                     local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
@@ -8598,6 +9147,7 @@ FireSpells.eruption = {
     visualShape = "groundBurst",
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
+    unlockSpell = "blazingascent",
     keywords = {
         zoneAnchor = {
             range = function(caster, target)
@@ -8917,6 +9467,7 @@ MoonSpells.fullmoonbeam = {
     visualShape = "beam",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
+    unlockSpell = "lunartides",
     keywords = {
         damage = {
             amount = function(caster, target, slot)
@@ -8991,6 +9542,7 @@ MoonSpells.wrapinmoonlight = {
     visualShape = "wings",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
+    unlockSpell = "lunardisjunction",
     keywords = {
         block = {
             type = Constants.ShieldType.WARD,
@@ -9191,6 +9743,7 @@ SaltSpells.burnToAsh = {
     attackType = Constants.AttackType.UTILITY,
     visualShape = "zap",
     cost = {Constants.TokenType.FIRE},
+    unlockSpell = "combustMana",
     keywords = {
         disruptAndShift = {
             targetType = "salt"
@@ -9208,6 +9761,7 @@ SaltSpells.saltstorm = {
     castTime = Constants.CastSpeed.VERY_SLOW,
     attackType = Constants.AttackType.ZONE,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
+    unlockSpell = "jaggedearth",
     keywords = {
         damage = {
             amount = 15,
@@ -9865,6 +10419,7 @@ return VoidSpells```
 -- Contains water-element spells
 
 local Constants = require("core.Constants")
+local ManaHelpers = require("systems.ManaHelpers")
 
 local WaterSpells = {}
 
@@ -9914,7 +10469,150 @@ WaterSpells.forceBlast = {
     sfx = "force_wind",
 }
 
-return WaterSpells```
+-- Conjure Water spell
+WaterSpells.conjurewater = {
+    id = "conjurewater",
+    name = "Conjure Water",
+    affinity = Constants.TokenType.WATER,
+    description = "Conjures a Water mana token. Takes longer to cast the more Water tokens already present.",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.CONJURE_BASE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {},
+    keywords = {
+        conjure = {
+            token = Constants.TokenType.WATER,
+            amount = 1
+        }
+    },
+
+    getCastTime = function(caster)
+        local baseCastTime = Constants.CastSpeed.FAST
+        local waterCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == Constants.TokenType.WATER and token.state == Constants.TokenState.FREE then
+                    waterCount = waterCount + 1
+                end
+            end
+        end
+        return baseCastTime + (waterCount * Constants.CastSpeed.ONE_TIER)
+    end
+}
+
+-- Maelstrom spell - damage scales with WATER tokens in the pool
+WaterSpells.maelstrom = {
+    id = "maelstrom",
+    name = "Maelstrom",
+    affinity = Constants.TokenType.WATER,
+    description = "Remote blast that grows stronger with each Water token in the mana pool",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 6 + (count * 2)
+            end,
+            type = Constants.DamageType.WATER
+        }
+    },
+    sfx = "water_surge",
+}
+
+-- Riptide Guard shield - switches range when it blocks
+WaterSpells.riptideguard = {
+    id = "riptideguard",
+    name = "Riptide Guard",
+    affinity = Constants.TokenType.WATER,
+    description = "Barrier that swaps range with the opponent when it blocks an attack",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+
+            onBlock = function(defender, attacker, slotIndex, info)
+                local events = {}
+                local gameState = defender.gameState
+                local newRange = Constants.RangeState.NEAR
+                if gameState and gameState.rangeState == Constants.RangeState.NEAR then
+                    newRange = Constants.RangeState.FAR
+                end
+                table.insert(events, {
+                    type = "SET_RANGE",
+                    source = "caster",
+                    target = "both",
+                    position = newRange
+                })
+                return events
+            end
+        }
+    },
+    sfx = "tide_rush",
+}
+
+-- Brine Chain spell - salt infused lash that slows
+WaterSpells.brinechain = {
+    id = "brinechain",
+    name = "Brine Chain",
+    affinity = Constants.TokenType.WATER,
+    description = "Salt-laced lash that slows the enemy. Damage scales with Water tokens in the pool",
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.BOLT,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 5 + count
+            end,
+            type = Constants.DamageType.WATER
+        },
+        slow = {
+            magnitude = 1.0,
+            duration = 2.0
+        }
+    },
+    sfx = "water_whip",
+}
+
+-- Wave Crash spell - consumes tokens for a powerful strike
+WaterSpells.wavecrash = {
+    id = "wavecrash",
+    name = "Wave Crash",
+    affinity = Constants.TokenType.WATER,
+    description = "Consumes its channeled tokens to unleash a devastating wave",
+    attackType = Constants.AttackType.ZONE,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER, Constants.TokenType.WATER},
+    unlockSpell = "forceblast",
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 10 + count * 3
+            end,
+            type = Constants.DamageType.WATER
+        },
+        consume = { amount = "all" },
+        conjure = {
+            token = Constants.TokenType.SALT,
+            amount = 1
+        }
+    },
+    sfx = "wave_crash",
+}
+
+return WaterSpells
+```
 
 ## ./spells/init.lua
 ```lua
@@ -13055,6 +13753,13 @@ function TokenManager.positionTokensInSpellSlot(wizard, slotIndex, tokens)
         -- Store token's current position as the starting point for animation
         token.startX = token.x
         token.startY = token.y
+
+        -- Ensure the token appears at a consistent scale while channeled
+        if token.targetScale then
+            token.scale = token.targetScale
+        else
+            token.scale = Constants.TokenVisuals and Constants.TokenVisuals.CHANNELED_SCALE or 1.0
+        end
         
         -- Initialize animation parameters
         token.animTime = 0
@@ -13355,6 +14060,12 @@ function UnlockSystem.checkSpellUnlock(spell, caster)
                 color = {1,1,0,1}
             }
         end
+    end
+
+    -- Unlock additional spells
+    if spell.unlockSpell and game and not game.unlockedSpells[spell.unlockSpell] then
+        game.unlockedSpells[spell.unlockSpell] = true
+        print("[UNLOCK] Spell unlocked: " .. spell.unlockSpell)
     end
 end
 
@@ -13946,8 +14657,8 @@ function WizardVisuals.drawStatusEffects(wizard)
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
-    local x = (wizard.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
+    -- Position bars above the wizard with the same offsets as the sprite
+    local x = wizard.x + xOffset
     
     local Constants = require("core.Constants")
     
@@ -14645,10 +15356,21 @@ function WizardVisuals.drawWizard(wizard)
     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
     local centerX = love.graphics.getWidth() / 2
     
+    -- Determine relative position compared to the other combatant
+    local isLeft = true
+    if wizard.gameState and wizard.gameState.wizards then
+        for _, other in ipairs(wizard.gameState.wizards) do
+            if other ~= wizard then
+                isLeft = wizard.x <= other.x
+                break
+            end
+        end
+    end
+
     -- Push wizards closer to center in NEAR mode, further in FAR mode
-    if wizard.name == "Ashgar" then -- Player 1 (left side)
+    if isLeft then
         targetXOffset = isNear and 60 or 0 -- Move right when NEAR
-    else -- Player 2 (right side)
+    else
         targetXOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
@@ -14716,26 +15438,17 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        -- Determine facing direction so wizards always face each other
-        local opponent = nil
+        -- Flip sprite based on whether this wizard is on the left or right
+        local isLeft = true
         if wizard.gameState and wizard.gameState.wizards then
-            if wizard == wizard.gameState.wizards[1] then
-                opponent = wizard.gameState.wizards[2]
-            else
-                opponent = wizard.gameState.wizards[1]
+            for _, other in ipairs(wizard.gameState.wizards) do
+                if other ~= wizard then
+                    isLeft = wizard.x <= other.x
+                    break
+                end
             end
         end
-
-        local facingRight = true
-        if opponent then
-            local oppX = opponent.x + (opponent.currentXOffset or 0)
-            facingRight = (wizard.x + xOffset) <= oppX
-        else
-            local centerX = love.graphics.getWidth() / 2
-            facingRight = (wizard.x + xOffset) <= centerX
-        end
-
-        local flipX = facingRight and 1 or -1
+        local flipX = isLeft and 1 or -1
         local adjustedScale = wizard.scale * flipX
 
         -- Determine which sprite to draw based on positional animation sets
@@ -17716,7 +18429,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
     
     -- Timing
-    effect.duration = template.duration
+    -- Prioritize duration from options (EventRunner), then template, then fallback.
+    if options and options.duration then
+        effect.duration = options.duration
+    elseif template.duration then
+        effect.duration = template.duration
+    else
+        effect.duration = 0.5 -- Absolute fallback if no duration anywhere
+        print("[VFX] Warning: Effect " .. effectNameStr .. " has no duration in options or template. Defaulting to 0.5s.")
+    end
     effect.timer = 0
     effect.progress = 0
     effect.isComplete = false
@@ -18093,13 +18814,15 @@ function VFX.update(dt)
             -- Once block is triggered, increment a block timer
             if effect.blockTimerStarted then
                 effect.blockTimer = effect.blockTimer + dt
-                -- Force effect completion after a longer time (1.2 seconds) to ensure player sees it
+                -- Keep the effect alive until the block timer elapses
                 if effect.blockTimer > 1.2 then
-                    effect.progress = 1.0 -- Mark effect as complete
+                    -- After the hold period, mark the effect complete
+                    effect.progress = 1.0
                     print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
                 else
-                    -- Keep visual progress fixed at block point - this is crucial for seeing the projectile stop
+                    -- Lock both visual and logical progress at the block point so the effect isn't removed early
                     effect.visualProgress = effect.options.blockPoint
+                    effect.progress = math.min(effect.progress, effect.options.blockPoint)
                 end
             end
         end
@@ -25146,7 +25869,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Mon May 19 14:49:32 CDT 2025
+Generated: Tue May 20 14:30:49 CDT 2025
 
 # Source Code
 
@@ -26041,6 +26764,118 @@ end
 
 return AshgarPersonality```
 
+## ./ai/personalities/BorrakPersonality.lua
+```lua
+-- ai/personalities/BorrakPersonality.lua
+-- AI personality module for Borrak, the water warlock
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+local ManaHelpers = require("systems.ManaHelpers")
+
+-- Define the BorrakPersonality module
+local BorrakPersonality = PersonalityBase.new("Borrak")
+
+-- Utility to randomly choose a spell from a list that the wizard can afford
+local function chooseRandomAffordable(ai, spells)
+    -- shuffle order for randomness
+    for i = #spells, 2, -1 do
+        local j = math.random(i)
+        spells[i], spells[j] = spells[j], spells[i]
+    end
+
+    for _, spell in ipairs(spells) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    return nil
+end
+
+-- Get the best offensive spell for the current situation
+function BorrakPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local options = {}
+
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["123"]) -- Wave Crash
+    end
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["23"]) -- Maelstrom
+        table.insert(options, spellbook["13"]) -- Brine Chain
+        table.insert(options, spellbook["12"]) -- Tidal Force
+    end
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(options, spellbook["2"]) -- Water Gun
+    end
+
+    return chooseRandomAffordable(ai, options)
+end
+
+-- Get the best defensive spell for the current situation
+function BorrakPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        local shield = spellbook["3"] -- Riptide Guard
+        if shield and ai.wizard:canPayManaCost(shield.cost) then
+            return shield
+        end
+    end
+    return nil
+end
+
+-- Counters simply fall back to defensive options
+function BorrakPersonality:getCounterSpell(ai, perception, spellbook)
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Escape behavior is also to put up a shield
+function BorrakPersonality:getEscapeSpell(ai, perception, spellbook)
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Conjure Water whenever possible
+function BorrakPersonality:getConjureSpell(ai, perception, spellbook)
+    if ai:hasAvailableSpellSlot() then
+        local spell = spellbook["1"] -- Conjure Water
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+    return nil
+end
+
+-- Borrak generally has no special positioning logic
+function BorrakPersonality:getPositioningSpell(ai, perception, spellbook)
+    return nil
+end
+
+-- Suggest AI state based on Borrak's strategy
+function BorrakPersonality:suggestState(ai, perception)
+    local p = perception
+    local waterCount = p.availableTokens[Constants.TokenType.WATER] or 0
+
+    -- Focus on conjuring until we have at least 3 Water tokens
+    if waterCount < 3 then
+        return ai.STATE.IDLE
+    end
+
+    -- Maintain a shield if we don't have one
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.DEFEND
+    end
+
+    -- Alternate between attacking and conjuring
+    if math.random() < 0.5 then
+        return ai.STATE.ATTACK
+    else
+        return ai.STATE.IDLE
+    end
+end
+
+return BorrakPersonality
+```
+
 ## ./ai/personalities/SelenePersonality.lua
 ```lua
 -- ai/personalities/SelenePersonality.lua
@@ -26345,6 +27180,174 @@ end
 
 return SelenePersonality```
 
+## ./ai/personalities/SilexPersonality.lua
+```lua
+-- ai/personalities/SilexPersonality.lua
+-- AI personality module for Silex, the salt mage
+
+local Constants = require("core.Constants")
+local PersonalityBase = require("ai.PersonalityBase")
+
+-- Define the SilexPersonality module
+local SilexPersonality = PersonalityBase.new("Silex")
+
+-- Get the best offensive spell for the current situation
+-- @param ai - The OpponentAI instance
+-- @param perception - The current perception data
+-- @param spellbook - The wizard's spellbook
+-- @return - A spell object or nil if no suitable spell found
+function SilexPersonality:getAttackSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- Big area damage when we have plenty of tokens
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["123"]) -- Salt Storm
+    end
+
+    -- Use Shield Breaker to punish opponents hiding behind shields
+    if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["23"]) -- Shield Breaker
+    end
+
+    -- Trap the opponent to maintain advantage
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["3"]) -- Imprison
+    end
+
+    -- Quick poke
+    if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["2"]) -- Glitter Fang
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best defensive spell for the current situation
+function SilexPersonality:getDefenseSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    -- Always try to keep a Salt Circle up
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+    end
+
+    -- Add Stone Shield as backup protection
+    if p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Stone Shield
+    end
+
+    -- Build resources if we can't shield
+    if p.totalFreeTokens == 0 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["1"]) -- Conjure Salt
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best counter spell for the current situation
+function SilexPersonality:getCounterSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    if p.opponentHasDangerousSpell then
+        -- Put up Salt Circle to ward off incoming spells
+        if p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+            table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+        end
+        -- Try to break the spell with Shield Breaker
+        if p.totalFreeTokens >= 3 and ai:hasAvailableSpellSlot() then
+            table.insert(spellsToTry, spellbook["23"]) -- Shield Breaker
+        end
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return self:getDefenseSpell(ai, perception, spellbook)
+end
+
+-- Get the best escape spell for the current situation
+function SilexPersonality:getEscapeSpell(ai, perception, spellbook)
+    local p = perception
+    local spellsToTry = {}
+
+    if not p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["13"]) -- Stone Shield
+    end
+
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        table.insert(spellsToTry, spellbook["12"]) -- Salt Circle
+    end
+
+    for _, spell in ipairs(spellsToTry) do
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Get the best conjuration spell for the current situation
+function SilexPersonality:getConjureSpell(ai, perception, spellbook)
+    print("Silex:getConjureSpell")
+    if ai:hasAvailableSpellSlot() then
+        local spell = spellbook["1"] -- Conjure Salt
+        if spell and ai.wizard:canPayManaCost(spell.cost) then
+            return spell
+        end
+    end
+
+    return nil
+end
+
+-- Positioning is not a focus for Silex
+function SilexPersonality:getPositioningSpell(ai, perception, spellbook)
+    return nil
+end
+
+-- Suggest AI state based on Silex's strategy
+function SilexPersonality:suggestState(ai, perception)
+    local p = perception
+
+    -- Prioritize keeping a shield up
+    if not p.hasActiveShield and p.totalFreeTokens >= 1 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.DEFEND
+    end
+
+    -- If shielded and have resources, press the attack
+    if p.hasActiveShield and p.totalFreeTokens >= 2 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.ATTACK
+    end
+
+    -- Build resources when low
+    if p.totalFreeTokens == 0 and ai:hasAvailableSpellSlot() then
+        return ai.STATE.IDLE
+    end
+
+    return nil
+end
+
+return SilexPersonality
+```
+
 ## ./characterData.lua
 ```lua
 -- characterData.lua
@@ -26359,12 +27362,23 @@ characterData.Ashgar = {
     color = {255,100,100},
     spellbook = {
         ["1"]  = Spells.conjurefire,
-        ["2"]  = Spells.burnToAsh,
-        ["3"]  = Spells.firebolt,
-        ["12"] = Spells.saltcircle,
+        ["2"]  = Spells.firebolt,
+        ["3"]  = Spells.fireball,
+        ["12"] = Spells.burnToAsh,
         ["13"] = Spells.blastwave,
-        ["23"] = Spells.fireball,
+        ["23"] = Spells.saltcircle,
         ["123"] = Spells.eruption,
+    },
+    spells = {
+        Spells.conjurefire,
+        Spells.firebolt,
+        Spells.fireball,
+        Spells.burnToAsh,
+        Spells.blastwave,
+        Spells.saltcircle,
+        Spells.eruption,
+        Spells.combustMana,
+        Spells.blazingAscent,
     }
 }
 
@@ -26378,6 +27392,17 @@ characterData.Selene = {
         ["13"] = Spells.eclipse,
         ["23"] = Spells.gravityTrap,
         ["123"] = Spells.fullmoonbeam,
+    },
+    spells = {
+        Spells.conjuremoonlight,
+        Spells.wrapinmoonlight,
+        Spells.moondance,
+        Spells.infiniteprocession,
+        Spells.eclipse,
+        Spells.gravityTrap,
+        Spells.fullmoonbeam,
+        Spells.lunardisjunction,
+        Spells.lunarTides,
     }
 }
 
@@ -26391,6 +27416,39 @@ characterData.Silex = {
         ["13"] = Spells.stoneshield,
         ["23"] = Spells.shieldbreaker,
         ["123"] = Spells.saltstorm,
+    },
+    spells = {
+        Spells.conjuresalt,
+        Spells.glitterfang,
+        Spells.imprison,
+        Spells.saltcircle,
+        Spells.stoneshield,
+        Spells.shieldbreaker,
+        Spells.saltstorm,
+        Spells.jaggedearth,
+    }
+}
+
+characterData.Borrak = {
+    color = {100,180,255},
+    spellbook = {
+        ["1"]  = Spells.conjurewater,
+        ["2"]  = Spells.watergun,
+        ["3"]  = Spells.riptideguard,
+        ["12"] = Spells.tidalforce,
+        ["13"] = Spells.brinechain,
+        ["23"] = Spells.maelstrom,
+        ["123"] = Spells.wavecrash,
+    },
+    spells = {
+        Spells.conjurewater,
+        Spells.watergun,
+        Spells.riptideguard,
+        Spells.tidalforce,
+        Spells.brinechain,
+        Spells.maelstrom,
+        Spells.wavecrash,
+        Spells.forceBlast,
     }
 }
 
@@ -26398,7 +27456,7 @@ characterData.Silex = {
 local defaultSpellbook = characterData.Ashgar.spellbook
 local defaultColor = {255,255,255}
 
-local roster = {"Borrak","Brightwulf","Klaus","Ohm","Archive","End"}
+local roster = {"Brightwulf","Klaus","Ohm","Archive","End"}
 for _, name in ipairs(roster) do
     characterData[name] = {
         color = defaultColor,
@@ -26661,6 +27719,12 @@ Constants.TokenStatus = {
     ORBITING = "ORBITING",     -- Animating from pool center to orbit (transition state)
     DISSOLVING = "DISSOLVING", -- Animating destruction (transition state)
     POOLED = "POOLED"          -- Released to the object pool
+}
+
+-- Visual constants for tokens
+Constants.TokenVisuals = {
+    -- Scale applied when a token is placed in a spell slot
+    CHANNELED_SCALE = 1.0
 }
 
 -- Range positioning between wizards
@@ -27277,6 +28341,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.currentState = "MENU"
+            return true
         end
         return false
     end
@@ -27350,10 +28417,10 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Compendium stub
+    -- Open Compendium screen
     Input.Routes.ui["4"] = function()
         if gameState.currentState == "MENU" then
-            print("Compendium not implemented yet")
+            gameState.startCompendium()
             return true
         end
         return false
@@ -27389,10 +28456,13 @@ function Input.setupRoutes()
         return false
     end
 
-    -- SETTINGS CONTROLS
+    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(-1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(-1)
             return true
         end
         return false
@@ -27401,6 +28471,9 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(1)
+            return true
         end
         return false
     end
@@ -27408,12 +28481,51 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(-1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(-1)
+            return true
         end
         return false
     end
     Input.Routes.ui["right"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(1)
+            return true
+        end
+        return false
+    end
+
+    -- Assign spells to slots when in Compendium
+    for i=1,7 do
+        local existing = Input.Routes.ui[tostring(i)]
+        Input.Routes.ui[tostring(i)] = function()
+            if gameState.currentState == "COMPENDIUM" then
+                gameState.compendiumAssign(i)
+                return true
+            elseif existing then
+                return existing()
+            end
+            return false
+        end
+    end
+
+    -- CHARACTER SELECT CONTROLS
+    -- Move cursor left
+    Input.Routes.ui["q"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(-1)
+            return true
+        end
+        return false
+    end
+
+    -- Move cursor right
+    Input.Routes.ui["e"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" then
+            gameState.characterSelectMove(1)
             return true
         end
         return false
@@ -29668,6 +30780,8 @@ local Settings = require("core.Settings")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
+local SilexPersonality = require("ai.personalities.SilexPersonality")
+local BorrakPersonality = require("ai.personalities.BorrakPersonality")
 local CharacterData = require("characterData")
 
 -- Resolution settings
@@ -29780,8 +30894,51 @@ game.characterRoster = {
 
 game.unlockedCharacters = {
     Ashgar = true,
-    Selene = true,
-    Silex = false
+    Borrak = true,
+    Silex = false,
+    Selene = true
+}
+
+-- Spells unlocked for customization
+game.unlockedSpells = {
+    conjurefire = true,
+    firebolt = true,
+    fireball = true,
+    burnToAsh = true,
+    blastwave = true,
+    saltcircle = true,
+    eruption = true,
+
+    conjuremoonlight = true,
+    wrapinmoonlight = true,
+    moondance = true,
+    infiniteprocession = true,
+    eclipse = true,
+    gravityTrap = true,
+    fullmoonbeam = true,
+
+    conjuresalt = true,
+    glitterfang = true,
+    imprison = true,
+    stoneshield = true,
+    shieldbreaker = true,
+    saltstorm = true,
+
+    conjurewater = true,
+    watergun = true,
+    riptideguard = true,
+    tidalforce = true,
+    brinechain = true,
+    maelstrom = true,
+    wavecrash = true,
+}
+
+-- Custom spellbooks configured by the player
+game.customSpellbooks = {}
+
+game.compendium = {
+    page = 1,
+    cursor = 1,
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -29801,6 +30958,10 @@ local function getPersonalityFor(name)
         return SelenePersonality
     elseif name == "Ashgar" then
         return AshgarPersonality
+    elseif name == "Borrak" then
+        return BorrakPersonality
+    elseif name == "Silex" then
+        return SilexPersonality
     else
         return nil
     end
@@ -30164,6 +31325,9 @@ function resetGame()
         elseif aiWizard.name == "Ashgar" then
             personality = AshgarPersonality
             print("Initializing Ashgar AI personality")
+        elseif aiWizard.name == "Silex" then
+            personality = SilexPersonality
+            print("Initializing Silex AI personality")
         else
             -- Default to base personality for unknown wizards
             print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
@@ -30284,8 +31448,10 @@ end
 function setupWizards(name1, name2)
     local data1 = game.characterData[name1] or {}
     local data2 = game.characterData[name2] or {}
-    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, data1.spellbook)
-    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, data2.spellbook)
+    local book1 = game.customSpellbooks[name1] or data1.spellbook
+    local book2 = game.customSpellbooks[name2] or data2.spellbook
+    game.wizards[1] = Wizard.new(name1, 200, 370, data1.color or {255,255,255}, book1)
+    game.wizards[2] = Wizard.new(name2, 600, 370, data2.color or {255,255,255}, book2)
     for _, wizard in ipairs(game.wizards) do
         wizard.manaPool = game.manaPool
         wizard.gameState = game
@@ -30397,6 +31563,41 @@ function game.settingsSelect()
     end
 end
 
+function game.startCompendium()
+    game.compendium.page = 1
+    game.compendium.cursor = 1
+    game.currentState = "COMPENDIUM"
+end
+
+function game.compendiumMove(dir)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local count = #spells
+    if count == 0 then return end
+    local idx = ((game.compendium.cursor-1 + dir-1) % count) + 1
+    game.compendium.cursor = idx
+end
+
+function game.compendiumChangePage(dir)
+    local count = #game.characterRoster
+    game.compendium.page = ((game.compendium.page-1 + dir-1) % count) + 1
+    game.compendium.cursor = 1
+end
+
+local slotKeys = {"1","2","3","12","13","23","123"}
+function game.compendiumAssign(slot)
+    local name = game.characterRoster[game.compendium.page]
+    local spells = game.characterData[name].spells or {}
+    local spell = spells[game.compendium.cursor]
+    if not spell or not game.unlockedSpells[spell.id] then return end
+    if not game.customSpellbooks[name] then
+        -- copy default spellbook
+        local copy = {}
+        for k,v in pairs(game.characterData[name].spellbook) do copy[k]=v end
+        game.customSpellbooks[name] = copy
+    end
+    game.customSpellbooks[name][slotKeys[slot]] = spell
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -30438,6 +31639,11 @@ function love.update(dt)
         -- No other updates needed in menu state
         return
     elseif game.currentState == "SETTINGS" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "COMPENDIUM" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -30673,6 +31879,8 @@ function love.draw()
         drawMainMenu()
     elseif game.currentState == "SETTINGS" then
         drawSettingsMenu()
+    elseif game.currentState == "COMPENDIUM" then
+        drawCompendium()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -31398,6 +32606,41 @@ function drawSettingsMenu()
     end
 end
 
+function drawCompendium()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255,20/255,40/255,1)
+    love.graphics.rectangle("fill",0,0,screenWidth,screenHeight)
+
+    local name = game.characterRoster[game.compendium.page]
+    local data = game.characterData[name]
+    love.graphics.setColor(1,1,1)
+    local title = name .. " Spellbook"
+    love.graphics.print(title, screenWidth/2 - game.font:getWidth(title)/2, 30)
+
+    local active = game.customSpellbooks[name] or data.spellbook
+    for i,key in ipairs(slotKeys) do
+        local spell = active[key]
+        local y = 60 + (i-1)*20
+        love.graphics.print(string.format("[%s] %s", key, spell and spell.name or "-"), screenWidth/2 - 100, y)
+    end
+
+    local spells = data.spells or {}
+    for i,spell in ipairs(spells) do
+        local y = 200 + (i-1)*20
+        if i == game.compendium.cursor then
+            love.graphics.setColor(1,1,0)
+        else
+            love.graphics.setColor(0.9,0.9,0.9)
+        end
+        local text = game.unlockedSpells[spell.id] and spell.name or "???"
+        love.graphics.print(text, 60, y)
+    end
+
+    love.graphics.setColor(1,1,1,0.7)
+    love.graphics.print("Left/Right to change wizard, Up/Down select, 1-7 to assign",60,screenHeight-30,0,0.8,0.8)
+end
+
 -- Draw attract mode overlay
 function drawAttractModeOverlay()
     local screenWidth = baseWidth
@@ -31517,13 +32760,25 @@ local TokenMethods = {}
 -- Set the token's state with validation
 function TokenMethods:setState(newStatus)
     local oldStatus = self.status
-    
+
     -- Validate state transitions
     if self.status == Constants.TokenStatus.POOLED then
         print("[TOKEN LIFECYCLE] WARNING: Cannot transition from POOLED state!")
         return false
     end
-    
+
+    -- Finalize scale if leaving an animation state that modifies scale
+    if (oldStatus == Constants.TokenStatus.APPEARING or oldStatus == Constants.TokenStatus.ORBITING) and
+       (newStatus == Constants.TokenStatus.CHANNELED or
+        newStatus == Constants.TokenStatus.SHIELDING or
+        newStatus == Constants.TokenStatus.FREE) then
+        if self.targetScale then
+            self.scale = self.targetScale
+        else
+            self.scale = 0.85 + math.random() * 0.3
+        end
+    end
+
     -- Update the token's status
     self.status = newStatus
     
@@ -31742,6 +32997,13 @@ function TokenMethods:finalizeOrbit()
     -- Update position to make sure it's at the target
     self.x = self.targetOrbitX
     self.y = self.targetOrbitY
+
+    -- Ensure scale is finalized
+    if self.targetScale then
+        self.scale = self.targetScale
+    else
+        self.scale = 0.85 + math.random() * 0.3
+    end
     
     -- Clean up orbit animation properties
     self.startOrbitX = nil
@@ -31865,8 +33127,9 @@ function TokenMethods:finalizeAppear()
     self.targetRadiusY = valence.radiusY
     self.currentRadiusX = valence.radiusX
     self.currentRadiusY = valence.radiusY
-    
+
     -- Visual variance set during appearing animation
+    self.scale = self.targetScale
     self.zOrder = math.random()
     
     return true
@@ -32393,10 +33656,19 @@ function ManaPool:update(dt)
                     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
                     
                     -- Apply the same NEAR/FAR offset logic as in the wizard's draw function
-                    if wizard.name == "Ashgar" then -- Player 1 (left side)
-                        xOffset = isNear and 60 or 0 -- Move right when NEAR
-                    else -- Player 2 (right side)
-                        xOffset = isNear and -60 or 0 -- Move left when NEAR
+                    local isLeft = true
+                    if wizard.gameState and wizard.gameState.wizards then
+                        for _, other in ipairs(wizard.gameState.wizards) do
+                            if other ~= wizard then
+                                isLeft = wizard.x <= other.x
+                                break
+                            end
+                        end
+                    end
+                    if isLeft then
+                        xOffset = isNear and 60 or 0
+                    else
+                        xOffset = isNear and -60 or 0
                     end
                     
                     local x3 = wizard.x + xOffset + math.cos(tokenAngle) * radiusX
@@ -33745,6 +35017,7 @@ FireSpells.eruption = {
     visualShape = "groundBurst",
     castTime = Constants.CastSpeed.SLOW,
     cost = {"fire", "fire", "salt"},
+    unlockSpell = "blazingascent",
     keywords = {
         zoneAnchor = {
             range = function(caster, target)
@@ -34064,6 +35337,7 @@ MoonSpells.fullmoonbeam = {
     visualShape = "beam",
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
+    unlockSpell = "lunartides",
     keywords = {
         damage = {
             amount = function(caster, target, slot)
@@ -34138,6 +35412,7 @@ MoonSpells.wrapinmoonlight = {
     visualShape = "wings",
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, "any"},
+    unlockSpell = "lunardisjunction",
     keywords = {
         block = {
             type = Constants.ShieldType.WARD,
@@ -34338,6 +35613,7 @@ SaltSpells.burnToAsh = {
     attackType = Constants.AttackType.UTILITY,
     visualShape = "zap",
     cost = {Constants.TokenType.FIRE},
+    unlockSpell = "combustMana",
     keywords = {
         disruptAndShift = {
             targetType = "salt"
@@ -34355,6 +35631,7 @@ SaltSpells.saltstorm = {
     castTime = Constants.CastSpeed.VERY_SLOW,
     attackType = Constants.AttackType.ZONE,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
+    unlockSpell = "jaggedearth",
     keywords = {
         damage = {
             amount = 15,
@@ -35012,6 +36289,7 @@ return VoidSpells```
 -- Contains water-element spells
 
 local Constants = require("core.Constants")
+local ManaHelpers = require("systems.ManaHelpers")
 
 local WaterSpells = {}
 
@@ -35061,7 +36339,150 @@ WaterSpells.forceBlast = {
     sfx = "force_wind",
 }
 
-return WaterSpells```
+-- Conjure Water spell
+WaterSpells.conjurewater = {
+    id = "conjurewater",
+    name = "Conjure Water",
+    affinity = Constants.TokenType.WATER,
+    description = "Conjures a Water mana token. Takes longer to cast the more Water tokens already present.",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.CONJURE_BASE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {},
+    keywords = {
+        conjure = {
+            token = Constants.TokenType.WATER,
+            amount = 1
+        }
+    },
+
+    getCastTime = function(caster)
+        local baseCastTime = Constants.CastSpeed.FAST
+        local waterCount = 0
+        if caster.manaPool then
+            for _, token in ipairs(caster.manaPool.tokens) do
+                if token.type == Constants.TokenType.WATER and token.state == Constants.TokenState.FREE then
+                    waterCount = waterCount + 1
+                end
+            end
+        end
+        return baseCastTime + (waterCount * Constants.CastSpeed.ONE_TIER)
+    end
+}
+
+-- Maelstrom spell - damage scales with WATER tokens in the pool
+WaterSpells.maelstrom = {
+    id = "maelstrom",
+    name = "Maelstrom",
+    affinity = Constants.TokenType.WATER,
+    description = "Remote blast that grows stronger with each Water token in the mana pool",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 6 + (count * 2)
+            end,
+            type = Constants.DamageType.WATER
+        }
+    },
+    sfx = "water_surge",
+}
+
+-- Riptide Guard shield - switches range when it blocks
+WaterSpells.riptideguard = {
+    id = "riptideguard",
+    name = "Riptide Guard",
+    affinity = Constants.TokenType.WATER,
+    description = "Barrier that swaps range with the opponent when it blocks an attack",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER},
+    keywords = {
+        block = {
+            type = Constants.ShieldType.BARRIER,
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+
+            onBlock = function(defender, attacker, slotIndex, info)
+                local events = {}
+                local gameState = defender.gameState
+                local newRange = Constants.RangeState.NEAR
+                if gameState and gameState.rangeState == Constants.RangeState.NEAR then
+                    newRange = Constants.RangeState.FAR
+                end
+                table.insert(events, {
+                    type = "SET_RANGE",
+                    source = "caster",
+                    target = "both",
+                    position = newRange
+                })
+                return events
+            end
+        }
+    },
+    sfx = "tide_rush",
+}
+
+-- Brine Chain spell - salt infused lash that slows
+WaterSpells.brinechain = {
+    id = "brinechain",
+    name = "Brine Chain",
+    affinity = Constants.TokenType.WATER,
+    description = "Salt-laced lash that slows the enemy. Damage scales with Water tokens in the pool",
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.BOLT,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.SALT},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 5 + count
+            end,
+            type = Constants.DamageType.WATER
+        },
+        slow = {
+            magnitude = 1.0,
+            duration = 2.0
+        }
+    },
+    sfx = "water_whip",
+}
+
+-- Wave Crash spell - consumes tokens for a powerful strike
+WaterSpells.wavecrash = {
+    id = "wavecrash",
+    name = "Wave Crash",
+    affinity = Constants.TokenType.WATER,
+    description = "Consumes its channeled tokens to unleash a devastating wave",
+    attackType = Constants.AttackType.ZONE,
+    visualShape = Constants.VisualShape.WAVE,
+    castTime = Constants.CastSpeed.SLOW,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.WATER, Constants.TokenType.WATER},
+    unlockSpell = "forceblast",
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                local count = ManaHelpers.count(Constants.TokenType.WATER, caster.manaPool)
+                return 10 + count * 3
+            end,
+            type = Constants.DamageType.WATER
+        },
+        consume = { amount = "all" },
+        conjure = {
+            token = Constants.TokenType.SALT,
+            amount = 1
+        }
+    },
+    sfx = "wave_crash",
+}
+
+return WaterSpells
+```
 
 ## ./spells/init.lua
 ```lua
@@ -38202,6 +39623,13 @@ function TokenManager.positionTokensInSpellSlot(wizard, slotIndex, tokens)
         -- Store token's current position as the starting point for animation
         token.startX = token.x
         token.startY = token.y
+
+        -- Ensure the token appears at a consistent scale while channeled
+        if token.targetScale then
+            token.scale = token.targetScale
+        else
+            token.scale = Constants.TokenVisuals and Constants.TokenVisuals.CHANNELED_SCALE or 1.0
+        end
         
         -- Initialize animation parameters
         token.animTime = 0
@@ -38502,6 +39930,12 @@ function UnlockSystem.checkSpellUnlock(spell, caster)
                 color = {1,1,0,1}
             }
         end
+    end
+
+    -- Unlock additional spells
+    if spell.unlockSpell and game and not game.unlockedSpells[spell.unlockSpell] then
+        game.unlockedSpells[spell.unlockSpell] = true
+        print("[UNLOCK] Spell unlocked: " .. spell.unlockSpell)
     end
 end
 
@@ -39093,8 +40527,8 @@ function WizardVisuals.drawStatusEffects(wizard)
     local baseY = screenHeight - 150  -- Higher up from the spellbook
     local effectCount = 0
     
-    -- Determine x position based on which wizard this is, plus the NEAR/FAR offset
-    local x = (wizard.name == "Ashgar") and (150 + xOffset) or (screenWidth - 150 + xOffset)
+    -- Position bars above the wizard with the same offsets as the sprite
+    local x = wizard.x + xOffset
     
     local Constants = require("core.Constants")
     
@@ -39792,10 +41226,21 @@ function WizardVisuals.drawWizard(wizard)
     local isNear = wizard.gameState and wizard.gameState.rangeState == Constants.RangeState.NEAR
     local centerX = love.graphics.getWidth() / 2
     
+    -- Determine relative position compared to the other combatant
+    local isLeft = true
+    if wizard.gameState and wizard.gameState.wizards then
+        for _, other in ipairs(wizard.gameState.wizards) do
+            if other ~= wizard then
+                isLeft = wizard.x <= other.x
+                break
+            end
+        end
+    end
+
     -- Push wizards closer to center in NEAR mode, further in FAR mode
-    if wizard.name == "Ashgar" then -- Player 1 (left side)
+    if isLeft then
         targetXOffset = isNear and 60 or 0 -- Move right when NEAR
-    else -- Player 2 (right side)
+    else
         targetXOffset = isNear and -60 or 0 -- Move left when NEAR
     end
     
@@ -39863,26 +41308,17 @@ function WizardVisuals.drawWizard(wizard)
     
     -- Draw the wizard sprite
     if wizard.sprite then
-        -- Determine facing direction so wizards always face each other
-        local opponent = nil
+        -- Flip sprite based on whether this wizard is on the left or right
+        local isLeft = true
         if wizard.gameState and wizard.gameState.wizards then
-            if wizard == wizard.gameState.wizards[1] then
-                opponent = wizard.gameState.wizards[2]
-            else
-                opponent = wizard.gameState.wizards[1]
+            for _, other in ipairs(wizard.gameState.wizards) do
+                if other ~= wizard then
+                    isLeft = wizard.x <= other.x
+                    break
+                end
             end
         end
-
-        local facingRight = true
-        if opponent then
-            local oppX = opponent.x + (opponent.currentXOffset or 0)
-            facingRight = (wizard.x + xOffset) <= oppX
-        else
-            local centerX = love.graphics.getWidth() / 2
-            facingRight = (wizard.x + xOffset) <= centerX
-        end
-
-        local flipX = facingRight and 1 or -1
+        local flipX = isLeft and 1 or -1
         local adjustedScale = wizard.scale * flipX
 
         -- Determine which sprite to draw based on positional animation sets
@@ -42863,7 +44299,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
     
     -- Timing
-    effect.duration = template.duration
+    -- Prioritize duration from options (EventRunner), then template, then fallback.
+    if options and options.duration then
+        effect.duration = options.duration
+    elseif template.duration then
+        effect.duration = template.duration
+    else
+        effect.duration = 0.5 -- Absolute fallback if no duration anywhere
+        print("[VFX] Warning: Effect " .. effectNameStr .. " has no duration in options or template. Defaulting to 0.5s.")
+    end
     effect.timer = 0
     effect.progress = 0
     effect.isComplete = false
@@ -43240,13 +44684,15 @@ function VFX.update(dt)
             -- Once block is triggered, increment a block timer
             if effect.blockTimerStarted then
                 effect.blockTimer = effect.blockTimer + dt
-                -- Force effect completion after a longer time (1.2 seconds) to ensure player sees it
+                -- Keep the effect alive until the block timer elapses
                 if effect.blockTimer > 1.2 then
-                    effect.progress = 1.0 -- Mark effect as complete
+                    -- After the hold period, mark the effect complete
+                    effect.progress = 1.0
                     print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
                 else
-                    -- Keep visual progress fixed at block point - this is crucial for seeing the projectile stop
+                    -- Lock both visual and logical progress at the block point so the effect isn't removed early
                     effect.visualProgress = effect.options.blockPoint
+                    effect.progress = math.min(effect.progress, effect.options.blockPoint)
                 end
             end
         end
