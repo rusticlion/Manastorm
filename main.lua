@@ -1966,9 +1966,10 @@ function drawCompendium()
     
     -- Calculate pane dimensions with padding
     local panePadding = 12
-    local headerHeight = 70 -- Height for the title area
+    local headerHeight = 50 -- Reduced height for the title area
+    local footerHeight = 45 -- Height for the footer controls
     local paneWidth = (screenWidth - panePadding * 3) / 2
-    local paneHeight = (screenHeight - panePadding * 3 - headerHeight) / 2
+    local paneHeight = (screenHeight - panePadding * 3 - headerHeight - footerHeight) / 2
     
     -- Define pane coordinates
     local panes = {
@@ -2006,12 +2007,20 @@ function drawCompendium()
     local name = game.characterRoster[game.compendium.page]
     local data = game.characterData[name]
     
+    -- Check if character is unlocked
+    local isUnlocked = game.unlockedCharacters[name] or false
+    
     -- Draw decorative header line
     love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
     love.graphics.rectangle("fill", 20, headerHeight - 5, screenWidth - 40, 2)
     
     -- Draw main title with shadow effect
-    local title = "Compendium - " .. name
+    local title
+    if isUnlocked then
+        title = "Compendium - " .. name
+    else
+        title = "Compendium - ???"
+    end
     
     -- Shadow
     love.graphics.setColor(0.2, 0.2, 0.4, 0.6)
@@ -2083,27 +2092,42 @@ function drawCompendium()
         -- Spell name with larger font
         love.graphics.setColor(1, 1, 0.8)
         local nameY = pane.y + 40
-        love.graphics.print(selectedSpell.name, pane.x + 15, nameY, 0, 1.3, 1.3)
+        
+        if isUnlocked then
+            love.graphics.print(selectedSpell.name, pane.x + 15, nameY, 0, 1.3, 1.3)
+        else
+            -- For locked characters, replace name with question marks
+            local lockedName = string.rep("?", #selectedSpell.name)
+            love.graphics.print(lockedName, pane.x + 15, nameY, 0, 1.3, 1.3)
+        end
         
         -- Spell properties
         love.graphics.setColor(0.9, 0.9, 0.9)
         local propY = nameY + 30
         
-        -- Affinity
-        love.graphics.print("Affinity: " .. (selectedSpell.affinity or "None"), pane.x + 15, propY)
+        if isUnlocked then
+            -- Affinity
+            love.graphics.print("Affinity: " .. (selectedSpell.affinity or "None"), pane.x + 15, propY)
+            
+            -- Attack Type
+            love.graphics.print("Type: " .. (selectedSpell.attackType or "None"), pane.x + 15, propY + 20)
+            
+            -- Cast Time
+            local castTimeText = "Cast Time: " .. (selectedSpell.castTime or 0) .. "s"
+            love.graphics.print(castTimeText, pane.x + 15, propY + 40)
+            
+            -- Mana Cost with token icons
+            love.graphics.setColor(0.9, 0.9, 0.9)
+            love.graphics.print("Cost:", pane.x + 15, propY + 60)
+        else
+            -- For locked characters, show mysterious text
+            love.graphics.print("Affinity: ???", pane.x + 15, propY)
+            love.graphics.print("Type: ???", pane.x + 15, propY + 20)
+            love.graphics.print("Cast Time: ??.?s", pane.x + 15, propY + 40)
+            love.graphics.print("Cost: ???", pane.x + 15, propY + 60)
+        end
         
-        -- Attack Type
-        love.graphics.print("Type: " .. (selectedSpell.attackType or "None"), pane.x + 15, propY + 20)
-        
-        -- Cast Time
-        local castTimeText = "Cast Time: " .. (selectedSpell.castTime or 0) .. "s"
-        love.graphics.print(castTimeText, pane.x + 15, propY + 40)
-        
-        -- Mana Cost with token icons
-        love.graphics.setColor(0.9, 0.9, 0.9)
-        love.graphics.print("Cost:", pane.x + 15, propY + 60)
-        
-        if selectedSpell.cost and #selectedSpell.cost > 0 then
+        if isUnlocked and selectedSpell.cost and #selectedSpell.cost > 0 then
             local iconSize = 16
             local spacing = 5
             local startX = pane.x + 60
@@ -2129,6 +2153,8 @@ function drawCompendium()
                     love.graphics.print(tokenType, x, propY + 60)
                 end
             end
+        elseif not isUnlocked then
+            -- Do not show any token images for locked characters
         else
             love.graphics.setColor(0.7, 0.7, 0.7)
             love.graphics.print("None", pane.x + 60, propY + 60)
@@ -2139,8 +2165,15 @@ function drawCompendium()
             love.graphics.setColor(0.8, 0.8, 0.8)
             local descY = propY + 90
             love.graphics.printf("Description:", pane.x + 15, descY, pane.w - 30)
-            love.graphics.setColor(0.7, 0.7, 0.8)
-            love.graphics.printf(selectedSpell.description, pane.x + 15, descY + 25, pane.w - 30)
+            
+            if isUnlocked then
+                love.graphics.setColor(0.7, 0.7, 0.8)
+                love.graphics.printf(selectedSpell.description, pane.x + 15, descY + 25, pane.w - 30)
+            else
+                -- Show redacted description for locked characters
+                love.graphics.setColor(0.7, 0.7, 0.8)
+                love.graphics.printf(string.rep("?", 100), pane.x + 15, descY + 25, pane.w - 30)
+            end
         end
         
         -- Draw keywords if present
@@ -2168,6 +2201,18 @@ function drawCompendium()
         
         -- Reset scissor
         love.graphics.setScissor()
+    elseif selectedSpell and not isUnlocked then
+        -- Character is locked, show mystery message
+        love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+        
+        love.graphics.setColor(0.6, 0.6, 0.7)
+        love.graphics.print("???", pane.x + 15, pane.y + 60, 0, 1.3, 1.3)
+        
+        love.graphics.setColor(0.5, 0.5, 0.6)
+        love.graphics.print("Unlock this character to view spell details", 
+                           pane.x + 15, pane.y + 100)
+        
+        love.graphics.setScissor()
     else
         -- No spell selected
         love.graphics.setColor(0.7, 0.7, 0.7)
@@ -2184,30 +2229,53 @@ function drawCompendium()
     -- Set a scissor to clip content to the pane
     love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
     
-    -- Draw visible spells
-    for i = 1, maxVisibleSpells do
-        local spellIdx = i + game.compendium.scrollOffset
-        if spellIdx <= spellCount then
-            local spell = spells[spellIdx]
+    if isUnlocked then
+        -- Draw visible spells for unlocked characters
+        for i = 1, maxVisibleSpells do
+            local spellIdx = i + game.compendium.scrollOffset
+            if spellIdx <= spellCount then
+                local spell = spells[spellIdx]
+                local y = pane.y + 40 + (i-1)*spellLineHeight
+                
+                -- Highlight selected spell
+                if spellIdx == game.compendium.cursor then
+                    love.graphics.setColor(0.3, 0.3, 0.5, 0.7)
+                    love.graphics.rectangle("fill", pane.x + 5, y - 2, pane.w - 10, spellLineHeight)
+                    love.graphics.setColor(1, 1, 0)
+                else
+                    love.graphics.setColor(0.9, 0.9, 0.9)
+                end
+                
+                -- Show spell name, grayed out if locked
+                local text = spell.name
+                if not game.unlockedSpells[spell.id] then
+                    text = "[LOCKED] " .. text
+                    love.graphics.setColor(0.6, 0.6, 0.6)
+                end
+                love.graphics.print(text, pane.x + 20, y)
+            end
+        end
+    else
+        -- For locked characters, show mystery entries
+        for i = 1, 5 do
             local y = pane.y + 40 + (i-1)*spellLineHeight
             
-            -- Highlight selected spell
-            if spellIdx == game.compendium.cursor then
+            if i == game.compendium.cursor then
                 love.graphics.setColor(0.3, 0.3, 0.5, 0.7)
                 love.graphics.rectangle("fill", pane.x + 5, y - 2, pane.w - 10, spellLineHeight)
-                love.graphics.setColor(1, 1, 0)
+                love.graphics.setColor(0.7, 0.7, 0.7)
             else
-                love.graphics.setColor(0.9, 0.9, 0.9)
+                love.graphics.setColor(0.5, 0.5, 0.5)
             end
             
-            -- Show spell name, grayed out if locked
-            local text = spell.name
-            if not game.unlockedSpells[spell.id] then
-                text = "[LOCKED] " .. text
-                love.graphics.setColor(0.6, 0.6, 0.6)
-            end
-            love.graphics.print(text, pane.x + 20, y)
+            -- Mystery text
+            love.graphics.print("???", pane.x + 20, y)
         end
+        
+        -- Message about unlocking
+        love.graphics.setColor(0.5, 0.5, 0.6)
+        love.graphics.print("Unlock this character to see spells", 
+                           pane.x + 20, pane.y + 40 + 6*spellLineHeight)
     end
     
     -- Draw scrollbar if needed
@@ -2240,7 +2308,12 @@ function drawCompendium()
     
     -- Character name with larger font
     love.graphics.setColor(1, 1, 0.8)
-    love.graphics.print(name, pane.x + pane.w/2 - game.font:getWidth(name)/2, pane.y + 45, 0, 1.3, 1.3)
+    if isUnlocked then
+        love.graphics.print(name, pane.x + pane.w/2 - game.font:getWidth(name)/2, pane.y + 45, 0, 1.3, 1.3)
+    else
+        local hiddenName = "???"
+        love.graphics.print(hiddenName, pane.x + pane.w/2 - game.font:getWidth(hiddenName)/2, pane.y + 45, 0, 1.3, 1.3)
+    end
     
     -- Character sprite
     local spriteY = pane.y + 80
@@ -2248,17 +2321,25 @@ function drawCompendium()
     local sprite = AssetCache.getImage(spriteFileName)
     
     if sprite then
-        love.graphics.setColor(1, 1, 1)
+        -- For unlocked characters, show normal sprite. For locked, show silhouette
+        if isUnlocked then
+            love.graphics.setColor(1, 1, 1)
+        else
+            -- Silhouette color - dark with slight transparency
+            love.graphics.setColor(0.1, 0.1, 0.2, 0.8)
+        end
         
         -- Calculate scaled dimensions to fit in the pane while maintaining aspect ratio
-        local scale = 1
+        local baseScale = 3 -- Increased base scale by 3x as requested
         local maxWidth = pane.w - 40
         local maxHeight = pane.h - 150
         
         local spriteWidth = sprite:getWidth()
         local spriteHeight = sprite:getHeight()
         
-        if spriteWidth > maxWidth or spriteHeight > maxHeight then
+        -- Start with the 3x scale, but reduce if needed to fit
+        local scale = baseScale
+        if (spriteWidth * scale) > maxWidth or (spriteHeight * scale) > maxHeight then
             local scaleX = maxWidth / spriteWidth
             local scaleY = maxHeight / spriteHeight
             scale = math.min(scaleX, scaleY)
@@ -2270,8 +2351,8 @@ function drawCompendium()
         
         love.graphics.draw(sprite, x, spriteY, 0, scale, scale)
         
-        -- Character color display as a color box
-        if data.color then
+        -- Character color display as a color box (only for unlocked characters)
+        if data.color and isUnlocked then
             local colorY = spriteY + scaledHeight + 20
             love.graphics.setColor(data.color[1]/255, data.color[2]/255, data.color[3]/255)
             love.graphics.rectangle("fill", pane.x + pane.w/2 - 40, colorY, 80, 20)
@@ -2282,6 +2363,20 @@ function drawCompendium()
             love.graphics.setColor(0.9, 0.9, 0.9)
             love.graphics.print("Character Color", 
                                 pane.x + pane.w/2 - game.font:getWidth("Character Color")/2, 
+                                colorY + 30)
+        elseif data.color and not isUnlocked then
+            -- For locked characters, show a mystery color box
+            local colorY = spriteY + scaledHeight + 20
+            love.graphics.setColor(0.3, 0.3, 0.3)
+            love.graphics.rectangle("fill", pane.x + pane.w/2 - 40, colorY, 80, 20)
+            love.graphics.setColor(0.4, 0.4, 0.4)
+            love.graphics.rectangle("line", pane.x + pane.w/2 - 40, colorY, 80, 20)
+            
+            -- Mystery label
+            love.graphics.setColor(0.6, 0.6, 0.6)
+            local hiddenLabel = "???"
+            love.graphics.print(hiddenLabel, 
+                                pane.x + pane.w/2 - game.font:getWidth(hiddenLabel)/2, 
                                 colorY + 30)
         end
     else
@@ -2392,13 +2487,19 @@ function drawCompendium()
         )
     end
     
+    -- Reduce the height of the header to make room for the footer
+    headerHeight = 40 -- Reduced from 50
+    
+    -- Calculate footer position (now above the bottom panes to avoid overlap)
+    local footerTop = screenHeight - footerHeight
+    
     -- Draw footer background
     love.graphics.setColor(0.15, 0.15, 0.25, 0.8)
-    love.graphics.rectangle("fill", 0, screenHeight - 40, screenWidth, 40)
+    love.graphics.rectangle("fill", 0, footerTop, screenWidth, footerHeight)
     
     -- Draw footer separator line
     love.graphics.setColor(0.4, 0.4, 0.7, 0.5)
-    love.graphics.rectangle("fill", 20, screenHeight - 40, screenWidth - 40, 1)
+    love.graphics.rectangle("fill", 20, footerTop, screenWidth - 40, 1)
     
     -- Instructions at the bottom with key highlighting
     local instructions = {
@@ -2411,7 +2512,7 @@ function drawCompendium()
     }
     
     local x = 20
-    local y = screenHeight - 27
+    local y = footerTop + 15 -- Center text in footer
     
     for _, part in ipairs(instructions) do
         love.graphics.setColor(part.color)

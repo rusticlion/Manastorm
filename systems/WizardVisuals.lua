@@ -934,8 +934,8 @@ function WizardVisuals.drawWizard(wizard)
                 wizard.x + xOffset,
                 wizard.y + yOffset,
                 0, -- No rotation
-                adjustedScale * 2, -- Double scale
-                wizard.scale * 2, -- Double scale
+                adjustedScale * 3, -- Triple scale
+                wizard.scale * 3, -- Triple scale
                 spriteToDraw:getWidth() / 2,
                 spriteToDraw:getHeight() / 2
             )
@@ -955,8 +955,8 @@ function WizardVisuals.drawWizard(wizard)
                 wizard.x + xOffset,
                 wizard.y + yOffset,
                 0, -- No rotation
-                adjustedScale * 2, -- Double scale
-                wizard.scale * 2, -- Double scale
+                adjustedScale * 3, -- Triple scale
+                wizard.scale * 3, -- Triple scale
                 spriteToDraw:getWidth() / 2,
                 spriteToDraw:getHeight() / 2
             )
@@ -971,8 +971,8 @@ function WizardVisuals.drawWizard(wizard)
                 wizard.x + xOffset,
                 wizard.y + yOffset,
                 0, -- No rotation
-                adjustedScale * 2, -- Double scale
-                wizard.scale * 2, -- Double scale
+                adjustedScale * 3, -- Triple scale
+                wizard.scale * 3, -- Triple scale
                 spriteToDraw:getWidth() / 2,
                 spriteToDraw:getHeight() / 2
             )
