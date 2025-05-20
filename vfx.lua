@@ -947,7 +947,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.useTargetPosition = (options and options.useTargetPosition) or (template and template.useTargetPosition) or false
     
     -- Timing
-    effect.duration = template.duration
+    -- Prioritize duration from options (EventRunner), then template, then fallback.
+    if options and options.duration then
+        effect.duration = options.duration
+    elseif template.duration then
+        effect.duration = template.duration
+    else
+        effect.duration = 0.5 -- Absolute fallback if no duration anywhere
+        print("[VFX] Warning: Effect " .. effectNameStr .. " has no duration in options or template. Defaulting to 0.5s.")
+    end
     effect.timer = 0
     effect.progress = 0
     effect.isComplete = false
