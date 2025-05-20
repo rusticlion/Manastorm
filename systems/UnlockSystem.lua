@@ -25,6 +25,12 @@ function UnlockSystem.checkSpellUnlock(spell, caster)
             }
         end
     end
+
+    -- Unlock additional spells
+    if spell.unlockSpell and game and not game.unlockedSpells[spell.unlockSpell] then
+        game.unlockedSpells[spell.unlockSpell] = true
+        print("[UNLOCK] Spell unlocked: " .. spell.unlockSpell)
+    end
 end
 
 return UnlockSystem

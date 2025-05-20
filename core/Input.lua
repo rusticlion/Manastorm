@@ -180,6 +180,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.currentState = "MENU"
+            return true
         end
         return false
     end
@@ -253,10 +256,10 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Compendium stub
+    -- Open Compendium screen
     Input.Routes.ui["4"] = function()
         if gameState.currentState == "MENU" then
-            print("Compendium not implemented yet")
+            gameState.startCompendium()
             return true
         end
         return false
@@ -292,10 +295,13 @@ function Input.setupRoutes()
         return false
     end
 
-    -- SETTINGS CONTROLS
+    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(-1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(-1)
             return true
         end
         return false
@@ -304,12 +310,18 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsMove(1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumMove(1)
+            return true
         end
         return false
     end
     Input.Routes.ui["left"] = function()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(-1)
+            return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(-1)
             return true
         end
         return false
@@ -318,8 +330,25 @@ function Input.setupRoutes()
         if gameState.currentState == "SETTINGS" then
             gameState.settingsAdjust(1)
             return true
+        elseif gameState.currentState == "COMPENDIUM" then
+            gameState.compendiumChangePage(1)
+            return true
         end
         return false
+    end
+
+    -- Assign spells to slots when in Compendium
+    for i=1,7 do
+        local existing = Input.Routes.ui[tostring(i)]
+        Input.Routes.ui[tostring(i)] = function()
+            if gameState.currentState == "COMPENDIUM" then
+                gameState.compendiumAssign(i)
+                return true
+            elseif existing then
+                return existing()
+            end
+            return false
+        end
     end
 
     -- CHARACTER SELECT CONTROLS
