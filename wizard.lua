@@ -470,6 +470,9 @@ function Wizard:update(dt)
             end
         end
     end
+
+    -- Update visual particles for spell slot arcs
+    WizardVisuals.updateArcParticles(self, dt)
 end
 
 function Wizard:draw()
