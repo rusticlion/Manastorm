@@ -100,11 +100,33 @@ characterData.Borrak = {
     }
 }
 
+characterData.Brightwulf = {
+    color = {255,100,100},
+    spellbook = {
+        ["1"]  = Spells.burnTheSoul,
+        ["2"]  = Spells.SpaceRipper,
+        ["3"]  = Spells.StingingEyes,
+        ["12"] = Spells.emberlift,
+        ["13"] = Spells.meteor,
+        ["23"] = Spells.fusionRay,
+        ["123"] = Spells.CoreBolt,
+    },
+    spells = {
+        Spells.burnTheSoul,
+        Spells.SpaceRipper,
+        Spells.StingingEyes,
+        Spells.emberlift,
+        Spells.meteor,
+        Spells.fusionRay,
+        Spells.CoreBolt,
+    }
+}
+
 -- Placeholder spellbooks for other characters, defaulting to Ashgar's spells
 local defaultSpellbook = characterData.Ashgar.spellbook
 local defaultColor = {255,255,255}
 
-local roster = {"Brightwulf","Klaus","Ohm","Archive","End"}
+local roster = {"Klaus","Ohm","Archive","End"}
 for _, name in ipairs(roster) do
     characterData[name] = {
         color = defaultColor,

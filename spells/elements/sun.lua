@@ -30,6 +30,29 @@ SunSpells.radiantbolt = {
     sfx = "fire_whoosh",
 }
 
+SunSpells.fusionRay = {
+    id = "fusionRay",
+    name = "Fusion Ray",
+    affinity = "sun",
+    description = "A powerful beam of sunlight. Burns the user.",
+    castTime = Constants.CastSpeed.NORMAL,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = "beam",
+    cost = {Constants.TokenType.SUN, Constants.TokenType.SUN, Constants.TokenType.SUN},
+    keywords = {
+        damage = {
+            amount = 18,
+            target = Constants.TargetType.ENEMY
+        },
+        burn = {
+            amount = 1,
+            duration = 5,
+            target = Constants.TargetType.SELF  
+        }
+    },
+    sfx = "fire_whoosh",
+}
+
 -- Meteor spell
 SunSpells.meteor = {
     id = "meteor",

@@ -135,7 +135,12 @@ game.unlockedCharacters = {
     Ashgar = true,
     Borrak = true,
     Silex = false,
-    Selene = true
+    Selene = true,
+    Brightwulf = true,
+    Klaus = false,
+    Ohm = false,
+    Archive = false,
+    End = false
 }
 
 -- Spells unlocked for customization
