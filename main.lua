@@ -248,6 +248,16 @@ function calculateScaling()
     print("Window resized: " .. windowWidth .. "x" .. windowHeight .. " -> Simple scale: " .. scale .. ", Offset: (" .. offsetX .. ", " .. offsetY .. ")")
 end
 
+-- Set a scissor rectangle taking current scale and offsets into account
+local function setScaledScissor(x, y, w, h)
+    love.graphics.setScissor(
+        offsetX + x * scale,
+        offsetY + y * scale,
+        w * scale,
+        h * scale
+    )
+end
+
 -- Handle window resize events
 function love.resize(width, height)
     calculateScaling()
@@ -2087,7 +2097,7 @@ function drawCompendium()
     local pane = panes.topLeft
     if selectedSpell then
         -- Set scissor to clip content to pane
-        love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+        setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
         
         -- Spell name with larger font
         love.graphics.setColor(1, 1, 0.8)
@@ -2203,7 +2213,7 @@ function drawCompendium()
         love.graphics.setScissor()
     elseif selectedSpell and not isUnlocked then
         -- Character is locked, show mystery message
-        love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+        setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
         
         love.graphics.setColor(0.6, 0.6, 0.7)
         love.graphics.print("???", pane.x + 15, pane.y + 60, 0, 1.3, 1.3)
@@ -2227,7 +2237,7 @@ function drawCompendium()
     local maxVisibleSpells = math.floor((pane.h - 50) / spellLineHeight) -- 50px for padding/header
     
     -- Set a scissor to clip content to the pane
-    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
     
     if isUnlocked then
         -- Draw visible spells for unlocked characters
@@ -2304,7 +2314,7 @@ function drawCompendium()
     
     -- Top Right: Character View
     local pane = panes.topRight
-    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
     
     -- Character name with larger font
     love.graphics.setColor(1, 1, 0.8)
@@ -2397,7 +2407,7 @@ function drawCompendium()
     
     -- Bottom Right: Configured Spellbook View
     local pane = panes.bottomRight
-    love.graphics.setScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
     
     -- Slot key input mappings
     local keyMapping = {
