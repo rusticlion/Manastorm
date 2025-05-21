@@ -1219,7 +1219,11 @@ function VFX.update(dt)
                     effect.name or "unknown", effect.options.blockPoint))
                 
                 -- Create shield impact effect
-                if not effect.impactParticlesCreated and effect.type == "projectile" then
+                -- Trigger shield impact visuals for projectile-type effects
+                -- Accept both generic projectile templates (proj_base/bolt_base)
+                if not effect.impactParticlesCreated and
+                   (effect.type == "proj_base" or effect.type == "bolt_base" or
+                    effect.type == "projectile") then
                     effect.impactParticlesCreated = true
                     
                     -- Calculate impact position 
@@ -1262,6 +1266,12 @@ function VFX.update(dt)
                     
                     -- No need to add particles to current effect
                     print("[VFX] Created shield impact effects")
+
+                    -- Clean up the projectile immediately after impact
+                    ParticleManager.releaseAllParticles(effect.particles or {})
+                    effect.particles = {}
+                    effect.blockTimerStarted = nil
+                    effect.progress = 1.0
                     
                     -- Trigger screen shake at the exact moment of shield impact
                     print("[VFX] Attempting to trigger screen shake for shield block")
