@@ -109,6 +109,12 @@ function VFX.init()
             "assets/sprites/warp/warp3.png"
         },
 
+        -- Pixel primitive
+        pixel = "assets/sprites/1px.png",
+
+        -- Twinkle assets
+        twinkle1 = "assets/sprites/3px-twinkle1.png",
+        twinkle2 = "assets/sprites/3px-twinkle2.png",
         -- Rune assets for Ward shields (paths only)
         runes = {}
     }
