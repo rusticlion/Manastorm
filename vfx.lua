@@ -1219,7 +1219,11 @@ function VFX.update(dt)
                     effect.name or "unknown", effect.options.blockPoint))
                 
                 -- Create shield impact effect
-                if not effect.impactParticlesCreated and effect.type == "projectile" then
+                -- Trigger shield impact visuals for projectile-type effects
+                -- Accept both generic projectile templates (proj_base/bolt_base)
+                if not effect.impactParticlesCreated and
+                   (effect.type == "proj_base" or effect.type == "bolt_base" or
+                    effect.type == "projectile") then
                     effect.impactParticlesCreated = true
                     
                     -- Calculate impact position 
