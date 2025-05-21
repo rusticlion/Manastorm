@@ -6,6 +6,15 @@ local Constants = require("core.Constants")
 local ShieldSystem = require("systems.ShieldSystem")
 local VFX = require("vfx") -- Added for accessing rune assets
 
+-- Particle asset helpers for cast arc effects
+local function getParticleImages()
+    return {
+        pixel = VFX.getAsset and VFX.getAsset("pixel") or nil,
+        twinkle1 = VFX.getAsset and VFX.getAsset("twinkle1") or nil,
+        twinkle2 = VFX.getAsset and VFX.getAsset("twinkle2") or nil
+    }
+end
+
 -- Get appropriate status effect color
 function WizardVisuals.getStatusEffectColor(effectType)
     local effectColors = {
@@ -68,6 +77,48 @@ end
 -- Easing function for smoother animations
 function WizardVisuals.easeOutCubic(t)
     return 1 - math.pow(1 - t, 3)
+end
+
+-- Simple particle object for arc spark effects
+local function spawnArcSpark(slot, x, y, angle, color)
+    slot._arcParticles = slot._arcParticles or {}
+    local images = getParticleImages()
+    local imgChoices = {images.pixel, images.twinkle1, images.twinkle2}
+    local img = imgChoices[math.random(#imgChoices)]
+    if not img then return end
+
+    local speed = 40 + math.random() * 40
+    local particle = {
+        x = x,
+        y = y,
+        vx = math.cos(angle) * speed + (math.random() - 0.5) * 20,
+        vy = math.sin(angle) * speed + (math.random() - 0.5) * 20,
+        life = 0.35,
+        maxLife = 0.35,
+        img = img,
+        color = {color[1], color[2], color[3], 1}
+    }
+    table.insert(slot._arcParticles, particle)
+end
+
+-- Update arc spark particles for a wizard
+function WizardVisuals.updateArcParticles(wizard, dt)
+    for _, slot in ipairs(wizard.spellSlots) do
+        if slot._arcParticles then
+            local i = 1
+            while i <= #slot._arcParticles do
+                local p = slot._arcParticles[i]
+                p.life = p.life - dt
+                if p.life <= 0 then
+                    table.remove(slot._arcParticles, i)
+                else
+                    p.x = p.x + p.vx * dt
+                    p.y = p.y + p.vy * dt
+                    i = i + 1
+                end
+            end
+        end
+    end
 end
 
 -- Draw status effects with durations using horizontal bars
@@ -554,6 +605,19 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 love.graphics.setColor(orbitColor[1], orbitColor[2], orbitColor[3], orbitColor[4])
                 -- Draw ONLY the TOP half of the ellipse (π to 2π) during the "back" pass so it appears behind the wizard
                 WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, math.pi, math.pi * 2, 32)
+
+                -- Periodic sparks along the full orbit for sustained spells
+                if slot.isShield or (slot.spell and slot.spell.behavior and slot.spell.behavior.sustain) then
+                    local now = love.timer.getTime()
+                    slot._nextOrbitSpark = slot._nextOrbitSpark or 0
+                    if now >= slot._nextOrbitSpark then
+                        local angle = math.random() * math.pi * 2
+                        local px = slotX + math.cos(angle) * radiusX
+                        local py = slotY + math.sin(angle) * radiusY
+                        spawnArcSpark(slot, px, py, angle, orbitColor)
+                        slot._nextOrbitSpark = now + 0.3 + math.random() * 0.3
+                    end
+                end
             else
                 -- Make sure we do not accidentally reuse stale data on the next frame
                 slot._orbitShouldDraw = false
@@ -612,7 +676,24 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     local segStart = math.max(math.pi, 0) -- will always be π
                     local segEnd = endAngle
                     love.graphics.setColor(progressArcColor[1], progressArcColor[2], progressArcColor[3], progressArcColor[4])
+                    -- Glow pass
+                    local prevSrc, prevDst = love.graphics.getBlendMode()
+                    love.graphics.setBlendMode("add")
+                    local prevWidth = love.graphics.getLineWidth()
+                    love.graphics.setLineWidth(3)
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
+                    love.graphics.setBlendMode(prevSrc, prevDst)
+                    love.graphics.setLineWidth(prevWidth)
+                    -- Main arc
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
+
+                    -- Spawn a sparkle at the arc head
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                        local hx = slotX + math.cos(endAngle) * radiusX
+                        local hy = slotY + math.sin(endAngle) * radiusY
+                        spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        slot._lastArcSpark = love.timer.getTime()
+                    end
                 end
             end
 
@@ -659,7 +740,21 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 if segEnd > 0.01 then -- Avoid drawing if not progressed into bottom half yet
                     local cac = slot._castArcColor
                     love.graphics.setColor(cac[1], cac[2], cac[3], cac[4])
+                    local prevSrc, prevDst = love.graphics.getBlendMode()
+                    love.graphics.setBlendMode("add")
+                    local prevWidth = love.graphics.getLineWidth()
+                    love.graphics.setLineWidth(3)
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
+                    love.graphics.setBlendMode(prevSrc, prevDst)
+                    love.graphics.setLineWidth(prevWidth)
+                    WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
+
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                        local hx = slotX + math.cos(endAngle) * radiusX
+                        local hy = slotY + math.sin(endAngle) * radiusY
+                        spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        slot._lastArcSpark = love.timer.getTime()
+                    end
                 end
             end
 
@@ -768,6 +863,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                         end
                     end
+                end
+            end
+
+            -- Draw spark particles for this slot
+            if slot._arcParticles and #slot._arcParticles > 0 then
+                for _, p in ipairs(slot._arcParticles) do
+                    local alpha = (p.life / p.maxLife)
+                    love.graphics.setColor(p.color[1], p.color[2], p.color[3], alpha)
+                    love.graphics.draw(p.img, p.x, p.y, 0, 1, 1, p.img:getWidth()/2, p.img:getHeight()/2)
                 end
             end
         end
