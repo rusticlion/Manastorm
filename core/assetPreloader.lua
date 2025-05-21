@@ -33,6 +33,10 @@ function AssetPreloader.preloadAllAssets()
             "assets/sprites/moon-glow.png",
             "assets/sprites/sparkle.png",
             "assets/sprites/impact-ring.png",
+            "assets/sprites/1px.png",
+            "assets/sprites/3px-twinkle1.png",
+            "assets/sprites/3px-twinkle2.png",
+            
             
             -- Game entity assets
             "assets/sprites/wizard.png",
