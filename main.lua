@@ -192,6 +192,11 @@ game.compendium = {
     }
 }
 
+-- Temporary state for the campaign character selection menu
+game.campaignMenu = {
+    selectedCharacterIndex = 1
+}
+
 -- Get a list of all unlocked characters in the roster
 local function getUnlockedCharacterList()
     local list = {}
@@ -705,6 +710,11 @@ function exitAttractMode()
     print("Attract mode ended, returned to menu")
 end
 
+-- Placeholder implementation for starting a campaign battle
+function startCampaignBattle()
+    print("startCampaignBattle not yet implemented")
+end
+
 -- Initialize wizards for battle based on selected names
 function setupWizards(name1, name2)
     local data1 = game.characterData[name1] or {}
@@ -941,6 +951,41 @@ function game.compendiumAssign(slot)
     if love.audio and game.sounds and game.sounds.click then
         game.sounds.click:stop()
         game.sounds.click:play()
+    end
+end
+
+-- Initialize the campaign character selection menu
+function game.startCampaignMenu()
+    game.campaignMenu = { selectedCharacterIndex = 1 }
+    game.currentState = "CAMPAIGN_MENU"
+end
+
+-- Move selection cursor in the campaign menu
+function game.campaignMenuMove(dir)
+    local unlocked = getUnlockedCharacterList()
+    local count = #unlocked
+    if count == 0 then return end
+
+    local idx = game.campaignMenu.selectedCharacterIndex + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.campaignMenu.selectedCharacterIndex = idx
+end
+
+-- Confirm character choice and start the campaign
+function game.campaignMenuConfirm()
+    local unlocked = getUnlockedCharacterList()
+    local name = unlocked[game.campaignMenu.selectedCharacterIndex]
+    if not name then return end
+
+    game.campaignProgress = {
+        characterName = name,
+        currentOpponentIndex = 1,
+        wins = 0
+    }
+
+    if startCampaignBattle then
+        startCampaignBattle()
     end
 end
 function love.update(dt)
@@ -1247,9 +1292,7 @@ function love.draw()
     elseif game.currentState == "COMPENDIUM" then
         drawCompendium()
     elseif game.currentState == "CAMPAIGN_MENU" then
-        -- Placeholder for campaign selection menu
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.print("Campaign Menu (WIP)", baseWidth/2 - 60, baseHeight/2)
+        drawCampaignMenu()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -1864,6 +1907,35 @@ function drawMainMenu()
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the campaign character selection menu
+function drawCampaignMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local unlocked = getUnlockedCharacterList()
+    local spacing = 30
+    local startY = screenHeight * 0.4
+
+    for i, name in ipairs(unlocked) do
+        local y = startY + (i - 1) * spacing
+        if i == game.campaignMenu.selectedCharacterIndex then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        local w = game.font:getWidth(name)
+        love.graphics.print(name, screenWidth/2 - w/2, y)
+    end
+
+    love.graphics.setColor(0.7, 0.7, 1, 0.8)
+    local hint = "Choose your wizard"
+    local hw = game.font:getWidth(hint)
+    love.graphics.print(hint, screenWidth/2 - hw/2, startY - spacing)
 end
 
 -- Draw the character selection screen
