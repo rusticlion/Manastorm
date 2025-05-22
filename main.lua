@@ -712,8 +712,27 @@ end
 function handleCampaignDefeat()
     if not game.campaignProgress then return end
     print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
+    resetGame()
     game.currentState = "CAMPAIGN_DEFEAT"
 end
+
+-- Restart the entire campaign from the first opponent
+function restartCampaign()
+    if not game.campaignProgress then return end
+    game.campaignProgress.currentOpponentIndex = 1
+    game.campaignProgress.wins = 0
+    startCampaignBattle()
+end
+
+-- Retry the current campaign battle
+function retryCampaignBattle()
+    if not game.campaignProgress then return end
+    startCampaignBattle()
+end
+
+-- Expose campaign helpers
+game.restartCampaign = restartCampaign
+game.retryCampaignBattle = retryCampaignBattle
 
 -- Placeholder implementation for starting a campaign battle
 function startCampaignBattle()
@@ -1096,6 +1115,11 @@ function love.update(dt)
             game.vfx.update(dt)
         end
         return
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
     elseif game.currentState == "CHARACTER_SELECT" then
         -- Simple animations for character select
         if game.vfx then
@@ -1340,6 +1364,8 @@ function love.draw()
         drawCompendium()
     elseif game.currentState == "CAMPAIGN_MENU" then
         drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
+        drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -1983,6 +2009,33 @@ function drawCampaignMenu()
     local hint = "Choose your wizard"
     local hw = game.font:getWidth(hint)
     love.graphics.print(hint, screenWidth/2 - hw/2, startY - spacing)
+end
+
+-- Draw the campaign defeat screen
+function drawCampaignDefeat()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Failed"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(1, 0.6, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
+        "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
 end
 
 -- Draw the character selection screen
