@@ -701,6 +701,20 @@ function exitAttractMode()
     print("Attract mode ended, returned to menu")
 end
 
+-- Handle successful completion of a campaign
+function handleCampaignVictory()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins)
+    game.currentState = "CAMPAIGN_VICTORY"
+end
+
+-- Handle failure of a campaign run
+function handleCampaignDefeat()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
+    game.currentState = "CAMPAIGN_DEFEAT"
+end
+
 -- Placeholder implementation for starting a campaign battle
 function startCampaignBattle()
     if not game.campaignProgress then
@@ -1173,11 +1187,20 @@ function love.update(dt)
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
 
-        -- Auto-reset after duration
+        -- When timer expires, handle post-battle flow
         if game.winScreenTimer >= game.winScreenDuration then
-            -- Reset game and go back to menu
-            resetGame()
-            game.currentState = "MENU"
+            if game.campaignProgress then
+                if game.winner == 1 then
+                    game.campaignProgress.wins = game.campaignProgress.wins + 1
+                    game.campaignProgress.currentOpponentIndex = game.campaignProgress.currentOpponentIndex + 1
+                    startCampaignBattle()
+                else
+                    handleCampaignDefeat()
+                end
+            else
+                resetGame()
+                game.currentState = "MENU"
+            end
         end
 
         -- Still update VFX system for visual effects

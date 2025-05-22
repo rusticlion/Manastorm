@@ -425,11 +425,10 @@ function Input.setupRoutes()
     -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
-    -- Reset game on space bar press during game over
+    -- Advance from win screen on space bar press
     Input.Routes.gameOver["space"] = function()
         if gameState.currentState == "GAME_OVER" then
-            gameState.resetGame()
-            gameState.currentState = "MENU" -- Return to menu after game over
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
