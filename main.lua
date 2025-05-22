@@ -579,28 +579,19 @@ function resetGame()
         print("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
-    -- Reinitialize AI opponent if AI mode is enabled
+    -- Reinitialize AI opponent if AI mode is enabled and not being set up by campaign
     if game.useAI then
-        -- Use the appropriate personality based on which wizard is controlled by AI
-        local aiWizard = game.wizards[2]
-        local personality
-
-        if aiWizard.name == "Selene" then
-            personality = SelenePersonality
-            print("Initializing Selene AI personality")
-        elseif aiWizard.name == "Ashgar" then
-            personality = AshgarPersonality
-            print("Initializing Ashgar AI personality")
-        elseif aiWizard.name == "Silex" then
-            personality = SilexPersonality
-            print("Initializing Silex AI personality")
-        else
-            -- Default to base personality for unknown wizards
-            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        if not game.isSettingUpCampaignBattle then
+            local aiWizard = game.wizards[2]
+            local personality = getPersonalityFor(aiWizard.name)
+            if personality then
+                print("Initializing " .. aiWizard.name .. " AI personality")
+            else
+                print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+            end
+            game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+            print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
         end
-
-        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
-        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -712,7 +703,40 @@ end
 
 -- Placeholder implementation for starting a campaign battle
 function startCampaignBattle()
-    print("startCampaignBattle not yet implemented")
+    if not game.campaignProgress then
+        print("ERROR: startCampaignBattle called without campaignProgress")
+        return
+    end
+
+    local playerCharacterName = game.campaignProgress.characterName
+    local opponentIndex = game.campaignProgress.currentOpponentIndex or 1
+    local playerData = game.characterData[playerCharacterName] or {}
+    local opponentName
+    if playerData.campaignOpponents then
+        opponentName = playerData.campaignOpponents[opponentIndex]
+    end
+
+    if not opponentName then
+        if handleCampaignVictory then
+            handleCampaignVictory()
+        else
+            print("Campaign complete for " .. tostring(playerCharacterName))
+        end
+        return
+    end
+
+    setupWizards(playerCharacterName, opponentName)
+
+    game.useAI = true
+
+    local personality = getPersonalityFor(opponentName)
+    game.opponentAI = OpponentAI.new(game.wizards[2], game, personality)
+
+    game.isSettingUpCampaignBattle = true
+    resetGame()
+    game.isSettingUpCampaignBattle = nil
+
+    game.currentState = "BATTLE"
 end
 
 -- Initialize wizards for battle based on selected names
