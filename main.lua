@@ -51,7 +51,8 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT, CAMPAIGN_MENU, CAMPAIGN_VICTORY, CAMPAIGN_DEFEAT)
+    campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
@@ -1007,6 +1008,11 @@ function love.update(dt)
             game.vfx.update(dt)
         end
         return
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
     elseif game.currentState == "CHARACTER_SELECT" then
         -- Simple animations for character select
         if game.vfx then
@@ -1240,6 +1246,10 @@ function love.draw()
         drawSettingsMenu()
     elseif game.currentState == "COMPENDIUM" then
         drawCompendium()
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        -- Placeholder for campaign selection menu
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.print("Campaign Menu (WIP)", baseWidth/2 - 60, baseHeight/2)
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then

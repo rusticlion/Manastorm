@@ -177,6 +177,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectBack(true)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.currentState = "MENU"
+            return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
@@ -229,10 +232,9 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            print("Campaign mode not implemented yet")
+            gameState.currentState = "CAMPAIGN_MENU"
             return true
         end
         return false

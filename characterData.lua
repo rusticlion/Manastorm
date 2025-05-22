@@ -27,7 +27,8 @@ characterData.Ashgar = {
         Spells.eruption,
         Spells.combustMana,
         Spells.blazingAscent,
-    }
+    },
+    campaignOpponents = {"Selene", "Silex", "Borrak"}
 }
 
 characterData.Selene = {
@@ -51,7 +52,8 @@ characterData.Selene = {
         Spells.fullmoonbeam,
         Spells.lunardisjunction,
         Spells.lunarTides,
-    }
+    },
+    campaignOpponents = {"Ashgar", "Borrak", "Silex"}
 }
 
 characterData.Silex = {
