@@ -59,7 +59,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
-    local blockTypes = blockParams.blocks or {Constants.AttackType.PROJECTILE}
+    -- Support both `blocks` and `blocksAttackTypes` for compatibility
+    local blockTypes = blockParams.blocks or blockParams.blocksAttackTypes or {Constants.AttackType.PROJECTILE}
     for _, attackType in ipairs(blockTypes) do
         slot.blocksAttackTypes[attackType] = true
     end
