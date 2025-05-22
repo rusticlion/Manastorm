@@ -181,6 +181,10 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             gameState.campaignMenu = nil
             return true
+        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
@@ -422,14 +426,30 @@ function Input.setupRoutes()
         return false
     end
 
+    -- Campaign defeat options
+    Input.Routes.ui["space"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.retryCampaignBattle()
+            return true
+        end
+        return false
+    end
+
+    Input.Routes.ui["r"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.restartCampaign()
+            return true
+        end
+        return false
+    end
+
     -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
-    -- Reset game on space bar press during game over
+    -- Advance from win screen on space bar press
     Input.Routes.gameOver["space"] = function()
         if gameState.currentState == "GAME_OVER" then
-            gameState.resetGame()
-            gameState.currentState = "MENU" -- Return to menu after game over
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
