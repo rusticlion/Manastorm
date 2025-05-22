@@ -1115,6 +1115,11 @@ function love.update(dt)
             game.vfx.update(dt)
         end
         return
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
     elseif game.currentState == "CAMPAIGN_DEFEAT" then
         if game.vfx then
             game.vfx.update(dt)
@@ -1364,6 +1369,8 @@ function love.draw()
         drawCompendium()
     elseif game.currentState == "CAMPAIGN_MENU" then
         drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
+        drawCampaignVictory()
     elseif game.currentState == "CAMPAIGN_DEFEAT" then
         drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
@@ -2028,6 +2035,32 @@ function drawCampaignDefeat()
     local options = {
         "[R] Restart Campaign",
         "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
+end
+
+-- Draw the campaign victory screen
+function drawCampaignVictory()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Complete"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(0.6, 1, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
         "[ESC] Main Menu"
     }
     local startY = screenHeight * 0.6
