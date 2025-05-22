@@ -179,6 +179,7 @@ function Input.setupRoutes()
             return true
         elseif gameState.currentState == "CAMPAIGN_MENU" then
             gameState.currentState = "MENU"
+            gameState.campaignMenu = nil
             return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
@@ -234,7 +235,7 @@ function Input.setupRoutes()
     -- MENU CONTROLS
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            gameState.currentState = "CAMPAIGN_MENU"
+            gameState.startCampaignMenu()
             return true
         end
         return false
@@ -294,13 +295,16 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel
+    -- Legacy enter key starts Character Duel or confirms menu selections
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
             gameState.startCharacterSelect()
             return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.settingsSelect()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
             return true
         end
         return false
@@ -314,6 +318,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(-1)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(-1)
+            return true
         end
         return false
     end
@@ -323,6 +330,9 @@ function Input.setupRoutes()
             return true
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(1)
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(1)
             return true
         end
         return false
@@ -404,6 +414,9 @@ function Input.setupRoutes()
     Input.Routes.ui["f"] = function()
         if gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectConfirm()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
             return true
         end
         return false
@@ -703,6 +716,10 @@ Input.reservedKeys = {
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    campaignMenu = {
+        "Up", "Down", "F", "Enter", "Escape"
     },
 
     characterSelect = {
