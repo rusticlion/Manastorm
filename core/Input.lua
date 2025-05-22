@@ -181,6 +181,10 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             gameState.campaignMenu = nil
             return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.currentState = "MENU"
             gameState.campaignProgress = nil
@@ -426,17 +430,21 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Campaign defeat options
+    -- Campaign victory/defeat options
     Input.Routes.ui["space"] = function()
         if gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.retryCampaignBattle()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
             return true
         end
         return false
     end
 
     Input.Routes.ui["r"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+        if gameState.currentState == "CAMPAIGN_DEFEAT" or gameState.currentState == "CAMPAIGN_VICTORY" then
             gameState.restartCampaign()
             return true
         end
