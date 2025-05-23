@@ -463,6 +463,9 @@ Constants.ControlAction = {
     P1_CAST  = "p1_cast",
     P1_FREE  = "p1_free",
     P1_BOOK  = "p1_book",
+    P1_SLOT1_RELEASE = "p1_slot1_release",
+    P1_SLOT2_RELEASE = "p1_slot2_release",
+    P1_SLOT3_RELEASE = "p1_slot3_release",
 
     -- Player 2 actions
     P2_SLOT1 = "p2_slot1",
@@ -471,6 +474,9 @@ Constants.ControlAction = {
     P2_CAST  = "p2_cast",
     P2_FREE  = "p2_free",
     P2_BOOK  = "p2_book",
+    P2_SLOT1_RELEASE = "p2_slot1_release",
+    P2_SLOT2_RELEASE = "p2_slot2_release",
+    P2_SLOT3_RELEASE = "p2_slot3_release",
 
     -- Menu navigation
     MENU_UP    = "menu_up",

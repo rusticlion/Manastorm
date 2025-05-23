@@ -12,22 +12,26 @@ Input.controls = nil
 Input.Routes = {
     -- System-level controls (scaling, fullscreen, quit)
     system = {},
-    
-    -- Player 1 controls
-    p1 = {},
-    
-    -- Player 2 controls
-    p2 = {},
-    
+
+    -- Player 1 keyboard controls
+    p1_kb = {},
+
+    -- Player 2 keyboard controls
+    p2_kb = {},
+
+    -- Gamepad routes will be added later
+    gp1 = {},
+    gp2 = {},
+
     -- Debug controls (only available outside gameOver state)
     debug = {},
-    
+
     -- Test controls (only available outside gameOver state)
     test = {},
-    
+
     -- UI controls (available in any state)
     ui = {},
-    
+
     -- Game over state controls
     gameOver = {}
 }
@@ -37,6 +41,143 @@ function Input.init(game)
     gameState = game
     Input.controls = gameState.settings.get("controls")
     Input.setupRoutes()
+end
+
+-- Central dispatch for abstract control actions
+function Input.triggerAction(action, playerIndex, params)
+    local gs = gameState
+    if not gs then return false end
+
+    -- Player 1 actions
+    if action == Constants.ControlAction.P1_SLOT1 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P1_SLOT2 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P1_SLOT3 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P1_CAST and playerIndex == 1 then
+        gs.wizards[1]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P1_FREE and playerIndex == 1 then
+        gs.wizards[1]:freeAllSpells()
+    elseif action == Constants.ControlAction.P1_BOOK and playerIndex == 1 then
+        require("ui").toggleSpellbook(1)
+    elseif action == Constants.ControlAction.P1_SLOT1_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P1_SLOT2_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P1_SLOT3_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, false)
+
+    -- Player 2 actions
+    elseif action == Constants.ControlAction.P2_SLOT1 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P2_SLOT2 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P2_SLOT3 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P2_CAST and playerIndex == 2 then
+        gs.wizards[2]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P2_FREE and playerIndex == 2 then
+        gs.wizards[2]:freeAllSpells()
+    elseif action == Constants.ControlAction.P2_BOOK and playerIndex == 2 then
+        require("ui").toggleSpellbook(2)
+    elseif action == Constants.ControlAction.P2_SLOT1_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P2_SLOT2_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P2_SLOT3_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, false)
+
+    -- Menu/UI actions
+    elseif action == Constants.ControlAction.MENU_UP
+        or action == Constants.ControlAction.MENU_DOWN
+        or action == Constants.ControlAction.MENU_LEFT
+        or action == Constants.ControlAction.MENU_RIGHT
+        or action == Constants.ControlAction.MENU_CONFIRM
+        or action == Constants.ControlAction.MENU_CANCEL_BACK then
+        return Input.triggerUIAction(action, params)
+    else
+        return false
+    end
+    return true
+end
+
+-- Handle UI related actions based on current state
+function Input.triggerUIAction(action, params)
+    local gs = gameState
+    if not gs then return false end
+
+    if action == Constants.ControlAction.MENU_CANCEL_BACK then
+        if gs.currentState == "MENU" then
+            love.event.quit()
+        elseif gs.currentState == "BATTLE" then
+            gs.currentState = "MENU"
+        elseif gs.currentState == "GAME_OVER" then
+            gs.currentState = "MENU"
+            gs.resetGame()
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectBack(true)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.currentState = "MENU"
+            gs.campaignMenu = nil
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "SETTINGS" then
+            gs.currentState = "MENU"
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.currentState = "MENU"
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_CONFIRM then
+        if gs.currentState == "MENU" then
+            gs.startCharacterSelect()
+        elseif gs.currentState == "SETTINGS" then
+            gs.settingsSelect()
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuConfirm()
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectConfirm()
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_UP then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(-1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_DOWN then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_LEFT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_RIGHT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(1)
+        end
+        return true
+    end
+
+    return false
 end
 
 -- Main entry point for key handling
@@ -96,15 +237,15 @@ function Input.handleKey(key, scancode, isrepeat)
         end
         -- fall through to player controls when not handled
     end
-    
-    -- Check player 1 controls
-    local p1Handler = Input.Routes.p1[key]
+
+    -- Check player 1 keyboard controls
+    local p1Handler = Input.Routes.p1_kb[key]
     if p1Handler then
         return p1Handler(key, scancode, isrepeat)
     end
-    
-    -- Check player 2 controls
-    local p2Handler = Input.Routes.p2[key]
+
+    -- Check player 2 keyboard controls
+    local p2Handler = Input.Routes.p2_kb[key]
     if p2Handler then
         return p2Handler(key, scancode, isrepeat)
     end
@@ -136,9 +277,12 @@ function Input.handleKeyReleased(key, scancode)
     local p1s3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3
     if key == p1s1 or key == p1s2 or key == p1s3 then
         local slotIndex = (key == p1s1) and 1 or (key == p1s2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[1] then
-            gameState.wizards[1]:keySpell(slotIndex, false)
-            return true
+        if slotIndex == 1 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, 1)
+        elseif slotIndex == 2 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, 1)
+        else
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, 1)
         end
     end
 
@@ -147,12 +291,15 @@ function Input.handleKeyReleased(key, scancode)
     local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
     if key == p2s1 or key == p2s2 or key == p2s3 then
         local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[2] then
-            gameState.wizards[2]:keySpell(slotIndex, false)
-            return true
+        if slotIndex == 1 then
+            return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, 2)
+        elseif slotIndex == 2 then
+            return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, 2)
+        else
+            return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, 2)
         end
     end
-    
+
     return false
 end
 
@@ -160,50 +307,79 @@ end
 function Input.setupRoutes()
     -- Reset route tables
     Input.Routes.system = {}
-    Input.Routes.p1 = {}
-    Input.Routes.p2 = {}
+    Input.Routes.p1_kb = {}
+    Input.Routes.p2_kb = {}
+    Input.Routes.gp1 = {}
+    Input.Routes.gp2 = {}
     Input.Routes.debug = {}
     Input.Routes.test = {}
     Input.Routes.ui = {}
     Input.Routes.gameOver = {}
-    -- Exit / Quit the game or return to menu
-    Input.Routes.ui["escape"] = function()
-        -- If in MENU state, quit the game
-        if gameState.currentState == "MENU" then
-            love.event.quit()
-            return true
-        -- If in BATTLE state, return to menu
-        elseif gameState.currentState == "BATTLE" then
-            gameState.currentState = "MENU"
-            print("Returning to main menu")
-            return true
-        -- If in GAME_OVER state, return to menu
-        elseif gameState.currentState == "GAME_OVER" then
-            gameState.currentState = "MENU"
-            gameState.resetGame()
-            print("Returning to main menu")
-            return true
-        -- If in CHARACTER_SELECT, go back to menu
-        elseif gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectBack(true)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.currentState = "MENU"
-            gameState.campaignMenu = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.currentState = "MENU"
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.currentState = "MENU"
+
+    local c = gameState.settings.get("controls")
+    Input.controls = c
+
+    -- Build player 1 keyboard routes
+    local kp1 = c.keyboardP1 or {}
+    for action, key in pairs(kp1) do
+        if key and key ~= "" then
+            Input.Routes.p1_kb[key] = function()
+                return Input.triggerAction(action, 1)
+            end
+        end
+    end
+
+    -- Build player 2 keyboard routes
+    local kp2 = c.keyboardP2 or {}
+    for action, key in pairs(kp2) do
+        if key and key ~= "" then
+            Input.Routes.p2_kb[key] = function()
+                return Input.triggerAction(action, 2)
+            end
+        end
+    end
+
+    -- SYSTEM CONTROLS (with ALT modifier)
+    Input.Routes.system["1"] = function()
+        love.window.setMode(gameState.baseWidth, gameState.baseHeight)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["2"] = function()
+        love.window.setMode(gameState.baseWidth * 2, gameState.baseHeight * 2)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["3"] = function()
+        love.window.setMode(gameState.baseWidth * 3, gameState.baseHeight * 3)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["f"] = function()
+        love.window.setFullscreen(not love.window.getFullscreen())
+        Input.recalculateScaling()
+        return true
+    end
+
+    -- Developer hot-reload with Ctrl+R
+    Input.Routes.system["ctrl_r"] = function()
+        print("Hot-reloading assets...")
+        local AssetPreloader = require("core.assetPreloader")
+        local reloadStats = AssetPreloader.reloadAllAssets()
+        print(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
+                          reloadStats.imageCount,
+                          reloadStats.soundCount,
+                          reloadStats.loadTime))
+        return true
+    end
+
+    -- GAME OVER STATE CONTROLS
+    Input.Routes.gameOver["space"] = function()
+        if gameState.currentState == "GAME_OVER" then
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
@@ -461,112 +637,6 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Escape backs out of character select handled in global escape route
-    
-    -- GAME OVER STATE CONTROLS
-    -- Advance from win screen on space bar press
-    Input.Routes.gameOver["space"] = function()
-        if gameState.currentState == "GAME_OVER" then
-            gameState.winScreenTimer = gameState.winScreenDuration
-            return true
-        end
-        return false
-    end
-    
-    -- PLAYER 1 CONTROLS (Ashgar)
-    local c = gameState.settings.get("controls")
-    Input.controls = c
-    local kp1 = c.keyboardP1 or (c.p1 or {})
-    local kp2 = c.keyboardP2 or (c.p2 or {})
-
-    local p1 = {
-        slot1 = kp1[Constants.ControlAction.P1_SLOT1] or kp1.slot1,
-        slot2 = kp1[Constants.ControlAction.P1_SLOT2] or kp1.slot2,
-        slot3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3,
-        cast  = kp1[Constants.ControlAction.P1_CAST]  or kp1.cast,
-        free  = kp1[Constants.ControlAction.P1_FREE]  or kp1.free,
-        book  = kp1[Constants.ControlAction.P1_BOOK]  or kp1.book
-    }
-
-    local p2 = {
-        slot1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1,
-        slot2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2,
-        slot3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3,
-        cast  = kp2[Constants.ControlAction.P2_CAST]  or kp2.cast,
-        free  = kp2[Constants.ControlAction.P2_FREE]  or kp2.free,
-        book  = kp2[Constants.ControlAction.P2_BOOK]  or kp2.book
-    }
-
-    -- Key spell slots
-    Input.Routes.p1[p1.slot1] = function()
-        gameState.wizards[1]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot2] = function()
-        gameState.wizards[1]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot3] = function()
-        gameState.wizards[1]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p1[p1.cast] = function()
-        gameState.wizards[1]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p1[p1.free] = function()
-        gameState.wizards[1]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p1[p1.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(1)
-        return true
-    end
-
-    -- PLAYER 2 CONTROLS (Selene)
-    -- Key spell slots
-    Input.Routes.p2[p2.slot1] = function()
-        gameState.wizards[2]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot2] = function()
-        gameState.wizards[2]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot3] = function()
-        gameState.wizards[2]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p2[p2.cast] = function()
-        gameState.wizards[2]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p2[p2.free] = function()
-        gameState.wizards[2]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p2[p2.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(2)
-        return true
-    end
     
     -- DEBUG CONTROLS
     -- Add 30 random tokens with T key
