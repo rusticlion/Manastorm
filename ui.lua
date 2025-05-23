@@ -398,7 +398,7 @@ end
 function UI.drawSpellbookModals(wizards)
     -- Local function to format costs for spellbook display
     local function formatCost(cost)
-        if not cost or #cost == 0 then
+        if not cost or type(cost) ~= "table" or #cost == 0 then
             return "Free"
         end
         
@@ -462,11 +462,11 @@ function UI.drawSpellbookModals(wizards)
     
     -- Draw spellbook popups if visible
     if UI.spellbookVisible.player1 then
-        UI.drawSpellbookModal(wizards[1], 1, formatCost)
+        UI.drawSpellbookModal(wizards[1], wizards[2], 1, formatCost)
     end
-    
+
     if UI.spellbookVisible.player2 then
-        UI.drawSpellbookModal(wizards[2], 2, formatCost)
+        UI.drawSpellbookModal(wizards[2], wizards[1], 2, formatCost)
     end
 end
 
@@ -722,7 +722,7 @@ function UI.updateHealthDisplays(dt, wizards)
     end
 end
 
-function UI.drawSpellbookModal(wizard, playerNum, formatCost)
+function UI.drawSpellbookModal(wizard, opponentWizard, playerNum, formatCost)
     local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
     
     -- Determine position based on player number
@@ -887,7 +887,26 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
-            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+
+            -- Determine cost, evaluating getCost if present
+            local costTable = spell.cost
+            local isDynamic = false
+            if spell.getCost and type(spell.getCost) == "function" then
+                local ok, result = pcall(spell.getCost, wizard, opponentWizard)
+                if ok and type(result) == "table" then
+                    costTable = result
+                    isDynamic = true
+                else
+                    print("ERROR evaluating getCost for " .. spell.name .. ": " .. tostring(result))
+                end
+            end
+
+            local costText = formatCost(costTable)
+            if isDynamic then
+                costText = costText .. "*"
+            end
+
+            love.graphics.print("Cost: " .. costText .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
             
             -- Store the spell entry information for later use (for description popup)
             table.insert(spellEntries, {
