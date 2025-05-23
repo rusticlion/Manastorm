@@ -54,7 +54,9 @@ Core Utilities (core/):
 Constants.lua: Centralized string constants. Crucial for avoiding magic strings.
 AssetCache.lua: Prevents duplicate loading of images and sounds.
 Pool.lua: Generic object pooling system.
-Input.lua: Unified input routing.
+Input.lua: Unified input routing. Uses an action-based scheme defined in
+  `Constants.ControlAction`. Keyboard and gamepad bindings are loaded from
+  Settings.lua and can be changed at runtime.
 Settings.lua: Handles persistent game settings.
 assetPreloader.lua: Manages preloading of assets.
 3. Key Interactions & Data Flow
