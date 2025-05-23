@@ -21,11 +21,34 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Controls
 
-### Player 1 (Ashgar)
-- Q, W, E: Queue spells in spell slots 1, 2, and 3
+Manastorm uses an **action-based** input layer. Each action is defined in
+`Constants.ControlAction` and can be bound independently for keyboard or
+gamepad via the Settings menu. The mappings below reflect the defaults shipped
+with the game.
 
-### Player 2 (Selene)
-- I, O, P: Queue spells in spell slots 1, 2, and 3
+### Default Keyboard Mapping
+
+**Player 1**
+
+- Q / W / E: Spell slots 1–3
+- F: Cast (also acts as menu confirm)
+- G: Free spells (also acts as menu cancel)
+- B: Toggle spellbook
+- Arrow Keys: Menu navigation
+
+**Player 2**
+
+- I / O / P: Spell slots 1–3
+- J: Cast
+- H: Free spells
+- M: Toggle spellbook
+
+### Default Gamepad Mapping
+
+Gamepad controls mirror the keyboard actions. Use the D-pad for spell slots and
+menu navigation. The **A** button casts or confirms, **Y** frees or cancels, and
+**B** toggles the spellbook. When a second gamepad is connected these mappings
+apply to Player 2 as well.
 
 ### General
 - ESC: Quit the game

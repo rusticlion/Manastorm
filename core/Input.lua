@@ -991,8 +991,33 @@ function Input.update(dt)
     end
 end
 
--- Document all currently used keys
+-- Document all currently used keys and default bindings
+-- `actions` mirrors the defaults defined in core/Settings.lua so that
+-- documentation and debug overlays can display current mappings.
 Input.reservedKeys = {
+    actions = {
+        [Constants.ControlAction.P1_SLOT1] = {keyboardP1 = "q", gamepadP1 = "dpdown"},
+        [Constants.ControlAction.P1_SLOT2] = {keyboardP1 = "w", gamepadP1 = "dpleft"},
+        [Constants.ControlAction.P1_SLOT3] = {keyboardP1 = "e", gamepadP1 = "dpright"},
+        [Constants.ControlAction.P1_CAST]  = {keyboardP1 = "f", gamepadP1 = "a"},
+        [Constants.ControlAction.P1_FREE]  = {keyboardP1 = "g", gamepadP1 = "y"},
+        [Constants.ControlAction.P1_BOOK]  = {keyboardP1 = "b", gamepadP1 = "b"},
+
+        [Constants.ControlAction.P2_SLOT1] = {keyboardP2 = "i", gamepadP2 = "dpdown"},
+        [Constants.ControlAction.P2_SLOT2] = {keyboardP2 = "o", gamepadP2 = "dpleft"},
+        [Constants.ControlAction.P2_SLOT3] = {keyboardP2 = "p", gamepadP2 = "dpright"},
+        [Constants.ControlAction.P2_CAST]  = {keyboardP2 = "j", gamepadP2 = "a"},
+        [Constants.ControlAction.P2_FREE]  = {keyboardP2 = "h", gamepadP2 = "y"},
+        [Constants.ControlAction.P2_BOOK]  = {keyboardP2 = "m", gamepadP2 = "b"},
+
+        [Constants.ControlAction.MENU_UP]    = {keyboardP1 = "up",    keyboardP2 = "up",    gamepadP1 = "dpup",    gamepadP2 = "dpup"},
+        [Constants.ControlAction.MENU_DOWN]  = {keyboardP1 = "down",  keyboardP2 = "down",  gamepadP1 = "dpdown",  gamepadP2 = "dpdown"},
+        [Constants.ControlAction.MENU_LEFT]  = {keyboardP1 = "left",  keyboardP2 = "left",  gamepadP1 = "dpleft",  gamepadP2 = "dpleft"},
+        [Constants.ControlAction.MENU_RIGHT] = {keyboardP1 = "right", keyboardP2 = "right", gamepadP1 = "dpright", gamepadP2 = "dpright"},
+        [Constants.ControlAction.MENU_CONFIRM]     = {keyboardP1 = "return", keyboardP2 = "return", gamepadP1 = "a", gamepadP2 = "a"},
+        [Constants.ControlAction.MENU_CANCEL_BACK] = {keyboardP1 = "escape", keyboardP2 = "escape", gamepadP1 = "b", gamepadP2 = "b"}
+    },
+
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
         "Ctrl+R", -- Asset reload

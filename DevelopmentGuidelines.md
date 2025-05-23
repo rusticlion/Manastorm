@@ -53,6 +53,10 @@ Create new personality files that implement the interface defined in ai/Personal
 Personality modules are responsible for spell selection logic for a specific character.
 Keep the core OpponentAI.lua generic; character-specific logic belongs in personality modules.
 AI actions should use wizard:queueSpell(), not simulate input.
+Input Handling:
+  The game uses an action-based input layer. All actions are defined in
+  `Constants.ControlAction`. Default bindings for keyboard and gamepad live in
+  `core/Settings.lua` and can be rebound at runtime through the Settings menu.
 UI (ui.lua, main.lua draw functions):
 Strive for diegetic UI where possible (information integrated into the game world).
 Keep UI drawing logic separate from game state update logic.
