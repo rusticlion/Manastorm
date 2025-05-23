@@ -176,6 +176,8 @@ game.unlockedSpells = {
     brinechain = true,
     maelstrom = true,
     wavecrash = true,
+    desperationfire = true,
+    moondrain = true,
 }
 
 -- Custom spellbooks configured by the player

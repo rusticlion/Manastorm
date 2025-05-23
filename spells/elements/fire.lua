@@ -259,4 +259,30 @@ FireSpells.battleshield = {
     sfx = "fire_shield",
 }
 
+-- Desperation Fire - cost decreases as caster health drops
+FireSpells.desperationFire = {
+    id = "desperationfire",
+    name = "Desperation Fire",
+    affinity = Constants.TokenType.FIRE,
+    description = "A fiery attack whose Fire cost decreases as your health lowers.",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = { Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE },
+    keywords = {
+        damage = { amount = 15, type = Constants.DamageType.FIRE }
+    },
+    getCost = function(caster, target)
+        local fireCost = 3
+        if caster and caster.health < 75 then fireCost = 2 end
+        if caster and caster.health < 40 then fireCost = 1 end
+        if caster and caster.health < 20 then fireCost = 0 end
+
+        local finalCost = {}
+        for i = 1, fireCost do
+            table.insert(finalCost, Constants.TokenType.FIRE)
+        end
+        return finalCost
+    end,
+}
+
 return FireSpells
