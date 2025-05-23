@@ -390,4 +390,38 @@ MoonSpells.enhancedmirrorshield = {
     sfx = "crystal_ring",
 }
 
+-- Moon Drain - cost increases with opponent's STAR tokens
+MoonSpells.moonDrain = {
+    id = "moondrain",
+    name = "Moon Drain",
+    affinity = Constants.TokenType.MOON,
+    description = "Drains opponent. Costs more Moon tokens if opponent is channeling Star mana.",
+    attackType = Constants.AttackType.REMOTE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = { Constants.TokenType.MOON },
+    keywords = {
+        damage = { amount = 8, type = Constants.DamageType.MOON }
+    },
+    getCost = function(caster, target)
+        local moonTokens = 1
+        if target then
+            for _, slot in ipairs(target.spellSlots) do
+                if slot.active and slot.tokens then
+                    for _, tokenData in ipairs(slot.tokens) do
+                        if tokenData.token.type == Constants.TokenType.STAR then
+                            moonTokens = moonTokens + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        local finalCost = {}
+        for i = 1, math.min(moonTokens, 4) do
+            table.insert(finalCost, Constants.TokenType.MOON)
+        end
+        return finalCost
+    end,
+}
+
 return MoonSpells
