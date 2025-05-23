@@ -58,6 +58,7 @@ game = {
     -- Gamepad identifiers (assigned when controllers connect)
     p1GamepadID = nil,
     p2GamepadID = nil,
+    p2UsingGamepad = false,
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
@@ -800,6 +801,8 @@ function game.startCharacterSelect()
     game.characterSelect.stage = 1
     game.characterSelect.cursor = 1
     game.characterSelect.selected = {nil,nil}
+    game.useAI = true -- default to AI opponent
+    game.p2UsingGamepad = false
     game.currentState = "CHARACTER_SELECT"
 end
 
@@ -827,7 +830,6 @@ function game.characterSelectConfirm()
         game.characterSelect.stage = 3
     else
         setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
-        game.useAI = true
         resetGame()
         game.currentState = "BATTLE"
     end
@@ -2292,6 +2294,13 @@ function drawCharacterSelect()
     end
     local w = game.font:getWidth(msg)
     love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+
+    if game.characterSelect.stage >= 2 then
+        local modeText = game.useAI and "P2: AI" or "P2: Human"
+        local toggleMsg = modeText .. " (Tab to toggle)"
+        local tw = game.font:getWidth(toggleMsg)
+        love.graphics.print(toggleMsg, screenWidth/2 - tw/2, gridY+gridHeight+40)
+    end
 end
 
 -- Draw the settings menu
@@ -3040,6 +3049,9 @@ function love.gamepadpressed(joystick, button)
     local jid = joystick:getID()
     if not game.p1GamepadID then
         game.p1GamepadID = jid
+    elseif not game.p2GamepadID and not game.useAI then
+        game.p2GamepadID = jid
+        game.p2UsingGamepad = true
     end
     if game.attractModeActive then
         exitAttractMode()
@@ -3064,8 +3076,9 @@ function love.joystickadded(joystick)
     local jid = joystick:getID()
     if not game.p1GamepadID then
         game.p1GamepadID = jid
-    elseif not game.p2GamepadID then
+    elseif not game.p2GamepadID and not game.useAI then
         game.p2GamepadID = jid
+        game.p2UsingGamepad = true
     end
 end
 
@@ -3075,5 +3088,6 @@ function love.joystickremoved(joystick)
         game.p1GamepadID = nil
     elseif game.p2GamepadID == jid then
         game.p2GamepadID = nil
+        game.p2UsingGamepad = false
     end
 end
