@@ -202,7 +202,7 @@ function VFX.init()
 
         bolt_base = {
             type = "bolt_base",  -- Template name as type
-            duration = 0.8,               -- Faster than standard projectile
+            duration = 1.0,               -- Slower to showcase enhanced particle effects
             particleCount = 20,           -- Fewer particles since we're using sprites
             startScale = 0.4,
             endScale = 0.7,

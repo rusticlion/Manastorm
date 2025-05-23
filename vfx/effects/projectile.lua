@@ -210,7 +210,7 @@ local function updateProjectile(effect, dt)
     -- Update particles for the projectile trail
     if effect.particles then
         -- Add many new particles at the current head position for dense swarm effect
-        local particleRate = effect.particleRate or 2.5 -- Much higher rate for particle swarm
+        local particleRate = effect.particleRate or 15.0 -- Massive rate for spectacular particle swarm
         
         -- Generate multiple particles per frame for dense effect
         local particlesThisFrame = math.floor(particleRate)
@@ -375,7 +375,7 @@ local function drawProjectile(effect)
             local point = effect.trailPoints[i]
             local trailIntensity = (1 - (i-1)/#effect.trailPoints)
             local trailAlpha = point.alpha * 0.6
-            local particleCount = math.floor(trailIntensity * 12) -- More particles for newer trail points
+            local particleCount = math.floor(trailIntensity * 50) -- Massive particle count for spectacular trail
             
             -- Draw swarm of tiny particles at each trail point
             local color = effect.color or {1, 1, 1}
@@ -498,10 +498,10 @@ local function drawProjectile(effect)
     else
         -- Draw particle-based projectile using swarms of tiny primitives
         
-        -- Draw outer glow using swarm of tiny particles
+        -- Draw outer glow using massive swarm of tiny particles
         local color = effect.color or {1, 1, 1}
         local outerRadius = (effect.size or 1.0) * 25
-        local outerParticleCount = 20
+        local outerParticleCount = 80
         
         for i = 1, outerParticleCount do
             local angle = (i / outerParticleCount) * math.pi * 2
@@ -526,9 +526,9 @@ local function drawProjectile(effect)
             end
         end
         
-        -- Inner glow using dense swarm of tiny particles with additive blending
+        -- Inner glow using massive swarm of tiny particles with additive blending
         local innerRadius = (effect.size or 1.0) * 12
-        local innerParticleCount = 15
+        local innerParticleCount = 65
         
         -- Save current blend mode and set to additive for brightness
         local prevMode = {love.graphics.getBlendMode()}
@@ -559,6 +559,76 @@ local function drawProjectile(effect)
         
         -- Restore previous blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
+        
+        -- Add electrical corona effect using primitive particles
+        local coronaRadius = (effect.size or 1.0) * 35
+        local coronaParticleCount = 45
+        local time = love.timer.getTime()
+        
+        -- Save current blend mode and set to additive for electrical effect
+        local prevMode2 = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        for i = 1, coronaParticleCount do
+            local angle = (i / coronaParticleCount) * math.pi * 2 + time * 3
+            local pulseRadius = coronaRadius * (0.8 + 0.3 * math.sin(time * 5 + i))
+            local px = head.x + math.cos(angle) * pulseRadius
+            local py = head.y + math.sin(angle) * pulseRadius
+            
+            -- Flickering alpha for electrical effect
+            local flickerAlpha = 0.15 + 0.1 * math.sin(time * 8 + i * 0.5)
+            
+            love.graphics.setColor(
+                color[1] * 0.8, 
+                color[2] * 0.9, 
+                color[3] * 1.0, 
+                flickerAlpha
+            )
+            
+            -- Use tiny 1px sprites for electrical sparks
+            if onePxImage then
+                love.graphics.draw(
+                    onePxImage, px, py, 0,
+                    1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                    onePxImage:getWidth()/2, onePxImage:getHeight()/2
+                )
+            end
+        end
+        
+        -- Add sparkle layer using twinkle sprites
+        local sparkleRadius = (effect.size or 1.0) * 40
+        local sparkleCount = 30
+        
+        for i = 1, sparkleCount do
+            local angle = (i / sparkleCount) * math.pi * 2 + time * -1.5
+            local radius = sparkleRadius * (0.6 + 0.4 * math.random())
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            -- Twinkling effect
+            local twinklePhase = math.sin(time * 4 + i * 1.2)
+            local twinkleAlpha = math.max(0, 0.2 + 0.3 * twinklePhase)
+            
+            love.graphics.setColor(
+                color[1], 
+                color[2], 
+                color[3], 
+                twinkleAlpha
+            )
+            
+            local sprite = (i % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                local scale = 0.8 + 0.4 * math.abs(twinklePhase)
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode2[1], prevMode2[2])
         
         -- Core (solid center)
         love.graphics.setColor(1, 1, 1, 0.9)
