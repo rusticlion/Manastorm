@@ -714,11 +714,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     -- Main arc
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
 
-                    -- Spawn a sparkle at the arc head
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    -- Spawn multiple sparkles at the arc head for more dramatic effect
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
@@ -776,10 +780,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     love.graphics.setLineWidth(prevWidth)
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
 
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
