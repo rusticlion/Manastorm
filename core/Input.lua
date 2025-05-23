@@ -8,6 +8,17 @@ local Constants = require("core.Constants")
 local gameState = nil
 Input.controls = nil
 
+-- States considered to have a menu active
+local MENU_STATES = {
+    MENU = true,
+    SETTINGS = true,
+    CHARACTER_SELECT = true,
+    COMPENDIUM = true,
+    CAMPAIGN_MENU = true,
+    CAMPAIGN_VICTORY = true,
+    CAMPAIGN_DEFEAT = true
+}
+
 -- Set up input routes by category
 Input.Routes = {
     -- System-level controls (scaling, fullscreen, quit)
@@ -56,8 +67,14 @@ function Input.triggerAction(action, playerIndex, params)
     elseif action == Constants.ControlAction.P1_SLOT3 and playerIndex == 1 then
         gs.wizards[1]:keySpell(3, true)
     elseif action == Constants.ControlAction.P1_CAST and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
         gs.wizards[1]:castKeyedSpell()
     elseif action == Constants.ControlAction.P1_FREE and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
         gs.wizards[1]:freeAllSpells()
     elseif action == Constants.ControlAction.P1_BOOK and playerIndex == 1 then
         require("ui").toggleSpellbook(1)
@@ -76,8 +93,14 @@ function Input.triggerAction(action, playerIndex, params)
     elseif action == Constants.ControlAction.P2_SLOT3 and playerIndex == 2 then
         gs.wizards[2]:keySpell(3, true)
     elseif action == Constants.ControlAction.P2_CAST and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
         gs.wizards[2]:castKeyedSpell()
     elseif action == Constants.ControlAction.P2_FREE and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
         gs.wizards[2]:freeAllSpells()
     elseif action == Constants.ControlAction.P2_BOOK and playerIndex == 2 then
         require("ui").toggleSpellbook(2)
@@ -145,6 +168,11 @@ function Input.triggerUIAction(action, params)
             gs.campaignMenuConfirm()
         elseif gs.currentState == "CHARACTER_SELECT" then
             gs.characterSelectConfirm()
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.retryCampaignBattle()
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
         end
         return true
     elseif action == Constants.ControlAction.MENU_UP then
@@ -647,67 +675,28 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel or confirms menu selections
+    -- Generic menu navigation keys
     Input.Routes.ui["return"] = function()
-        if gameState.currentState == "MENU" then
-            gameState.startCharacterSelect()
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.settingsSelect()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["space"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["escape"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK)
     end
 
-    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(-1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_UP)
     end
     Input.Routes.ui["down"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_DOWN)
     end
     Input.Routes.ui["left"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_LEFT)
     end
     Input.Routes.ui["right"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_RIGHT)
     end
 
     -- Assign spells to slots when in Compendium
@@ -762,29 +751,9 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Confirm selection / Fight
+    -- Confirm selection / Fight (legacy key)
     Input.Routes.ui["f"] = function()
-        if gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectConfirm()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
-    end
-
-    -- Campaign victory/defeat options
-    Input.Routes.ui["space"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.retryCampaignBattle()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
     end
 
     Input.Routes.ui["r"] = function()
@@ -1008,8 +977,9 @@ Input.reservedKeys = {
     
     menu = {
         "1", "2", "3", "4", "5", "6", -- Main menu options
-        "Enter", -- Start character duel (shortcut)
-        "Escape", -- Quit game from menu
+        "Up", "Down", "Left", "Right", -- Navigation
+        "Enter", "Space", -- Confirm
+        "Escape", -- Quit/Back
     },
     
     battle = {
@@ -1017,17 +987,17 @@ Input.reservedKeys = {
     },
 
     campaignMenu = {
-        "Up", "Down", "F", "Enter", "Escape"
+        "Up", "Down", "Left", "Right", "F", "Enter", "Space", "Escape"
     },
 
     characterSelect = {
         "Q", "E", -- Move cursor
-        "F", -- Confirm
+        "F", "Enter", "Space", -- Confirm
         "Escape" -- Back
     },
     
     gameOver = {
-        "Space", -- Return to menu after game over
+        "Space", "Enter", -- Return to menu after game over
         "Escape", -- Return to menu immediately
     },
     
