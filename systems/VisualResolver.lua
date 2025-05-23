@@ -13,7 +13,7 @@ local TEMPLATE_BY_SHAPE = {
     ["beam"] = Constants.VFXType.BEAM_BASE,
     ["zap"] = Constants.VFXType.PROJ_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
-    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.ORB_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template

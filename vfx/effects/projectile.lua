@@ -283,13 +283,20 @@ local function updateProjectile(effect, dt)
         end
     end
     
-    -- Update bolt animation frame (if using sprites)
+    -- Update sprite animation frame (if using sprites)
     if effect.useSprites then
         effect.frameTimer = effect.frameTimer + dt
         if effect.frameTimer >= effect.frameDuration then
             effect.frameTimer = 0
             effect.currentFrame = effect.currentFrame + 1
-            if effect.currentFrame > 3 then
+            
+            -- Determine max frames based on effect type
+            local maxFrames = 3  -- Default for bolt
+            if effect.type == "orb_base" then
+                maxFrames = 5
+            end
+            
+            if effect.currentFrame > maxFrames then
                 effect.currentFrame = 1
             end
         end
@@ -344,10 +351,14 @@ local function drawProjectile(effect)
     local twinkle1Image = getAssetInternal("twinkle1")
     local twinkle2Image = getAssetInternal("twinkle2")
     
-    -- Get bolt frames if needed
-    local boltFrames = nil
+    -- Get sprite frames if needed
+    local spriteFrames = nil
     if effect.useSprites then
-        boltFrames = getAssetInternal("boltFrames")
+        if effect.type == "orb_base" then
+            spriteFrames = getAssetInternal("orbFrames")
+        else
+            spriteFrames = getAssetInternal("boltFrames")
+        end
     end
     
     -- Calculate the actual trajectory angle for aimed shots
@@ -472,14 +483,21 @@ local function drawProjectile(effect)
     -- Draw the projectile head
     local leadingIntensity = 1.3 -- Make the leading edge brighter
     
-    -- Draw sprite-based projectile (like a lightning bolt)
-    if effect.useSprites and boltFrames then
-        -- Use projectile sprites (like lightning bolt)
-        local frame = boltFrames[effect.currentFrame]
+    -- Draw sprite-based projectile (like lightning bolt or orb)
+    if effect.useSprites and spriteFrames then
+        -- Use projectile sprites
+        local frame = spriteFrames[effect.currentFrame]
         local scale = effect.size * 2
         
-        -- Rotate the bolt based on trajectory
-        local rotation = trajectoryAngle or 0
+        -- Handle rotation based on effect type
+        local rotation = 0
+        if effect.type == "orb_base" then
+            -- Orbs don't rotate with trajectory, but can have gentle spinning
+            rotation = (effect.spriteRotationOffset or 0) + (love.timer.getTime() * 0.5)
+        else
+            -- Bolts rotate based on trajectory
+            rotation = trajectoryAngle or 0
+        end
         
         love.graphics.setColor(
             effect.color[1], 

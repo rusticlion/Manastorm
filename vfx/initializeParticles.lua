@@ -17,6 +17,7 @@ local function initializeParticles(effect)
         -- Base templates
         ["proj_base"] = "projectile",
         ["bolt_base"] = "projectile",
+        ["orb_base"] = "projectile",
         ["impact_base"] = "impact",
         ["beam_base"] = "beam",
         ["blast_base"] = "cone",

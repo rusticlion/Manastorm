@@ -102,6 +102,15 @@ function VFX.init()
             "assets/sprites/bolt/bolt3.png"
         },
         
+        -- Orb effects
+        orbFrames = {
+            "assets/sprites/orb/orb1.png",
+            "assets/sprites/orb/orb2.png",
+            "assets/sprites/orb/orb3.png",
+            "assets/sprites/orb/orb4.png",
+            "assets/sprites/orb/orb5.png"
+        },
+        
         -- Warp effects
         warpFrames = {
             "assets/sprites/warp/warp1.png",
@@ -166,6 +175,19 @@ function VFX.init()
         end
     end
     
+    -- Preload orb frames for the orb effects
+    print("[VFX] Preloading orb frame assets")
+    VFX.assets.orbFrames = {}
+    for i, orbPath in ipairs(VFX.assetPaths.orbFrames) do
+        print("[VFX] Preloading orb frame " .. i)
+        local orbImg = AssetCache.getImage(orbPath)
+        if orbImg then
+            table.insert(VFX.assets.orbFrames, orbImg)
+        else
+            print("[VFX] Warning: Failed to preload orb frame asset: " .. orbPath)
+        end
+    end
+    
     -- Preload warp frames for the warp effects
     print("[VFX] Preloading warp frame assets")
     VFX.assets.warpFrames = {}
@@ -227,6 +249,37 @@ function VFX.init()
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+
+        orb_base = {
+            type = "orb_base",  -- Template name as type
+            duration = 1.8,               -- Significantly slower than bolt for dramatic arc
+            particleCount = 35,           -- More particles for richer trail effect
+            startScale = 0.6,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            radius = 65,                  -- Radius for particle effects and impact
+            trailLength = 25,             -- Longer trail for graceful arc
+            impactSize = 1.5,             -- Larger impact than bolt
+            sound = nil,                  -- No default sound
+            coreDensity = 0.5,            -- Balanced particle density
+            trailDensity = 0.6,           -- Dense trail for visible arc path
+            turbulence = 0.3,             -- Less turbulence for smoother flight
+            arcHeight = 120,              -- High arc for lobbed trajectory
+            straightLine = false,         -- Uses curved arc path
+            particleLifespan = 0.8,       -- Longer particle lifespan for persistent trail
+            leadingIntensity = 1.4,       -- Moderate leading edge intensity
+            flickerRate = 8,              -- Slower flicker for mystical effect
+            flickerIntensity = 0.2,       -- Subtle flicker
+            useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 8,          -- Slower frame rate for floating effect
+            spriteRotationOffset = 0,     -- No rotation offset for orbs
+            spriteScale = 1.0,            -- Larger scale than bolts
+            spriteTint = true,            -- Whether to apply color tinting to sprites
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true,     -- Track target position
+            useCurvedPath = true,         -- Enable curved path explicitly
+            criticalAssets = {"orbFrames"} -- Mark orb frames as critical assets to preload
         },
 
         warp_base = {
@@ -1222,7 +1275,7 @@ function VFX.update(dt)
                 -- Trigger shield impact visuals for projectile-type effects
                 -- Accept both generic projectile templates (proj_base/bolt_base)
                 if not effect.impactParticlesCreated and
-                   (effect.type == "proj_base" or effect.type == "bolt_base" or
+                   (effect.type == "proj_base" or effect.type == "bolt_base" or effect.type == "orb_base" or
                     effect.type == "projectile") then
                     effect.impactParticlesCreated = true
                     
@@ -1580,6 +1633,7 @@ local MeteorEffect = require("vfx.effects.meteor")
 -- Map each template name/type to the appropriate handler
 VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
 VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
+VFX.updaters["orb_base"] = ProjectileEffect.update   -- Orb uses projectile logic
 VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
 VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
 VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
@@ -1607,6 +1661,7 @@ VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
 -- Initialize the drawers table with draw functions
 VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
 VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
+VFX.drawers["orb_base"] = ProjectileEffect.draw     -- Orb uses projectile logic
 VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
 VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
 VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
