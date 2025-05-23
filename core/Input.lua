@@ -162,19 +162,25 @@ function Input.triggerUIAction(action, params)
     elseif action == Constants.ControlAction.MENU_CONFIRM then
         if gs.currentState == "MENU" then
             gs.startCharacterSelect()
+            return true
         elseif gs.currentState == "SETTINGS" then
             gs.settingsSelect()
+            return true
         elseif gs.currentState == "CAMPAIGN_MENU" then
             gs.campaignMenuConfirm()
+            return true
         elseif gs.currentState == "CHARACTER_SELECT" then
             gs.characterSelectConfirm()
+            return true
         elseif gs.currentState == "CAMPAIGN_DEFEAT" then
             gs.retryCampaignBattle()
+            return true
         elseif gs.currentState == "CAMPAIGN_VICTORY" then
             gs.currentState = "MENU"
             gs.campaignProgress = nil
+            return true
         end
-        return true
+        return false
     elseif action == Constants.ControlAction.MENU_UP then
         if gs.currentState == "SETTINGS" then
             gs.settingsMove(-1)
