@@ -404,12 +404,23 @@ function OpponentAI:decide()
     end
     
     -- If we found a specific spell and have a slot for it, cast it
-    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-        return {
-            type = "CAST_SPELL",
-            spell = spell,
-            reason = reason
-        }
+    if spell and self:hasAvailableSpellSlot() then
+        -- Evaluate dynamic cost if provided
+        local costToEvaluate
+        if spell.getCost then
+            costToEvaluate = spell.getCost(self.wizard, self.playerWizard)
+        else
+            costToEvaluate = spell.cost
+        end
+
+        local canAfford = self.wizard:canPayManaCost(costToEvaluate)
+        if canAfford then
+            return {
+                type = "CAST_SPELL",
+                spell = spell,
+                reason = reason
+            }
+        end
     end
     
     -- Return the general action if no specific spell was found or affordable
