@@ -127,7 +127,11 @@ function Input.triggerUIAction(action, params)
             gs.currentState = "MENU"
             gs.campaignProgress = nil
         elseif gs.currentState == "SETTINGS" then
-            gs.currentState = "MENU"
+            if gs.settingsBack then
+                gs.settingsBack()
+            else
+                gs.currentState = "MENU"
+            end
         elseif gs.currentState == "COMPENDIUM" then
             gs.currentState = "MENU"
         end
@@ -187,18 +191,22 @@ function Input.handleKey(key, scancode, isrepeat)
 
     -- Handle settings key capture
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
-        local action = gameState.settingsMenu.waitingForKey
+        local capture = gameState.settingsMenu.waitingForKey
         local controls = gameState.settings.get("controls")
-        controls[action.player][action.key] = key
-        gameState.settings.set("controls", controls)
-        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
-        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
-            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
-            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
-        else
-            gameState.settingsMenu.waitingForKey = nil
-            gameState.settingsMenu.mode = nil
+        if controls[capture.playerType] then
+            controls[capture.playerType][capture.action] = key
+            gameState.settings.set("controls", controls)
+            if gameState.settings.save then gameState.settings.save() end
+            -- update list for UI
+            if gameState.settingsMenu.rebindActionList then
+                for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                    if entry.action == capture.action then
+                        entry.binding = key
+                    end
+                end
+            end
         end
+        gameState.settingsMenu.waitingForKey = nil
         Input.setupRoutes()
         return true
     end
@@ -313,6 +321,28 @@ function Input.handleGamepadButton(joystickID, buttonName, isPressed)
     end
     if not playerIndex then return false end
 
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if capture.playerType == "gamepadP1" and playerIndex == 1 or capture.playerType == "gamepadP2" and playerIndex == 2 then
+            if isPressed then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = buttonName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = buttonName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
+            return true
+        end
+    end
+
     local controls = Input.controls or gameState.settings.get("controls")
     local map = (playerIndex == 1) and (controls.gamepadP1 or {}) or (controls.gamepadP2 or {})
 
@@ -358,6 +388,28 @@ function Input.handleGamepadAxis(joystickID, axisName, value)
     end
     if not playerIndex then return false end
 
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if (capture.playerType == "gamepadP1" and playerIndex == 1) or (capture.playerType == "gamepadP2" and playerIndex == 2) then
+            if math.abs(value) > Input.AXIS_DEADZONE then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = axisName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = axisName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
+            return true
+        end
+    end
+
     local prev = Input._axisState[playerIndex][axisName] or 0
     Input._axisState[playerIndex][axisName] = value
 
@@ -402,44 +454,47 @@ function Input.setupRoutes()
     local c = gameState.settings.get("controls")
     Input.controls = c
 
+    local function addRoute(tbl, key, actionDesc, fn)
+        if not key or key == "" then
+            print("[Input] Warning: action " .. actionDesc .. " has no binding")
+            return
+        end
+        if tbl[key] then
+            print("[Input] Warning: conflicting binding for key/button '" .. key .. "'")
+        end
+        tbl[key] = fn
+    end
+
     -- Build player 1 keyboard routes
     local kp1 = c.keyboardP1 or {}
     for action, key in pairs(kp1) do
-        if key and key ~= "" then
-            Input.Routes.p1_kb[key] = function()
-                return Input.triggerAction(action, 1)
-            end
-        end
+        addRoute(Input.Routes.p1_kb, key, action, function()
+            return Input.triggerAction(action, 1)
+        end)
     end
 
     -- Build player 2 keyboard routes
     local kp2 = c.keyboardP2 or {}
     for action, key in pairs(kp2) do
-        if key and key ~= "" then
-            Input.Routes.p2_kb[key] = function()
-                return Input.triggerAction(action, 2)
-            end
-        end
+        addRoute(Input.Routes.p2_kb, key, action, function()
+            return Input.triggerAction(action, 2)
+        end)
     end
 
     -- Build player 1 gamepad routes (button to action lookup)
     local gp1 = c.gamepadP1 or {}
     for action, button in pairs(gp1) do
-        if button and button ~= "" then
-            Input.Routes.gp1[button] = function(pressed)
-                return Input.handleGamepadButton(gameState.p1GamepadID, button, pressed)
-            end
-        end
+        addRoute(Input.Routes.gp1, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p1GamepadID, button, pressed)
+        end)
     end
 
     -- Build player 2 gamepad routes
     local gp2 = c.gamepadP2 or {}
     for action, button in pairs(gp2) do
-        if button and button ~= "" then
-            Input.Routes.gp2[button] = function(pressed)
-                return Input.handleGamepadButton(gameState.p2GamepadID, button, pressed)
-            end
-        end
+        addRoute(Input.Routes.gp2, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p2GamepadID, button, pressed)
+        end)
     end
 
     -- SYSTEM CONTROLS (with ALT modifier)

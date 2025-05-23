@@ -77,7 +77,11 @@ game = {
             {"p2","slot3","P2 Slot 3"},
             {"p2","cast","P2 Cast"}
         },
-        rebindIndex = 1
+        rebindIndex = 1,
+        rebindSelection = 1,
+        rebindPlayerType = nil,
+        rebindActionList = nil,
+        rebindOptions = nil
     },
     -- Resolution properties
     baseWidth = baseWidth,
@@ -852,11 +856,30 @@ function game.startSettings()
     game.settingsMenu.mode = nil
     game.settingsMenu.waitingForKey = nil
     game.settingsMenu.rebindIndex = 1
+    game.settingsMenu.rebindSelection = 1
+    game.settingsMenu.rebindPlayerType = nil
+    game.settingsMenu.rebindActionList = nil
+    game.settingsMenu.rebindOptions = {
+        {playerType = "keyboardP1", label = "Player 1 Keyboard"},
+        {playerType = "keyboardP2", label = "Player 2 Keyboard"},
+        {playerType = "gamepadP1",  label = "Player 1 Gamepad"}
+    }
     game.currentState = "SETTINGS"
 end
 
 function game.settingsMove(dir)
-    if game.settingsMenu.mode then return end
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        local list = (game.settingsMenu.mode == "rebind_select_player") and game.settingsMenu.rebindOptions or game.settingsMenu.rebindActionList
+        if not list then return end
+        local count = #list
+        local idx = game.settingsMenu.rebindSelection + dir
+        if idx < 1 then idx = count end
+        if idx > count then idx = 1 end
+        game.settingsMenu.rebindSelection = idx
+        return
+    elseif game.settingsMenu.mode then
+        return
+    end
     local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
@@ -928,17 +951,53 @@ function game.unlockAll()
 end
 
 function game.settingsSelect()
-    if game.settingsMenu.selected == 3 then
-        -- Unlock All (Dev) option
-        game.unlockAll()
-    elseif game.settingsMenu.selected == 4 then
-        game.settingsMenu.mode = "rebind"
-        game.settingsMenu.rebindIndex = 1
-        local a = game.settingsMenu.bindOrder[1]
-        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    if game.settingsMenu.mode == "rebind_select_player" then
+        local option = game.settingsMenu.rebindOptions[game.settingsMenu.rebindSelection]
+        if option then
+            game.settingsMenu.rebindPlayerType = option.playerType
+            local controls = Settings.get("controls")[option.playerType] or {}
+            game.settingsMenu.rebindActionList = {}
+            for action, binding in pairs(controls) do
+                table.insert(game.settingsMenu.rebindActionList, {action = action, binding = binding})
+            end
+            table.sort(game.settingsMenu.rebindActionList, function(a,b) return a.action < b.action end)
+            game.settingsMenu.rebindSelection = 1
+            game.settingsMenu.mode = "rebind_action_list"
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local entry = game.settingsMenu.rebindActionList[game.settingsMenu.rebindSelection]
+        if entry then
+            game.settingsMenu.waitingForKey = {playerType = game.settingsMenu.rebindPlayerType, action = entry.action, label = entry.action}
+        end
     else
-        game.settingsAdjust(1)
+        if game.settingsMenu.selected == 3 then
+            game.unlockAll()
+        elseif game.settingsMenu.selected == 4 then
+            game.settingsMenu.mode = "rebind_select_player"
+            game.settingsMenu.rebindSelection = 1
+        else
+            game.settingsAdjust(1)
+        end
     end
+end
+
+function game.settingsBack()
+    if game.settingsMenu.waitingForKey then
+        game.settingsMenu.waitingForKey = nil
+        return
+    end
+    if game.settingsMenu.mode == "rebind_action_list" then
+        game.settingsMenu.mode = "rebind_select_player"
+        game.settingsMenu.rebindSelection = 1
+        return
+    elseif game.settingsMenu.mode == "rebind_select_player" then
+        game.settingsMenu.mode = nil
+        game.settingsMenu.rebindPlayerType = nil
+        game.settingsMenu.rebindActionList = nil
+        game.settingsMenu.rebindSelection = 1
+        return
+    end
+    game.currentState = "MENU"
 end
 
 function game.startCompendium()
@@ -2242,6 +2301,11 @@ function drawSettingsMenu()
     love.graphics.setColor(20/255, 20/255, 40/255, 1)
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
 
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        drawRebindMenu()
+        return
+    end
+
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
         "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
@@ -2266,6 +2330,50 @@ function drawSettingsMenu()
         local scale = 1.2
         local w = game.font:getWidth(msg) * scale
         love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
+end
+
+function drawRebindMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    if game.settingsMenu.mode == "rebind_select_player" then
+        for i, opt in ipairs(game.settingsMenu.rebindOptions or {}) do
+            local text = opt.label
+            local scale = 1.3
+            local y = screenHeight * 0.4 + (i-1)*30
+            local w = game.font:getWidth(text) * scale
+            if i == game.settingsMenu.rebindSelection then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local list = game.settingsMenu.rebindActionList or {}
+        local startY = screenHeight * 0.3
+        for i, entry in ipairs(list) do
+            local text = entry.action .. " : " .. tostring(entry.binding or "")
+            local scale = 1.1
+            local y = startY + (i-1)*24
+            if i == game.settingsMenu.rebindSelection and not game.settingsMenu.waitingForKey then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, 60, y, 0, scale, scale)
+        end
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new input for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1,0.6,0.6,1)
         love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
     end
 end
