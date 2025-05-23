@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Thu May 22 13:10:15 CDT 2025
+Generated: Fri May 23 16:18:44 CDT 2025
 
 # Source Code
 
@@ -2496,6 +2496,10 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             gameState.campaignMenu = nil
             return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.currentState = "MENU"
             gameState.campaignProgress = nil
@@ -2741,17 +2745,21 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Campaign defeat options
+    -- Campaign victory/defeat options
     Input.Routes.ui["space"] = function()
         if gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.retryCampaignBattle()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
             return true
         end
         return false
     end
 
     Input.Routes.ui["r"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+        if gameState.currentState == "CAMPAIGN_DEFEAT" or gameState.currentState == "CAMPAIGN_VICTORY" then
             gameState.restartCampaign()
             return true
         end
@@ -5819,7 +5827,7 @@ end
 
 function game.settingsMove(dir)
     if game.settingsMenu.mode then return end
-    local count = 3
+    local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
     if idx > count then idx = 1 end
@@ -5847,8 +5855,53 @@ function game.settingsAdjust(dir)
     end
 end
 
+function game.unlockAll()
+    -- Unlock all characters
+    for _, characterName in ipairs(game.characterRoster) do
+        game.unlockedCharacters[characterName] = true
+    end
+    
+    -- Unlock all spells
+    local allSpellIds = {
+        -- Fire
+        "conjurefire", "firebolt", "fireball", "blastwave", "combustMana", 
+        "blazingascent", "eruption", "battleshield",
+        -- Mind
+        "thoughtscalp",
+        -- Moon
+        "conjuremoonlight", "tidalforce", "lunardisjunction", "moondance", 
+        "gravity", "eclipse", "fullmoonbeam", "lunartides", "wrapinmoonlight", 
+        "gravityTrap", "infiniteprocession", "enhancedmirrorshield",
+        -- Salt
+        "conjuresalt", "glitterfang", "burnToAsh", "saltstorm", "imprison", 
+        "jaggedearth", "saltcircle", "stoneshield", "shieldbreaker",
+        -- Star
+        "conjurestars", "adaptivesurge", "cosmicrift",
+        -- Sun
+        "radiantbolt", "fusionRay", "meteor", "emberlift", "novaconjuring", 
+        "burnTheSoul", "SpaceRipper", "StingingEyes", "CoreBolt", "NuclearFurnace", 
+        "forcebarrier", "radiantfield",
+        -- Void
+        "conjurenothing", "riteofemptiness", "quenchPower", "heartripper",
+        -- Water
+        "watergun", "forceblast", "conjurewater", "maelstrom", "riptideguard", 
+        "brinechain", "wavecrash",
+        -- Generic
+        "none"
+    }
+    
+    for _, spellId in ipairs(allSpellIds) do
+        game.unlockedSpells[spellId] = true
+    end
+    
+    print("[DEV] All characters and spells unlocked!")
+end
+
 function game.settingsSelect()
     if game.settingsMenu.selected == 3 then
+        -- Unlock All (Dev) option
+        game.unlockAll()
+    elseif game.settingsMenu.selected == 4 then
         game.settingsMenu.mode = "rebind"
         game.settingsMenu.rebindIndex = 1
         local a = game.settingsMenu.bindOrder[1]
@@ -6078,6 +6131,11 @@ function love.update(dt)
         end
         return
     elseif game.currentState == "CAMPAIGN_MENU" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -6331,6 +6389,8 @@ function love.draw()
         drawCompendium()
     elseif game.currentState == "CAMPAIGN_MENU" then
         drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
+        drawCampaignVictory()
     elseif game.currentState == "CAMPAIGN_DEFEAT" then
         drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
@@ -6652,6 +6712,29 @@ function drawRangeIndicator()
 end
 
 -- Draw the main menu
+-- Helper function to draw text with outline/drop-shadow effect
+local function drawTextWithOutline(text, x, y, rotation, scaleX, scaleY, outlineWidth, textColor, outlineColor)
+    rotation = rotation or 0
+    scaleX = scaleX or 1
+    scaleY = scaleY or scaleX
+    outlineWidth = outlineWidth or 2
+    outlineColor = outlineColor or {0, 0, 0, 0.8}
+    
+    -- Draw outline/drop-shadow by drawing the text multiple times with slight offsets
+    love.graphics.setColor(outlineColor)
+    for ox = -outlineWidth, outlineWidth do
+        for oy = -outlineWidth, outlineWidth do
+            if ox ~= 0 or oy ~= 0 then
+                love.graphics.print(text, x + ox, y + oy, rotation, scaleX, scaleY)
+            end
+        end
+    end
+    
+    -- Draw main text on top
+    love.graphics.setColor(textColor)
+    love.graphics.print(text, x, y, rotation, scaleX, scaleY)
+end
+
 function drawMainMenu()
     local screenWidth = baseWidth
     local screenHeight = baseHeight
@@ -6878,7 +6961,7 @@ function drawMainMenu()
     
     -- Now draw all menu text ON TOP of everything else
     
-    -- Draw title with a magical glow effect
+    -- Draw title with a magical glow effect and outline
     local titleY = screenHeight * 0.25
     local titleScale = 4
     local titleText = "MANASTORM"
@@ -6898,31 +6981,35 @@ function drawMainMenu()
         )
     end
     
-    -- Draw main title
-    love.graphics.setColor(0.9, 0.9, 1, 1)
-    love.graphics.print(
+    -- Draw main title with outline
+    drawTextWithOutline(
         titleText,
         screenWidth/2 - titleWidth/2, 
         titleY,
         0,
-        titleScale, titleScale
+        titleScale, titleScale,
+        3, -- outline width
+        {0.9, 0.9, 1, 1}, -- text color (light blue-white)
+        {0.1, 0.1, 0.3, 0.9} -- outline color (dark blue)
     )
     
-    -- Draw subtitle
+    -- Draw subtitle with outline
     local subtitleText = "Chosen of the Ninefold Circle"
     local subtitleScale = 2
     local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
     
-    love.graphics.setColor(0.7, 0.7, 1, 0.9)
-    love.graphics.print(
+    drawTextWithOutline(
         subtitleText,
         screenWidth/2 - subtitleWidth/2,
         titleY + 60,
         0,
-        subtitleScale, subtitleScale
+        subtitleScale, subtitleScale,
+        2, -- outline width
+        {0.7, 0.7, 1, 0.9}, -- text color (light blue)
+        {0.1, 0.1, 0.2, 0.8} -- outline color (dark)
     )
     
-    -- Draw menu options
+    -- Draw menu options with outlines
     local menuY = screenHeight * 0.55
     local menuSpacing = 40
     local menuScale = 1.4
@@ -6939,8 +7026,17 @@ function drawMainMenu()
     for i, option in ipairs(options) do
         local text, color = option[1], option[2]
         local width = game.font:getWidth(text) * menuScale
-        love.graphics.setColor(color)
-        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+        
+        drawTextWithOutline(
+            text,
+            screenWidth/2 - width/2,
+            menuY + (i-1)*menuSpacing,
+            0,
+            menuScale, menuScale,
+            2, -- outline width
+            color, -- text color
+            {0.1, 0.1, 0.1, 0.8} -- outline color (dark)
+        )
     end
     
     -- Draw version and credit
@@ -6995,6 +7091,32 @@ function drawCampaignDefeat()
     local options = {
         "[R] Restart Campaign",
         "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
+end
+
+-- Draw the campaign victory screen
+function drawCampaignVictory()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Complete"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(0.6, 1, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
         "[ESC] Main Menu"
     }
     local startY = screenHeight * 0.6
@@ -7090,6 +7212,7 @@ function drawSettingsMenu()
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
         "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Unlock All (Dev)",
         "Rebind Controls"
     }
 
@@ -7163,7 +7286,7 @@ function drawCompendium()
             y = panePadding * 2 + paneHeight + headerHeight,
             w = paneWidth,
             h = paneHeight,
-            title = "Equipped Spells"
+            title = "Equipped Spells - Press 1-7 to assign"
         }
     }
     
@@ -7561,7 +7684,7 @@ function drawCompendium()
     
     -- Bottom Right: Configured Spellbook View
     local pane = panes.bottomRight
-    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 5)
     
     -- Slot key input mappings
     local keyMapping = {
@@ -7577,18 +7700,10 @@ function drawCompendium()
     -- Get active spellbook (custom or default)
     local active = game.customSpellbooks[name] or data.spellbook
     
-    -- Instructions
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    if isUnlocked then
-        love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
-    else
-        love.graphics.print("Unlock this character to modify spells", pane.x + 15, pane.y + 40)
-    end
-    
-    -- Draw each slot
+    -- Draw each slot (removed instructions to save space)
     for i, key in ipairs(slotKeys) do
         local spell = active[key]
-        local y = pane.y + 70 + (i-1)*28
+        local y = pane.y + 40 + (i-1)*28
         
         -- Check if a number key is being held to highlight slot
         local isSlotSelected = false
@@ -7645,7 +7760,7 @@ function drawCompendium()
     
     -- Draw explanatory text about the slot system
     love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
-    local explanationY = pane.y + 70 + 7 * 28 + 15
+    local explanationY = pane.y + 40 + 7 * 28 + 15
     
     if isUnlocked then
         love.graphics.printf(
@@ -10179,6 +10294,32 @@ FireSpells.battleshield = {
 
 return FireSpells```
 
+## ./spells/elements/generic.lua
+```lua
+-- spells/elements/generic.lua
+-- Contains generic spells with no elemental affinity
+
+local Constants = require("core.Constants")
+
+local GenericSpells = {}
+
+-- Placeholder spell for empty slots
+GenericSpells.none = {
+    id = "none",
+    name = "<None>",
+    affinity = "generic",
+    description = "Empty spell slot. Cast to do nothing.",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "none",
+    castTime = Constants.CastSpeed.INSTANT,
+    cost = {},  -- No mana cost
+    keywords = {
+        -- No effect - this is a no-op spell
+    },
+}
+
+return GenericSpells```
+
 ## ./spells/elements/life.lua
 ```lua
 -- spells/elements/life.lua
@@ -11602,6 +11743,7 @@ local StarSpells = require("spells.elements.star")
 local LifeSpells = require("spells.elements.life")
 local MindSpells = require("spells.elements.mind")
 local VoidSpells = require("spells.elements.void")
+local GenericSpells = require("spells.elements.generic")
 
 -- Combine all spells into a single table
 local Spells = {}
@@ -11623,6 +11765,7 @@ addSpells(StarSpells)
 addSpells(LifeSpells)
 addSpells(MindSpells)
 addSpells(VoidSpells)
+addSpells(GenericSpells)
 
 -- Prepare the return table with all spells and utility functions
 local SpellsModule = {
@@ -13742,7 +13885,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
-    local blockTypes = blockParams.blocks or {Constants.AttackType.PROJECTILE}
+    -- Support both `blocks` and `blocksAttackTypes` for compatibility
+    local blockTypes = blockParams.blocks or blockParams.blocksAttackTypes or {Constants.AttackType.PROJECTILE}
     for _, attackType in ipairs(blockTypes) do
         slot.blocksAttackTypes[attackType] = true
     end
@@ -16010,11 +16154,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                             
                             if runeAssets and #runeAssets > 0 then
+                                -- Determine rune color based on spell affinity if available
+                                local baseColor
+                                if slot.spell and slot.spell.affinity then
+                                    -- Use spell affinity color for more visual variety
+                                    baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                                else
+                                    -- Fall back to shield type color
+                                    baseColor = shieldColor
+                                end
+                                
+                                -- Enhanced contrast and visibility
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7),
-                                    shieldColor[2] * (1 + pulseAmount * 0.7),
-                                    shieldColor[3] * (1 + pulseAmount * 0.7),
-                                    alpha
+                                    math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                                    0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                                 }
 
                                 for r = 1, numRunes do
@@ -16034,20 +16189,36 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                     local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
 
                                     if runeLayer == layer then
-                                        -- Glow pass
+                                        -- Dark outline for better contrast against backgrounds
+                                        love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                                        for dx = -1, 1 do
+                                            for dy = -1, 1 do
+                                                if dx ~= 0 or dy ~= 0 then
+                                                    love.graphics.draw(
+                                                        runeImg,
+                                                        runeX + dx, runeY + dy,
+                                                        0,
+                                                        runeScale, runeScale,
+                                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                                    )
+                                                end
+                                            end
+                                        end
+                                        
+                                        -- Bright glow pass for visibility
                                         local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                                         love.graphics.setBlendMode("add")
-                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
                                         love.graphics.draw(
                                             runeImg,
                                             runeX, runeY,
                                             0,
-                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeScale * 1.6, runeScale * 1.6,
                                             runeImg:getWidth() / 2, runeImg:getHeight() / 2
                                         )
                                         love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                                        -- Main rune sprite
+                                        -- Main rune sprite with full opacity
                                         love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                                         love.graphics.draw(
                                             runeImg,
@@ -16295,7 +16466,6 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
                 local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
                 local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                local alpha = 0.7 + pulseAmount * 0.3
 
                 local numRunes = 5
                 local runeYOffset = 0
@@ -16310,11 +16480,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 end
 
                 if runeAssets and #runeAssets > 0 then
+                    -- Determine rune color based on spell affinity if available
+                    local baseColor
+                    if slot.spell and slot.spell.affinity then
+                        -- Use spell affinity color for more visual variety
+                        baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                    else
+                        -- Fall back to shield type color
+                        baseColor = shieldColor
+                    end
+                    
+                    -- Enhanced contrast and visibility
                     local runeColor = {
-                        shieldColor[1] * (1 + pulseAmount * 0.7),
-                        shieldColor[2] * (1 + pulseAmount * 0.7),
-                        shieldColor[3] * (1 + pulseAmount * 0.7),
-                        alpha
+                        math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                        0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                     }
 
                     for r = 1, numRunes do
@@ -16330,14 +16511,30 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         local normalizedAngle = angle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
-                            -- Glow pass
+                            -- Dark outline for better contrast against backgrounds
+                            love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                            for dx = -1, 1 do
+                                for dy = -1, 1 do
+                                    if dx ~= 0 or dy ~= 0 then
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX + dx, runeY + dy,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
+                                end
+                            end
+                            
+                            -- Bright glow pass for visibility
                             local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                             love.graphics.setBlendMode("add")
-                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
-                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.6, runeScale * 1.6, runeImg:getWidth()/2, runeImg:getHeight()/2)
                             love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                            -- Main rune
+                            -- Main rune sprite with full opacity
                             love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                             love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
                         end
@@ -21163,6 +21360,8 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
+    -- Preserve the current line width so we can restore it after drawing
+    local prevLineWidth = love.graphics.getLineWidth()
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -21333,6 +21532,9 @@ local function drawBeam(effect)
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
+
+    -- Restore the previous line width to avoid affecting other draw calls
+    love.graphics.setLineWidth(prevLineWidth)
 end
 
 -- Initialize function for beam effects
@@ -27150,7 +27352,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Thu May 22 13:10:15 CDT 2025
+Generated: Fri May 23 16:18:44 CDT 2025
 
 # Source Code
 
@@ -29647,6 +29849,10 @@ function Input.setupRoutes()
             gameState.currentState = "MENU"
             gameState.campaignMenu = nil
             return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.currentState = "MENU"
             gameState.campaignProgress = nil
@@ -29892,17 +30098,21 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Campaign defeat options
+    -- Campaign victory/defeat options
     Input.Routes.ui["space"] = function()
         if gameState.currentState == "CAMPAIGN_DEFEAT" then
             gameState.retryCampaignBattle()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
             return true
         end
         return false
     end
 
     Input.Routes.ui["r"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+        if gameState.currentState == "CAMPAIGN_DEFEAT" or gameState.currentState == "CAMPAIGN_VICTORY" then
             gameState.restartCampaign()
             return true
         end
@@ -32970,7 +33180,7 @@ end
 
 function game.settingsMove(dir)
     if game.settingsMenu.mode then return end
-    local count = 3
+    local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
     if idx > count then idx = 1 end
@@ -32998,8 +33208,53 @@ function game.settingsAdjust(dir)
     end
 end
 
+function game.unlockAll()
+    -- Unlock all characters
+    for _, characterName in ipairs(game.characterRoster) do
+        game.unlockedCharacters[characterName] = true
+    end
+    
+    -- Unlock all spells
+    local allSpellIds = {
+        -- Fire
+        "conjurefire", "firebolt", "fireball", "blastwave", "combustMana", 
+        "blazingascent", "eruption", "battleshield",
+        -- Mind
+        "thoughtscalp",
+        -- Moon
+        "conjuremoonlight", "tidalforce", "lunardisjunction", "moondance", 
+        "gravity", "eclipse", "fullmoonbeam", "lunartides", "wrapinmoonlight", 
+        "gravityTrap", "infiniteprocession", "enhancedmirrorshield",
+        -- Salt
+        "conjuresalt", "glitterfang", "burnToAsh", "saltstorm", "imprison", 
+        "jaggedearth", "saltcircle", "stoneshield", "shieldbreaker",
+        -- Star
+        "conjurestars", "adaptivesurge", "cosmicrift",
+        -- Sun
+        "radiantbolt", "fusionRay", "meteor", "emberlift", "novaconjuring", 
+        "burnTheSoul", "SpaceRipper", "StingingEyes", "CoreBolt", "NuclearFurnace", 
+        "forcebarrier", "radiantfield",
+        -- Void
+        "conjurenothing", "riteofemptiness", "quenchPower", "heartripper",
+        -- Water
+        "watergun", "forceblast", "conjurewater", "maelstrom", "riptideguard", 
+        "brinechain", "wavecrash",
+        -- Generic
+        "none"
+    }
+    
+    for _, spellId in ipairs(allSpellIds) do
+        game.unlockedSpells[spellId] = true
+    end
+    
+    print("[DEV] All characters and spells unlocked!")
+end
+
 function game.settingsSelect()
     if game.settingsMenu.selected == 3 then
+        -- Unlock All (Dev) option
+        game.unlockAll()
+    elseif game.settingsMenu.selected == 4 then
         game.settingsMenu.mode = "rebind"
         game.settingsMenu.rebindIndex = 1
         local a = game.settingsMenu.bindOrder[1]
@@ -33229,6 +33484,11 @@ function love.update(dt)
         end
         return
     elseif game.currentState == "CAMPAIGN_MENU" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -33482,6 +33742,8 @@ function love.draw()
         drawCompendium()
     elseif game.currentState == "CAMPAIGN_MENU" then
         drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_VICTORY" then
+        drawCampaignVictory()
     elseif game.currentState == "CAMPAIGN_DEFEAT" then
         drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
@@ -33803,6 +34065,29 @@ function drawRangeIndicator()
 end
 
 -- Draw the main menu
+-- Helper function to draw text with outline/drop-shadow effect
+local function drawTextWithOutline(text, x, y, rotation, scaleX, scaleY, outlineWidth, textColor, outlineColor)
+    rotation = rotation or 0
+    scaleX = scaleX or 1
+    scaleY = scaleY or scaleX
+    outlineWidth = outlineWidth or 2
+    outlineColor = outlineColor or {0, 0, 0, 0.8}
+    
+    -- Draw outline/drop-shadow by drawing the text multiple times with slight offsets
+    love.graphics.setColor(outlineColor)
+    for ox = -outlineWidth, outlineWidth do
+        for oy = -outlineWidth, outlineWidth do
+            if ox ~= 0 or oy ~= 0 then
+                love.graphics.print(text, x + ox, y + oy, rotation, scaleX, scaleY)
+            end
+        end
+    end
+    
+    -- Draw main text on top
+    love.graphics.setColor(textColor)
+    love.graphics.print(text, x, y, rotation, scaleX, scaleY)
+end
+
 function drawMainMenu()
     local screenWidth = baseWidth
     local screenHeight = baseHeight
@@ -34029,7 +34314,7 @@ function drawMainMenu()
     
     -- Now draw all menu text ON TOP of everything else
     
-    -- Draw title with a magical glow effect
+    -- Draw title with a magical glow effect and outline
     local titleY = screenHeight * 0.25
     local titleScale = 4
     local titleText = "MANASTORM"
@@ -34049,31 +34334,35 @@ function drawMainMenu()
         )
     end
     
-    -- Draw main title
-    love.graphics.setColor(0.9, 0.9, 1, 1)
-    love.graphics.print(
+    -- Draw main title with outline
+    drawTextWithOutline(
         titleText,
         screenWidth/2 - titleWidth/2, 
         titleY,
         0,
-        titleScale, titleScale
+        titleScale, titleScale,
+        3, -- outline width
+        {0.9, 0.9, 1, 1}, -- text color (light blue-white)
+        {0.1, 0.1, 0.3, 0.9} -- outline color (dark blue)
     )
     
-    -- Draw subtitle
+    -- Draw subtitle with outline
     local subtitleText = "Chosen of the Ninefold Circle"
     local subtitleScale = 2
     local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
     
-    love.graphics.setColor(0.7, 0.7, 1, 0.9)
-    love.graphics.print(
+    drawTextWithOutline(
         subtitleText,
         screenWidth/2 - subtitleWidth/2,
         titleY + 60,
         0,
-        subtitleScale, subtitleScale
+        subtitleScale, subtitleScale,
+        2, -- outline width
+        {0.7, 0.7, 1, 0.9}, -- text color (light blue)
+        {0.1, 0.1, 0.2, 0.8} -- outline color (dark)
     )
     
-    -- Draw menu options
+    -- Draw menu options with outlines
     local menuY = screenHeight * 0.55
     local menuSpacing = 40
     local menuScale = 1.4
@@ -34090,8 +34379,17 @@ function drawMainMenu()
     for i, option in ipairs(options) do
         local text, color = option[1], option[2]
         local width = game.font:getWidth(text) * menuScale
-        love.graphics.setColor(color)
-        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+        
+        drawTextWithOutline(
+            text,
+            screenWidth/2 - width/2,
+            menuY + (i-1)*menuSpacing,
+            0,
+            menuScale, menuScale,
+            2, -- outline width
+            color, -- text color
+            {0.1, 0.1, 0.1, 0.8} -- outline color (dark)
+        )
     end
     
     -- Draw version and credit
@@ -34146,6 +34444,32 @@ function drawCampaignDefeat()
     local options = {
         "[R] Restart Campaign",
         "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
+end
+
+-- Draw the campaign victory screen
+function drawCampaignVictory()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Complete"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(0.6, 1, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
         "[ESC] Main Menu"
     }
     local startY = screenHeight * 0.6
@@ -34241,6 +34565,7 @@ function drawSettingsMenu()
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
         "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Unlock All (Dev)",
         "Rebind Controls"
     }
 
@@ -34314,7 +34639,7 @@ function drawCompendium()
             y = panePadding * 2 + paneHeight + headerHeight,
             w = paneWidth,
             h = paneHeight,
-            title = "Equipped Spells"
+            title = "Equipped Spells - Press 1-7 to assign"
         }
     }
     
@@ -34712,7 +35037,7 @@ function drawCompendium()
     
     -- Bottom Right: Configured Spellbook View
     local pane = panes.bottomRight
-    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 5)
     
     -- Slot key input mappings
     local keyMapping = {
@@ -34728,18 +35053,10 @@ function drawCompendium()
     -- Get active spellbook (custom or default)
     local active = game.customSpellbooks[name] or data.spellbook
     
-    -- Instructions
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    if isUnlocked then
-        love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
-    else
-        love.graphics.print("Unlock this character to modify spells", pane.x + 15, pane.y + 40)
-    end
-    
-    -- Draw each slot
+    -- Draw each slot (removed instructions to save space)
     for i, key in ipairs(slotKeys) do
         local spell = active[key]
-        local y = pane.y + 70 + (i-1)*28
+        local y = pane.y + 40 + (i-1)*28
         
         -- Check if a number key is being held to highlight slot
         local isSlotSelected = false
@@ -34796,7 +35113,7 @@ function drawCompendium()
     
     -- Draw explanatory text about the slot system
     love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
-    local explanationY = pane.y + 70 + 7 * 28 + 15
+    local explanationY = pane.y + 40 + 7 * 28 + 15
     
     if isUnlocked then
         love.graphics.printf(
@@ -37330,6 +37647,32 @@ FireSpells.battleshield = {
 
 return FireSpells```
 
+## ./spells/elements/generic.lua
+```lua
+-- spells/elements/generic.lua
+-- Contains generic spells with no elemental affinity
+
+local Constants = require("core.Constants")
+
+local GenericSpells = {}
+
+-- Placeholder spell for empty slots
+GenericSpells.none = {
+    id = "none",
+    name = "<None>",
+    affinity = "generic",
+    description = "Empty spell slot. Cast to do nothing.",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = "none",
+    castTime = Constants.CastSpeed.INSTANT,
+    cost = {},  -- No mana cost
+    keywords = {
+        -- No effect - this is a no-op spell
+    },
+}
+
+return GenericSpells```
+
 ## ./spells/elements/life.lua
 ```lua
 -- spells/elements/life.lua
@@ -38753,6 +39096,7 @@ local StarSpells = require("spells.elements.star")
 local LifeSpells = require("spells.elements.life")
 local MindSpells = require("spells.elements.mind")
 local VoidSpells = require("spells.elements.void")
+local GenericSpells = require("spells.elements.generic")
 
 -- Combine all spells into a single table
 local Spells = {}
@@ -38774,6 +39118,7 @@ addSpells(StarSpells)
 addSpells(LifeSpells)
 addSpells(MindSpells)
 addSpells(VoidSpells)
+addSpells(GenericSpells)
 
 -- Prepare the return table with all spells and utility functions
 local SpellsModule = {
@@ -40893,7 +41238,8 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Set which attack types this shield blocks
     slot.blocksAttackTypes = {}
-    local blockTypes = blockParams.blocks or {Constants.AttackType.PROJECTILE}
+    -- Support both `blocks` and `blocksAttackTypes` for compatibility
+    local blockTypes = blockParams.blocks or blockParams.blocksAttackTypes or {Constants.AttackType.PROJECTILE}
     for _, attackType in ipairs(blockTypes) do
         slot.blocksAttackTypes[attackType] = true
     end
@@ -43161,11 +43507,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                             
                             if runeAssets and #runeAssets > 0 then
+                                -- Determine rune color based on spell affinity if available
+                                local baseColor
+                                if slot.spell and slot.spell.affinity then
+                                    -- Use spell affinity color for more visual variety
+                                    baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                                else
+                                    -- Fall back to shield type color
+                                    baseColor = shieldColor
+                                end
+                                
+                                -- Enhanced contrast and visibility
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7),
-                                    shieldColor[2] * (1 + pulseAmount * 0.7),
-                                    shieldColor[3] * (1 + pulseAmount * 0.7),
-                                    alpha
+                                    math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                                    0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                                 }
 
                                 for r = 1, numRunes do
@@ -43185,20 +43542,36 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                     local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
 
                                     if runeLayer == layer then
-                                        -- Glow pass
+                                        -- Dark outline for better contrast against backgrounds
+                                        love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                                        for dx = -1, 1 do
+                                            for dy = -1, 1 do
+                                                if dx ~= 0 or dy ~= 0 then
+                                                    love.graphics.draw(
+                                                        runeImg,
+                                                        runeX + dx, runeY + dy,
+                                                        0,
+                                                        runeScale, runeScale,
+                                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                                    )
+                                                end
+                                            end
+                                        end
+                                        
+                                        -- Bright glow pass for visibility
                                         local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                                         love.graphics.setBlendMode("add")
-                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
                                         love.graphics.draw(
                                             runeImg,
                                             runeX, runeY,
                                             0,
-                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeScale * 1.6, runeScale * 1.6,
                                             runeImg:getWidth() / 2, runeImg:getHeight() / 2
                                         )
                                         love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                                        -- Main rune sprite
+                                        -- Main rune sprite with full opacity
                                         love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                                         love.graphics.draw(
                                             runeImg,
@@ -43446,7 +43819,6 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
                 local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
                 local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                local alpha = 0.7 + pulseAmount * 0.3
 
                 local numRunes = 5
                 local runeYOffset = 0
@@ -43461,11 +43833,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 end
 
                 if runeAssets and #runeAssets > 0 then
+                    -- Determine rune color based on spell affinity if available
+                    local baseColor
+                    if slot.spell and slot.spell.affinity then
+                        -- Use spell affinity color for more visual variety
+                        baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                    else
+                        -- Fall back to shield type color
+                        baseColor = shieldColor
+                    end
+                    
+                    -- Enhanced contrast and visibility
                     local runeColor = {
-                        shieldColor[1] * (1 + pulseAmount * 0.7),
-                        shieldColor[2] * (1 + pulseAmount * 0.7),
-                        shieldColor[3] * (1 + pulseAmount * 0.7),
-                        alpha
+                        math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                        0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                     }
 
                     for r = 1, numRunes do
@@ -43481,14 +43864,30 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         local normalizedAngle = angle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
-                            -- Glow pass
+                            -- Dark outline for better contrast against backgrounds
+                            love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                            for dx = -1, 1 do
+                                for dy = -1, 1 do
+                                    if dx ~= 0 or dy ~= 0 then
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX + dx, runeY + dy,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
+                                end
+                            end
+                            
+                            -- Bright glow pass for visibility
                             local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                             love.graphics.setBlendMode("add")
-                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
-                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.6, runeScale * 1.6, runeImg:getWidth()/2, runeImg:getHeight()/2)
                             love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                            -- Main rune
+                            -- Main rune sprite with full opacity
                             love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                             love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
                         end
@@ -48314,6 +48713,8 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
+    -- Preserve the current line width so we can restore it after drawing
+    local prevLineWidth = love.graphics.getLineWidth()
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -48484,6 +48885,9 @@ local function drawBeam(effect)
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
+
+    -- Restore the previous line width to avoid affecting other draw calls
+    love.graphics.setLineWidth(prevLineWidth)
 end
 
 -- Initialize function for beam effects
