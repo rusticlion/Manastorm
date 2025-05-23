@@ -94,6 +94,11 @@ function VFX.init()
         -- Generic effects
         sparkle = "assets/sprites/sparkle.png",
         impactRing = "assets/sprites/impact-ring.png",
+
+        -- Pixel primitive effects
+        pixel1 = "assets/sprites/1px.png",
+        twinkle1 = "assets/sprites/3px-twinkle1.png",
+        twinkle2 = "assets/sprites/3px-twinkle2.png",
         
         -- Bolt effects
         boltFrames = {
@@ -152,6 +157,12 @@ function VFX.init()
     -- Preload sparkle asset (used in many effects)
     print("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
+
+    -- Preload pixel primitives used for hard-edged effects
+    print("[VFX] Preloading pixel primitive assets")
+    VFX.assets.pixel1 = AssetCache.getImage(VFX.assetPaths.pixel1)
+    VFX.assets.twinkle1 = AssetCache.getImage(VFX.assetPaths.twinkle1)
+    VFX.assets.twinkle2 = AssetCache.getImage(VFX.assetPaths.twinkle2)
     
     -- Preload bolt frames for the bolt effects
     print("[VFX] Preloading bolt frame assets")
@@ -220,6 +231,7 @@ function VFX.init()
             flickerRate = 12,             -- Rate at which particles flicker (Hz)
             flickerIntensity = 0.3,       -- Intensity of the flicker effect (0-1)
             useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            pixelTrail = true,            -- Use pixel primitives for the trail
             spriteFrameRate = 15,         -- Frames per second for sprite animation
             spriteRotationOffset = 0.78,  -- Radians to rotate the sprite by default (≈45 degrees)
             spriteScale = 0.85,           -- Base scale factor for the sprite
@@ -228,6 +240,7 @@ function VFX.init()
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
         },
+
 
         warp_base = {
             type = "warp_base",           -- Template name as type
