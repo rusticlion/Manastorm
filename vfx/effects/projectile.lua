@@ -225,7 +225,7 @@ local function updateProjectile(effect, dt)
             -- Assign primitive sprite types for variety
             local spriteType = math.random(3)
             if spriteType == 1 then
-                particle.spriteType = "1px"
+                particle.spriteType = "pixel"
                 particle.size = math.random(1, 3)
             elseif spriteType == 2 then
                 particle.spriteType = "twinkle1"
@@ -340,9 +340,9 @@ local function drawProjectile(effect)
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
-    local onePxImage = getAssetInternal("1px")
-    local twinkle1Image = getAssetInternal("3px-twinkle1")
-    local twinkle2Image = getAssetInternal("3px-twinkle2")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Get bolt frames if needed
     local boltFrames = nil
@@ -440,7 +440,7 @@ local function drawProjectile(effect)
             local sprite = nil
             local scale = (particle.size or 3) / 3
             
-            if particle.spriteType == "1px" and onePxImage then
+            if particle.spriteType == "pixel" and onePxImage then
                 sprite = onePxImage
             elseif particle.spriteType == "twinkle1" and twinkle1Image then
                 sprite = twinkle1Image

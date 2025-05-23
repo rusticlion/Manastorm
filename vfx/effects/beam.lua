@@ -208,35 +208,69 @@ local function updateBeam(effect, dt)
             ::next_particle::
         end
         
-        -- Add new particles at source and impact point
-        if math.random() < 0.3 then
-            -- Add particle at source
+        -- Add many new particles for dense swarm effect
+        local particleRate = 3.0 -- Much higher rate for particle swarm
+        
+        -- Generate multiple particles per frame
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Add particles at source with variety
             local sourceParticle = {
-                x = effect.sourceX + math.random(-5, 5),
-                y = effect.sourceY + math.random(-5, 5),
-                scale = math.random(5, 15) / 100,
-                startScale = math.random(5, 15) / 100,
+                x = effect.sourceX + math.random(-8, 8),
+                y = effect.sourceY + math.random(-8, 8),
+                scale = math.random(1, 3),
+                startScale = math.random(1, 3),
                 alpha = 1.0,
                 life = 0,
-                maxLife = math.random() * 0.2 + 0.1,
-                active = true -- Ensure particle is marked as active
+                maxLife = math.random() * 0.3 + 0.15,
+                active = true,
+                spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
             }
             table.insert(effect.particles, sourceParticle)
             
-            -- Add particle at impact point (if beam has traveled that far)
+            -- Add particles along the beam path
+            if effect.beamProgress > 0.1 then
+                local beamPos = math.random() * effect.beamProgress
+                local beamX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * beamPos)
+                local beamY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * beamPos)
+                
+                -- Perpendicular offset for beam width
+                local perpAngle = effect.beamAngle + math.pi/2
+                local perpOffset = (math.random() - 0.5) * effect.beamWidth
+                
+                local beamParticle = {
+                    x = beamX + math.cos(perpAngle) * perpOffset,
+                    y = beamY + math.sin(perpAngle) * perpOffset,
+                    scale = math.random(1, 2),
+                    startScale = math.random(1, 2),
+                    alpha = 1.0,
+                    life = 0,
+                    maxLife = math.random() * 0.2 + 0.1,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
+                }
+                table.insert(effect.particles, beamParticle)
+            end
+            
+            -- Add particles at impact point (if beam has traveled that far)
             if effect.beamProgress > 0.5 then
                 local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 
                 local impactParticle = {
-                    x = impactX + math.random(-10, 10),
-                    y = impactY + math.random(-10, 10),
-                    scale = math.random(5, 15) / 100,
-                    startScale = math.random(5, 15) / 100, 
+                    x = impactX + math.random(-12, 12),
+                    y = impactY + math.random(-12, 12),
+                    scale = math.random(2, 4),
+                    startScale = math.random(2, 4),
                     alpha = 1.0,
                     life = 0,
-                    maxLife = math.random() * 0.2 + 0.1,
-                    active = true -- Ensure particle is marked as active
+                    maxLife = math.random() * 0.25 + 0.15,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
                 }
                 table.insert(effect.particles, impactParticle)
             end
@@ -246,8 +280,10 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
-    -- Preserve the current line width so we can restore it after drawing
+    -- Preserve the current line width and blend mode so we can restore them after drawing
     local prevLineWidth = love.graphics.getLineWidth()
+    local prevBlendMode = {love.graphics.getBlendMode()}
+    
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -260,11 +296,14 @@ local function drawBeam(effect)
     effect.pulseFactor = effect.pulseFactor or 1.0 -- Default pulse
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
-    -- Draw base beam
+    -- Draw particle-based beam core instead of line shapes
     local beamEndX = effect.sourceX + math.cos(effect.beamAngle) * beamLength
     local beamEndY = effect.sourceY + math.sin(effect.beamAngle) * beamLength
     
@@ -272,37 +311,147 @@ local function drawBeam(effect)
     local pulseValue = effect.pulseFactor or 1.0
     local beamWidth = (effect.beamWidth or 15) * pulseValue
     
-    -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1] * 0.3, effect.color[2] * 0.3, effect.color[3] * 0.3, 0.3)
-    love.graphics.setLineWidth(beamWidth * 1.5)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw beam using dense particle chains
+    local particlesAlongBeam = math.floor(beamLength / 3) -- One particle every 3 pixels
     
-    -- Save current blend mode and set to additive for the brightest elements
-    local prevMode = {love.graphics.getBlendMode()}
-    love.graphics.setBlendMode("add")
+    for i = 0, particlesAlongBeam do
+        local t = i / math.max(1, particlesAlongBeam)
+        local coreX = effect.sourceX + (beamEndX - effect.sourceX) * t
+        local coreY = effect.sourceY + (beamEndY - effect.sourceY) * t
+        
+        -- Perpendicular angle for beam width spread
+        local perpAngle = effect.beamAngle + math.pi/2
+        
+        -- Draw outer glow particles
+        local outerParticles = math.floor(beamWidth / 4)
+        for j = 1, outerParticles do
+            local offset = (j / outerParticles - 0.5) * beamWidth * 1.5
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                effect.color[1] * 0.4, 
+                effect.color[2] * 0.4, 
+                effect.color[3] * 0.4, 
+                0.3 * (1 - math.abs(offset) / (beamWidth * 0.75))
+            )
+            
+            local sprite = onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.5 + math.random() * 0.5, 1.5 + math.random() * 0.5,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Save current blend mode and set to additive for core
+        local prevMode = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        -- Draw inner core particles with additive blending
+        local innerParticles = math.floor(beamWidth / 6)
+        for j = 1, innerParticles do
+            local offset = (j / innerParticles - 0.5) * beamWidth * 0.7
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                math.min(1.0, effect.color[1] * 1.3), 
+                math.min(1.0, effect.color[2] * 1.3), 
+                math.min(1.0, effect.color[3] * 1.3), 
+                0.7 * (1 - math.abs(offset) / (beamWidth * 0.35))
+            )
+            
+            local sprite = (j % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.2 + math.random() * 0.3, 1.2 + math.random() * 0.3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Draw brightest center particles
+        local centerParticles = math.floor(beamWidth / 10) + 1
+        for j = 1, centerParticles do
+            local offset = (j / centerParticles - 0.5) * beamWidth * 0.3
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(1, 1, 1, 0.9 * (1 - math.abs(offset) / (beamWidth * 0.15)))
+            
+            local sprite = twinkle2Image or onePxImage
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random() * 0.2, 1 + math.random() * 0.2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    end
     
-    -- Draw inner beam core with additive blending
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7)
-    love.graphics.setLineWidth(beamWidth * 0.7)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw source glow using particle swarm
+    local sourceParticleCount = 15
+    local sourceRadius = beamWidth * 0.7
     
-    -- Draw brightest beam center with additive blending
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.setLineWidth(beamWidth * 0.3)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    for i = 1, sourceParticleCount do
+        local angle = (i / sourceParticleCount) * math.pi * 2 + love.timer.getTime() * 3
+        local radius = sourceRadius * (0.4 + math.random() * 0.6)
+        local px = effect.sourceX + math.cos(angle) * radius
+        local py = effect.sourceY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.5 + math.random() * 0.3) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Restore previous blend mode
-    love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    -- Draw impact glow using particle swarm
+    local impactParticleCount = 18
+    local impactRadius = beamWidth * 0.9
     
-    -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7 * pulseValue)
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, beamWidth * 0.7)
+    for i = 1, impactParticleCount do
+        local angle = (i / impactParticleCount) * math.pi * 2 + love.timer.getTime() * 4
+        local radius = impactRadius * (0.3 + math.random() * 0.7)
+        local px = beamEndX + math.cos(angle) * radius
+        local py = beamEndY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.6 + math.random() * 0.4) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1.2 + math.random() * 0.8, 1.2 + math.random() * 0.8,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Draw impact glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * pulseValue)
-    love.graphics.circle("fill", beamEndX, beamEndY, beamWidth * 0.9)
-    
-    -- Draw particles
+    -- Draw particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid or inactive particles
@@ -316,19 +465,32 @@ local function drawBeam(effect)
             particle.x = particle.x or effect.sourceX
             particle.y = particle.y or effect.sourceY
             
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.8)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.9)
             
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            if particle.spriteType == "pixel" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    particle.scale, particle.scale,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    particle.scale / 3, particle.scale / 3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback if image is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.scale * 50)
+                -- Final fallback
+                love.graphics.circle("fill", particle.x, particle.y, particle.scale)
             end
             
             ::next_draw_particle::
@@ -349,9 +511,25 @@ local function drawBeam(effect)
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
 
-        -- Draw impact flash
-        love.graphics.setColor(1, 1, 1, flashAlpha)
-        love.graphics.circle("fill", blockX, blockY, flashSize)
+        -- Draw impact flash using particle swarm
+        local flashParticleCount = math.floor(flashSize / 3)
+        for i = 1, flashParticleCount do
+            local angle = (i / flashParticleCount) * math.pi * 2
+            local radius = flashSize * (0.2 + math.random() * 0.8)
+            local px = blockX + math.cos(angle) * radius
+            local py = blockY + math.sin(angle) * radius
+            
+            love.graphics.setColor(1, 1, 1, flashAlpha * (0.6 + math.random() * 0.4))
+            
+            local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    2 + math.random() * 2, 2 + math.random() * 2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
 
         -- Get shield color based on type for distinctive visuals
         local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
@@ -419,8 +597,9 @@ local function drawBeam(effect)
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 
-    -- Restore the previous line width to avoid affecting other draw calls
+    -- Restore the previous line width and blend mode to avoid affecting other draw calls
     love.graphics.setLineWidth(prevLineWidth)
+    love.graphics.setBlendMode(prevBlendMode[1], prevBlendMode[2])
 end
 
 -- Initialize function for beam effects
