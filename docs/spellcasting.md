@@ -26,9 +26,9 @@ This system is transitioning towards a pure event-based architecture, where spel
 *   **Purpose:** Defines the concrete spells available by combining keywords (`ingredients`) with specific parameters. Acts as a database of spell definitions.
 *   **Structure:** A large Lua table (`Spells`) where each key is a unique spell ID (e.g., `firebolt`). The value is a table adhering to a schema:
     *   **Basic Info:** `id`, `name`, `description`.
-    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
+    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`). If a `getCost` function is provided it will be used at runtime instead of the static table.
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `getCost` (dynamic mana cost), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef

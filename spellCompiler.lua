@@ -68,6 +68,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
         compiledSpell.getCastTime = spellDef.getCastTime
     end
+
+    -- >>> ADDED: Copy dynamic mana cost function if present
+    if spellDef.getCost and type(spellDef.getCost) == "function" then
+        compiledSpell.getCost = spellDef.getCost
+    end
     
     -- Process keywords if they exist
     if spellDef.keywords then
