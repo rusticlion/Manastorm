@@ -280,9 +280,9 @@ function Input.handleKey(key, scancode, isrepeat)
         return p1Handler(key, scancode, isrepeat)
     end
 
-    -- Check player 2 keyboard controls
+    -- Check player 2 keyboard controls if allowed
     local p2Handler = Input.Routes.p2_kb[key]
-    if p2Handler then
+    if p2Handler and not gameState.useAI and not gameState.p2UsingGamepad then
         return p2Handler(key, scancode, isrepeat)
     end
     
@@ -322,17 +322,19 @@ function Input.handleKeyReleased(key, scancode)
         end
     end
 
-    local p2s1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1
-    local p2s2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2
-    local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
-    if key == p2s1 or key == p2s2 or key == p2s3 then
-        local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
-        if slotIndex == 1 then
-            return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, 2)
-        elseif slotIndex == 2 then
-            return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, 2)
-        else
-            return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, 2)
+    if not gameState.useAI and not gameState.p2UsingGamepad then
+        local p2s1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1
+        local p2s2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2
+        local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
+        if key == p2s1 or key == p2s2 or key == p2s3 then
+            local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
+            if slotIndex == 1 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, 2)
+            elseif slotIndex == 2 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, 2)
+            else
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, 2)
+            end
         end
     end
 
@@ -348,6 +350,11 @@ function Input.handleGamepadButton(joystickID, buttonName, isPressed)
         playerIndex = 2
     end
     if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        gameState.p2UsingGamepad = true
+    end
 
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
         local capture = gameState.settingsMenu.waitingForKey
@@ -415,6 +422,13 @@ function Input.handleGamepadAxis(joystickID, axisName, value)
         playerIndex = 2
     end
     if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        if math.abs(value) > Input.AXIS_DEADZONE then
+            gameState.p2UsingGamepad = true
+        end
+    end
 
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
         local capture = gameState.settingsMenu.waitingForKey
@@ -754,6 +768,15 @@ function Input.setupRoutes()
     -- Confirm selection / Fight (legacy key)
     Input.Routes.ui["f"] = function()
         return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+
+    -- Toggle Player 2 mode between Human and AI
+    Input.Routes.ui["tab"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" and gameState.characterSelect.stage >= 2 then
+            gameState.useAI = not gameState.useAI
+            return true
+        end
+        return false
     end
 
     Input.Routes.ui["r"] = function()
