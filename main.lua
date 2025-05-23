@@ -55,6 +55,9 @@ game = {
     campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Gamepad identifiers (assigned when controllers connect)
+    p1GamepadID = nil,
+    p2GamepadID = nil,
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
@@ -1101,6 +1104,9 @@ function love.update(dt)
             shakeIntensity = 0
         end
     end
+
+    -- Update input repeat timers
+    Input.update(dt)
     
     -- Update Compendium assignment feedback timers
     if game.currentState == "COMPENDIUM" then
@@ -2919,4 +2925,47 @@ function love.keyreleased(key, scancode)
 
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
+end
+
+-- Handle gamepad button presses
+function love.gamepadpressed(joystick, button)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    end
+    if game.attractModeActive then
+        exitAttractMode()
+        return true
+    end
+    return Input.handleGamepadButton(jid, button, true)
+end
+
+function love.gamepadreleased(joystick, button)
+    local jid = joystick:getID()
+    return Input.handleGamepadButton(jid, button, false)
+end
+
+-- Handle analog stick movement
+function love.gamepadaxis(joystick, axis, value)
+    local jid = joystick:getID()
+    return Input.handleGamepadAxis(jid, axis, value)
+end
+
+-- Track gamepad connections
+function love.joystickadded(joystick)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    elseif not game.p2GamepadID then
+        game.p2GamepadID = jid
+    end
+end
+
+function love.joystickremoved(joystick)
+    local jid = joystick:getID()
+    if game.p1GamepadID == jid then
+        game.p1GamepadID = nil
+    elseif game.p2GamepadID == jid then
+        game.p2GamepadID = nil
+    end
 end

@@ -303,6 +303,89 @@ function Input.handleKeyReleased(key, scancode)
     return false
 end
 
+-- Process gamepad button events
+function Input.handleGamepadButton(joystickID, buttonName, isPressed)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    local controls = Input.controls or gameState.settings.get("controls")
+    local map = (playerIndex == 1) and (controls.gamepadP1 or {}) or (controls.gamepadP2 or {})
+
+    for action, button in pairs(map) do
+        if button == buttonName then
+            if not isPressed then
+                -- Trigger release variants for spell slot buttons
+                if action == Constants.ControlAction.P1_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, playerIndex)
+                end
+            end
+            return Input.triggerAction(action, playerIndex, {pressed = isPressed})
+        end
+    end
+
+    return false
+end
+
+-- Store previous axis values to implement deadzone and edge detection
+Input._axisState = { [1] = {}, [2] = {} }
+Input._axisRepeat = { [1] = {}, [2] = {} }
+Input.AXIS_DEADZONE = 0.3
+Input.AXIS_REPEAT_DELAY = 0.4
+Input.AXIS_REPEAT_INTERVAL = 0.2
+
+-- Process gamepad axis movements for menu navigation
+function Input.handleGamepadAxis(joystickID, axisName, value)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    local prev = Input._axisState[playerIndex][axisName] or 0
+    Input._axisState[playerIndex][axisName] = value
+
+    local action
+    if axisName == "lefty" or axisName == "righty" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_UP
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_DOWN
+        end
+    elseif axisName == "leftx" or axisName == "rightx" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_LEFT
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_RIGHT
+        end
+    end
+
+    if action then
+        Input._axisRepeat[playerIndex][axisName] = {action = action, timer = Input.AXIS_REPEAT_DELAY}
+        return Input.triggerUIAction(action, {value = value})
+    elseif math.abs(value) < Input.AXIS_DEADZONE then
+        Input._axisRepeat[playerIndex][axisName] = nil
+    end
+
+    return false
+end
+
 -- Define all keyboard shortcuts and routes
 function Input.setupRoutes()
     -- Reset route tables
@@ -335,6 +418,26 @@ function Input.setupRoutes()
         if key and key ~= "" then
             Input.Routes.p2_kb[key] = function()
                 return Input.triggerAction(action, 2)
+            end
+        end
+    end
+
+    -- Build player 1 gamepad routes (button to action lookup)
+    local gp1 = c.gamepadP1 or {}
+    for action, button in pairs(gp1) do
+        if button and button ~= "" then
+            Input.Routes.gp1[button] = function(pressed)
+                return Input.handleGamepadButton(gameState.p1GamepadID, button, pressed)
+            end
+        end
+    end
+
+    -- Build player 2 gamepad routes
+    local gp2 = c.gamepadP2 or {}
+    for action, button in pairs(gp2) do
+        if button and button ~= "" then
+            Input.Routes.gp2[button] = function(pressed)
+                return Input.handleGamepadButton(gameState.p2GamepadID, button, pressed)
             end
         end
     end
@@ -825,6 +928,19 @@ end
 function Input.recalculateScaling()
     if gameState and gameState.calculateScaling then
         gameState.calculateScaling()
+    end
+end
+
+-- Update repeat timers for held gamepad axes
+function Input.update(dt)
+    for playerIndex, axes in pairs(Input._axisRepeat) do
+        for axis, state in pairs(axes) do
+            state.timer = state.timer - dt
+            if state.timer <= 0 then
+                Input.triggerUIAction(state.action, {value = Input._axisState[playerIndex][axis]})
+                state.timer = Input.AXIS_REPEAT_INTERVAL
+            end
+        end
     end
 end
 

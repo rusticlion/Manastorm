@@ -21,6 +21,7 @@ function love.conf(t)
     t.console = true
     
     -- Disable unused modules
-    t.modules.joystick = false
+    -- Enable joystick module for gamepad input
+    t.modules.joystick = true
     t.modules.physics = false
 end
