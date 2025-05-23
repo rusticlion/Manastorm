@@ -246,6 +246,8 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
+    -- Preserve the current line width so we can restore it after drawing
+    local prevLineWidth = love.graphics.getLineWidth()
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -416,6 +418,9 @@ local function drawBeam(effect)
         -- Restore blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
+
+    -- Restore the previous line width to avoid affecting other draw calls
+    love.graphics.setLineWidth(prevLineWidth)
 end
 
 -- Initialize function for beam effects

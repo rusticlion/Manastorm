@@ -477,11 +477,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                             end
                             
                             if runeAssets and #runeAssets > 0 then
+                                -- Determine rune color based on spell affinity if available
+                                local baseColor
+                                if slot.spell and slot.spell.affinity then
+                                    -- Use spell affinity color for more visual variety
+                                    baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                                else
+                                    -- Fall back to shield type color
+                                    baseColor = shieldColor
+                                end
+                                
+                                -- Enhanced contrast and visibility
                                 local runeColor = {
-                                    shieldColor[1] * (1 + pulseAmount * 0.7),
-                                    shieldColor[2] * (1 + pulseAmount * 0.7),
-                                    shieldColor[3] * (1 + pulseAmount * 0.7),
-                                    alpha
+                                    math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                                    math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                                    0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                                 }
 
                                 for r = 1, numRunes do
@@ -501,20 +512,36 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                                     local runeLayer = (normalizedAngle >= 0 and normalizedAngle <= math.pi) and "front" or "back"
 
                                     if runeLayer == layer then
-                                        -- Glow pass
+                                        -- Dark outline for better contrast against backgrounds
+                                        love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                                        for dx = -1, 1 do
+                                            for dy = -1, 1 do
+                                                if dx ~= 0 or dy ~= 0 then
+                                                    love.graphics.draw(
+                                                        runeImg,
+                                                        runeX + dx, runeY + dy,
+                                                        0,
+                                                        runeScale, runeScale,
+                                                        runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                                    )
+                                                end
+                                            end
+                                        end
+                                        
+                                        -- Bright glow pass for visibility
                                         local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                                         love.graphics.setBlendMode("add")
-                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
+                                        love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
                                         love.graphics.draw(
                                             runeImg,
                                             runeX, runeY,
                                             0,
-                                            runeScale * 1.4, runeScale * 1.4,
+                                            runeScale * 1.6, runeScale * 1.6,
                                             runeImg:getWidth() / 2, runeImg:getHeight() / 2
                                         )
                                         love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                                        -- Main rune sprite
+                                        -- Main rune sprite with full opacity
                                         love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                                         love.graphics.draw(
                                             runeImg,
@@ -762,7 +789,6 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
             if slot.active and slot.isShield and slot.defenseType == Constants.ShieldType.WARD then
                 local shieldColor = ShieldSystem.getShieldColor(slot.defenseType)
                 local pulseAmount = 0.2 + math.abs(math.sin(love.timer.getTime() * 2)) * 0.3
-                local alpha = 0.7 + pulseAmount * 0.3
 
                 local numRunes = 5
                 local runeYOffset = 0
@@ -777,11 +803,22 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                 end
 
                 if runeAssets and #runeAssets > 0 then
+                    -- Determine rune color based on spell affinity if available
+                    local baseColor
+                    if slot.spell and slot.spell.affinity then
+                        -- Use spell affinity color for more visual variety
+                        baseColor = Constants.getColorForTokenType(slot.spell.affinity)
+                    else
+                        -- Fall back to shield type color
+                        baseColor = shieldColor
+                    end
+                    
+                    -- Enhanced contrast and visibility
                     local runeColor = {
-                        shieldColor[1] * (1 + pulseAmount * 0.7),
-                        shieldColor[2] * (1 + pulseAmount * 0.7),
-                        shieldColor[3] * (1 + pulseAmount * 0.7),
-                        alpha
+                        math.min(1.0, baseColor[1] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[2] * (1.2 + pulseAmount * 0.8)),
+                        math.min(1.0, baseColor[3] * (1.2 + pulseAmount * 0.8)),
+                        0.95 + pulseAmount * 0.05  -- Higher base alpha for better visibility
                     }
 
                     for r = 1, numRunes do
@@ -797,14 +834,30 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
 
                         local normalizedAngle = angle % (math.pi * 2)
                         if normalizedAngle >= 0 and normalizedAngle <= math.pi then -- Front half
-                            -- Glow pass
+                            -- Dark outline for better contrast against backgrounds
+                            love.graphics.setColor(0, 0, 0, runeColor[4] * 0.8)
+                            for dx = -1, 1 do
+                                for dy = -1, 1 do
+                                    if dx ~= 0 or dy ~= 0 then
+                                        love.graphics.draw(
+                                            runeImg,
+                                            runeX + dx, runeY + dy,
+                                            0,
+                                            runeScale, runeScale,
+                                            runeImg:getWidth() / 2, runeImg:getHeight() / 2
+                                        )
+                                    end
+                                end
+                            end
+                            
+                            -- Bright glow pass for visibility
                             local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
                             love.graphics.setBlendMode("add")
-                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.6)
-                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.4, runeScale * 1.4, runeImg:getWidth()/2, runeImg:getHeight()/2)
+                            love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4] * 0.8)
+                            love.graphics.draw(runeImg, runeX, runeY, 0, runeScale * 1.6, runeScale * 1.6, runeImg:getWidth()/2, runeImg:getHeight()/2)
                             love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
-                            -- Main rune
+                            -- Main rune sprite with full opacity
                             love.graphics.setColor(runeColor[1], runeColor[2], runeColor[3], runeColor[4])
                             love.graphics.draw(runeImg, runeX, runeY, 0, runeScale, runeScale, runeImg:getWidth()/2, runeImg:getHeight()/2)
                         end
