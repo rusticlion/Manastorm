@@ -209,11 +209,35 @@ local function updateProjectile(effect, dt)
     
     -- Update particles for the projectile trail
     if effect.particles then
-        -- Add new particles at the current head position
-        local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
-        if math.random() < particleRate then
-            -- Create a new particle using specialized helper
+        -- Add many new particles at the current head position for dense swarm effect
+        local particleRate = effect.particleRate or 2.5 -- Much higher rate for particle swarm
+        
+        -- Generate multiple particles per frame for dense effect
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Create different types of particles using primitive assets
             local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
+            
+            -- Assign primitive sprite types for variety
+            local spriteType = math.random(3)
+            if spriteType == 1 then
+                particle.spriteType = "1px"
+                particle.size = math.random(1, 3)
+            elseif spriteType == 2 then
+                particle.spriteType = "twinkle1"
+                particle.size = math.random(2, 4)
+            else
+                particle.spriteType = "twinkle2"
+                particle.size = math.random(2, 4)
+            end
+            
+            -- Add some randomness to position for swarm effect
+            particle.x = particle.x + (math.random() - 0.5) * 8
+            particle.y = particle.y + (math.random() - 0.5) * 8
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -312,10 +336,13 @@ local function drawProjectile(effect)
             effect.headX, effect.headY, progress))
     end
     
-    -- Get assets
+    -- Get assets including new primitive sprites
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
+    local onePxImage = getAssetInternal("1px")
+    local twinkle1Image = getAssetInternal("3px-twinkle1")
+    local twinkle2Image = getAssetInternal("3px-twinkle2")
     
     -- Get bolt frames if needed
     local boltFrames = nil
@@ -341,40 +368,59 @@ local function drawProjectile(effect)
         y = effect.headY or effect.sourceY
     }
     
-    -- If we have a trail, draw it
+    -- If we have a trail, draw it using particle swarms instead of large sprites
     if effect.useTrail and #effect.trailPoints > 1 then
-        -- Draw trail (from oldest to newest)
+        -- Draw trail using swarms of tiny particles at each point
         for i = #effect.trailPoints, 1, -1 do
             local point = effect.trailPoints[i]
-            local trailSize = (effect.size or 1.0) * 3 * (1 - (i-1)/#effect.trailPoints)
-            local trailAlpha = point.alpha * 0.4
+            local trailIntensity = (1 - (i-1)/#effect.trailPoints)
+            local trailAlpha = point.alpha * 0.6
+            local particleCount = math.floor(trailIntensity * 12) -- More particles for newer trail points
             
-            -- Draw trail glow at each point
-            local color = effect.color or {1, 1, 1} -- Default to white if no color
-            love.graphics.setColor(
-                color[1], 
-                color[2], 
-                color[3], 
-                trailAlpha
-            )
+            -- Draw swarm of tiny particles at each trail point
+            local color = effect.color or {1, 1, 1}
             
-            -- Draw a circle for each trail point
-            if glowImage then
-                love.graphics.draw(
-                    glowImage,
-                    point.x, point.y,
-                    0,
-                    trailSize, trailSize,
-                    glowImage:getWidth()/2, glowImage:getHeight()/2
-                )
-            else
-                -- Fallback to a circle if glow asset is missing
-                love.graphics.circle("fill", point.x, point.y, trailSize * 10)
+            for p = 1, particleCount do
+                -- Random offset for particle swarm
+                local offsetX = (math.random() - 0.5) * trailIntensity * 15
+                local offsetY = (math.random() - 0.5) * trailIntensity * 15
+                
+                -- Choose random primitive sprite
+                local spriteChoice = math.random(3)
+                local sprite, scale
+                
+                if spriteChoice == 1 and onePxImage then
+                    sprite = onePxImage
+                    scale = math.random(1, 2)
+                elseif spriteChoice == 2 and twinkle1Image then
+                    sprite = twinkle1Image
+                    scale = math.random(0.8, 1.5)
+                else
+                    sprite = twinkle2Image or onePxImage
+                    scale = math.random(0.8, 1.5)
+                end
+                
+                if sprite then
+                    love.graphics.setColor(
+                        color[1], 
+                        color[2], 
+                        color[3], 
+                        trailAlpha * (0.4 + math.random() * 0.6)
+                    )
+                    
+                    love.graphics.draw(
+                        sprite,
+                        point.x + offsetX, point.y + offsetY,
+                        0,
+                        scale, scale,
+                        sprite:getWidth()/2, sprite:getHeight()/2
+                    )
+                end
             end
         end
     end
     
-    -- Draw the particles
+    -- Draw the particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid particles
@@ -387,21 +433,36 @@ local function drawProjectile(effect)
                 particleColor[1],
                 particleColor[2],
                 particleColor[3],
-                (particle.alpha or 0.5) * 0.7
+                (particle.alpha or 0.5) * 0.8
             )
             
-            -- Draw particle
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            local scale = (particle.size or 3) / 3
+            
+            if particle.spriteType == "1px" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            -- Draw particle with primitive sprite
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    (particle.size or 5)/20, (particle.size or 5)/20,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback to a circle if particle asset is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.size or 5)
+                -- Final fallback to a circle
+                love.graphics.circle("fill", particle.x, particle.y, particle.size or 3)
             end
             
             ::next_draw_particle::
@@ -435,56 +496,65 @@ local function drawProjectile(effect)
             frame:getWidth()/2, frame:getHeight()/2
         )
     else
-        -- Draw particle-based projectile
+        -- Draw particle-based projectile using swarms of tiny primitives
         
-        -- Draw outer glow
+        -- Draw outer glow using swarm of tiny particles
         local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            color[1] * 0.8, 
-            color[2] * 0.8, 
-            color[3] * 0.8, 
-            0.5
-        )
-        local outerGlowScale = (effect.size or 1.0) * 5
+        local outerRadius = (effect.size or 1.0) * 25
+        local outerParticleCount = 20
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                outerGlowScale, outerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, outerParticleCount do
+            local angle = (i / outerParticleCount) * math.pi * 2
+            local radius = outerRadius * (0.6 + math.random() * 0.4)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                color[1] * 0.6, 
+                color[2] * 0.6, 
+                color[3] * 0.6, 
+                0.3 * (0.5 + math.random() * 0.5)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, outerGlowScale * 10)
+            
+            local sprite = (i % 2 == 0) and onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random(), 1 + math.random(),
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
-        -- Inner glow (brightest) - uses additive blending for extra brightness
-        local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            math.min(1.0, color[1] * leadingIntensity), 
-            math.min(1.0, color[2] * leadingIntensity), 
-            math.min(1.0, color[3] * leadingIntensity), 
-            0.7
-        )
-        local innerGlowScale = (effect.size or 1.0) * 2
+        -- Inner glow using dense swarm of tiny particles with additive blending
+        local innerRadius = (effect.size or 1.0) * 12
+        local innerParticleCount = 15
         
-        -- Save current blend mode and set to additive for the brightest elements
+        -- Save current blend mode and set to additive for brightness
         local prevMode = {love.graphics.getBlendMode()}
         love.graphics.setBlendMode("add")
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                innerGlowScale, innerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, innerParticleCount do
+            local angle = (i / innerParticleCount) * math.pi * 2 + love.timer.getTime() * 2
+            local radius = innerRadius * (0.3 + math.random() * 0.7)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                math.min(1.0, color[1] * leadingIntensity), 
+                math.min(1.0, color[2] * leadingIntensity), 
+                math.min(1.0, color[3] * leadingIntensity), 
+                0.6 * (0.4 + math.random() * 0.6)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, innerGlowScale * 10)
+            
+            local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    0.8 + math.random() * 0.6, 0.8 + math.random() * 0.6,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
         -- Restore previous blend mode
