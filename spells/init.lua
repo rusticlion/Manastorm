@@ -18,6 +18,7 @@ local StarSpells = require("spells.elements.star")
 local LifeSpells = require("spells.elements.life")
 local MindSpells = require("spells.elements.mind")
 local VoidSpells = require("spells.elements.void")
+local GenericSpells = require("spells.elements.generic")
 
 -- Combine all spells into a single table
 local Spells = {}
@@ -39,6 +40,7 @@ addSpells(StarSpells)
 addSpells(LifeSpells)
 addSpells(MindSpells)
 addSpells(VoidSpells)
+addSpells(GenericSpells)
 
 -- Prepare the return table with all spells and utility functions
 local SpellsModule = {

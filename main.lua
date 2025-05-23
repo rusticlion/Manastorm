@@ -852,7 +852,7 @@ end
 
 function game.settingsMove(dir)
     if game.settingsMenu.mode then return end
-    local count = 3
+    local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
     if idx > count then idx = 1 end
@@ -880,8 +880,53 @@ function game.settingsAdjust(dir)
     end
 end
 
+function game.unlockAll()
+    -- Unlock all characters
+    for _, characterName in ipairs(game.characterRoster) do
+        game.unlockedCharacters[characterName] = true
+    end
+    
+    -- Unlock all spells
+    local allSpellIds = {
+        -- Fire
+        "conjurefire", "firebolt", "fireball", "blastwave", "combustMana", 
+        "blazingascent", "eruption", "battleshield",
+        -- Mind
+        "thoughtscalp",
+        -- Moon
+        "conjuremoonlight", "tidalforce", "lunardisjunction", "moondance", 
+        "gravity", "eclipse", "fullmoonbeam", "lunartides", "wrapinmoonlight", 
+        "gravityTrap", "infiniteprocession", "enhancedmirrorshield",
+        -- Salt
+        "conjuresalt", "glitterfang", "burnToAsh", "saltstorm", "imprison", 
+        "jaggedearth", "saltcircle", "stoneshield", "shieldbreaker",
+        -- Star
+        "conjurestars", "adaptivesurge", "cosmicrift",
+        -- Sun
+        "radiantbolt", "fusionRay", "meteor", "emberlift", "novaconjuring", 
+        "burnTheSoul", "SpaceRipper", "StingingEyes", "CoreBolt", "NuclearFurnace", 
+        "forcebarrier", "radiantfield",
+        -- Void
+        "conjurenothing", "riteofemptiness", "quenchPower", "heartripper",
+        -- Water
+        "watergun", "forceblast", "conjurewater", "maelstrom", "riptideguard", 
+        "brinechain", "wavecrash",
+        -- Generic
+        "none"
+    }
+    
+    for _, spellId in ipairs(allSpellIds) do
+        game.unlockedSpells[spellId] = true
+    end
+    
+    print("[DEV] All characters and spells unlocked!")
+end
+
 function game.settingsSelect()
     if game.settingsMenu.selected == 3 then
+        -- Unlock All (Dev) option
+        game.unlockAll()
+    elseif game.settingsMenu.selected == 4 then
         game.settingsMenu.mode = "rebind"
         game.settingsMenu.rebindIndex = 1
         local a = game.settingsMenu.bindOrder[1]
@@ -1692,6 +1737,29 @@ function drawRangeIndicator()
 end
 
 -- Draw the main menu
+-- Helper function to draw text with outline/drop-shadow effect
+local function drawTextWithOutline(text, x, y, rotation, scaleX, scaleY, outlineWidth, textColor, outlineColor)
+    rotation = rotation or 0
+    scaleX = scaleX or 1
+    scaleY = scaleY or scaleX
+    outlineWidth = outlineWidth or 2
+    outlineColor = outlineColor or {0, 0, 0, 0.8}
+    
+    -- Draw outline/drop-shadow by drawing the text multiple times with slight offsets
+    love.graphics.setColor(outlineColor)
+    for ox = -outlineWidth, outlineWidth do
+        for oy = -outlineWidth, outlineWidth do
+            if ox ~= 0 or oy ~= 0 then
+                love.graphics.print(text, x + ox, y + oy, rotation, scaleX, scaleY)
+            end
+        end
+    end
+    
+    -- Draw main text on top
+    love.graphics.setColor(textColor)
+    love.graphics.print(text, x, y, rotation, scaleX, scaleY)
+end
+
 function drawMainMenu()
     local screenWidth = baseWidth
     local screenHeight = baseHeight
@@ -1918,7 +1986,7 @@ function drawMainMenu()
     
     -- Now draw all menu text ON TOP of everything else
     
-    -- Draw title with a magical glow effect
+    -- Draw title with a magical glow effect and outline
     local titleY = screenHeight * 0.25
     local titleScale = 4
     local titleText = "MANASTORM"
@@ -1938,31 +2006,35 @@ function drawMainMenu()
         )
     end
     
-    -- Draw main title
-    love.graphics.setColor(0.9, 0.9, 1, 1)
-    love.graphics.print(
+    -- Draw main title with outline
+    drawTextWithOutline(
         titleText,
         screenWidth/2 - titleWidth/2, 
         titleY,
         0,
-        titleScale, titleScale
+        titleScale, titleScale,
+        3, -- outline width
+        {0.9, 0.9, 1, 1}, -- text color (light blue-white)
+        {0.1, 0.1, 0.3, 0.9} -- outline color (dark blue)
     )
     
-    -- Draw subtitle
+    -- Draw subtitle with outline
     local subtitleText = "Chosen of the Ninefold Circle"
     local subtitleScale = 2
     local subtitleWidth = game.font:getWidth(subtitleText) * subtitleScale
     
-    love.graphics.setColor(0.7, 0.7, 1, 0.9)
-    love.graphics.print(
+    drawTextWithOutline(
         subtitleText,
         screenWidth/2 - subtitleWidth/2,
         titleY + 60,
         0,
-        subtitleScale, subtitleScale
+        subtitleScale, subtitleScale,
+        2, -- outline width
+        {0.7, 0.7, 1, 0.9}, -- text color (light blue)
+        {0.1, 0.1, 0.2, 0.8} -- outline color (dark)
     )
     
-    -- Draw menu options
+    -- Draw menu options with outlines
     local menuY = screenHeight * 0.55
     local menuSpacing = 40
     local menuScale = 1.4
@@ -1979,8 +2051,17 @@ function drawMainMenu()
     for i, option in ipairs(options) do
         local text, color = option[1], option[2]
         local width = game.font:getWidth(text) * menuScale
-        love.graphics.setColor(color)
-        love.graphics.print(text, screenWidth/2 - width/2, menuY + (i-1)*menuSpacing, 0, menuScale, menuScale)
+        
+        drawTextWithOutline(
+            text,
+            screenWidth/2 - width/2,
+            menuY + (i-1)*menuSpacing,
+            0,
+            menuScale, menuScale,
+            2, -- outline width
+            color, -- text color
+            {0.1, 0.1, 0.1, 0.8} -- outline color (dark)
+        )
     end
     
     -- Draw version and credit
@@ -2156,6 +2237,7 @@ function drawSettingsMenu()
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
         "Game Speed: " .. (Settings.get("gameSpeed") or "FAST"),
+        "Unlock All (Dev)",
         "Rebind Controls"
     }
 
@@ -2229,7 +2311,7 @@ function drawCompendium()
             y = panePadding * 2 + paneHeight + headerHeight,
             w = paneWidth,
             h = paneHeight,
-            title = "Equipped Spells"
+            title = "Equipped Spells - Press 1-7 to assign"
         }
     }
     
@@ -2627,7 +2709,7 @@ function drawCompendium()
     
     -- Bottom Right: Configured Spellbook View
     local pane = panes.bottomRight
-    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 40)
+    setScaledScissor(pane.x, pane.y + 35, pane.w, pane.h - 5)
     
     -- Slot key input mappings
     local keyMapping = {
@@ -2643,18 +2725,10 @@ function drawCompendium()
     -- Get active spellbook (custom or default)
     local active = game.customSpellbooks[name] or data.spellbook
     
-    -- Instructions
-    love.graphics.setColor(0.8, 0.8, 0.8)
-    if isUnlocked then
-        love.graphics.print("Select a spell and press 1-7 to assign", pane.x + 15, pane.y + 40)
-    else
-        love.graphics.print("Unlock this character to modify spells", pane.x + 15, pane.y + 40)
-    end
-    
-    -- Draw each slot
+    -- Draw each slot (removed instructions to save space)
     for i, key in ipairs(slotKeys) do
         local spell = active[key]
-        local y = pane.y + 70 + (i-1)*28
+        local y = pane.y + 40 + (i-1)*28
         
         -- Check if a number key is being held to highlight slot
         local isSlotSelected = false
@@ -2711,7 +2785,7 @@ function drawCompendium()
     
     -- Draw explanatory text about the slot system
     love.graphics.setColor(0.7, 0.7, 0.8, 0.8)
-    local explanationY = pane.y + 70 + 7 * 28 + 15
+    local explanationY = pane.y + 40 + 7 * 28 + 15
     
     if isUnlocked then
         love.graphics.printf(

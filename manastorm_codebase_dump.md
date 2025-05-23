@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Thu May 22 11:57:49 CDT 2025
+Generated: Thu May 22 13:10:15 CDT 2025
 
 # Source Code
 
@@ -1509,7 +1509,8 @@ characterData.Ashgar = {
         Spells.eruption,
         Spells.combustMana,
         Spells.blazingAscent,
-    }
+    },
+    campaignOpponents = {"Selene", "Silex", "Borrak"}
 }
 
 characterData.Selene = {
@@ -1533,7 +1534,8 @@ characterData.Selene = {
         Spells.fullmoonbeam,
         Spells.lunardisjunction,
         Spells.lunarTides,
-    }
+    },
+    campaignOpponents = {"Ashgar", "Borrak", "Silex"}
 }
 
 characterData.Silex = {
@@ -2490,6 +2492,14 @@ function Input.setupRoutes()
         elseif gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectBack(true)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.currentState = "MENU"
+            gameState.campaignMenu = nil
+            return true
+        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
@@ -2542,10 +2552,9 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            print("Campaign mode not implemented yet")
+            gameState.startCampaignMenu()
             return true
         end
         return false
@@ -2605,13 +2614,16 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel
+    -- Legacy enter key starts Character Duel or confirms menu selections
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
             gameState.startCharacterSelect()
             return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.settingsSelect()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
             return true
         end
         return false
@@ -2625,6 +2637,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(-1)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(-1)
+            return true
         end
         return false
     end
@@ -2634,6 +2649,9 @@ function Input.setupRoutes()
             return true
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(1)
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(1)
             return true
         end
         return false
@@ -2716,6 +2734,26 @@ function Input.setupRoutes()
         if gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectConfirm()
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
+            return true
+        end
+        return false
+    end
+
+    -- Campaign defeat options
+    Input.Routes.ui["space"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.retryCampaignBattle()
+            return true
+        end
+        return false
+    end
+
+    Input.Routes.ui["r"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.restartCampaign()
+            return true
         end
         return false
     end
@@ -2723,11 +2761,10 @@ function Input.setupRoutes()
     -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
-    -- Reset game on space bar press during game over
+    -- Advance from win screen on space bar press
     Input.Routes.gameOver["space"] = function()
         if gameState.currentState == "GAME_OVER" then
-            gameState.resetGame()
-            gameState.currentState = "MENU" -- Return to menu after game over
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
@@ -3014,6 +3051,10 @@ Input.reservedKeys = {
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    campaignMenu = {
+        "Up", "Down", "F", "Enter", "Escape"
     },
 
     characterSelect = {
@@ -4977,7 +5018,8 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT, CAMPAIGN_MENU, CAMPAIGN_VICTORY, CAMPAIGN_DEFEAT)
+    campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
@@ -5115,6 +5157,11 @@ game.compendium = {
         slot = 0,
         timer = 0
     }
+}
+
+-- Temporary state for the campaign character selection menu
+game.campaignMenu = {
+    selectedCharacterIndex = 1
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -5499,28 +5546,19 @@ function resetGame()
         print("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
-    -- Reinitialize AI opponent if AI mode is enabled
+    -- Reinitialize AI opponent if AI mode is enabled and not being set up by campaign
     if game.useAI then
-        -- Use the appropriate personality based on which wizard is controlled by AI
-        local aiWizard = game.wizards[2]
-        local personality
-
-        if aiWizard.name == "Selene" then
-            personality = SelenePersonality
-            print("Initializing Selene AI personality")
-        elseif aiWizard.name == "Ashgar" then
-            personality = AshgarPersonality
-            print("Initializing Ashgar AI personality")
-        elseif aiWizard.name == "Silex" then
-            personality = SilexPersonality
-            print("Initializing Silex AI personality")
-        else
-            -- Default to base personality for unknown wizards
-            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        if not game.isSettingUpCampaignBattle then
+            local aiWizard = game.wizards[2]
+            local personality = getPersonalityFor(aiWizard.name)
+            if personality then
+                print("Initializing " .. aiWizard.name .. " AI personality")
+            else
+                print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+            end
+            game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+            print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
         end
-
-        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
-        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -5628,6 +5666,77 @@ function exitAttractMode()
     game.currentState = "MENU"
 
     print("Attract mode ended, returned to menu")
+end
+
+-- Handle successful completion of a campaign
+function handleCampaignVictory()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins)
+    game.currentState = "CAMPAIGN_VICTORY"
+end
+
+-- Handle failure of a campaign run
+function handleCampaignDefeat()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
+    resetGame()
+    game.currentState = "CAMPAIGN_DEFEAT"
+end
+
+-- Restart the entire campaign from the first opponent
+function restartCampaign()
+    if not game.campaignProgress then return end
+    game.campaignProgress.currentOpponentIndex = 1
+    game.campaignProgress.wins = 0
+    startCampaignBattle()
+end
+
+-- Retry the current campaign battle
+function retryCampaignBattle()
+    if not game.campaignProgress then return end
+    startCampaignBattle()
+end
+
+-- Expose campaign helpers
+game.restartCampaign = restartCampaign
+game.retryCampaignBattle = retryCampaignBattle
+
+-- Placeholder implementation for starting a campaign battle
+function startCampaignBattle()
+    if not game.campaignProgress then
+        print("ERROR: startCampaignBattle called without campaignProgress")
+        return
+    end
+
+    local playerCharacterName = game.campaignProgress.characterName
+    local opponentIndex = game.campaignProgress.currentOpponentIndex or 1
+    local playerData = game.characterData[playerCharacterName] or {}
+    local opponentName
+    if playerData.campaignOpponents then
+        opponentName = playerData.campaignOpponents[opponentIndex]
+    end
+
+    if not opponentName then
+        if handleCampaignVictory then
+            handleCampaignVictory()
+        else
+            print("Campaign complete for " .. tostring(playerCharacterName))
+        end
+        return
+    end
+
+    setupWizards(playerCharacterName, opponentName)
+
+    game.useAI = true
+
+    local personality = getPersonalityFor(opponentName)
+    game.opponentAI = OpponentAI.new(game.wizards[2], game, personality)
+
+    game.isSettingUpCampaignBattle = true
+    resetGame()
+    game.isSettingUpCampaignBattle = nil
+
+    game.currentState = "BATTLE"
 end
 
 -- Initialize wizards for battle based on selected names
@@ -5868,6 +5977,41 @@ function game.compendiumAssign(slot)
         game.sounds.click:play()
     end
 end
+
+-- Initialize the campaign character selection menu
+function game.startCampaignMenu()
+    game.campaignMenu = { selectedCharacterIndex = 1 }
+    game.currentState = "CAMPAIGN_MENU"
+end
+
+-- Move selection cursor in the campaign menu
+function game.campaignMenuMove(dir)
+    local unlocked = getUnlockedCharacterList()
+    local count = #unlocked
+    if count == 0 then return end
+
+    local idx = game.campaignMenu.selectedCharacterIndex + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.campaignMenu.selectedCharacterIndex = idx
+end
+
+-- Confirm character choice and start the campaign
+function game.campaignMenuConfirm()
+    local unlocked = getUnlockedCharacterList()
+    local name = unlocked[game.campaignMenu.selectedCharacterIndex]
+    if not name then return end
+
+    game.campaignProgress = {
+        characterName = name,
+        currentOpponentIndex = 1,
+        wins = 0
+    }
+
+    if startCampaignBattle then
+        startCampaignBattle()
+    end
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -5929,6 +6073,16 @@ function love.update(dt)
         end
         return
     elseif game.currentState == "COMPENDIUM" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -6024,11 +6178,20 @@ function love.update(dt)
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
 
-        -- Auto-reset after duration
+        -- When timer expires, handle post-battle flow
         if game.winScreenTimer >= game.winScreenDuration then
-            -- Reset game and go back to menu
-            resetGame()
-            game.currentState = "MENU"
+            if game.campaignProgress then
+                if game.winner == 1 then
+                    game.campaignProgress.wins = game.campaignProgress.wins + 1
+                    game.campaignProgress.currentOpponentIndex = game.campaignProgress.currentOpponentIndex + 1
+                    startCampaignBattle()
+                else
+                    handleCampaignDefeat()
+                end
+            else
+                resetGame()
+                game.currentState = "MENU"
+            end
         end
 
         -- Still update VFX system for visual effects
@@ -6166,6 +6329,10 @@ function love.draw()
         drawSettingsMenu()
     elseif game.currentState == "COMPENDIUM" then
         drawCompendium()
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
+        drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -6780,6 +6947,62 @@ function drawMainMenu()
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the campaign character selection menu
+function drawCampaignMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local unlocked = getUnlockedCharacterList()
+    local spacing = 30
+    local startY = screenHeight * 0.4
+
+    for i, name in ipairs(unlocked) do
+        local y = startY + (i - 1) * spacing
+        if i == game.campaignMenu.selectedCharacterIndex then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        local w = game.font:getWidth(name)
+        love.graphics.print(name, screenWidth/2 - w/2, y)
+    end
+
+    love.graphics.setColor(0.7, 0.7, 1, 0.8)
+    local hint = "Choose your wizard"
+    local hw = game.font:getWidth(hint)
+    love.graphics.print(hint, screenWidth/2 - hw/2, startY - spacing)
+end
+
+-- Draw the campaign defeat screen
+function drawCampaignDefeat()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Failed"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(1, 0.6, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
+        "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
 end
 
 -- Draw the character selection screen
@@ -26505,7 +26728,7 @@ Prime for development on _Manastorm_, a strategic action game of magical dueling
 * CrashCourse.md
 * DevelopmentGuidelines.md
 
-You will want to explore the "docs" folder and the relevant Lua code related to some specific bug or feature request once you have gotten your bearing with the above documents. You can assume the content of the "Tickets" folder to have already been completed unless directed there explicitly.
+You will want to explore the "docs" folder and the relevant Lua code related to some specific bug or feature request once you have gotten your bearing with the above documents. You can assume the content of the "Tickets" folder to have already been completed unless directed there explicitly for tasks.
 
 ## ./ComprehensiveDesignDocument.md
 Game Title: Manastorm (working title)
@@ -26927,7 +27150,7 @@ This is a late prototype with basic full engine functionality:
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Thu May 22 11:57:49 CDT 2025
+Generated: Thu May 22 13:10:15 CDT 2025
 
 # Source Code
 
@@ -28437,7 +28660,8 @@ characterData.Ashgar = {
         Spells.eruption,
         Spells.combustMana,
         Spells.blazingAscent,
-    }
+    },
+    campaignOpponents = {"Selene", "Silex", "Borrak"}
 }
 
 characterData.Selene = {
@@ -28461,7 +28685,8 @@ characterData.Selene = {
         Spells.fullmoonbeam,
         Spells.lunardisjunction,
         Spells.lunarTides,
-    }
+    },
+    campaignOpponents = {"Ashgar", "Borrak", "Silex"}
 }
 
 characterData.Silex = {
@@ -29418,6 +29643,14 @@ function Input.setupRoutes()
         elseif gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectBack(true)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.currentState = "MENU"
+            gameState.campaignMenu = nil
+            return true
+        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.currentState = "MENU"
+            gameState.campaignProgress = nil
+            return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.currentState = "MENU"
             return true
@@ -29470,10 +29703,9 @@ function Input.setupRoutes()
     end
     
     -- MENU CONTROLS
-    -- Campaign stub
     Input.Routes.ui["1"] = function()
         if gameState.currentState == "MENU" then
-            print("Campaign mode not implemented yet")
+            gameState.startCampaignMenu()
             return true
         end
         return false
@@ -29533,13 +29765,16 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel
+    -- Legacy enter key starts Character Duel or confirms menu selections
     Input.Routes.ui["return"] = function()
         if gameState.currentState == "MENU" then
             gameState.startCharacterSelect()
             return true
         elseif gameState.currentState == "SETTINGS" then
             gameState.settingsSelect()
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
             return true
         end
         return false
@@ -29553,6 +29788,9 @@ function Input.setupRoutes()
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(-1)
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(-1)
+            return true
         end
         return false
     end
@@ -29562,6 +29800,9 @@ function Input.setupRoutes()
             return true
         elseif gameState.currentState == "COMPENDIUM" then
             gameState.compendiumMove(1)
+            return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuMove(1)
             return true
         end
         return false
@@ -29644,6 +29885,26 @@ function Input.setupRoutes()
         if gameState.currentState == "CHARACTER_SELECT" then
             gameState.characterSelectConfirm()
             return true
+        elseif gameState.currentState == "CAMPAIGN_MENU" then
+            gameState.campaignMenuConfirm()
+            return true
+        end
+        return false
+    end
+
+    -- Campaign defeat options
+    Input.Routes.ui["space"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.retryCampaignBattle()
+            return true
+        end
+        return false
+    end
+
+    Input.Routes.ui["r"] = function()
+        if gameState.currentState == "CAMPAIGN_DEFEAT" then
+            gameState.restartCampaign()
+            return true
         end
         return false
     end
@@ -29651,11 +29912,10 @@ function Input.setupRoutes()
     -- Escape backs out of character select handled in global escape route
     
     -- GAME OVER STATE CONTROLS
-    -- Reset game on space bar press during game over
+    -- Advance from win screen on space bar press
     Input.Routes.gameOver["space"] = function()
         if gameState.currentState == "GAME_OVER" then
-            gameState.resetGame()
-            gameState.currentState = "MENU" -- Return to menu after game over
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
@@ -29942,6 +30202,10 @@ Input.reservedKeys = {
     
     battle = {
         "Escape", -- Return to menu from battle
+    },
+
+    campaignMenu = {
+        "Up", "Down", "F", "Enter", "Escape"
     },
 
     characterSelect = {
@@ -31905,7 +32169,8 @@ game = {
     keywords = Keywords,
     spellCompiler = SpellCompiler,
     -- State management
-    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT)
+    currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT, CAMPAIGN_MENU, CAMPAIGN_VICTORY, CAMPAIGN_DEFEAT)
+    campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
     -- Attract mode properties
@@ -32043,6 +32308,11 @@ game.compendium = {
         slot = 0,
         timer = 0
     }
+}
+
+-- Temporary state for the campaign character selection menu
+game.campaignMenu = {
+    selectedCharacterIndex = 1
 }
 
 -- Get a list of all unlocked characters in the roster
@@ -32427,28 +32697,19 @@ function resetGame()
         print("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
-    -- Reinitialize AI opponent if AI mode is enabled
+    -- Reinitialize AI opponent if AI mode is enabled and not being set up by campaign
     if game.useAI then
-        -- Use the appropriate personality based on which wizard is controlled by AI
-        local aiWizard = game.wizards[2]
-        local personality
-
-        if aiWizard.name == "Selene" then
-            personality = SelenePersonality
-            print("Initializing Selene AI personality")
-        elseif aiWizard.name == "Ashgar" then
-            personality = AshgarPersonality
-            print("Initializing Ashgar AI personality")
-        elseif aiWizard.name == "Silex" then
-            personality = SilexPersonality
-            print("Initializing Silex AI personality")
-        else
-            -- Default to base personality for unknown wizards
-            print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+        if not game.isSettingUpCampaignBattle then
+            local aiWizard = game.wizards[2]
+            local personality = getPersonalityFor(aiWizard.name)
+            if personality then
+                print("Initializing " .. aiWizard.name .. " AI personality")
+            else
+                print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+            end
+            game.opponentAI = OpponentAI.new(aiWizard, game, personality)
+            print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
         end
-
-        game.opponentAI = OpponentAI.new(aiWizard, game, personality)
-        print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
     else
         -- Disable AI if we're switching to PvP mode
         game.opponentAI = nil
@@ -32556,6 +32817,77 @@ function exitAttractMode()
     game.currentState = "MENU"
 
     print("Attract mode ended, returned to menu")
+end
+
+-- Handle successful completion of a campaign
+function handleCampaignVictory()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins)
+    game.currentState = "CAMPAIGN_VICTORY"
+end
+
+-- Handle failure of a campaign run
+function handleCampaignDefeat()
+    if not game.campaignProgress then return end
+    print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
+    resetGame()
+    game.currentState = "CAMPAIGN_DEFEAT"
+end
+
+-- Restart the entire campaign from the first opponent
+function restartCampaign()
+    if not game.campaignProgress then return end
+    game.campaignProgress.currentOpponentIndex = 1
+    game.campaignProgress.wins = 0
+    startCampaignBattle()
+end
+
+-- Retry the current campaign battle
+function retryCampaignBattle()
+    if not game.campaignProgress then return end
+    startCampaignBattle()
+end
+
+-- Expose campaign helpers
+game.restartCampaign = restartCampaign
+game.retryCampaignBattle = retryCampaignBattle
+
+-- Placeholder implementation for starting a campaign battle
+function startCampaignBattle()
+    if not game.campaignProgress then
+        print("ERROR: startCampaignBattle called without campaignProgress")
+        return
+    end
+
+    local playerCharacterName = game.campaignProgress.characterName
+    local opponentIndex = game.campaignProgress.currentOpponentIndex or 1
+    local playerData = game.characterData[playerCharacterName] or {}
+    local opponentName
+    if playerData.campaignOpponents then
+        opponentName = playerData.campaignOpponents[opponentIndex]
+    end
+
+    if not opponentName then
+        if handleCampaignVictory then
+            handleCampaignVictory()
+        else
+            print("Campaign complete for " .. tostring(playerCharacterName))
+        end
+        return
+    end
+
+    setupWizards(playerCharacterName, opponentName)
+
+    game.useAI = true
+
+    local personality = getPersonalityFor(opponentName)
+    game.opponentAI = OpponentAI.new(game.wizards[2], game, personality)
+
+    game.isSettingUpCampaignBattle = true
+    resetGame()
+    game.isSettingUpCampaignBattle = nil
+
+    game.currentState = "BATTLE"
 end
 
 -- Initialize wizards for battle based on selected names
@@ -32796,6 +33128,41 @@ function game.compendiumAssign(slot)
         game.sounds.click:play()
     end
 end
+
+-- Initialize the campaign character selection menu
+function game.startCampaignMenu()
+    game.campaignMenu = { selectedCharacterIndex = 1 }
+    game.currentState = "CAMPAIGN_MENU"
+end
+
+-- Move selection cursor in the campaign menu
+function game.campaignMenuMove(dir)
+    local unlocked = getUnlockedCharacterList()
+    local count = #unlocked
+    if count == 0 then return end
+
+    local idx = game.campaignMenu.selectedCharacterIndex + dir
+    if idx < 1 then idx = count end
+    if idx > count then idx = 1 end
+    game.campaignMenu.selectedCharacterIndex = idx
+end
+
+-- Confirm character choice and start the campaign
+function game.campaignMenuConfirm()
+    local unlocked = getUnlockedCharacterList()
+    local name = unlocked[game.campaignMenu.selectedCharacterIndex]
+    if not name then return end
+
+    game.campaignProgress = {
+        characterName = name,
+        currentOpponentIndex = 1,
+        wins = 0
+    }
+
+    if startCampaignBattle then
+        startCampaignBattle()
+    end
+end
 function love.update(dt)
     -- Update shake timer
     if shakeTimer > 0 then
@@ -32857,6 +33224,16 @@ function love.update(dt)
         end
         return
     elseif game.currentState == "COMPENDIUM" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        if game.vfx then
+            game.vfx.update(dt)
+        end
+        return
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
         if game.vfx then
             game.vfx.update(dt)
         end
@@ -32952,11 +33329,20 @@ function love.update(dt)
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
 
-        -- Auto-reset after duration
+        -- When timer expires, handle post-battle flow
         if game.winScreenTimer >= game.winScreenDuration then
-            -- Reset game and go back to menu
-            resetGame()
-            game.currentState = "MENU"
+            if game.campaignProgress then
+                if game.winner == 1 then
+                    game.campaignProgress.wins = game.campaignProgress.wins + 1
+                    game.campaignProgress.currentOpponentIndex = game.campaignProgress.currentOpponentIndex + 1
+                    startCampaignBattle()
+                else
+                    handleCampaignDefeat()
+                end
+            else
+                resetGame()
+                game.currentState = "MENU"
+            end
         end
 
         -- Still update VFX system for visual effects
@@ -33094,6 +33480,10 @@ function love.draw()
         drawSettingsMenu()
     elseif game.currentState == "COMPENDIUM" then
         drawCompendium()
+    elseif game.currentState == "CAMPAIGN_MENU" then
+        drawCampaignMenu()
+    elseif game.currentState == "CAMPAIGN_DEFEAT" then
+        drawCampaignDefeat()
     elseif game.currentState == "CHARACTER_SELECT" then
         drawCharacterSelect()
     elseif game.currentState == "BATTLE" or game.currentState == "BATTLE_ATTRACT" then
@@ -33708,6 +34098,62 @@ function drawMainMenu()
     local versionText = "v0.1 - Demo"
     love.graphics.setColor(0.5, 0.5, 0.5, 0.7)
     love.graphics.print(versionText, 10, screenHeight - 30)
+end
+
+-- Draw the campaign character selection menu
+function drawCampaignMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local unlocked = getUnlockedCharacterList()
+    local spacing = 30
+    local startY = screenHeight * 0.4
+
+    for i, name in ipairs(unlocked) do
+        local y = startY + (i - 1) * spacing
+        if i == game.campaignMenu.selectedCharacterIndex then
+            love.graphics.setColor(1, 0.8, 0.3, 1)
+        else
+            love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        end
+        local w = game.font:getWidth(name)
+        love.graphics.print(name, screenWidth/2 - w/2, y)
+    end
+
+    love.graphics.setColor(0.7, 0.7, 1, 0.8)
+    local hint = "Choose your wizard"
+    local hw = game.font:getWidth(hint)
+    love.graphics.print(hint, screenWidth/2 - hw/2, startY - spacing)
+end
+
+-- Draw the campaign defeat screen
+function drawCampaignDefeat()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    local title = "Campaign Failed"
+    local titleScale = 2.5
+    local tw = game.font:getWidth(title) * titleScale
+    love.graphics.setColor(1, 0.6, 0.6, 1)
+    love.graphics.print(title, screenWidth/2 - tw/2, screenHeight*0.4, 0, titleScale, titleScale)
+
+    local options = {
+        "[R] Restart Campaign",
+        "[SPACE] Retry Battle",
+        "[ESC] Main Menu"
+    }
+    local startY = screenHeight * 0.6
+    for i, text in ipairs(options) do
+        local w = game.font:getWidth(text)
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        love.graphics.print(text, screenWidth/2 - w/2, startY + (i-1)*30)
+    end
 end
 
 -- Draw the character selection screen
@@ -53433,7 +53879,7 @@ Prime for development on _Manastorm_, a strategic action game of magical dueling
 * CrashCourse.md
 * DevelopmentGuidelines.md
 
-You will want to explore the "docs" folder and the relevant Lua code related to some specific bug or feature request once you have gotten your bearing with the above documents. You can assume the content of the "Tickets" folder to have already been completed unless directed there explicitly.
+You will want to explore the "docs" folder and the relevant Lua code related to some specific bug or feature request once you have gotten your bearing with the above documents. You can assume the content of the "Tickets" folder to have already been completed unless directed there explicitly for tasks.
 
 ## ./ComprehensiveDesignDocument.md
 Game Title: Manastorm (working title)
@@ -54608,6 +55054,172 @@ castFrameTimer.
 Hit flash and other visual effects correctly apply to the animated sprite.
 Selene (and any other future wizards) continue to display their static 
 sprites correctly.
+
+## Tickets/S12_CampaignFoundation/1-define-campaign-data-structure-and-state.md
+Ticket #CAMP-1: Define Campaign Data Structure & Basic Game State
+Goal: Establish where and how campaign progression and opponent lists will be stored, and add the new game state for campaign play.
+Tasks:
+Modify characterData.lua:
+For each character entry (e.g., characterData.Ashgar), add a new key, campaignOpponents, which will be an ordered list (array table) of opponent character names (strings, e.g., {"Selene", "Silex", "Borrak"}).
+Initially populate this for Ashgar and Selene with 2-3 opponents each for testing.
+Modify main.lua (game table):
+Add new states to game.currentState's possible values: "CAMPAIGN_MENU" (for selecting a character's campaign), "CAMPAIGN_VICTORY", "CAMPAIGN_DEFEAT". We will reuse the existing "BATTLE" state, using game.campaignProgress to differentiate campaign battles.
+Add game.campaignProgress = nil. When active, this will be a table like { characterName = "Ashgar", currentOpponentIndex = 1, wins = 0 }.
+Modify main.lua (drawMainMenu and input handling):
+Add a new menu option, e.g., "[1] Campaign", to drawMainMenu.
+Update Input.Routes.ui["1"] (or a new key if "1" is too overloaded) in Input.setupRoutes to set game.currentState = "CAMPAIGN_MENU" if chosen from the main menu.
+Acceptance Criteria:
+characterData.lua includes campaignOpponents lists for Ashgar and Selene.
+main.lua recognizes new campaign-related game states.
+The main menu has a "Campaign" option that transitions game.currentState to "CAMPAIGN_MENU".
+game.campaignProgress is initialized to nil.
+Design Notes/Pitfalls:
+Opponent lists should contain valid character names that have corresponding AI personalities.
+The CAMPAIGN_MENU state will initially be simple, focusing on character selection for the campaign.
+
+## Tickets/S12_CampaignFoundation/2-campaign-character-selection-ui-and-logic.md
+Ticket #CAMP-2: Campaign Character Selection UI & Logic
+Goal: Allow the player to select a character whose campaign they wish to play.
+Tasks:
+Create drawCampaignMenu() function in main.lua:
+This function will be called when game.currentState == "CAMPAIGN_MENU".
+Display a list of unlocked player characters (from game.unlockedCharacters and game.characterRoster).
+Implement simple cursor logic (can adapt parts of drawCharacterSelect() or drawSettingsMenu() for cursor movement and display). Store the selected character index/name in a temporary variable, e.g., game.campaignMenu = { selectedCharacterIndex = 1 }.
+Update Input.setupRoutes() for CAMPAIGN_MENU state:
+Handle up, down for cursor movement in drawCampaignMenu.
+Handle return (Enter) or f (or another confirm key) to confirm character selection.
+On confirmation:
+Get selectedCharacterName using game.campaignMenu.selectedCharacterIndex.
+Set game.campaignProgress = { characterName = selectedCharacterName, currentOpponentIndex = 1, wins = 0 }.
+Call a new function startCampaignBattle() (to be created in CAMP-3).
+(The startCampaignBattle function will set the state to BATTLE).
+Handle escape to return to game.currentState = "MENU" and clear game.campaignMenu.
+Acceptance Criteria:
+Player can view and select an unlocked character for their campaign from the CAMPAIGN_MENU.
+Upon selection, game.campaignProgress is correctly initialized with the chosen character and currentOpponentIndex = 1.
+The game logic proceeds to start the first campaign battle.
+Design Notes/Pitfalls:
+The UI can be very basic text for now. Reusing drawCharacterSelect components might be too complex; a simpler list is fine.
+Ensure error handling if no unlocked characters are available (though for now, Ashgar and Selene are default unlocked).
+
+## Tickets/S12_CampaignFoundation/3-starting-and-managing-campaign-battle.md
+Ticket #CAMP-3: Starting and Managing a Campaign Battle
+Goal: Correctly set up and start a duel based on the current campaign progress, and modify resetGame to be campaign-aware.
+Tasks:
+Create startCampaignBattle() function in main.lua:
+This function is called after character selection (from CAMP-2) and after winning a campaign battle (CAMP-4).
+Preconditions: game.campaignProgress must be populated.
+Retrieve playerCharacterName = game.campaignProgress.characterName.
+Retrieve opponentIndex = game.campaignProgress.currentOpponentIndex.
+Get opponentCharacterName from game.characterData[playerCharacterName].campaignOpponents[opponentIndex].
+If opponentCharacterName is nil (i.e., opponentIndex is out of bounds), it means the campaign is complete. Call handleCampaignVictory() (new function, details in CAMP-4). Return early from startCampaignBattle.
+Call setupWizards(playerCharacterName, opponentCharacterName).
+Set game.useAI = true.
+Initialize AI for game.wizards[2]:
+local personality = getPersonalityFor(opponentCharacterName) (using existing helper in main.lua).
+game.opponentAI = OpponentAI.new(game.wizards[2], game, personality).
+Call resetGame().
+Set game.currentState = "BATTLE".
+Modify resetGame() in main.lua:
+This function is called by startCampaignBattle and also when exiting GAME_OVER.
+Crucially, when resetGame() is called during an active campaign (i.e., game.campaignProgress is not nil and we are setting up for the next campaign battle), it should not clear game.opponentAI if game.useAI is true (as it's set by startCampaignBattle).
+The part of resetGame that initializes game.opponentAI should only run if game.campaignProgress is nil (i.e., it's a regular duel).
+Alternatively, startCampaignBattle can set a temporary flag like game.isSettingUpCampaignBattle = true before calling resetGame, and resetGame can check this flag to skip AI re-initialization. Clear the flag afterwards.
+Acceptance Criteria:
+startCampaignBattle correctly configures game.wizards[1] (player) and game.wizards[2] (AI opponent) based on game.campaignProgress.
+The AI opponent uses the personality appropriate for its character name.
+resetGame correctly prepares the battle state without interfering with ongoing campaign AI setup.
+The game transitions to the "BATTLE" state.
+Design Notes/Pitfalls:
+The interaction between startCampaignBattle and resetGame regarding AI initialization needs care to avoid double-initialization or premature clearing of the campaign AI. Using a temporary flag might be the cleanest.
+Consider what happens if campaignOpponents list is empty or an opponent name is invalid.
+
+## Tickets/S12_CampaignFoundation/4-campaign-progression-and-victory-logic.md
+Ticket #CAMP-4: Campaign Progression & Victory/Loss Logic
+Goal: Implement logic to advance to the next opponent upon winning, or end the campaign attempt on loss/completion.
+Tasks:
+Create handleCampaignVictory() function in main.lua:
+Called by startCampaignBattle if no more opponents.
+print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins).
+Set game.currentState = "CAMPAIGN_VICTORY".
+(Optionally: game.campaignProgress = nil here, or defer to when leaving CAMPAIGN_VICTORY state).
+Create handleCampaignDefeat() function in main.lua:
+Called if player loses a campaign battle.
+print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex).
+Set game.currentState = "CAMPAIGN_DEFEAT".
+(Optionally: game.campaignProgress = nil here).
+Modify love.update() in main.lua for GAME_OVER state:
+When game.winScreenTimer >= game.winScreenDuration (or player input like Space to continue from win screen):
+Check if game.campaignProgress is not nil (i.e., we were in a campaign battle).
+If player won (game.winner == 1 assuming player is game.wizards[1]):
+Increment game.campaignProgress.wins.
+Increment game.campaignProgress.currentOpponentIndex.
+Call startGameCampaignBattle() (which will check if it's the end of the campaign or set up the next fight).
+Else (player lost, game.winner == 2):
+Call handleCampaignDefeat().
+Else (not in campaign, game.campaignProgress is nil):
+Existing logic: resetGame() and game.currentState = "MENU". This remains the default for non-campaign duels.
+Acceptance Criteria:
+Winning a campaign battle triggers startCampaignBattle() to load the next opponent.
+Losing a campaign battle triggers handleCampaignDefeat() and sets state to CAMPAIGN_DEFEAT.
+Successfully defeating all opponents in a campaign triggers handleCampaignVictory() and sets state to CAMPAIGN_VICTORY.
+Design Notes/Pitfalls:
+The player is always game.wizards[1] in campaign mode.
+The order of operations in GAME_OVER is important: check campaign status before defaulting to resetGame() and returning to menu.
+
+## Tickets/S12_CampaignFoundation/5-ui-for-campaign-states.md
+Ticket #CAMP-4: Campaign Progression & Victory/Loss Logic
+Goal: Implement logic to advance to the next opponent upon winning, or end the campaign attempt on loss/completion.
+Tasks:
+Create handleCampaignVictory() function in main.lua:
+Called by startCampaignBattle if no more opponents.
+print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins).
+Set game.currentState = "CAMPAIGN_VICTORY".
+(Optionally: game.campaignProgress = nil here, or defer to when leaving CAMPAIGN_VICTORY state).
+Create handleCampaignDefeat() function in main.lua:
+Called if player loses a campaign battle.
+print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex).
+Set game.currentState = "CAMPAIGN_DEFEAT".
+(Optionally: game.campaignProgress = nil here).
+Modify love.update() in main.lua for GAME_OVER state:
+When game.winScreenTimer >= game.winScreenDuration (or player input like Space to continue from win screen):
+Check if game.campaignProgress is not nil (i.e., we were in a campaign battle).
+If player won (game.winner == 1 assuming player is game.wizards[1]):
+Increment game.campaignProgress.wins.
+Increment game.campaignProgress.currentOpponentIndex.
+Call startGameCampaignBattle() (which will check if it's the end of the campaign or set up the next fight).
+Else (player lost, game.winner == 2):
+Call handleCampaignDefeat().
+Else (not in campaign, game.campaignProgress is nil):
+Existing logic: resetGame() and game.currentState = "MENU". This remains the default for non-campaign duels.
+Acceptance Criteria:
+Winning a campaign battle triggers startCampaignBattle() to load the next opponent.
+Losing a campaign battle triggers handleCampaignDefeat() and sets state to CAMPAIGN_DEFEAT.
+Successfully defeating all opponents in a campaign triggers handleCampaignVictory() and sets state to CAMPAIGN_VICTORY.
+Design Notes/Pitfalls:
+The player is always game.wizards[1] in campaign mode.
+The order of operations in GAME_OVER is important: check campaign status before defaulting to resetGame() and returning to menu.
+
+## Tickets/S12_CampaignFoundation/6-data-population-and-polish.md
+Ticket #CAMP-6: Data Population, Testing & Polish
+Goal: Populate campaign data for more characters, test the full flow, and refine transitions.
+Tasks:
+Populate campaignOpponents in characterData.lua:
+Add gauntlets for Silex and Borrak (or any other characters with implemented AI personalities). Use a mix of opponents for variety. Ensure these opponents have AI personalities defined.
+Refine Transitions:
+Ensure smooth and logical transitions between: Main Menu -> Campaign Menu -> Battle -> Game Over -> Next Battle / Campaign Victory / Campaign Defeat -> Main Menu.
+Confirm game.campaignProgress is correctly initialized and cleared at the appropriate times.
+Test Thoroughly:
+Play through each implemented character's campaign.
+Test winning streaks and losing at various points in a campaign.
+Test exiting a campaign mid-battle (e.g., pressing ESC during a campaign BATTLE state should probably reset game.campaignProgress and return to Main Menu for now).
+Acceptance Criteria:
+At least 4 characters have defined, playable (short) campaigns against existing AI personalities.
+The campaign mode is robust and handles various win/loss/exit scenarios gracefully.
+No crashes or major logical errors in campaign flow.
+Design Notes/Pitfalls:
+This ticket is crucial for catching edge cases and ensuring the feature feels complete enough for its basic scope.
+If an opponent in a campaign list doesn't have an AI personality, getPersonalityFor will return nil, and OpponentAI.new will use the PersonalityBase. This is acceptable for now but should be noted.
 
 ## Tickets/S1_CoreGameplay/1-1-setup-new-files.md
 Ticket #1: Setup Keyword & Compiler Files
