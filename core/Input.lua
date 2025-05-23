@@ -2,9 +2,11 @@
 -- Unified input routing system for Manastorm
 
 local Input = {}
+local Constants = require("core.Constants")
 
 -- Store a reference to the game state for routing
 local gameState = nil
+Input.controls = nil
 
 -- Set up input routes by category
 Input.Routes = {
@@ -33,6 +35,7 @@ Input.Routes = {
 -- Initialize with game state reference
 function Input.init(game)
     gameState = game
+    Input.controls = gameState.settings.get("controls")
     Input.setupRoutes()
 end
 
@@ -125,18 +128,25 @@ end
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
     local controls = gameState.settings.get("controls")
-    -- Handle player 1 key releases
-    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
-        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
+    local kp1 = controls.keyboardP1 or (controls.p1 or {})
+    local kp2 = controls.keyboardP2 or (controls.p2 or {})
+
+    local p1s1 = kp1[Constants.ControlAction.P1_SLOT1] or kp1.slot1
+    local p1s2 = kp1[Constants.ControlAction.P1_SLOT2] or kp1.slot2
+    local p1s3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3
+    if key == p1s1 or key == p1s2 or key == p1s3 then
+        local slotIndex = (key == p1s1) and 1 or (key == p1s2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[1] then
             gameState.wizards[1]:keySpell(slotIndex, false)
             return true
         end
     end
 
-    -- Handle player 2 key releases
-    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
-        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
+    local p2s1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1
+    local p2s2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2
+    local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
+    if key == p2s1 or key == p2s2 or key == p2s3 then
+        local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
         if gameState and gameState.wizards and gameState.wizards[2] then
             gameState.wizards[2]:keySpell(slotIndex, false)
             return true
@@ -465,8 +475,27 @@ function Input.setupRoutes()
     
     -- PLAYER 1 CONTROLS (Ashgar)
     local c = gameState.settings.get("controls")
-    local p1 = c.p1
-    local p2 = c.p2
+    Input.controls = c
+    local kp1 = c.keyboardP1 or (c.p1 or {})
+    local kp2 = c.keyboardP2 or (c.p2 or {})
+
+    local p1 = {
+        slot1 = kp1[Constants.ControlAction.P1_SLOT1] or kp1.slot1,
+        slot2 = kp1[Constants.ControlAction.P1_SLOT2] or kp1.slot2,
+        slot3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3,
+        cast  = kp1[Constants.ControlAction.P1_CAST]  or kp1.cast,
+        free  = kp1[Constants.ControlAction.P1_FREE]  or kp1.free,
+        book  = kp1[Constants.ControlAction.P1_BOOK]  or kp1.book
+    }
+
+    local p2 = {
+        slot1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1,
+        slot2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2,
+        slot3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3,
+        cast  = kp2[Constants.ControlAction.P2_CAST]  or kp2.cast,
+        free  = kp2[Constants.ControlAction.P2_FREE]  or kp2.free,
+        book  = kp2[Constants.ControlAction.P2_BOOK]  or kp2.book
+    }
 
     -- Key spell slots
     Input.Routes.p1[p1.slot1] = function()

@@ -1,12 +1,51 @@
 local Settings = {}
+local Constants = require("core.Constants")
 
 -- Default configuration
 local defaults = {
     dummyFlag = false,
     gameSpeed = "FAST",
     controls = {
-        p1 = { slot1 = "q", slot2 = "w", slot3 = "e", cast = "f", free = "g", book = "b" },
-        p2 = { slot1 = "i", slot2 = "o", slot3 = "p", cast = "j", free = "h", book = "m" }
+        keyboardP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "q",
+            [Constants.ControlAction.P1_SLOT2] = "w",
+            [Constants.ControlAction.P1_SLOT3] = "e",
+            [Constants.ControlAction.P1_CAST]  = "f",
+            [Constants.ControlAction.P1_FREE]  = "g",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "up",
+            [Constants.ControlAction.MENU_DOWN]  = "down",
+            [Constants.ControlAction.MENU_LEFT]  = "left",
+            [Constants.ControlAction.MENU_RIGHT] = "right",
+            [Constants.ControlAction.MENU_CONFIRM]     = "return",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "escape"
+        },
+        keyboardP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "i",
+            [Constants.ControlAction.P2_SLOT2] = "o",
+            [Constants.ControlAction.P2_SLOT3] = "p",
+            [Constants.ControlAction.P2_CAST]  = "j",
+            [Constants.ControlAction.P2_FREE]  = "h",
+            [Constants.ControlAction.P2_BOOK]  = "m"
+        },
+        gamepadP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "dpdown",
+            [Constants.ControlAction.P1_SLOT2] = "dpleft",
+            [Constants.ControlAction.P1_SLOT3] = "dpright",
+            [Constants.ControlAction.P1_CAST]  = "a",
+            [Constants.ControlAction.P1_FREE]  = "y",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "dpup",
+            [Constants.ControlAction.MENU_DOWN]  = "dpdown",
+            [Constants.ControlAction.MENU_LEFT]  = "dpleft",
+            [Constants.ControlAction.MENU_RIGHT] = "dpright",
+            [Constants.ControlAction.MENU_CONFIRM]     = "a",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "b"
+        },
+        gamepadP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "dpdown",
+            -- Placeholder for P2 controller mappings
+        }
     }
 }
 
@@ -42,6 +81,20 @@ local function serialize(tbl, indent)
     return table.concat(parts)
 end
 
+local function mergeDefaults(target, default)
+    for k, v in pairs(default) do
+        if type(v) == "table" then
+            if type(target[k]) ~= "table" then
+                target[k] = deepcopy(v)
+            else
+                mergeDefaults(target[k], v)
+            end
+        elseif target[k] == nil then
+            target[k] = v
+        end
+    end
+end
+
 Settings.data = nil
 
 function Settings.load()
@@ -54,6 +107,8 @@ function Settings.load()
             if type(Settings.data.gameSpeed) ~= "string" then
                 Settings.data.gameSpeed = "FAST"
             end
+            -- Merge new defaults for missing values
+            mergeDefaults(Settings.data, defaults)
             return
         end
     end

@@ -454,6 +454,39 @@ function Constants.isValidVFXType(value)
     return false
 end
 
+-- Abstract game actions for input mapping
+Constants.ControlAction = {
+    -- Player 1 actions
+    P1_SLOT1 = "p1_slot1",
+    P1_SLOT2 = "p1_slot2",
+    P1_SLOT3 = "p1_slot3",
+    P1_CAST  = "p1_cast",
+    P1_FREE  = "p1_free",
+    P1_BOOK  = "p1_book",
+
+    -- Player 2 actions
+    P2_SLOT1 = "p2_slot1",
+    P2_SLOT2 = "p2_slot2",
+    P2_SLOT3 = "p2_slot3",
+    P2_CAST  = "p2_cast",
+    P2_FREE  = "p2_free",
+    P2_BOOK  = "p2_book",
+
+    -- Menu navigation
+    MENU_UP    = "menu_up",
+    MENU_DOWN  = "menu_down",
+    MENU_LEFT  = "menu_left",
+    MENU_RIGHT = "menu_right",
+
+    -- Menu actions
+    MENU_CONFIRM      = "menu_confirm",
+    MENU_CANCEL_BACK  = "menu_cancel_back",
+
+    -- System actions
+    SYS_TOGGLE_DEBUG   = "sys_toggle_debug",
+    SYS_QUIT_MENU_BACK = "sys_quit_menu_back"
+}
+
 -- Motion styles for VFX particles
 Constants.MotionStyle = {
     RADIAL = "radial",     -- Particles expand outward in all directions (default)
