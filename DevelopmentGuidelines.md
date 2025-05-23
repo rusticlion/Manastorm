@@ -37,6 +37,7 @@ Add to game.unlockedSpells in main.lua if it's unlockable.
 Modifying or Adding Keywords (keywords.lua):
 Event Generation: The execute function must add events to the passed-in events table. It should not directly modify caster, target, or gameState.
 Parameters: Keyword parameters defined in spells.lua can be static values or functions (resolved by keywords.lua.resolve()).
+Dynamic Costs: Spells may include a `getCost(caster, target)` function which returns a token cost table at runtime. Use this for mechanics like health-scaled or target-dependent costs.
 Metadata: Keep the behavior table updated with descriptive flags, targetType, and category.
 VFX: Keywords generally should not trigger VFX directly. Instead, the events they generate (e.g., DAMAGE, SET_ELEVATION) will be picked up by EventRunner, which then uses VisualResolver for VFX. If a keyword has a unique, inherent visual distinct from its gameplay event (rare), it can generate a specific EFFECT event.
 Documentation: Update docs/keywords.lua (or ensure it's auto-generated) if adding or significantly changing a keyword.

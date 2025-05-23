@@ -49,6 +49,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 *   **`Wizard:queueSpell(spell)`:** Initiates spell casting.
     *   Finds an available `spellSlot`.
     *   Checks mana availability using `canPayManaCost`.
+        *   If the spell defines `getCost`, that function is called with `caster` and `target` to determine the token list.
     *   If affordable, acquires token references from `manaPool` via reservations.
     *   Sets token state to `CHANNELED`.
     *   Sets up animation parameters for tokens (Bezier curve towards wizard).
@@ -63,7 +64,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
         *   Normal Spells: Applies damage (`target.health`), status effects (burn, stun), position changes (range, elevation), mana manipulation (lock, delay) based on `effect` table. Returns caster's tokens (`requestReturnAnimation`/`manaPool:returnToken`), resets caster's slot (`resetSpellSlot`).
 *   **`Wizard:handleShieldBlock(slotIndex, blockedSpell)`:** (Called on the target wizard). Consumes tokens from the specified shield slot based on `blockedSpell.shieldBreaker`, returns consumed tokens, and calls `resetSpellSlot` if the shield breaks (runs out of tokens).
 *   **`Wizard:resetSpellSlot(slotIndex)`:** Utility function to reset all properties of a spell slot to default/inactive state and clear its token list. Used after normal casts, cancellations, or shield breaks.
-*   **`Wizard:canPayManaCost(costOrFn[, target])`:** Checks if a mana cost can be paid without consuming tokens. Accepts either a static cost table or a `getCost` function. Returns reservation details or `nil`.
+*   **`Wizard:canPayManaCost(costOrFn[, target])`:** Checks if a mana cost can be paid without consuming tokens. `costOrFn` may be a static table or the `getCost` function from a spell definition. The function returns a reservation detail table or `nil` if the cost can't currently be met.
 *   **`Wizard:freeAllSpells()`:** Cancels all active spells/shields, returns their tokens, and resets the corresponding slots.
 
 ### 3. Token Interaction

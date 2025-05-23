@@ -28,6 +28,24 @@ This system is transitioning towards a pure event-based architecture, where spel
     *   **Basic Info:** `id`, `name`, `description`.
     *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`). If a `getCost` function is provided it will be used at runtime instead of the static table.
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
+
+    The optional `getCost(caster, target)` function allows a spell's mana cost to change based on game state. It should return a table of token types just like the static `cost` field. `getCost` is evaluated each time the spell is queued or affordability is checked.
+
+    **Example:** A spell that gets cheaper as the caster's health drops might be implemented as:
+
+    ```lua
+    getCost = function(caster)
+        local fireCost = 3
+        if caster.health < 75 then fireCost = 2 end
+        if caster.health < 40 then fireCost = 1 end
+        if caster.health < 20 then fireCost = 0 end
+        local t = {}
+        for i = 1, fireCost do
+            t[i] = Constants.TokenType.FIRE
+        end
+        return t
+    end
+    ```
 *   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `getCost` (dynamic mana cost), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
