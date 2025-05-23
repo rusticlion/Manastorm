@@ -616,8 +616,11 @@ function Wizard:queueSpell(spell)
     -- Find the innermost available spell slot
     for i = 1, #self.spellSlots do
         if not self.spellSlots[i].active then
+            -- Determine cost source (static table or dynamic function)
+            local costSource = spellToUse.getCost or spellToUse.cost
+
             -- Check if we can pay the mana cost from the pool
-            local tokenReservations = self:canPayManaCost(spell.cost)
+            local tokenReservations = self:canPayManaCost(costSource)
             
             if tokenReservations then
                 local tokens = {}
@@ -627,8 +630,11 @@ function Wizard:queueSpell(spell)
                     -- Free spell - no tokens needed
                     print("[TOKEN MANAGER] Free spell (no mana cost)")
                 else
+                    -- Resolve actual cost table now if using dynamic cost
+                    local actualCost = type(costSource) == "function" and costSource(self, nil) or costSource
+
                     -- Use TokenManager to acquire and position tokens for the spell
-                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, spell.cost)
+                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, actualCost)
                     
                     -- If TokenManager succeeded, use those tokens
                     if success and acquiredTokens then
@@ -680,8 +686,9 @@ function Wizard:queueSpell(spell)
                     end
                 end
                 
-                -- Store the tokens in the spell slot
+                -- Store the tokens and cost in the spell slot
                 self.spellSlots[i].tokens = tokens
+                self.spellSlots[i].cost = type(costSource) == "function" and costSource(self, nil) or costSource
                 
                 -- Successfully paid the cost, queue the spell
                 self.spellSlots[i].active = true
@@ -813,7 +820,15 @@ end
 
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 -- This is a wrapper around TokenManager functionality for backward compatibility
-function Wizard:canPayManaCost(cost)
+-- Helper function to check if mana cost can be paid without actually taking the tokens
+-- Accepts either a cost table or a getCost function
+function Wizard:canPayManaCost(costOrGetCostFn, target)
+    local cost = costOrGetCostFn
+
+    if type(costOrGetCostFn) == "function" then
+        cost = costOrGetCostFn(self, target)
+    end
+
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     

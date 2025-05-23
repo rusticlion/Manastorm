@@ -17,6 +17,7 @@ local Schema = {}
 --   * UTILITY:    Non-offensive spells that affect the caster - cannot be blocked
 -- castTime: Duration in seconds to cast the spell (number)
 -- cost: Array of token types required (array using Constants.TokenType.FIRE, etc.)
+-- getCost: Optional function(caster, target) -> cost table for dynamic costs
 -- keywords: Table of effect keywords and their parameters (table)
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
@@ -69,10 +70,16 @@ function Schema.validateSpell(spell, spellId)
         spell.castTime = tonumber(spell.castTime) or 5.0
     end
     
-    -- Ensure cost is a table, if empty then create empty table
+    -- Ensure cost is a table if provided, or create an empty table when neither
+    -- cost nor getCost are specified. When getCost exists it's considered the
+    -- runtime source of truth so we don't warn about a missing cost table.
     if not spell.cost then
-        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
-        spell.cost = {}
+        if spell.getCost and type(spell.getCost) == "function" then
+            spell.cost = {}
+        else
+            print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+            spell.cost = {}
+        end
     elseif type(spell.cost) ~= "table" then
         print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
         -- Try to convert to a table if possible
