@@ -49,74 +49,44 @@ local function updateSurge(effect, dt)
         effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
     end
     
-    -- Fountain style upward burst with gravity pull and enhanced effects
+    -- Rising helix motion around the caster
     for _, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
         if not particle then
             goto next_particle
         end
-        
-        -- Initialize particle properties if missing
+
         particle.delay = particle.delay or 0
         particle.active = particle.active or false
-        
+
         if effect.timer > particle.delay then
             particle.active = true
         end
-        
+
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Apply gravity and update movement
-            if not particle.x then
-                -- Initialize particle position if missing
-                particle.x = effect.sourceX
-                particle.y = effect.sourceY
-                particle.baseX = effect.sourceX
-                particle.baseY = effect.sourceY
-            end
-            
-            -- Get particle age
-            local particleAge = effect.timer - particle.delay
-            
-            -- Get velocities or initialize them
-            particle.vx = particle.vx or (math.random() * 2 - 1) * 100
-            particle.vy = particle.vy or -80 - math.random() * 120 -- Initial upward velocity
-            
-            -- Apply gravity over time
-            local gravity = 150
-            particle.vy = particle.vy + gravity * dt
-            
-            -- Apply velocities to position
-            particle.x = particle.x + particle.vx * dt
-            particle.y = particle.y + particle.vy * dt
-            
-            -- Apply drag to slow particles
-            local drag = 0.98
-            particle.vx = particle.vx * drag
-            particle.vy = particle.vy * drag
-            
-            -- Calculate alpha based on lifetime (fade in, then fade out)
-            local alphaPeak = 0.3 -- Peak opacity at 30% of life
-            local alphaValue = 0
-            
-            if particleProgress < alphaPeak then
-                -- Fade in
-                alphaValue = particleProgress / alphaPeak
+            local age = effect.timer - particle.delay
+            local progress = math.min(age / effect.duration, 1.0)
+
+            local angle = (particle.startAngle or 0) + (particle.spinSpeed or 4) * age
+            local radius = (particle.baseRadius or 8) + progress * (particle.spiralAmplitude or 20)
+            local rise = progress * (effect.height or 160)
+
+            particle.x = effect.sourceX + math.cos(angle) * radius
+            particle.y = effect.sourceY - rise + math.sin(angle) * radius * 0.1
+
+            -- Alpha fades in then out
+            local alphaPeak = 0.3
+            local alphaValue
+            if progress < alphaPeak then
+                alphaValue = progress / alphaPeak
             else
-                -- Fade out
-                alphaValue = 1.0 - ((particleProgress - alphaPeak) / (1.0 - alphaPeak))
+                alphaValue = 1.0 - ((progress - alphaPeak) / (1.0 - alphaPeak))
             end
-            
-            -- Apply the calculated alpha
             particle.alpha = alphaValue * (particle.baseAlpha or 1.0)
-            
-            -- Update size based on life (grow slightly, then shrink)
-            local sizeCurve = 1.0 + math.sin(particleProgress * math.pi) * 0.5
+
+            local sizeCurve = 1.0 + math.sin(progress * math.pi) * 0.5
             particle.scale = (particle.baseScale or 0.3) * sizeCurve
         end
-        
+
         ::next_particle::
     end
     

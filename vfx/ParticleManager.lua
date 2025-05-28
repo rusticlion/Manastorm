@@ -330,35 +330,18 @@ function ParticleManager.createSurgeParticle(effect)
     local particle = ParticleManager.createParticle()
 
     -- Get effect properties
-    local spread = effect.spread or 45
-    local riseFactor = effect.riseFactor or 1.4
-    local gravity = effect.gravity or 180
     local particleSizeVariance = effect.particleSizeVariance or 0.6
     local useSprites = effect.useSprites
 
-    -- Start at source position with slight random offset
-    local startOffsetX = math.random(-10, 10)
-    local startOffsetY = math.random(-10, 10)
-    particle.x = effect.sourceX + startOffsetX
-    particle.y = effect.sourceY + startOffsetY
+    -- Start at the source position
+    particle.x = effect.sourceX
+    particle.y = effect.sourceY
 
-    -- Store initial position for spiral motion calculations
-    particle.initialX = particle.x
-    particle.initialY = particle.y
-
-    -- Create upward velocity with variety
-    -- More focused in the center for a fountain effect
-    local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
-    particle.speedX = (math.random() - 0.5) * spread * horizontalBias
-
-    -- Vertical speed with some variance and acceleration
-    local riseSpeed = math.random(220, 320) * riseFactor
-    if effect.riseAcceleration then
-        particle.riseAcceleration = math.random() * effect.riseAcceleration
-    end
-
-    particle.speedY = -riseSpeed
-    particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+    -- Parameters for helix motion
+    particle.baseRadius = 6 + math.random() * 8
+    particle.startAngle = math.random() * math.pi * 2
+    particle.spinSpeed = 3 + math.random() * 2
+    particle.verticalSpeed = (effect.height or 160) / (effect.duration or 1)
 
     -- Visual properties with variance
     local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
