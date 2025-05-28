@@ -118,7 +118,7 @@ WaterSpells.riptideguard = {
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
 
             onBlock = function(defender, attacker, slotIndex, info)
                 local events = {}
