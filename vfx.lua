@@ -376,9 +376,9 @@ function VFX.init()
         surge_base = {
             type = "surge_base",          -- Template name as type
             duration = 1.5,                -- Longer duration for buff visual
-            particleCount = 60,            -- More particles for richer effect
-            startScale = 0.3,              -- Larger starting scale
-            endScale = 0.08,               -- Smaller end scale for fade-out
+            particleCount = 90,            -- Extra particles for dramatic burst
+            startScale = 1.0,              -- Pixel-sized primitives
+            endScale = 0.2,               -- Fade to tiny specks
             color = Constants.Color.YELLOW_HERO,   -- Default color, will be overridden
             height = 200,                  -- Higher fountain effect
             spread = 45,                   -- Narrower spread for more focused fountain
@@ -394,11 +394,11 @@ function VFX.init()
             bloomEffect = true,            -- Add bloom/glow to particles (new parameter)
             bloomIntensity = 0.8,          -- Intensity of bloom effect (new parameter)
             sparkleChance = 0.4,           -- Chance for sparkle effect on particles (new parameter)
-            useSprites = true,             -- Use sprite images
+            useSprites = false,            -- Use primitive pixel sprites
             spriteFrameRate = 8,           -- Frame rate for sprite animation
             pulsateParticles = true,       -- Pulsate particle size (new parameter)
             sound = "surge",               -- Sound effect
-            criticalAssets = {"sparkle"}   -- Required assets
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"} -- Required assets
         },
 
         conjure_base = {

@@ -49,74 +49,44 @@ local function updateSurge(effect, dt)
         effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
     end
     
-    -- Fountain style upward burst with gravity pull and enhanced effects
+    -- Rising helix motion around the caster
     for _, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
         if not particle then
             goto next_particle
         end
-        
-        -- Initialize particle properties if missing
+
         particle.delay = particle.delay or 0
         particle.active = particle.active or false
-        
+
         if effect.timer > particle.delay then
             particle.active = true
         end
-        
+
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Apply gravity and update movement
-            if not particle.x then
-                -- Initialize particle position if missing
-                particle.x = effect.sourceX
-                particle.y = effect.sourceY
-                particle.baseX = effect.sourceX
-                particle.baseY = effect.sourceY
-            end
-            
-            -- Get particle age
-            local particleAge = effect.timer - particle.delay
-            
-            -- Get velocities or initialize them
-            particle.vx = particle.vx or (math.random() * 2 - 1) * 100
-            particle.vy = particle.vy or -80 - math.random() * 120 -- Initial upward velocity
-            
-            -- Apply gravity over time
-            local gravity = 150
-            particle.vy = particle.vy + gravity * dt
-            
-            -- Apply velocities to position
-            particle.x = particle.x + particle.vx * dt
-            particle.y = particle.y + particle.vy * dt
-            
-            -- Apply drag to slow particles
-            local drag = 0.98
-            particle.vx = particle.vx * drag
-            particle.vy = particle.vy * drag
-            
-            -- Calculate alpha based on lifetime (fade in, then fade out)
-            local alphaPeak = 0.3 -- Peak opacity at 30% of life
-            local alphaValue = 0
-            
-            if particleProgress < alphaPeak then
-                -- Fade in
-                alphaValue = particleProgress / alphaPeak
+            local age = effect.timer - particle.delay
+            local progress = math.min(age / effect.duration, 1.0)
+
+            local angle = (particle.startAngle or 0) + (particle.spinSpeed or 4) * age
+            local radius = (particle.baseRadius or 8) + progress * (particle.spiralAmplitude or 20)
+            local rise = progress * (effect.height or 160)
+
+            particle.x = effect.sourceX + math.cos(angle) * radius
+            particle.y = effect.sourceY - rise + math.sin(angle) * radius * 0.1
+
+            -- Alpha fades in then out
+            local alphaPeak = 0.3
+            local alphaValue
+            if progress < alphaPeak then
+                alphaValue = progress / alphaPeak
             else
-                -- Fade out
-                alphaValue = 1.0 - ((particleProgress - alphaPeak) / (1.0 - alphaPeak))
+                alphaValue = 1.0 - ((progress - alphaPeak) / (1.0 - alphaPeak))
             end
-            
-            -- Apply the calculated alpha
             particle.alpha = alphaValue * (particle.baseAlpha or 1.0)
-            
-            -- Update size based on life (grow slightly, then shrink)
-            local sizeCurve = 1.0 + math.sin(particleProgress * math.pi) * 0.5
+
+            local sizeCurve = 1.0 + math.sin(progress * math.pi) * 0.5
             particle.scale = (particle.baseScale or 0.3) * sizeCurve
         end
-        
+
         ::next_particle::
     end
     
@@ -139,6 +109,9 @@ local function drawSurge(effect)
     effect.centerGlowPulse = effect.centerGlowPulse or 1.0 -- Default pulse value
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Draw expanding ground effect ring at source
     if effect.progress < 0.7 then
@@ -206,17 +179,29 @@ local function drawSurge(effect)
         
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
         
-        if particleImage then
+        -- Choose sprite based on assigned type
+        local sprite
+        if particle.spriteType == "pixel" then
+            sprite = onePxImage
+        elseif particle.spriteType == "twinkle1" then
+            sprite = twinkle1Image
+        elseif particle.spriteType == "twinkle2" then
+            sprite = twinkle2Image
+        else
+            sprite = particleImage
+        end
+
+        if sprite then
             love.graphics.draw(
-                particleImage,
+                sprite,
                 particle.x, particle.y,
                 0,
                 particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
+                sprite:getWidth()/2, sprite:getHeight()/2
             )
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            -- Fallback if image missing
+            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 3)
         end
         
         -- Restore blend mode
