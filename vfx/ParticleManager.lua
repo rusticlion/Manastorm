@@ -369,6 +369,10 @@ function ParticleManager.createSurgeParticle(effect)
     particle.rotation = math.random() * math.pi * 2
     particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
 
+    -- Assign primitive sprite type for rendering
+    local spriteOptions = {"pixel", "twinkle1", "twinkle2"}
+    particle.spriteType = spriteOptions[math.random(#spriteOptions)]
+
     -- Staggered appearance
     particle.delay = math.random() * 0.4
     particle.active = false
