@@ -139,6 +139,9 @@ local function drawSurge(effect)
     effect.centerGlowPulse = effect.centerGlowPulse or 1.0 -- Default pulse value
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Draw expanding ground effect ring at source
     if effect.progress < 0.7 then
@@ -206,17 +209,29 @@ local function drawSurge(effect)
         
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
         
-        if particleImage then
+        -- Choose sprite based on assigned type
+        local sprite
+        if particle.spriteType == "pixel" then
+            sprite = onePxImage
+        elseif particle.spriteType == "twinkle1" then
+            sprite = twinkle1Image
+        elseif particle.spriteType == "twinkle2" then
+            sprite = twinkle2Image
+        else
+            sprite = particleImage
+        end
+
+        if sprite then
             love.graphics.draw(
-                particleImage,
+                sprite,
                 particle.x, particle.y,
                 0,
                 particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
+                sprite:getWidth()/2, sprite:getHeight()/2
             )
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            -- Fallback if image missing
+            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 3)
         end
         
         -- Restore blend mode
