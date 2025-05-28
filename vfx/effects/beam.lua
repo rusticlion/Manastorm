@@ -597,9 +597,10 @@ local function drawBeam(effect)
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 
-    -- Restore the previous line width and blend mode to avoid affecting other draw calls
+    -- Restore the previous line width, blend mode, and color to avoid affecting other draw calls
     love.graphics.setLineWidth(prevLineWidth)
     love.graphics.setBlendMode(prevBlendMode[1], prevBlendMode[2])
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 -- Initialize function for beam effects

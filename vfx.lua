@@ -1477,10 +1477,19 @@ function VFX.draw()
         local effectType = effect.type
         local drawer = VFX.drawers[effectType]
         if drawer then
+            -- Preserve current graphics state so individual effect draw calls
+            -- cannot permanently modify color or blend mode
+            local prevR, prevG, prevB, prevA = love.graphics.getColor()
+            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+
             -- Add safety pcall to prevent crashes
             local success, err = pcall(function()
                 drawer(effect)
             end)
+
+            -- Restore graphics state
+            love.graphics.setColor(prevR, prevG, prevB, prevA)
+            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
             if not success then
                 print(string.format("[VFX] Error drawing effect type '%s': %s", tostring(effectType), tostring(err)))
