@@ -1210,7 +1210,17 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.impactRadius = template.impactRadius
     effect.glowAssetKey = template.glowAssetKey
     effect.sparkleAssetKey = template.sparkleAssetKey
-    
+
+    -- Adjust cone length to ensure it reaches the current target position
+    if effect.coneLength then
+        local dx = (effect.targetX or effect.sourceX) - effect.sourceX
+        local dy = (effect.targetY or effect.sourceY) - effect.sourceY
+        local dist = math.sqrt(dx * dx + dy * dy)
+        if dist > effect.coneLength then
+            effect.coneLength = dist
+        end
+    end
+
     -- Optional overrides
     effect.options = options or {}
     
