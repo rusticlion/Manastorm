@@ -39,7 +39,8 @@ Without the `visualShape` property, this spell would use the `remote_base` templ
 The `visualShape` property supports the following values:
 
 - `"beam"` - A sustained beam effect (uses `beam_base` template)
-- `"bolt"` or `"orb"` or `"zap"` - Projectile effects (use `proj_base` template)
+- `"bolt"` or `"orb"` - Projectile effects (use `proj_base` template)
+- `"zap"` - Lightning bolt effect (uses `zap_base` template)
 - `"blast"` or `"groundBurst"` - Area effects (use `zone_base` template)
 - `"warp"`, `"surge"`, or `"affectManaPool"` - Utility effects (use `util_base` template)
 - `"wings"` or `"mirror"` - Shield/barrier effects (use `shield_overlay` template)

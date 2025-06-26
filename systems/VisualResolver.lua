@@ -11,7 +11,7 @@ local TEMPLATE_BY_SHAPE = {
     
     -- Projectile-like effects
     ["beam"] = Constants.VFXType.BEAM_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.ZAP_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.ORB_BASE,
     
