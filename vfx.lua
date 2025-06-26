@@ -431,6 +431,25 @@ function VFX.init()
             criticalAssets = {"pixel", "twinkle1", "twinkle2"} -- Required assets
         },
 
+        wave_base = {
+            type = "wave_base",          -- Template name as type
+            duration = 1.2,
+            particleCount = 120,
+            startScale = 0.5,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            trailLength = 20,
+            impactSize = 1.4,
+            coreDensity = 0.4,
+            trailDensity = 0.6,
+            turbulence = 0.75,
+            arcHeight = 40,
+            particleLifespan = 0.7,
+            leadingIntensity = 1.6,
+            useSprites = false,
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"}
+        },
+
         conjure_base = {
             type = "conjure_base",        -- Template name as type
             duration = 0.8,
@@ -1687,6 +1706,7 @@ VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
 VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
 VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
 VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
+VFX.updaters["wave_base"] = ProjectileEffect.update  -- Flowing wave uses projectile logic
 VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
 VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
 VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
@@ -1716,6 +1736,7 @@ VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
 VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
 VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
 VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
+VFX.drawers["wave_base"] = ProjectileEffect.draw    -- Flowing wave uses projectile logic
 VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
 VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
 VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
