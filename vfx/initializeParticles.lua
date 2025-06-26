@@ -18,6 +18,7 @@ local function initializeParticles(effect)
         ["proj_base"] = "projectile",
         ["bolt_base"] = "projectile",
         ["orb_base"] = "projectile",
+        ["zap_base"] = "zap",
         ["impact_base"] = "impact",
         ["beam_base"] = "beam",
         ["blast_base"] = "cone",
