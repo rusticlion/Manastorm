@@ -127,7 +127,6 @@ Constants.ShieldType = {
 }
 
 -- Attack types for spells
--- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
 -- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
     PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
