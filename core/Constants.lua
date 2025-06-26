@@ -362,6 +362,7 @@ Constants.VFXType = {
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
     BOLT_BASE = "bolt_base",       -- Base bolt effect
+    ZAP_BASE = "zap_base",        -- Base zap lightning effect
     ORB_BASE = "orb_base",         -- Base orb effect (lobbed arc projectile)
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)

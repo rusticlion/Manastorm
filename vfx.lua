@@ -118,6 +118,13 @@ function VFX.init()
             "assets/sprites/warp/warp3.png"
         },
 
+        -- Zap effects
+        zapFrames = {
+            "assets/sprites/zap/zap1.png",
+            "assets/sprites/zap/zap2.png",
+            "assets/sprites/zap/zap3.png"
+        },
+
         -- Pixel primitive
         pixel = "assets/sprites/1px.png",
 
@@ -200,6 +207,19 @@ function VFX.init()
             print("[VFX] Warning: Failed to preload warp frame asset: " .. warpPath)
         end
     end
+
+    -- Preload zap frames for the zap effects
+    print("[VFX] Preloading zap frame assets")
+    VFX.assets.zapFrames = {}
+    for i, zapPath in ipairs(VFX.assetPaths.zapFrames) do
+        print("[VFX] Preloading zap frame " .. i)
+        local zapImg = AssetCache.getImage(zapPath)
+        if zapImg then
+            table.insert(VFX.assets.zapFrames, zapImg)
+        else
+            print("[VFX] Warning: Failed to preload zap frame asset: " .. zapPath)
+        end
+    end
     
     -- Effect definitions keyed by effect name
     VFX.effects = {
@@ -249,6 +269,16 @@ function VFX.init()
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+
+        zap_base = {
+            type = "zap_base",
+            duration = 0.6,
+            color = Constants.Color.GRAY,
+            segmentLength = 20,
+            useSourcePosition = true,
+            useTargetPosition = true,
+            criticalAssets = {"zapFrames"}
         },
 
         orb_base = {
@@ -1637,12 +1667,14 @@ local ConjureEffect = require("vfx.effects.conjure")
 local SurgeEffect = require("vfx.effects.surge")
 local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
+local ZapEffect = require("vfx.effects.zap")
 
 -- Initialize the updaters table with update functions
 -- Map each template name/type to the appropriate handler
 VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
 VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
 VFX.updaters["orb_base"] = ProjectileEffect.update   -- Orb uses projectile logic
+VFX.updaters["zap_base"] = ZapEffect.update        -- Zap lightning effect
 VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
 VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
 VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
@@ -1671,6 +1703,7 @@ VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
 VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
 VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
 VFX.drawers["orb_base"] = ProjectileEffect.draw     -- Orb uses projectile logic
+VFX.drawers["zap_base"] = ZapEffect.draw          -- Zap lightning effect
 VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
 VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
 VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
