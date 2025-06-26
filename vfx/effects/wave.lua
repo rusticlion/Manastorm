@@ -25,6 +25,8 @@ local function initializeWave(effect)
         p.initialSpeed = 150 + math.random() * 50
         p.scale = effect.startScale * (1.2 + math.random() * 0.3)
         p.lifespan = effect.duration * (0.8 + math.random() * 0.2)
+        -- Use turbulence to vary how far particles spread along the wavefront
+        p.turbulenceFactor = (math.random() - 0.5) * (effect.turbulence * 2)
         table.insert(effect.particles, p)
     end
 
@@ -67,8 +69,10 @@ local function updateWave(effect, dt)
                 local targetX, targetY
                 if p.isFront then
                     local angleToTarget = math.atan2(effect.targetY - p.y, effect.targetX - p.x)
-                    targetX = effect.targetX + math.cos(angleToTarget + math.pi / 2) * (p.turbulenceFactor * effect.wavefrontWidth)
-                    targetY = effect.targetY + math.sin(angleToTarget + math.pi / 2) * (p.turbulenceFactor * effect.wavefrontWidth)
+                    -- Default turbulenceFactor to 0 to avoid nil errors
+                    local tf = p.turbulenceFactor or 0
+                    targetX = effect.targetX + math.cos(angleToTarget + math.pi / 2) * (tf * effect.wavefrontWidth)
+                    targetY = effect.targetY + math.sin(angleToTarget + math.pi / 2) * (tf * effect.wavefrontWidth)
                 else
                     targetX = effect.targetX
                     targetY = effect.targetY
