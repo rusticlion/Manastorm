@@ -16,6 +16,7 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local Settings = require("core.Settings")
+local Tips = require("core.Tips")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
@@ -89,7 +90,8 @@ game = {
     baseHeight = baseHeight,
     scale = scale,
     offsetX = offsetX,
-    offsetY = offsetY
+    offsetY = offsetY,
+    currentTip = nil
 }
 
 -- Helper function to trigger screen shake
@@ -339,6 +341,9 @@ function love.load()
     
     -- Set default font for normal rendering
     love.graphics.setFont(game.font)
+
+    -- Load gameplay tips
+    Tips.load("assets/text/tips.json")
     
     -- Create mana pool positioned above the battlefield, but below health bars
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
@@ -525,6 +530,7 @@ function resetGame()
     game.gameOver = false
     game.winner = nil
     game.winScreenTimer = 0
+    game.currentTip = nil
     
     -- Reset wizards
     for _, wizard in ipairs(game.wizards) do
@@ -1251,6 +1257,7 @@ function love.update(dt)
             -- Transition to game over state
             game.currentState = "GAME_OVER"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
         
@@ -1288,9 +1295,10 @@ function love.update(dt)
                 end
                 
                 print(winner.name .. " wins!")
-                
+
                 -- Transition to game over state
                 game.currentState = "GAME_OVER"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -1354,6 +1362,7 @@ function love.update(dt)
             -- Transition to attract mode game over state
             game.currentState = "GAME_OVER_ATTRACT"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
 
@@ -1394,6 +1403,7 @@ function love.update(dt)
 
                 -- Transition to game over state
                 game.currentState = "GAME_OVER_ATTRACT"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -1724,6 +1734,20 @@ function drawWinScreen()
             screenWidth / 2 - countdownTextWidth / 2,
             textY + 200
         )
+    end
+
+    -- Draw gameplay tip overlay
+    if game.currentTip then
+        love.graphics.setColor(0, 0, 0, 0.6)
+        love.graphics.rectangle("fill", 0, screenHeight - 110, screenWidth, 110)
+
+        love.graphics.setColor(1, 1, 1, 0.9)
+        local header = "TIP: " .. game.currentTip.title
+        love.graphics.printf(header, 20, screenHeight - 100, screenWidth - 40, "center")
+
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        local body = game.currentTip.content .. " - " .. game.currentTip.source
+        love.graphics.printf(body, 20, screenHeight - 80, screenWidth - 40, "center")
     end
     
     -- Draw some victory effect particles
