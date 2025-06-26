@@ -14,6 +14,7 @@ local TEMPLATE_BY_SHAPE = {
     ["zap"] = Constants.VFXType.ZAP_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
     ["orb"] = Constants.VFXType.ORB_BASE,
+    ["wave"] = Constants.VFXType.WAVE_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template

@@ -372,6 +372,7 @@ Constants.VFXType = {
     BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    WAVE_BASE = "wave_base",       -- Base flowing wave effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
