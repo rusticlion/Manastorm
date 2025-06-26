@@ -1,450 +1,87 @@
--- cone.lua
--- Cone VFX module for handling cone/blast effects
-
--- Import dependencies
-local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
-
--- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
 
--- Helper functions needed for cone effects
-local function getAssetInternal(assetId)
-    -- Lazy-load VFX module to avoid circular dependencies
+local function getAsset(assetId)
     if not VFX then
-        -- Use a relative path that works with LÖVE's require system
-        VFX = require("vfx") -- This will look for vfx.lua in the game's root directory
+        VFX = require("vfx")
     end
-    
-    -- Use the main VFX module's getAsset function
     return VFX.getAsset(assetId)
 end
 
--- Update function for cone effects
-local function updateCone(effect, dt)
-    -- Initialize effect default values if not already set
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.color = effect.color or {1, 1, 1} -- Default color (white)
-    effect.waveCount = effect.waveCount or 3 -- Default wave count
-    effect.coneAngle = effect.coneAngle or 70 -- Default cone angle (degrees)
-    effect.beamDist = effect.beamDist or 200 -- Default beam distance
-    effect.waveCrestSize = effect.waveCrestSize or 1.0 -- Default wave crest size
-    effect.useSourcePosition = (effect.useSourcePosition ~= false) -- Default to true
-    effect.useTargetPosition = (effect.useTargetPosition ~= false) -- Default to true
-    effect.followSourceEntity = (effect.followSourceEntity ~= false) -- Default to true
-    effect.followTargetEntity = (effect.followTargetEntity ~= false) -- Default to true
-    
-    -- Update source position if we're tracking an entity
-    if effect.useSourcePosition and effect.followSourceEntity and effect.sourceEntity then
-        -- If the source entity has a position, update our source position
-        if effect.sourceEntity.x and effect.sourceEntity.y then
-            effect.sourceX = effect.sourceEntity.x
-            effect.sourceY = effect.sourceEntity.y
-            
-            -- Apply any entity offsets if present
-            if effect.sourceEntity.currentXOffset and effect.sourceEntity.currentYOffset then
-                effect.sourceX = effect.sourceX + effect.sourceEntity.currentXOffset
-                effect.sourceY = effect.sourceY + effect.sourceEntity.currentYOffset
-            end
-        end
-    end
-    
-    -- Update target position if we're tracking an entity
-    if effect.useTargetPosition and effect.followTargetEntity and effect.targetEntity then
-        -- If the target entity has a position, update our target position
-        if effect.targetEntity.x and effect.targetEntity.y then
-            effect.targetX = effect.targetEntity.x
-            effect.targetY = effect.targetEntity.y
-            
-            -- Apply any entity offsets if present
-            if effect.targetEntity.currentXOffset and effect.targetEntity.currentYOffset then
-                effect.targetX = effect.targetX + effect.targetEntity.currentXOffset
-                effect.targetY = effect.targetY + effect.targetEntity.currentYOffset
-            end
-        end
-    end
-    
-    -- Calculate the base direction from source to target
+-- Initialize particles for a cone or blast effect
+local function initializeCone(effect)
+    effect.particles = {}
+
     local dirX = effect.targetX - effect.sourceX
     local dirY = effect.targetY - effect.sourceY
     local baseAngle = math.atan2(dirY, dirX)
-    
-    -- Update wave timing
-    local waveCount = effect.waveCount or 3
-    for i = 1, waveCount do
-        -- Calculate when this wave should start
-        local waveStartTime = (i - 1) * effect.duration * 0.3 / waveCount
-        
-        -- Update wave progress
-        if effect.timer >= waveStartTime then
-            -- Calculate how far this wave has traveled
-            local waveProgress = math.min(1.0, (effect.timer - waveStartTime) / (effect.duration * 0.8))
-            
-            -- Store wave progress for drawing
-            effect.waves = effect.waves or {}
-            effect.waves[i] = {
-                progress = waveProgress,
-                startTime = waveStartTime,
-                crestDelay = i * 0.05, -- Slight delay for the wave crest visualization
-                age = effect.timer - waveStartTime
-            }
-        end
+    local halfConeAngle = (effect.coneAngle * math.pi / 180) / 2
+
+    for i = 1, effect.particleCount do
+        local angle = baseAngle + (math.random() * 2 - 1) * halfConeAngle
+        local distance = math.random() * effect.coneLength
+        local waveIndex = math.floor(math.random() * (effect.waveCount or 3)) + 1
+
+        local p = ParticleManager.createConeParticle(effect, angle, distance, true, waveIndex)
+        p.delay = (waveIndex / effect.waveCount) * (effect.duration * 0.4)
+        table.insert(effect.particles, p)
     end
-    
-    -- Apply intensity multiplier based on range band
-    -- This makes close-range cones more powerful (wider, more intense colors)
-    if not effect.rangeFactorApplied then
-        if effect.rangeBand == "CLOSE" then
-            effect.coneAngle = effect.coneAngle * 1.2
-            effect.waveCrestSize = effect.waveCrestSize * 1.3
-            effect.currentIntensityMultiplier = 1.3
-        elseif effect.rangeBand == "MID" then
-            effect.coneAngle = effect.coneAngle * 1.1
-            effect.waveCrestSize = effect.waveCrestSize * 1.15
-            effect.currentIntensityMultiplier = 1.15
-        elseif effect.rangeBand == "FAR" then
-            -- Default, no change
-            effect.currentIntensityMultiplier = 1.0
-        else
-            -- Default, no change
-            effect.currentIntensityMultiplier = 1.0
-        end
-        
-        effect.rangeFactorApplied = true
-    end
-    
-    -- Add particles at cone edges and along the waves
-    if math.random() < 0.3 then
-        -- Calculate cone properties
-        local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
-        local beamDist = effect.beamDist or 200
-        
-        -- Spawn particles along current wave fronts
-        if effect.waves then
-            for i, wave in ipairs(effect.waves) do
-                -- Only add particles if the wave has started but not fully dissipated
-                if wave.progress > 0 and wave.progress < 0.9 then
-                    -- Calculate wave position (distance from source)
-                    local waveDist = beamDist * wave.progress
-                    
-                    -- Add particles along the wave front
-                    local numParticles = math.random(1, 3)
-                    for j = 1, numParticles do
-                        -- Calculate random angle within the cone
-                        local randomAngleOffset = (math.random() * 2 - 1) * coneAngleRad / 2
-                        local particleAngle = baseAngle + randomAngleOffset
-                        
-                        -- Calculate position
-                        local distanceVariation = math.random() * 10 - 5
-                        local particleDist = waveDist + distanceVariation
-                        local particleX = effect.sourceX + math.cos(particleAngle) * particleDist
-                        local particleY = effect.sourceY + math.sin(particleAngle) * particleDist
-                        
-                        -- Create particle
-                        local particle = {
-                            x = particleX,
-                            y = particleY,
-                            angle = particleAngle,
-                            scale = math.random(10, 30) / 100,
-                            alpha = math.random() * 0.7 + 0.3,
-                            life = 0,
-                            maxLife = math.random() * 0.2 + 0.1,
-                            active = true
-                        }
-                        
-                        table.insert(effect.particles, particle)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Update existing particles
+end
+
+-- Update all particles in the cone each frame
+local function updateCone(effect, dt)
     local i = 1
     while i <= #effect.particles do
-        local particle = effect.particles[i]
-        
-        -- Skip invalid particles
-        if not particle then
-            table.remove(effect.particles, i)
-            goto next_particle
+        local p = effect.particles[i]
+
+        if effect.timer >= p.delay and not p.active then
+            p.active = true
+            p.age = 0
+            p.startX = effect.sourceX
+            p.startY = effect.sourceY
         end
-        
-        -- Initialize any missing particle properties
-        particle.life = particle.life or 0
-        particle.maxLife = particle.maxLife or 0.3
-        particle.alpha = particle.alpha or 1.0
-        particle.scale = particle.scale or 0.2
-        
-        -- Update particle lifetime
-        particle.life = particle.life + dt
-        
-        -- Remove expired particles
-        if particle.life >= particle.maxLife then
-            table.remove(effect.particles, i)
-        else
-            -- Update particle properties
-            local lifeProgress = particle.life / particle.maxLife
-            
-            -- Fade out
-            particle.alpha = (1.0 - lifeProgress) * particle.alpha
-            
-            -- Grow slightly then shrink
-            particle.scale = particle.scale * (1.0 + lifeProgress * 0.3 - lifeProgress * lifeProgress * 0.6)
-            
-            -- Move to next particle
-            i = i + 1
+
+        if p.active then
+            p.age = p.age + dt
+            local lifeProgress = math.min(1.0, p.age / (effect.duration - p.delay))
+            local currentDist = p.distance * lifeProgress
+            p.x = p.startX + math.cos(p.angle) * currentDist
+            p.y = p.startY + math.sin(p.angle) * currentDist
+            p.alpha = math.sin(lifeProgress * math.pi)
         end
-        
-        ::next_particle::
+
+        i = i + 1
     end
 end
 
--- Draw function for cone effects
+-- Draw all particles for the cone effect
 local function drawCone(effect)
-    -- Initialize effect default values if not already set
-    effect.color = effect.color or {1, 1, 1} -- Default color (white)
-    effect.waves = effect.waves or {} -- Initialize waves array if nil
-    effect.particles = effect.particles or {} -- Initialize particles array if nil
-    effect.coneAngle = effect.coneAngle or 70 -- Default cone angle (degrees)
-    effect.beamDist = effect.beamDist or 200 -- Default beam distance
-    effect.currentIntensityMultiplier = effect.currentIntensityMultiplier or 1.0 -- Default intensity multiplier
-    
-    -- Get assets
-    local particleImage = getAssetInternal("sparkle")
-    local glowImage = getAssetInternal("fireGlow") -- For enhanced glow effects
-    
-    -- Get intensity multiplier for range-based effects
-    local intensityMult = effect.currentIntensityMultiplier or 1.0
-    
-    -- Draw background glow for the entire cone area at the beginning
-    if effect.progress < 0.5 then
-        -- Calculate cone properties
-        local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
-        local baseAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
-        local beamDist = effect.beamDist or 200
-        
-        -- Calculate glow alpha based on progress
-        local glowAlpha = 0.3 * (0.5 - effect.progress) / 0.5
-        
-        -- Draw ambient background glow for the cone area
-        local trianglePoints = {}
-        
-        -- Start from source point
-        table.insert(trianglePoints, effect.sourceX)
-        table.insert(trianglePoints, effect.sourceY)
-        
-        -- Number of points to create a smooth cone edge
-        local numPoints = 10
-        for i = 0, numPoints do
-            local angle = baseAngle - coneAngleRad/2 + i * (coneAngleRad / numPoints)
-            local x = effect.sourceX + math.cos(angle) * beamDist
-            local y = effect.sourceY + math.sin(angle) * beamDist
-            table.insert(trianglePoints, x)
-            table.insert(trianglePoints, y)
-        end
-        
-        -- Draw cone glow background
-        love.graphics.setColor(effect.color[1] * 0.5, effect.color[2] * 0.5, effect.color[3] * 0.5, glowAlpha)
-        love.graphics.polygon("fill", trianglePoints)
-    end
-    
-    -- Draw the wave bands
-    if effect.waves then
-        for i, wave in ipairs(effect.waves) do
-            -- Only draw if wave has started
-            if wave.progress > 0 then
-                -- Calculate wave properties
-                local waveFront = wave.progress
-                local waveBack = math.max(0, waveFront - 0.2)
-                local waveFade = math.min(1.0, (1.0 - wave.progress) * 2)
-                
-                -- Calculate cone properties
-                local coneAngleRad = (effect.coneAngle or 70) * math.pi / 180
-                local baseAngle = math.atan2(effect.targetY - effect.sourceY, effect.targetX - effect.sourceX)
-                local beamDist = effect.beamDist or 200
-                
-                -- Calculate color based on effect color
-                local r = effect.color[1] * intensityMult
-                local g = effect.color[2] * intensityMult
-                local b = effect.color[3] * intensityMult
-                local a = 0.7 * waveFade
-                
-                -- Draw the wave segments
-                local segments = 10
-                local prevX1, prevY1, prevX2, prevY2 = nil, nil, nil, nil
-                
-                for j = 0, segments do
-                    -- Calculate angle for this segment
-                    local segmentAngle = baseAngle - coneAngleRad/2 + j * (coneAngleRad / segments)
-                    
-                    -- Calculate front and back points of the wave
-                    local x1 = effect.sourceX + math.cos(segmentAngle) * (beamDist * waveFront)
-                    local y1 = effect.sourceY + math.sin(segmentAngle) * (beamDist * waveFront)
-                    local x2 = effect.sourceX + math.cos(segmentAngle) * (beamDist * waveBack)
-                    local y2 = effect.sourceY + math.sin(segmentAngle) * (beamDist * waveBack)
-                    
-                    -- Draw the wave segment if we have a previous point
-                    if prevX1 ~= nil then
-                        -- Draw the wave segment
-                        love.graphics.setColor(r, g, b, a)
-                        love.graphics.polygon("fill", x1, y1, prevX1, prevY1, prevX2, prevY2, x2, y2)
-                    end
-                    
-                    -- Add extra glow points at wave crest with additive blending
-                    if waveFront > 0.2 and j % 3 == 1 then
-                        local glowSize = waveFront * (effect.waveCrestSize or 1.0) * 15
-                        love.graphics.setColor(r, g, b, waveFront * 0.7)
-                        
-                        -- Save current blend mode and set to additive for the brightest elements
-                        local prevMode = {love.graphics.getBlendMode()}
-                        love.graphics.setBlendMode("add")
-                        
-                        love.graphics.circle("fill", (x1 + prevX1)/2, (y1 + prevY1)/2, glowSize * intensityMult)
-                        
-                        -- Restore previous blend mode
-                        love.graphics.setBlendMode(prevMode[1], prevMode[2])
-                    end
-                    
-                    -- Store current points as previous for next segment
-                    prevX1, prevY1, prevX2, prevY2 = x1, y1, x2, y2
-                end
+    local sparkleAsset = getAsset(effect.sparkleAssetKey or "sparkle")
+    love.graphics.setBlendMode("add")
+
+    for _, p in ipairs(effect.particles) do
+        if p.active and p.alpha > 0 then
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], p.alpha)
+            if sparkleAsset then
+                love.graphics.draw(
+                    sparkleAsset,
+                    p.x,
+                    p.y,
+                    p.angle,
+                    p.scale,
+                    p.scale,
+                    sparkleAsset:getWidth() / 2,
+                    sparkleAsset:getHeight() / 2
+                )
             end
         end
     end
-    
-    -- Draw source glow (brighter at the beginning)
-    local sourceGlowSize = 10 + 40 * (1.0 - effect.progress)
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7 * (1.0 - effect.progress))
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, sourceGlowSize)
-    
-    -- Draw particles
-    for _, particle in ipairs(effect.particles) do
-        -- Skip invalid or inactive particles
-        if not particle or not particle.active then
-            goto next_draw_particle
-        end
-        
-        -- Ensure required properties exist
-        particle.alpha = particle.alpha or 1.0
-        particle.scale = particle.scale or 0.2
-        particle.x = particle.x or effect.sourceX
-        particle.y = particle.y or effect.sourceY
-        
-        -- Draw the particle
-        love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.8)
-        
-        if particleImage then
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
-        else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
-        end
-        
-        ::next_draw_particle::
-    end
+
+    love.graphics.setBlendMode("alpha")
 end
 
--- Initialize function for cone effects
-local function initializeCone(effect)
-    -- For conical blast effects
-    -- Calculate the base direction from source to target
-    local dirX = effect.targetX - effect.sourceX
-    local dirY = effect.targetY - effect.sourceY
-    local baseAngle = math.atan2(dirY, dirX)
-
-    -- Convert cone angle from degrees to radians
-    local coneAngleRad = (effect.coneAngle or 60) * math.pi / 180
-    local halfConeAngle = coneAngleRad / 2
-
-    -- Set up wave parameters
-    local waveCount = effect.waveCount or 3
-
-    -- Calculate effect properties based on range and elevation
-    local intensityMultiplier = 1.0
-    if effect.rangeBand == Constants.RangeState.NEAR and effect.nearRangeIntensity then
-        intensityMultiplier = intensityMultiplier * effect.nearRangeIntensity
-    end
-
-    -- Create particles for the cone blast
-    for i = 1, effect.particleCount do
-        -- Determine if this particle is part of a wave or general cone fill
-        local isWaveParticle = i <= math.floor(effect.particleCount * 0.45) -- 45% of particles for waves
-
-        -- Random position within the cone but with focus toward center if focusedCore enabled
-        local angleOffset
-
-        if effect.focusedCore then
-            -- Apply quadratic distribution to concentrate particles near center
-            -- Use squared random value to cluster toward cone center
-            local angleRand = math.random()
-            -- Apply bias toward center (squared distribution pushes values toward 0)
-            angleRand = (angleRand * 2 - 1) * (angleRand * 2 - 1) * (angleRand > 0.5 and 1 or -1)
-            angleOffset = angleRand * halfConeAngle
-        else
-            -- Standard uniform distribution across cone
-            angleOffset = (math.random() * 2 - 1) * halfConeAngle
-        end
-
-        local angle = baseAngle + angleOffset
-
-        -- Distance based on position in the cone (closer to edge or center)
-        local maxDistance = effect.coneLength or 320
-
-        -- For longer cone, we want more particles toward the end
-        local distanceRand
-        if math.random() < 0.6 then
-            -- 60% chance for farther particles
-            distanceRand = math.random() * 0.5 + 0.5 -- 0.5 to 1.0
-        else
-            -- 40% chance for closer particles
-            distanceRand = math.random() * 0.5 -- 0.0 to 0.5
-        end
-
-        local distance = maxDistance * distanceRand
-
-        -- Create the particle using ParticleManager
-        local waveIndex = 0
-        if isWaveParticle and effect.waveCrest then
-            waveIndex = math.floor(math.random() * waveCount) + 1
-        end
-
-        local particle = ParticleManager.createConeParticle(effect, angle, distance, isWaveParticle, waveIndex)
-
-        -- For focused cone, make particles in the center brighter and larger
-        if effect.focusedCore and not isWaveParticle then
-            -- Calculate distance from center angle
-            local angleDiff = math.abs(angle - baseAngle) / halfConeAngle -- 0 at center, 1 at edge
-            -- Particles closer to center get enhancements
-            if angleDiff < 0.4 then
-                local centerBoost = (1.0 - angleDiff/0.4) * 0.5
-                particle.scale = particle.scale * (1 + centerBoost)
-                particle.alpha = particle.alpha * (1 + centerBoost * 0.5)
-            end
-        end
-
-        -- Apply intensity multiplier
-        particle.intensityMultiplier = intensityMultiplier
-
-        table.insert(effect.particles, particle)
-    end
-
-    -- Flag to track which waves have started
-    effect.waveStarted = {}
-    for i = 1, waveCount do
-        effect.waveStarted[i] = false
-    end
-end
-
--- Return the module
 return {
     initialize = initializeCone,
     update = updateCone,
-    draw = drawCone
+    draw = drawCone,
 }
