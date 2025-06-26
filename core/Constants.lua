@@ -140,6 +140,7 @@ Constants.VisualShape = {
     BOLT = "bolt",
     BEAM = "beam",
     BLAST = "blast",
+    ZAP = "zap",
     CONE = "cone",
     REMOTE = "remote",
     METEOR = "meteor",
