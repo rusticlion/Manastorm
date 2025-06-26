@@ -1107,9 +1107,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     if opts.scale then
         -- Apply scale factor to particle counts, sizes, radii, etc.
         local scaleFactor = opts.scale
-        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
-        effect.startScale = effect.startScale * scaleFactor
-        effect.endScale = effect.endScale * scaleFactor
+        if effect.particleCount then
+            effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        end
+        if effect.startScale then
+            effect.startScale = effect.startScale * scaleFactor
+        end
+        if effect.endScale then
+            effect.endScale = effect.endScale * scaleFactor
+        end
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
