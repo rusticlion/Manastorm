@@ -360,29 +360,21 @@ function VFX.init()
 
         blast_base = {
             type = "blast_base",          -- Template name as type
-            duration = 1.3,               -- Even longer duration for more dramatic impact
-            particleCount = 95,           -- More particles for density and impact
-            startScale = 0.45,            -- Larger starting scale
-            endScale = 1.35,              -- Larger end scale for dramatic growth
-            color = Constants.Color.GRAY, -- Default color, will be overridden
-            coneAngle = 45,               -- Narrower cone angle (45° instead of 70°)
-            coneLength = 320,             -- Much longer range for dramatic reach
-            waveCount = 5,                -- More waves for increased visual impact
-            waveSpeed = 350,              -- Faster wave propagation
-            nearRangeIntensity = 2.2,     -- Stronger intensity multiplier at NEAR range
-            matchedElevationIntensity = 1.7, -- Stronger multiplier for matched elevation
-            useSourcePosition = true,     -- Track source (caster) position
-            motionStyle = Constants.MotionStyle.DIRECTIONAL, -- Directional movement for particles
-            waveCrest = true,             -- Enable wave crest visual effect
-            waveCrestSize = 2.2,          -- Even larger wave crests
-            turbulence = 0.35,            -- Slightly reduced turbulence for more focused beam
-            leadingEdgeGlow = true,       -- Add bright leading edge to waves
-            particleSizeVariance = 0.6,   -- Greater size variance for particles
-            wavePersistence = 0.9,        -- How long waves remain visible (new parameter)
-            trailingGlowStrength = 0.8,   -- Strength of glow trail behind waves (new parameter)
-            sound = nil,                  -- No default sound
-            intensityFalloff = 0.65,      -- Control how quickly intensity drops with distance
-            focusedCore = true            -- Concentrate particles in center of cone (new parameter)
+            duration = 1.3,               -- Allow waves to fade out
+            particleCount = 95,           -- Dense burst of particles
+            startScale = 0.45,
+            endScale = 1.35,
+            color = Constants.Color.GRAY, -- Default color, overridden by resolver
+            coneAngle = 45,               -- Focused 45-degree cone
+            coneLength = 320,
+            waveCount = 5,
+            waveSpeed = 350,
+            useSourcePosition = true,
+            motionStyle = Constants.MotionStyle.DIRECTIONAL,
+            waveCrest = true,
+            waveCrestSize = 2.2,
+            turbulence = 0.35,
+            focusedCore = true,
         },
 
         zone_base = {
