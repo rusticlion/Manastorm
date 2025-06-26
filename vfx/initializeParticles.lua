@@ -25,7 +25,7 @@ local function initializeParticles(effect)
         ["zone_base"] = "aura",
         ["util_base"] = "aura",
         ["surge_base"] = "surge",
-        ["wave_base"] = "projectile",
+        ["wave_base"] = "wave",
         ["conjure_base"] = "conjure",
         ["remote_base"] = "remote",
         ["warp_base"] = "remote",

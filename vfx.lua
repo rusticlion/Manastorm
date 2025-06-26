@@ -433,21 +433,23 @@ function VFX.init()
 
         wave_base = {
             type = "wave_base",          -- Template name as type
-            duration = 1.2,
-            particleCount = 120,
-            startScale = 0.5,
-            endScale = 0.9,
+            duration = 1.5,
+            particleCount = 150,
+            startScale = 0.6,
             color = Constants.Color.GRAY,  -- Default color, will be overridden
-            trailLength = 20,
-            impactSize = 1.4,
-            coreDensity = 0.4,
-            trailDensity = 0.6,
-            turbulence = 0.75,
+
+            -- Wave-specific parameters
             arcHeight = 40,
-            particleLifespan = 0.7,
-            leadingIntensity = 1.6,
-            useSprites = false,
-            criticalAssets = {"pixel", "twinkle1", "twinkle2"}
+            turbulence = 0.8,
+            coalescePoint = 0.4,
+            wavefrontWidth = 50,
+            impactRadius = 60,
+
+            -- Asset keys for particles
+            glowAssetKey = "twinkle1",
+            sparkleAssetKey = "pixel",
+
+            criticalAssets = {"pixel", "twinkle1"}
         },
 
         conjure_base = {
@@ -826,6 +828,11 @@ function VFX.resetEffect(effect)
     effect.pulseAmount = nil
     effect.glowIntensity = nil
     effect.particleDensity = nil
+    effect.coalescePoint = nil
+    effect.wavefrontWidth = nil
+    effect.impactRadius = nil
+    effect.glowAssetKey = nil
+    effect.sparkleAssetKey = nil
     effect.beamProgress = nil
     effect.beamLength = nil
     effect.beamAngle = nil
@@ -1184,6 +1191,11 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     effect.pulseAmount = template.pulseAmount
     effect.glowIntensity = template.glowIntensity
     effect.particleDensity = template.particleDensity
+    effect.coalescePoint = template.coalescePoint
+    effect.wavefrontWidth = template.wavefrontWidth
+    effect.impactRadius = template.impactRadius
+    effect.glowAssetKey = template.glowAssetKey
+    effect.sparkleAssetKey = template.sparkleAssetKey
     
     -- Optional overrides
     effect.options = options or {}
@@ -1690,6 +1702,7 @@ local ConeEffect = require("vfx.effects.cone")
 local AuraEffect = require("vfx.effects.aura")
 local ConjureEffect = require("vfx.effects.conjure")
 local SurgeEffect = require("vfx.effects.surge")
+local WaveEffect = require("vfx.effects.wave")
 local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
 local ZapEffect = require("vfx.effects.zap")
@@ -1706,7 +1719,7 @@ VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
 VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
 VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
 VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
-VFX.updaters["wave_base"] = ProjectileEffect.update  -- Flowing wave uses projectile logic
+VFX.updaters["wave_base"] = WaveEffect.update        -- Flowing wave uses custom logic
 VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
 VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
 VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
@@ -1736,7 +1749,7 @@ VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
 VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
 VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
 VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
-VFX.drawers["wave_base"] = ProjectileEffect.draw    -- Flowing wave uses projectile logic
+VFX.drawers["wave_base"] = WaveEffect.draw          -- Flowing wave uses custom logic
 VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
 VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
 VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
