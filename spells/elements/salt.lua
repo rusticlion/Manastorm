@@ -194,6 +194,7 @@ SaltSpells.shieldbreaker = {
     affinity = "salt",
     description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {

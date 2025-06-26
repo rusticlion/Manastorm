@@ -1,5 +1,5 @@
 # Manastorm Codebase Dump
-Generated: Fri May 23 16:18:44 CDT 2025
+Generated: Thu Jun 26 14:09:07 CDT 2025
 
 # Source Code
 
@@ -411,12 +411,23 @@ function OpponentAI:decide()
     end
     
     -- If we found a specific spell and have a slot for it, cast it
-    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-        return {
-            type = "CAST_SPELL",
-            spell = spell,
-            reason = reason
-        }
+    if spell and self:hasAvailableSpellSlot() then
+        -- Evaluate dynamic cost if provided
+        local costToEvaluate
+        if spell.getCost then
+            costToEvaluate = spell.getCost(self.wizard, self.playerWizard)
+        else
+            costToEvaluate = spell.cost
+        end
+
+        local canAfford = self.wizard:canPayManaCost(costToEvaluate)
+        if canAfford then
+            return {
+                type = "CAST_SPELL",
+                spell = spell,
+                reason = reason
+            }
+        end
     end
     
     -- Return the general action if no specific spell was found or affordable
@@ -1509,6 +1520,7 @@ characterData.Ashgar = {
         Spells.eruption,
         Spells.combustMana,
         Spells.blazingAscent,
+        Spells.desperationFire,
     },
     campaignOpponents = {"Selene", "Silex", "Borrak"}
 }
@@ -1534,6 +1546,7 @@ characterData.Selene = {
         Spells.fullmoonbeam,
         Spells.lunardisjunction,
         Spells.lunarTides,
+        Spells.moonDrain,
     },
     campaignOpponents = {"Ashgar", "Borrak", "Silex"}
 }
@@ -1646,7 +1659,8 @@ function love.conf(t)
     t.console = true
     
     -- Disable unused modules
-    t.modules.joystick = false
+    -- Enable joystick module for gamepad input
+    t.modules.joystick = true
     t.modules.physics = false
 end```
 
@@ -1961,7 +1975,6 @@ Constants.ShieldType = {
 }
 
 -- Attack types for spells
--- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
 -- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
     PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
@@ -1974,6 +1987,7 @@ Constants.VisualShape = {
     BOLT = "bolt",
     BEAM = "beam",
     BLAST = "blast",
+    ZAP = "zap",
     CONE = "cone",
     REMOTE = "remote",
     METEOR = "meteor",
@@ -2196,6 +2210,8 @@ Constants.VFXType = {
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
     BOLT_BASE = "bolt_base",       -- Base bolt effect
+    ZAP_BASE = "zap_base",        -- Base zap lightning effect
+    ORB_BASE = "orb_base",         -- Base orb effect (lobbed arc projectile)
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     WARP_BASE = "warp_base",       -- Base warp effect (reality distortion)
@@ -2203,6 +2219,7 @@ Constants.VFXType = {
     BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    WAVE_BASE = "wave_base",       -- Base flowing wave effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
@@ -2288,6 +2305,45 @@ function Constants.isValidVFXType(value)
     return false
 end
 
+-- Abstract game actions for input mapping
+Constants.ControlAction = {
+    -- Player 1 actions
+    P1_SLOT1 = "p1_slot1",
+    P1_SLOT2 = "p1_slot2",
+    P1_SLOT3 = "p1_slot3",
+    P1_CAST  = "p1_cast",
+    P1_FREE  = "p1_free",
+    P1_BOOK  = "p1_book",
+    P1_SLOT1_RELEASE = "p1_slot1_release",
+    P1_SLOT2_RELEASE = "p1_slot2_release",
+    P1_SLOT3_RELEASE = "p1_slot3_release",
+
+    -- Player 2 actions
+    P2_SLOT1 = "p2_slot1",
+    P2_SLOT2 = "p2_slot2",
+    P2_SLOT3 = "p2_slot3",
+    P2_CAST  = "p2_cast",
+    P2_FREE  = "p2_free",
+    P2_BOOK  = "p2_book",
+    P2_SLOT1_RELEASE = "p2_slot1_release",
+    P2_SLOT2_RELEASE = "p2_slot2_release",
+    P2_SLOT3_RELEASE = "p2_slot3_release",
+
+    -- Menu navigation
+    MENU_UP    = "menu_up",
+    MENU_DOWN  = "menu_down",
+    MENU_LEFT  = "menu_left",
+    MENU_RIGHT = "menu_right",
+
+    -- Menu actions
+    MENU_CONFIRM      = "menu_confirm",
+    MENU_CANCEL_BACK  = "menu_cancel_back",
+
+    -- System actions
+    SYS_TOGGLE_DEBUG   = "sys_toggle_debug",
+    SYS_QUIT_MENU_BACK = "sys_quit_menu_back"
+}
+
 -- Motion styles for VFX particles
 Constants.MotionStyle = {
     RADIAL = "radial",     -- Particles expand outward in all directions (default)
@@ -2309,7 +2365,8 @@ function Constants.getAllMotionStyles()
     return styles
 end
 
-return Constants```
+return Constants
+```
 
 ## ./core/Input.lua
 ```lua
@@ -2317,30 +2374,47 @@ return Constants```
 -- Unified input routing system for Manastorm
 
 local Input = {}
+local Constants = require("core.Constants")
 
 -- Store a reference to the game state for routing
 local gameState = nil
+Input.controls = nil
+
+-- States considered to have a menu active
+local MENU_STATES = {
+    MENU = true,
+    SETTINGS = true,
+    CHARACTER_SELECT = true,
+    COMPENDIUM = true,
+    CAMPAIGN_MENU = true,
+    CAMPAIGN_VICTORY = true,
+    CAMPAIGN_DEFEAT = true
+}
 
 -- Set up input routes by category
 Input.Routes = {
     -- System-level controls (scaling, fullscreen, quit)
     system = {},
-    
-    -- Player 1 controls
-    p1 = {},
-    
-    -- Player 2 controls
-    p2 = {},
-    
+
+    -- Player 1 keyboard controls
+    p1_kb = {},
+
+    -- Player 2 keyboard controls
+    p2_kb = {},
+
+    -- Gamepad routes will be added later
+    gp1 = {},
+    gp2 = {},
+
     -- Debug controls (only available outside gameOver state)
     debug = {},
-    
+
     -- Test controls (only available outside gameOver state)
     test = {},
-    
+
     -- UI controls (available in any state)
     ui = {},
-    
+
     -- Game over state controls
     gameOver = {}
 }
@@ -2348,7 +2422,172 @@ Input.Routes = {
 -- Initialize with game state reference
 function Input.init(game)
     gameState = game
+    Input.controls = gameState.settings.get("controls")
     Input.setupRoutes()
+end
+
+-- Central dispatch for abstract control actions
+function Input.triggerAction(action, playerIndex, params)
+    local gs = gameState
+    if not gs then return false end
+
+    -- Player 1 actions
+    if action == Constants.ControlAction.P1_SLOT1 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P1_SLOT2 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P1_SLOT3 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P1_CAST and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
+        gs.wizards[1]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P1_FREE and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
+        gs.wizards[1]:freeAllSpells()
+    elseif action == Constants.ControlAction.P1_BOOK and playerIndex == 1 then
+        require("ui").toggleSpellbook(1)
+    elseif action == Constants.ControlAction.P1_SLOT1_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P1_SLOT2_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P1_SLOT3_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, false)
+
+    -- Player 2 actions
+    elseif action == Constants.ControlAction.P2_SLOT1 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P2_SLOT2 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P2_SLOT3 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P2_CAST and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
+        gs.wizards[2]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P2_FREE and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
+        gs.wizards[2]:freeAllSpells()
+    elseif action == Constants.ControlAction.P2_BOOK and playerIndex == 2 then
+        require("ui").toggleSpellbook(2)
+    elseif action == Constants.ControlAction.P2_SLOT1_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P2_SLOT2_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P2_SLOT3_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, false)
+
+    -- Menu/UI actions
+    elseif action == Constants.ControlAction.MENU_UP
+        or action == Constants.ControlAction.MENU_DOWN
+        or action == Constants.ControlAction.MENU_LEFT
+        or action == Constants.ControlAction.MENU_RIGHT
+        or action == Constants.ControlAction.MENU_CONFIRM
+        or action == Constants.ControlAction.MENU_CANCEL_BACK then
+        return Input.triggerUIAction(action, params)
+    else
+        return false
+    end
+    return true
+end
+
+-- Handle UI related actions based on current state
+function Input.triggerUIAction(action, params)
+    local gs = gameState
+    if not gs then return false end
+
+    if action == Constants.ControlAction.MENU_CANCEL_BACK then
+        if gs.currentState == "MENU" then
+            love.event.quit()
+        elseif gs.currentState == "BATTLE" then
+            gs.currentState = "MENU"
+        elseif gs.currentState == "GAME_OVER" then
+            gs.currentState = "MENU"
+            gs.resetGame()
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectBack(true)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.currentState = "MENU"
+            gs.campaignMenu = nil
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "SETTINGS" then
+            if gs.settingsBack then
+                gs.settingsBack()
+            else
+                gs.currentState = "MENU"
+            end
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.currentState = "MENU"
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_CONFIRM then
+        if gs.currentState == "MENU" then
+            gs.startCharacterSelect()
+            return true
+        elseif gs.currentState == "SETTINGS" then
+            gs.settingsSelect()
+            return true
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuConfirm()
+            return true
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectConfirm()
+            return true
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.retryCampaignBattle()
+            return true
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+            return true
+        end
+        return false
+    elseif action == Constants.ControlAction.MENU_UP then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(-1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_DOWN then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_LEFT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_RIGHT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(1)
+        end
+        return true
+    end
+
+    return false
 end
 
 -- Main entry point for key handling
@@ -2358,18 +2597,22 @@ function Input.handleKey(key, scancode, isrepeat)
 
     -- Handle settings key capture
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
-        local action = gameState.settingsMenu.waitingForKey
+        local capture = gameState.settingsMenu.waitingForKey
         local controls = gameState.settings.get("controls")
-        controls[action.player][action.key] = key
-        gameState.settings.set("controls", controls)
-        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
-        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
-            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
-            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
-        else
-            gameState.settingsMenu.waitingForKey = nil
-            gameState.settingsMenu.mode = nil
+        if controls[capture.playerType] then
+            controls[capture.playerType][capture.action] = key
+            gameState.settings.set("controls", controls)
+            if gameState.settings.save then gameState.settings.save() end
+            -- update list for UI
+            if gameState.settingsMenu.rebindActionList then
+                for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                    if entry.action == capture.action then
+                        entry.binding = key
+                    end
+                end
+            end
         end
+        gameState.settingsMenu.waitingForKey = nil
         Input.setupRoutes()
         return true
     end
@@ -2408,16 +2651,16 @@ function Input.handleKey(key, scancode, isrepeat)
         end
         -- fall through to player controls when not handled
     end
-    
-    -- Check player 1 controls
-    local p1Handler = Input.Routes.p1[key]
+
+    -- Check player 1 keyboard controls
+    local p1Handler = Input.Routes.p1_kb[key]
     if p1Handler then
         return p1Handler(key, scancode, isrepeat)
     end
-    
-    -- Check player 2 controls
-    local p2Handler = Input.Routes.p2[key]
-    if p2Handler then
+
+    -- Check player 2 keyboard controls if allowed
+    local p2Handler = Input.Routes.p2_kb[key]
+    if p2Handler and not gameState.useAI and not gameState.p2UsingGamepad then
         return p2Handler(key, scancode, isrepeat)
     end
     
@@ -2440,24 +2683,178 @@ end
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
     local controls = gameState.settings.get("controls")
-    -- Handle player 1 key releases
-    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
-        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[1] then
-            gameState.wizards[1]:keySpell(slotIndex, false)
+    local kp1 = controls.keyboardP1 or (controls.p1 or {})
+    local kp2 = controls.keyboardP2 or (controls.p2 or {})
+
+    local p1s1 = kp1[Constants.ControlAction.P1_SLOT1] or kp1.slot1
+    local p1s2 = kp1[Constants.ControlAction.P1_SLOT2] or kp1.slot2
+    local p1s3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3
+    if key == p1s1 or key == p1s2 or key == p1s3 then
+        local slotIndex = (key == p1s1) and 1 or (key == p1s2 and 2 or 3)
+        if slotIndex == 1 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, 1)
+        elseif slotIndex == 2 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, 1)
+        else
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, 1)
+        end
+    end
+
+    if not gameState.useAI and not gameState.p2UsingGamepad then
+        local p2s1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1
+        local p2s2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2
+        local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
+        if key == p2s1 or key == p2s2 or key == p2s3 then
+            local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
+            if slotIndex == 1 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, 2)
+            elseif slotIndex == 2 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, 2)
+            else
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, 2)
+            end
+        end
+    end
+
+    return false
+end
+
+-- Process gamepad button events
+function Input.handleGamepadButton(joystickID, buttonName, isPressed)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        gameState.p2UsingGamepad = true
+    end
+
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if capture.playerType == "gamepadP1" and playerIndex == 1 or capture.playerType == "gamepadP2" and playerIndex == 2 then
+            if isPressed then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = buttonName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = buttonName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
             return true
         end
     end
 
-    -- Handle player 2 key releases
-    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
-        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[2] then
-            gameState.wizards[2]:keySpell(slotIndex, false)
+    local controls = Input.controls or gameState.settings.get("controls")
+    local map = (playerIndex == 1) and (controls.gamepadP1 or {}) or (controls.gamepadP2 or {})
+
+    for action, button in pairs(map) do
+        if button == buttonName then
+            if not isPressed then
+                -- Trigger release variants for spell slot buttons
+                if action == Constants.ControlAction.P1_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, playerIndex)
+                end
+            end
+            return Input.triggerAction(action, playerIndex, {pressed = isPressed})
+        end
+    end
+
+    return false
+end
+
+-- Store previous axis values to implement deadzone and edge detection
+Input._axisState = { [1] = {}, [2] = {} }
+Input._axisRepeat = { [1] = {}, [2] = {} }
+Input.AXIS_DEADZONE = 0.3
+Input.AXIS_REPEAT_DELAY = 0.4
+Input.AXIS_REPEAT_INTERVAL = 0.2
+
+-- Process gamepad axis movements for menu navigation
+function Input.handleGamepadAxis(joystickID, axisName, value)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        if math.abs(value) > Input.AXIS_DEADZONE then
+            gameState.p2UsingGamepad = true
+        end
+    end
+
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if (capture.playerType == "gamepadP1" and playerIndex == 1) or (capture.playerType == "gamepadP2" and playerIndex == 2) then
+            if math.abs(value) > Input.AXIS_DEADZONE then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = axisName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = axisName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
             return true
         end
     end
-    
+
+    local prev = Input._axisState[playerIndex][axisName] or 0
+    Input._axisState[playerIndex][axisName] = value
+
+    local action
+    if axisName == "lefty" or axisName == "righty" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_UP
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_DOWN
+        end
+    elseif axisName == "leftx" or axisName == "rightx" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_LEFT
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_RIGHT
+        end
+    end
+
+    if action then
+        Input._axisRepeat[playerIndex][axisName] = {action = action, timer = Input.AXIS_REPEAT_DELAY}
+        return Input.triggerUIAction(action, {value = value})
+    elseif math.abs(value) < Input.AXIS_DEADZONE then
+        Input._axisRepeat[playerIndex][axisName] = nil
+    end
+
     return false
 end
 
@@ -2465,50 +2862,102 @@ end
 function Input.setupRoutes()
     -- Reset route tables
     Input.Routes.system = {}
-    Input.Routes.p1 = {}
-    Input.Routes.p2 = {}
+    Input.Routes.p1_kb = {}
+    Input.Routes.p2_kb = {}
+    Input.Routes.gp1 = {}
+    Input.Routes.gp2 = {}
     Input.Routes.debug = {}
     Input.Routes.test = {}
     Input.Routes.ui = {}
     Input.Routes.gameOver = {}
-    -- Exit / Quit the game or return to menu
-    Input.Routes.ui["escape"] = function()
-        -- If in MENU state, quit the game
-        if gameState.currentState == "MENU" then
-            love.event.quit()
-            return true
-        -- If in BATTLE state, return to menu
-        elseif gameState.currentState == "BATTLE" then
-            gameState.currentState = "MENU"
-            print("Returning to main menu")
-            return true
-        -- If in GAME_OVER state, return to menu
-        elseif gameState.currentState == "GAME_OVER" then
-            gameState.currentState = "MENU"
-            gameState.resetGame()
-            print("Returning to main menu")
-            return true
-        -- If in CHARACTER_SELECT, go back to menu
-        elseif gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectBack(true)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.currentState = "MENU"
-            gameState.campaignMenu = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.currentState = "MENU"
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.currentState = "MENU"
+
+    local c = gameState.settings.get("controls")
+    Input.controls = c
+
+    local function addRoute(tbl, key, actionDesc, fn)
+        if not key or key == "" then
+            print("[Input] Warning: action " .. actionDesc .. " has no binding")
+            return
+        end
+        if tbl[key] then
+            print("[Input] Warning: conflicting binding for key/button '" .. key .. "'")
+        end
+        tbl[key] = fn
+    end
+
+    -- Build player 1 keyboard routes
+    local kp1 = c.keyboardP1 or {}
+    for action, key in pairs(kp1) do
+        addRoute(Input.Routes.p1_kb, key, action, function()
+            return Input.triggerAction(action, 1)
+        end)
+    end
+
+    -- Build player 2 keyboard routes
+    local kp2 = c.keyboardP2 or {}
+    for action, key in pairs(kp2) do
+        addRoute(Input.Routes.p2_kb, key, action, function()
+            return Input.triggerAction(action, 2)
+        end)
+    end
+
+    -- Build player 1 gamepad routes (button to action lookup)
+    local gp1 = c.gamepadP1 or {}
+    for action, button in pairs(gp1) do
+        addRoute(Input.Routes.gp1, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p1GamepadID, button, pressed)
+        end)
+    end
+
+    -- Build player 2 gamepad routes
+    local gp2 = c.gamepadP2 or {}
+    for action, button in pairs(gp2) do
+        addRoute(Input.Routes.gp2, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p2GamepadID, button, pressed)
+        end)
+    end
+
+    -- SYSTEM CONTROLS (with ALT modifier)
+    Input.Routes.system["1"] = function()
+        love.window.setMode(gameState.baseWidth, gameState.baseHeight)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["2"] = function()
+        love.window.setMode(gameState.baseWidth * 2, gameState.baseHeight * 2)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["3"] = function()
+        love.window.setMode(gameState.baseWidth * 3, gameState.baseHeight * 3)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["f"] = function()
+        love.window.setFullscreen(not love.window.getFullscreen())
+        Input.recalculateScaling()
+        return true
+    end
+
+    -- Developer hot-reload with Ctrl+R
+    Input.Routes.system["ctrl_r"] = function()
+        print("Hot-reloading assets...")
+        local AssetPreloader = require("core.assetPreloader")
+        local reloadStats = AssetPreloader.reloadAllAssets()
+        print(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
+                          reloadStats.imageCount,
+                          reloadStats.soundCount,
+                          reloadStats.loadTime))
+        return true
+    end
+
+    -- GAME OVER STATE CONTROLS
+    Input.Routes.gameOver["space"] = function()
+        if gameState.currentState == "GAME_OVER" then
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
@@ -2618,67 +3067,28 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel or confirms menu selections
+    -- Generic menu navigation keys
     Input.Routes.ui["return"] = function()
-        if gameState.currentState == "MENU" then
-            gameState.startCharacterSelect()
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.settingsSelect()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["space"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["escape"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK)
     end
 
-    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(-1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_UP)
     end
     Input.Routes.ui["down"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_DOWN)
     end
     Input.Routes.ui["left"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_LEFT)
     end
     Input.Routes.ui["right"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_RIGHT)
     end
 
     -- Assign spells to slots when in Compendium
@@ -2733,26 +3143,15 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Confirm selection / Fight
+    -- Confirm selection / Fight (legacy key)
     Input.Routes.ui["f"] = function()
-        if gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectConfirm()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
     end
 
-    -- Campaign victory/defeat options
-    Input.Routes.ui["space"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.retryCampaignBattle()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
+    -- Toggle Player 2 mode between Human and AI
+    Input.Routes.ui["tab"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" and gameState.characterSelect.stage >= 2 then
+            gameState.useAI = not gameState.useAI
             return true
         end
         return false
@@ -2766,93 +3165,6 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Escape backs out of character select handled in global escape route
-    
-    -- GAME OVER STATE CONTROLS
-    -- Advance from win screen on space bar press
-    Input.Routes.gameOver["space"] = function()
-        if gameState.currentState == "GAME_OVER" then
-            gameState.winScreenTimer = gameState.winScreenDuration
-            return true
-        end
-        return false
-    end
-    
-    -- PLAYER 1 CONTROLS (Ashgar)
-    local c = gameState.settings.get("controls")
-    local p1 = c.p1
-    local p2 = c.p2
-
-    -- Key spell slots
-    Input.Routes.p1[p1.slot1] = function()
-        gameState.wizards[1]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot2] = function()
-        gameState.wizards[1]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot3] = function()
-        gameState.wizards[1]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p1[p1.cast] = function()
-        gameState.wizards[1]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p1[p1.free] = function()
-        gameState.wizards[1]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p1[p1.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(1)
-        return true
-    end
-
-    -- PLAYER 2 CONTROLS (Selene)
-    -- Key spell slots
-    Input.Routes.p2[p2.slot1] = function()
-        gameState.wizards[2]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot2] = function()
-        gameState.wizards[2]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot3] = function()
-        gameState.wizards[2]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p2[p2.cast] = function()
-        gameState.wizards[2]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p2[p2.free] = function()
-        gameState.wizards[2]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p2[p2.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(2)
-        return true
-    end
     
     -- DEBUG CONTROLS
     -- Add 30 random tokens with T key
@@ -3044,8 +3356,46 @@ function Input.recalculateScaling()
     end
 end
 
--- Document all currently used keys
+-- Update repeat timers for held gamepad axes
+function Input.update(dt)
+    for playerIndex, axes in pairs(Input._axisRepeat) do
+        for axis, state in pairs(axes) do
+            state.timer = state.timer - dt
+            if state.timer <= 0 then
+                Input.triggerUIAction(state.action, {value = Input._axisState[playerIndex][axis]})
+                state.timer = Input.AXIS_REPEAT_INTERVAL
+            end
+        end
+    end
+end
+
+-- Document all currently used keys and default bindings
+-- `actions` mirrors the defaults defined in core/Settings.lua so that
+-- documentation and debug overlays can display current mappings.
 Input.reservedKeys = {
+    actions = {
+        [Constants.ControlAction.P1_SLOT1] = {keyboardP1 = "q", gamepadP1 = "dpdown"},
+        [Constants.ControlAction.P1_SLOT2] = {keyboardP1 = "w", gamepadP1 = "dpleft"},
+        [Constants.ControlAction.P1_SLOT3] = {keyboardP1 = "e", gamepadP1 = "dpright"},
+        [Constants.ControlAction.P1_CAST]  = {keyboardP1 = "f", gamepadP1 = "a"},
+        [Constants.ControlAction.P1_FREE]  = {keyboardP1 = "g", gamepadP1 = "y"},
+        [Constants.ControlAction.P1_BOOK]  = {keyboardP1 = "b", gamepadP1 = "b"},
+
+        [Constants.ControlAction.P2_SLOT1] = {keyboardP2 = "i", gamepadP2 = "dpdown"},
+        [Constants.ControlAction.P2_SLOT2] = {keyboardP2 = "o", gamepadP2 = "dpleft"},
+        [Constants.ControlAction.P2_SLOT3] = {keyboardP2 = "p", gamepadP2 = "dpright"},
+        [Constants.ControlAction.P2_CAST]  = {keyboardP2 = "j", gamepadP2 = "a"},
+        [Constants.ControlAction.P2_FREE]  = {keyboardP2 = "h", gamepadP2 = "y"},
+        [Constants.ControlAction.P2_BOOK]  = {keyboardP2 = "m", gamepadP2 = "b"},
+
+        [Constants.ControlAction.MENU_UP]    = {keyboardP1 = "up",    keyboardP2 = "up",    gamepadP1 = "dpup",    gamepadP2 = "dpup"},
+        [Constants.ControlAction.MENU_DOWN]  = {keyboardP1 = "down",  keyboardP2 = "down",  gamepadP1 = "dpdown",  gamepadP2 = "dpdown"},
+        [Constants.ControlAction.MENU_LEFT]  = {keyboardP1 = "left",  keyboardP2 = "left",  gamepadP1 = "dpleft",  gamepadP2 = "dpleft"},
+        [Constants.ControlAction.MENU_RIGHT] = {keyboardP1 = "right", keyboardP2 = "right", gamepadP1 = "dpright", gamepadP2 = "dpright"},
+        [Constants.ControlAction.MENU_CONFIRM]     = {keyboardP1 = "return", keyboardP2 = "return", gamepadP1 = "a", gamepadP2 = "a"},
+        [Constants.ControlAction.MENU_CANCEL_BACK] = {keyboardP1 = "escape", keyboardP2 = "escape", gamepadP1 = "b", gamepadP2 = "b"}
+    },
+
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
         "Ctrl+R", -- Asset reload
@@ -3053,8 +3403,9 @@ Input.reservedKeys = {
     
     menu = {
         "1", "2", "3", "4", "5", "6", -- Main menu options
-        "Enter", -- Start character duel (shortcut)
-        "Escape", -- Quit game from menu
+        "Up", "Down", "Left", "Right", -- Navigation
+        "Enter", "Space", -- Confirm
+        "Escape", -- Quit/Back
     },
     
     battle = {
@@ -3062,17 +3413,17 @@ Input.reservedKeys = {
     },
 
     campaignMenu = {
-        "Up", "Down", "F", "Enter", "Escape"
+        "Up", "Down", "Left", "Right", "F", "Enter", "Space", "Escape"
     },
 
     characterSelect = {
         "Q", "E", -- Move cursor
-        "F", -- Confirm
+        "F", "Enter", "Space", -- Confirm
         "Escape" -- Back
     },
     
     gameOver = {
-        "Space", -- Return to menu after game over
+        "Space", "Enter", -- Return to menu after game over
         "Escape", -- Return to menu immediately
     },
     
@@ -3104,7 +3455,8 @@ Input.reservedKeys = {
     }
 }
 
-return Input```
+return Input
+```
 
 ## ./core/Log.lua
 ```lua
@@ -3401,14 +3753,53 @@ return Pool```
 ## ./core/Settings.lua
 ```lua
 local Settings = {}
+local Constants = require("core.Constants")
 
 -- Default configuration
 local defaults = {
     dummyFlag = false,
     gameSpeed = "FAST",
     controls = {
-        p1 = { slot1 = "q", slot2 = "w", slot3 = "e", cast = "f", free = "g", book = "b" },
-        p2 = { slot1 = "i", slot2 = "o", slot3 = "p", cast = "j", free = "h", book = "m" }
+        keyboardP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "q",
+            [Constants.ControlAction.P1_SLOT2] = "w",
+            [Constants.ControlAction.P1_SLOT3] = "e",
+            [Constants.ControlAction.P1_CAST]  = "f",
+            [Constants.ControlAction.P1_FREE]  = "g",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "up",
+            [Constants.ControlAction.MENU_DOWN]  = "down",
+            [Constants.ControlAction.MENU_LEFT]  = "left",
+            [Constants.ControlAction.MENU_RIGHT] = "right",
+            [Constants.ControlAction.MENU_CONFIRM]     = "return",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "escape"
+        },
+        keyboardP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "i",
+            [Constants.ControlAction.P2_SLOT2] = "o",
+            [Constants.ControlAction.P2_SLOT3] = "p",
+            [Constants.ControlAction.P2_CAST]  = "j",
+            [Constants.ControlAction.P2_FREE]  = "h",
+            [Constants.ControlAction.P2_BOOK]  = "m"
+        },
+        gamepadP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "dpdown",
+            [Constants.ControlAction.P1_SLOT2] = "dpleft",
+            [Constants.ControlAction.P1_SLOT3] = "dpright",
+            [Constants.ControlAction.P1_CAST]  = "a",
+            [Constants.ControlAction.P1_FREE]  = "y",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "dpup",
+            [Constants.ControlAction.MENU_DOWN]  = "dpdown",
+            [Constants.ControlAction.MENU_LEFT]  = "dpleft",
+            [Constants.ControlAction.MENU_RIGHT] = "dpright",
+            [Constants.ControlAction.MENU_CONFIRM]     = "a",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "b"
+        },
+        gamepadP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "dpdown",
+            -- Placeholder for P2 controller mappings
+        }
     }
 }
 
@@ -3444,6 +3835,20 @@ local function serialize(tbl, indent)
     return table.concat(parts)
 end
 
+local function mergeDefaults(target, default)
+    for k, v in pairs(default) do
+        if type(v) == "table" then
+            if type(target[k]) ~= "table" then
+                target[k] = deepcopy(v)
+            else
+                mergeDefaults(target[k], v)
+            end
+        elseif target[k] == nil then
+            target[k] = v
+        end
+    end
+end
+
 Settings.data = nil
 
 function Settings.load()
@@ -3456,6 +3861,8 @@ function Settings.load()
             if type(Settings.data.gameSpeed) ~= "string" then
                 Settings.data.gameSpeed = "FAST"
             end
+            -- Merge new defaults for missing values
+            mergeDefaults(Settings.data, defaults)
             return
         end
     end
@@ -3485,6 +3892,57 @@ function Settings.getDefaults()
 end
 
 return Settings
+```
+
+## ./core/Tips.lua
+```lua
+local Tips = {}
+
+local loadedTips = nil
+
+local function parseTips(json)
+    local tips = {}
+    if not json then return tips end
+    for tipBlock in json:gmatch("%{[^{}]*%}") do
+        local title = tipBlock:match('"title"%s*:%s*"(.-)"')
+        local content = tipBlock:match('"content"%s*:%s*"(.-)"')
+        local source = tipBlock:match('"source"%s*:%s*"(.-)"')
+        if title and content and source then
+            table.insert(tips, {
+                title = title,
+                content = content,
+                source = source
+            })
+        end
+    end
+    return tips
+end
+
+function Tips.load(path)
+    if loadedTips then
+        return loadedTips
+    end
+    local data = love.filesystem.read(path)
+    if not data then
+        print("ERROR: Could not load tips file: " .. tostring(path))
+        loadedTips = {}
+        return loadedTips
+    end
+    loadedTips = parseTips(data)
+    return loadedTips
+end
+
+function Tips.getRandomTip()
+    if not loadedTips then
+        return nil
+    end
+    if #loadedTips == 0 then
+        return nil
+    end
+    return loadedTips[love.math.random(#loadedTips)]
+end
+
+return Tips
 ```
 
 ## ./core/assetPreloader.lua
@@ -4991,6 +5449,7 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local Settings = require("core.Settings")
+local Tips = require("core.Tips")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
@@ -5030,6 +5489,10 @@ game = {
     campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Gamepad identifiers (assigned when controllers connect)
+    p1GamepadID = nil,
+    p2GamepadID = nil,
+    p2UsingGamepad = false,
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
@@ -5049,14 +5512,19 @@ game = {
             {"p2","slot3","P2 Slot 3"},
             {"p2","cast","P2 Cast"}
         },
-        rebindIndex = 1
+        rebindIndex = 1,
+        rebindSelection = 1,
+        rebindPlayerType = nil,
+        rebindActionList = nil,
+        rebindOptions = nil
     },
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
     scale = scale,
     offsetX = offsetX,
-    offsetY = offsetY
+    offsetY = offsetY,
+    currentTip = nil
 }
 
 -- Helper function to trigger screen shake
@@ -5151,6 +5619,8 @@ game.unlockedSpells = {
     brinechain = true,
     maelstrom = true,
     wavecrash = true,
+    desperationfire = true,
+    moondrain = true,
 }
 
 -- Custom spellbooks configured by the player
@@ -5304,6 +5774,9 @@ function love.load()
     
     -- Set default font for normal rendering
     love.graphics.setFont(game.font)
+
+    -- Load gameplay tips
+    Tips.load("assets/text/tips.json")
     
     -- Create mana pool positioned above the battlefield, but below health bars
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
@@ -5490,6 +5963,7 @@ function resetGame()
     game.gameOver = false
     game.winner = nil
     game.winScreenTimer = 0
+    game.currentTip = nil
     
     -- Reset wizards
     for _, wizard in ipairs(game.wizards) do
@@ -5766,6 +6240,8 @@ function game.startCharacterSelect()
     game.characterSelect.stage = 1
     game.characterSelect.cursor = 1
     game.characterSelect.selected = {nil,nil}
+    game.useAI = true -- default to AI opponent
+    game.p2UsingGamepad = false
     game.currentState = "CHARACTER_SELECT"
 end
 
@@ -5793,7 +6269,6 @@ function game.characterSelectConfirm()
         game.characterSelect.stage = 3
     else
         setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
-        game.useAI = true
         resetGame()
         game.currentState = "BATTLE"
     end
@@ -5822,11 +6297,30 @@ function game.startSettings()
     game.settingsMenu.mode = nil
     game.settingsMenu.waitingForKey = nil
     game.settingsMenu.rebindIndex = 1
+    game.settingsMenu.rebindSelection = 1
+    game.settingsMenu.rebindPlayerType = nil
+    game.settingsMenu.rebindActionList = nil
+    game.settingsMenu.rebindOptions = {
+        {playerType = "keyboardP1", label = "Player 1 Keyboard"},
+        {playerType = "keyboardP2", label = "Player 2 Keyboard"},
+        {playerType = "gamepadP1",  label = "Player 1 Gamepad"}
+    }
     game.currentState = "SETTINGS"
 end
 
 function game.settingsMove(dir)
-    if game.settingsMenu.mode then return end
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        local list = (game.settingsMenu.mode == "rebind_select_player") and game.settingsMenu.rebindOptions or game.settingsMenu.rebindActionList
+        if not list then return end
+        local count = #list
+        local idx = game.settingsMenu.rebindSelection + dir
+        if idx < 1 then idx = count end
+        if idx > count then idx = 1 end
+        game.settingsMenu.rebindSelection = idx
+        return
+    elseif game.settingsMenu.mode then
+        return
+    end
     local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
@@ -5898,17 +6392,53 @@ function game.unlockAll()
 end
 
 function game.settingsSelect()
-    if game.settingsMenu.selected == 3 then
-        -- Unlock All (Dev) option
-        game.unlockAll()
-    elseif game.settingsMenu.selected == 4 then
-        game.settingsMenu.mode = "rebind"
-        game.settingsMenu.rebindIndex = 1
-        local a = game.settingsMenu.bindOrder[1]
-        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    if game.settingsMenu.mode == "rebind_select_player" then
+        local option = game.settingsMenu.rebindOptions[game.settingsMenu.rebindSelection]
+        if option then
+            game.settingsMenu.rebindPlayerType = option.playerType
+            local controls = Settings.get("controls")[option.playerType] or {}
+            game.settingsMenu.rebindActionList = {}
+            for action, binding in pairs(controls) do
+                table.insert(game.settingsMenu.rebindActionList, {action = action, binding = binding})
+            end
+            table.sort(game.settingsMenu.rebindActionList, function(a,b) return a.action < b.action end)
+            game.settingsMenu.rebindSelection = 1
+            game.settingsMenu.mode = "rebind_action_list"
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local entry = game.settingsMenu.rebindActionList[game.settingsMenu.rebindSelection]
+        if entry then
+            game.settingsMenu.waitingForKey = {playerType = game.settingsMenu.rebindPlayerType, action = entry.action, label = entry.action}
+        end
     else
-        game.settingsAdjust(1)
+        if game.settingsMenu.selected == 3 then
+            game.unlockAll()
+        elseif game.settingsMenu.selected == 4 then
+            game.settingsMenu.mode = "rebind_select_player"
+            game.settingsMenu.rebindSelection = 1
+        else
+            game.settingsAdjust(1)
+        end
     end
+end
+
+function game.settingsBack()
+    if game.settingsMenu.waitingForKey then
+        game.settingsMenu.waitingForKey = nil
+        return
+    end
+    if game.settingsMenu.mode == "rebind_action_list" then
+        game.settingsMenu.mode = "rebind_select_player"
+        game.settingsMenu.rebindSelection = 1
+        return
+    elseif game.settingsMenu.mode == "rebind_select_player" then
+        game.settingsMenu.mode = nil
+        game.settingsMenu.rebindPlayerType = nil
+        game.settingsMenu.rebindActionList = nil
+        game.settingsMenu.rebindSelection = 1
+        return
+    end
+    game.currentState = "MENU"
 end
 
 function game.startCompendium()
@@ -6074,6 +6604,9 @@ function love.update(dt)
             shakeIntensity = 0
         end
     end
+
+    -- Update input repeat timers
+    Input.update(dt)
     
     -- Update Compendium assignment feedback timers
     if game.currentState == "COMPENDIUM" then
@@ -6157,6 +6690,7 @@ function love.update(dt)
             -- Transition to game over state
             game.currentState = "GAME_OVER"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
         
@@ -6194,9 +6728,10 @@ function love.update(dt)
                 end
                 
                 print(winner.name .. " wins!")
-                
+
                 -- Transition to game over state
                 game.currentState = "GAME_OVER"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -6260,6 +6795,7 @@ function love.update(dt)
             -- Transition to attract mode game over state
             game.currentState = "GAME_OVER_ATTRACT"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
 
@@ -6300,6 +6836,7 @@ function love.update(dt)
 
                 -- Transition to game over state
                 game.currentState = "GAME_OVER_ATTRACT"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -6630,6 +7167,20 @@ function drawWinScreen()
             screenWidth / 2 - countdownTextWidth / 2,
             textY + 200
         )
+    end
+
+    -- Draw gameplay tip overlay
+    if game.currentTip then
+        love.graphics.setColor(0, 0, 0, 0.6)
+        love.graphics.rectangle("fill", 0, screenHeight - 110, screenWidth, 110)
+
+        love.graphics.setColor(1, 1, 1, 0.9)
+        local header = "TIP: " .. game.currentTip.title
+        love.graphics.printf(header, 20, screenHeight - 100, screenWidth - 40, "center")
+
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        local body = game.currentTip.content .. " - " .. game.currentTip.source
+        love.graphics.printf(body, 20, screenHeight - 80, screenWidth - 40, "center")
     end
     
     -- Draw some victory effect particles
@@ -7200,6 +7751,13 @@ function drawCharacterSelect()
     end
     local w = game.font:getWidth(msg)
     love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+
+    if game.characterSelect.stage >= 2 then
+        local modeText = game.useAI and "P2: AI" or "P2: Human"
+        local toggleMsg = modeText .. " (Tab to toggle)"
+        local tw = game.font:getWidth(toggleMsg)
+        love.graphics.print(toggleMsg, screenWidth/2 - tw/2, gridY+gridHeight+40)
+    end
 end
 
 -- Draw the settings menu
@@ -7208,6 +7766,11 @@ function drawSettingsMenu()
     local screenHeight = baseHeight
     love.graphics.setColor(20/255, 20/255, 40/255, 1)
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        drawRebindMenu()
+        return
+    end
 
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
@@ -7233,6 +7796,50 @@ function drawSettingsMenu()
         local scale = 1.2
         local w = game.font:getWidth(msg) * scale
         love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
+end
+
+function drawRebindMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    if game.settingsMenu.mode == "rebind_select_player" then
+        for i, opt in ipairs(game.settingsMenu.rebindOptions or {}) do
+            local text = opt.label
+            local scale = 1.3
+            local y = screenHeight * 0.4 + (i-1)*30
+            local w = game.font:getWidth(text) * scale
+            if i == game.settingsMenu.rebindSelection then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local list = game.settingsMenu.rebindActionList or {}
+        local startY = screenHeight * 0.3
+        for i, entry in ipairs(list) do
+            local text = entry.action .. " : " .. tostring(entry.binding or "")
+            local scale = 1.1
+            local y = startY + (i-1)*24
+            if i == game.settingsMenu.rebindSelection and not game.settingsMenu.waitingForKey then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, 60, y, 0, scale, scale)
+        end
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new input for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1,0.6,0.6,1)
         love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
     end
 end
@@ -7892,7 +8499,56 @@ function love.keyreleased(key, scancode)
 
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
-end```
+end
+
+-- Handle gamepad button presses
+function love.gamepadpressed(joystick, button)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    elseif not game.p2GamepadID and not game.useAI then
+        game.p2GamepadID = jid
+        game.p2UsingGamepad = true
+    end
+    if game.attractModeActive then
+        exitAttractMode()
+        return true
+    end
+    return Input.handleGamepadButton(jid, button, true)
+end
+
+function love.gamepadreleased(joystick, button)
+    local jid = joystick:getID()
+    return Input.handleGamepadButton(jid, button, false)
+end
+
+-- Handle analog stick movement
+function love.gamepadaxis(joystick, axis, value)
+    local jid = joystick:getID()
+    return Input.handleGamepadAxis(jid, axis, value)
+end
+
+-- Track gamepad connections
+function love.joystickadded(joystick)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    elseif not game.p2GamepadID and not game.useAI then
+        game.p2GamepadID = jid
+        game.p2UsingGamepad = true
+    end
+end
+
+function love.joystickremoved(joystick)
+    local jid = joystick:getID()
+    if game.p1GamepadID == jid then
+        game.p1GamepadID = nil
+    elseif game.p2GamepadID == jid then
+        game.p2GamepadID = nil
+        game.p2UsingGamepad = false
+    end
+end
+```
 
 ## ./manapool.lua
 ```lua
@@ -9554,6 +10210,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
         compiledSpell.getCastTime = spellDef.getCastTime
     end
+
+    -- >>> ADDED: Copy dynamic mana cost function if present
+    if spellDef.getCost and type(spellDef.getCost) == "function" then
+        compiledSpell.getCost = spellDef.getCost
+    end
     
     -- Process keywords if they exist
     if spellDef.keywords then
@@ -10292,6 +10953,32 @@ FireSpells.battleshield = {
     sfx = "fire_shield",
 }
 
+-- Desperation Fire - cost decreases as caster health drops
+FireSpells.desperationFire = {
+    id = "desperationfire",
+    name = "Desperation Fire",
+    affinity = Constants.TokenType.FIRE,
+    description = "A fiery attack whose Fire cost decreases as your health lowers.",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = { Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE },
+    keywords = {
+        damage = { amount = 15, type = Constants.DamageType.FIRE }
+    },
+    getCost = function(caster, target)
+        local fireCost = 3
+        if caster and caster.health < 75 then fireCost = 2 end
+        if caster and caster.health < 40 then fireCost = 1 end
+        if caster and caster.health < 20 then fireCost = 0 end
+
+        local finalCost = {}
+        for i = 1, fireCost do
+            table.insert(finalCost, Constants.TokenType.FIRE)
+        end
+        return finalCost
+    end,
+}
+
 return FireSpells```
 
 ## ./spells/elements/generic.lua
@@ -10755,6 +11442,40 @@ MoonSpells.enhancedmirrorshield = {
     sfx = "crystal_ring",
 }
 
+-- Moon Drain - cost increases with opponent's STAR tokens
+MoonSpells.moonDrain = {
+    id = "moondrain",
+    name = "Moon Drain",
+    affinity = Constants.TokenType.MOON,
+    description = "Drains opponent. Costs more Moon tokens if opponent is channeling Star mana.",
+    attackType = Constants.AttackType.REMOTE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = { Constants.TokenType.MOON },
+    keywords = {
+        damage = { amount = 8, type = Constants.DamageType.MOON }
+    },
+    getCost = function(caster, target)
+        local moonTokens = 1
+        if target then
+            for _, slot in ipairs(target.spellSlots) do
+                if slot.active and slot.tokens then
+                    for _, tokenData in ipairs(slot.tokens) do
+                        if tokenData.token.type == Constants.TokenType.STAR then
+                            moonTokens = moonTokens + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        local finalCost = {}
+        for i = 1, math.min(moonTokens, 4) do
+            table.insert(finalCost, Constants.TokenType.MOON)
+        end
+        return finalCost
+    end,
+}
+
 return MoonSpells```
 
 ## ./spells/elements/salt.lua
@@ -10955,6 +11676,7 @@ SaltSpells.shieldbreaker = {
     affinity = "salt",
     description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
@@ -11642,7 +12364,7 @@ WaterSpells.riptideguard = {
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
 
             onBlock = function(defender, attacker, slotIndex, info)
                 local events = {}
@@ -11671,7 +12393,7 @@ WaterSpells.brinechain = {
     affinity = Constants.TokenType.WATER,
     description = "Salt-laced lash that slows the enemy. Damage scales with Water tokens in the pool",
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = Constants.VisualShape.BOLT,
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.WATER, Constants.TokenType.SALT},
     keywords = {
@@ -11829,6 +12551,7 @@ local Schema = {}
 --   * UTILITY:    Non-offensive spells that affect the caster - cannot be blocked
 -- castTime: Duration in seconds to cast the spell (number)
 -- cost: Array of token types required (array using Constants.TokenType.FIRE, etc.)
+-- getCost: Optional function(caster, target) -> cost table for dynamic costs
 -- keywords: Table of effect keywords and their parameters (table)
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
@@ -11881,10 +12604,16 @@ function Schema.validateSpell(spell, spellId)
         spell.castTime = tonumber(spell.castTime) or 5.0
     end
     
-    -- Ensure cost is a table, if empty then create empty table
+    -- Ensure cost is a table if provided, or create an empty table when neither
+    -- cost nor getCost are specified. When getCost exists it's considered the
+    -- runtime source of truth so we don't warn about a missing cost table.
     if not spell.cost then
-        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
-        spell.cost = {}
+        if spell.getCost and type(spell.getCost) == "function" then
+            spell.cost = {}
+        else
+            print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+            spell.cost = {}
+        end
     elseif type(spell.cost) ~= "table" then
         print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
         -- Try to convert to a table if possible
@@ -15197,9 +15926,10 @@ local TEMPLATE_BY_SHAPE = {
     
     -- Projectile-like effects
     ["beam"] = Constants.VFXType.BEAM_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.ZAP_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
-    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.ORB_BASE,
+    ["wave"] = Constants.VFXType.WAVE_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
@@ -16391,11 +17121,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     -- Main arc
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
 
-                    -- Spawn a sparkle at the arc head
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    -- Spawn multiple sparkles at the arc head for more dramatic effect
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
@@ -16453,10 +17187,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     love.graphics.setLineWidth(prevWidth)
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
 
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
@@ -18206,7 +18944,7 @@ end
 function UI.drawSpellbookModals(wizards)
     -- Local function to format costs for spellbook display
     local function formatCost(cost)
-        if not cost or #cost == 0 then
+        if not cost or type(cost) ~= "table" or #cost == 0 then
             return "Free"
         end
         
@@ -18270,11 +19008,11 @@ function UI.drawSpellbookModals(wizards)
     
     -- Draw spellbook popups if visible
     if UI.spellbookVisible.player1 then
-        UI.drawSpellbookModal(wizards[1], 1, formatCost)
+        UI.drawSpellbookModal(wizards[1], wizards[2], 1, formatCost)
     end
-    
+
     if UI.spellbookVisible.player2 then
-        UI.drawSpellbookModal(wizards[2], 2, formatCost)
+        UI.drawSpellbookModal(wizards[2], wizards[1], 2, formatCost)
     end
 end
 
@@ -18530,7 +19268,7 @@ function UI.updateHealthDisplays(dt, wizards)
     end
 end
 
-function UI.drawSpellbookModal(wizard, playerNum, formatCost)
+function UI.drawSpellbookModal(wizard, opponentWizard, playerNum, formatCost)
     local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
     
     -- Determine position based on player number
@@ -18695,7 +19433,26 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
-            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+
+            -- Determine cost, evaluating getCost if present
+            local costTable = spell.cost
+            local isDynamic = false
+            if spell.getCost and type(spell.getCost) == "function" then
+                local ok, result = pcall(spell.getCost, wizard, opponentWizard)
+                if ok and type(result) == "table" then
+                    costTable = result
+                    isDynamic = true
+                else
+                    print("ERROR evaluating getCost for " .. spell.name .. ": " .. tostring(result))
+                end
+            end
+
+            local costText = formatCost(costTable)
+            if isDynamic then
+                costText = costText .. "*"
+            end
+
+            love.graphics.print("Cost: " .. costText .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
             
             -- Store the spell entry information for later use (for description popup)
             table.insert(spellEntries, {
@@ -18851,11 +19608,27 @@ function VFX.init()
             "assets/sprites/bolt/bolt3.png"
         },
         
+        -- Orb effects
+        orbFrames = {
+            "assets/sprites/orb/orb1.png",
+            "assets/sprites/orb/orb2.png",
+            "assets/sprites/orb/orb3.png",
+            "assets/sprites/orb/orb4.png",
+            "assets/sprites/orb/orb5.png"
+        },
+        
         -- Warp effects
         warpFrames = {
             "assets/sprites/warp/warp1.png",
             "assets/sprites/warp/warp2.png",
             "assets/sprites/warp/warp3.png"
+        },
+
+        -- Zap effects
+        zapFrames = {
+            "assets/sprites/zap/zap1.png",
+            "assets/sprites/zap/zap2.png",
+            "assets/sprites/zap/zap3.png"
         },
 
         -- Pixel primitive
@@ -18915,6 +19688,19 @@ function VFX.init()
         end
     end
     
+    -- Preload orb frames for the orb effects
+    print("[VFX] Preloading orb frame assets")
+    VFX.assets.orbFrames = {}
+    for i, orbPath in ipairs(VFX.assetPaths.orbFrames) do
+        print("[VFX] Preloading orb frame " .. i)
+        local orbImg = AssetCache.getImage(orbPath)
+        if orbImg then
+            table.insert(VFX.assets.orbFrames, orbImg)
+        else
+            print("[VFX] Warning: Failed to preload orb frame asset: " .. orbPath)
+        end
+    end
+    
     -- Preload warp frames for the warp effects
     print("[VFX] Preloading warp frame assets")
     VFX.assets.warpFrames = {}
@@ -18925,6 +19711,19 @@ function VFX.init()
             table.insert(VFX.assets.warpFrames, warpImg)
         else
             print("[VFX] Warning: Failed to preload warp frame asset: " .. warpPath)
+        end
+    end
+
+    -- Preload zap frames for the zap effects
+    print("[VFX] Preloading zap frame assets")
+    VFX.assets.zapFrames = {}
+    for i, zapPath in ipairs(VFX.assetPaths.zapFrames) do
+        print("[VFX] Preloading zap frame " .. i)
+        local zapImg = AssetCache.getImage(zapPath)
+        if zapImg then
+            table.insert(VFX.assets.zapFrames, zapImg)
+        else
+            print("[VFX] Warning: Failed to preload zap frame asset: " .. zapPath)
         end
     end
     
@@ -18951,7 +19750,7 @@ function VFX.init()
 
         bolt_base = {
             type = "bolt_base",  -- Template name as type
-            duration = 0.8,               -- Faster than standard projectile
+            duration = 1.0,               -- Slower to showcase enhanced particle effects
             particleCount = 20,           -- Fewer particles since we're using sprites
             startScale = 0.4,
             endScale = 0.7,
@@ -18976,6 +19775,47 @@ function VFX.init()
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+
+        zap_base = {
+            type = "zap_base",
+            duration = 0.6,
+            color = Constants.Color.GRAY,
+            segmentLength = 20,
+            useSourcePosition = true,
+            useTargetPosition = true,
+            criticalAssets = {"zapFrames"}
+        },
+
+        orb_base = {
+            type = "orb_base",  -- Template name as type
+            duration = 1.8,               -- Significantly slower than bolt for dramatic arc
+            particleCount = 35,           -- More particles for richer trail effect
+            startScale = 0.6,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            radius = 65,                  -- Radius for particle effects and impact
+            trailLength = 25,             -- Longer trail for graceful arc
+            impactSize = 1.5,             -- Larger impact than bolt
+            sound = nil,                  -- No default sound
+            coreDensity = 0.5,            -- Balanced particle density
+            trailDensity = 0.6,           -- Dense trail for visible arc path
+            turbulence = 0.3,             -- Less turbulence for smoother flight
+            arcHeight = 120,              -- High arc for lobbed trajectory
+            straightLine = false,         -- Uses curved arc path
+            particleLifespan = 0.8,       -- Longer particle lifespan for persistent trail
+            leadingIntensity = 1.4,       -- Moderate leading edge intensity
+            flickerRate = 8,              -- Slower flicker for mystical effect
+            flickerIntensity = 0.2,       -- Subtle flicker
+            useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 8,          -- Slower frame rate for floating effect
+            spriteRotationOffset = 0,     -- No rotation offset for orbs
+            spriteScale = 1.0,            -- Larger scale than bolts
+            spriteTint = true,            -- Whether to apply color tinting to sprites
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true,     -- Track target position
+            useCurvedPath = true,         -- Enable curved path explicitly
+            criticalAssets = {"orbFrames"} -- Mark orb frames as critical assets to preload
         },
 
         warp_base = {
@@ -19072,9 +19912,9 @@ function VFX.init()
         surge_base = {
             type = "surge_base",          -- Template name as type
             duration = 1.5,                -- Longer duration for buff visual
-            particleCount = 60,            -- More particles for richer effect
-            startScale = 0.3,              -- Larger starting scale
-            endScale = 0.08,               -- Smaller end scale for fade-out
+            particleCount = 90,            -- Extra particles for dramatic burst
+            startScale = 1.0,              -- Pixel-sized primitives
+            endScale = 0.2,               -- Fade to tiny specks
             color = Constants.Color.YELLOW_HERO,   -- Default color, will be overridden
             height = 200,                  -- Higher fountain effect
             spread = 45,                   -- Narrower spread for more focused fountain
@@ -19090,11 +19930,30 @@ function VFX.init()
             bloomEffect = true,            -- Add bloom/glow to particles (new parameter)
             bloomIntensity = 0.8,          -- Intensity of bloom effect (new parameter)
             sparkleChance = 0.4,           -- Chance for sparkle effect on particles (new parameter)
-            useSprites = true,             -- Use sprite images
+            useSprites = false,            -- Use primitive pixel sprites
             spriteFrameRate = 8,           -- Frame rate for sprite animation
             pulsateParticles = true,       -- Pulsate particle size (new parameter)
             sound = "surge",               -- Sound effect
-            criticalAssets = {"sparkle"}   -- Required assets
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"} -- Required assets
+        },
+
+        wave_base = {
+            type = "wave_base",          -- Template name as type
+            duration = 1.2,
+            particleCount = 120,
+            startScale = 0.5,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            trailLength = 20,
+            impactSize = 1.4,
+            coreDensity = 0.4,
+            trailDensity = 0.6,
+            turbulence = 0.75,
+            arcHeight = 40,
+            particleLifespan = 0.7,
+            leadingIntensity = 1.6,
+            useSprites = false,
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"}
         },
 
         conjure_base = {
@@ -19773,9 +20632,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     if opts.scale then
         -- Apply scale factor to particle counts, sizes, radii, etc.
         local scaleFactor = opts.scale
-        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
-        effect.startScale = effect.startScale * scaleFactor
-        effect.endScale = effect.endScale * scaleFactor
+        if effect.particleCount then
+            effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        end
+        if effect.startScale then
+            effect.startScale = effect.startScale * scaleFactor
+        end
+        if effect.endScale then
+            effect.endScale = effect.endScale * scaleFactor
+        end
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
@@ -19971,7 +20836,7 @@ function VFX.update(dt)
                 -- Trigger shield impact visuals for projectile-type effects
                 -- Accept both generic projectile templates (proj_base/bolt_base)
                 if not effect.impactParticlesCreated and
-                   (effect.type == "proj_base" or effect.type == "bolt_base" or
+                   (effect.type == "proj_base" or effect.type == "bolt_base" or effect.type == "orb_base" or
                     effect.type == "projectile") then
                     effect.impactParticlesCreated = true
                     
@@ -20173,10 +21038,19 @@ function VFX.draw()
         local effectType = effect.type
         local drawer = VFX.drawers[effectType]
         if drawer then
+            -- Preserve current graphics state so individual effect draw calls
+            -- cannot permanently modify color or blend mode
+            local prevR, prevG, prevB, prevA = love.graphics.getColor()
+            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+
             -- Add safety pcall to prevent crashes
             local success, err = pcall(function()
                 drawer(effect)
             end)
+
+            -- Restore graphics state
+            love.graphics.setColor(prevR, prevG, prevB, prevA)
+            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
             if not success then
                 print(string.format("[VFX] Error drawing effect type '%s': %s", tostring(effectType), tostring(err)))
@@ -20324,17 +21198,21 @@ local ConjureEffect = require("vfx.effects.conjure")
 local SurgeEffect = require("vfx.effects.surge")
 local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
+local ZapEffect = require("vfx.effects.zap")
 
 -- Initialize the updaters table with update functions
 -- Map each template name/type to the appropriate handler
 VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
 VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
+VFX.updaters["orb_base"] = ProjectileEffect.update   -- Orb uses projectile logic
+VFX.updaters["zap_base"] = ZapEffect.update        -- Zap lightning effect
 VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
 VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
 VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
 VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
 VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
 VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
+VFX.updaters["wave_base"] = ProjectileEffect.update  -- Flowing wave uses projectile logic
 VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
 VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
 VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
@@ -20356,12 +21234,15 @@ VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
 -- Initialize the drawers table with draw functions
 VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
 VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
+VFX.drawers["orb_base"] = ProjectileEffect.draw     -- Orb uses projectile logic
+VFX.drawers["zap_base"] = ZapEffect.draw          -- Zap lightning effect
 VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
 VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
 VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
 VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
 VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
 VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
+VFX.drawers["wave_base"] = ProjectileEffect.draw    -- Flowing wave uses projectile logic
 VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
 VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
 VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
@@ -20716,35 +21597,18 @@ function ParticleManager.createSurgeParticle(effect)
     local particle = ParticleManager.createParticle()
 
     -- Get effect properties
-    local spread = effect.spread or 45
-    local riseFactor = effect.riseFactor or 1.4
-    local gravity = effect.gravity or 180
     local particleSizeVariance = effect.particleSizeVariance or 0.6
     local useSprites = effect.useSprites
 
-    -- Start at source position with slight random offset
-    local startOffsetX = math.random(-10, 10)
-    local startOffsetY = math.random(-10, 10)
-    particle.x = effect.sourceX + startOffsetX
-    particle.y = effect.sourceY + startOffsetY
+    -- Start at the source position
+    particle.x = effect.sourceX
+    particle.y = effect.sourceY
 
-    -- Store initial position for spiral motion calculations
-    particle.initialX = particle.x
-    particle.initialY = particle.y
-
-    -- Create upward velocity with variety
-    -- More focused in the center for a fountain effect
-    local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
-    particle.speedX = (math.random() - 0.5) * spread * horizontalBias
-
-    -- Vertical speed with some variance and acceleration
-    local riseSpeed = math.random(220, 320) * riseFactor
-    if effect.riseAcceleration then
-        particle.riseAcceleration = math.random() * effect.riseAcceleration
-    end
-
-    particle.speedY = -riseSpeed
-    particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+    -- Parameters for helix motion
+    particle.baseRadius = 6 + math.random() * 8
+    particle.startAngle = math.random() * math.pi * 2
+    particle.spinSpeed = 3 + math.random() * 2
+    particle.verticalSpeed = (effect.height or 160) / (effect.duration or 1)
 
     -- Visual properties with variance
     local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
@@ -20754,6 +21618,10 @@ function ParticleManager.createSurgeParticle(effect)
     particle.alpha = 0.9 + math.random() * 0.1
     particle.rotation = math.random() * math.pi * 2
     particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+
+    -- Assign primitive sprite type for rendering
+    local spriteOptions = {"pixel", "twinkle1", "twinkle2"}
+    particle.spriteType = spriteOptions[math.random(#spriteOptions)]
 
     -- Staggered appearance
     particle.delay = math.random() * 0.4
@@ -20900,7 +21768,8 @@ function ParticleManager.printStats()
         stats.poolSize, stats.active, stats.available))
 end
 
-return ParticleManager```
+return ParticleManager
+```
 
 ## ./vfx/effects/aura.lua
 ```lua
@@ -21322,35 +22191,69 @@ local function updateBeam(effect, dt)
             ::next_particle::
         end
         
-        -- Add new particles at source and impact point
-        if math.random() < 0.3 then
-            -- Add particle at source
+        -- Add many new particles for dense swarm effect
+        local particleRate = 3.0 -- Much higher rate for particle swarm
+        
+        -- Generate multiple particles per frame
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Add particles at source with variety
             local sourceParticle = {
-                x = effect.sourceX + math.random(-5, 5),
-                y = effect.sourceY + math.random(-5, 5),
-                scale = math.random(5, 15) / 100,
-                startScale = math.random(5, 15) / 100,
+                x = effect.sourceX + math.random(-8, 8),
+                y = effect.sourceY + math.random(-8, 8),
+                scale = math.random(1, 3),
+                startScale = math.random(1, 3),
                 alpha = 1.0,
                 life = 0,
-                maxLife = math.random() * 0.2 + 0.1,
-                active = true -- Ensure particle is marked as active
+                maxLife = math.random() * 0.3 + 0.15,
+                active = true,
+                spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
             }
             table.insert(effect.particles, sourceParticle)
             
-            -- Add particle at impact point (if beam has traveled that far)
+            -- Add particles along the beam path
+            if effect.beamProgress > 0.1 then
+                local beamPos = math.random() * effect.beamProgress
+                local beamX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * beamPos)
+                local beamY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * beamPos)
+                
+                -- Perpendicular offset for beam width
+                local perpAngle = effect.beamAngle + math.pi/2
+                local perpOffset = (math.random() - 0.5) * effect.beamWidth
+                
+                local beamParticle = {
+                    x = beamX + math.cos(perpAngle) * perpOffset,
+                    y = beamY + math.sin(perpAngle) * perpOffset,
+                    scale = math.random(1, 2),
+                    startScale = math.random(1, 2),
+                    alpha = 1.0,
+                    life = 0,
+                    maxLife = math.random() * 0.2 + 0.1,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
+                }
+                table.insert(effect.particles, beamParticle)
+            end
+            
+            -- Add particles at impact point (if beam has traveled that far)
             if effect.beamProgress > 0.5 then
                 local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 
                 local impactParticle = {
-                    x = impactX + math.random(-10, 10),
-                    y = impactY + math.random(-10, 10),
-                    scale = math.random(5, 15) / 100,
-                    startScale = math.random(5, 15) / 100, 
+                    x = impactX + math.random(-12, 12),
+                    y = impactY + math.random(-12, 12),
+                    scale = math.random(2, 4),
+                    startScale = math.random(2, 4),
                     alpha = 1.0,
                     life = 0,
-                    maxLife = math.random() * 0.2 + 0.1,
-                    active = true -- Ensure particle is marked as active
+                    maxLife = math.random() * 0.25 + 0.15,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
                 }
                 table.insert(effect.particles, impactParticle)
             end
@@ -21360,8 +22263,10 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
-    -- Preserve the current line width so we can restore it after drawing
+    -- Preserve the current line width and blend mode so we can restore them after drawing
     local prevLineWidth = love.graphics.getLineWidth()
+    local prevBlendMode = {love.graphics.getBlendMode()}
+    
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -21374,11 +22279,14 @@ local function drawBeam(effect)
     effect.pulseFactor = effect.pulseFactor or 1.0 -- Default pulse
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
-    -- Draw base beam
+    -- Draw particle-based beam core instead of line shapes
     local beamEndX = effect.sourceX + math.cos(effect.beamAngle) * beamLength
     local beamEndY = effect.sourceY + math.sin(effect.beamAngle) * beamLength
     
@@ -21386,37 +22294,147 @@ local function drawBeam(effect)
     local pulseValue = effect.pulseFactor or 1.0
     local beamWidth = (effect.beamWidth or 15) * pulseValue
     
-    -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1] * 0.3, effect.color[2] * 0.3, effect.color[3] * 0.3, 0.3)
-    love.graphics.setLineWidth(beamWidth * 1.5)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw beam using dense particle chains
+    local particlesAlongBeam = math.floor(beamLength / 3) -- One particle every 3 pixels
     
-    -- Save current blend mode and set to additive for the brightest elements
-    local prevMode = {love.graphics.getBlendMode()}
-    love.graphics.setBlendMode("add")
+    for i = 0, particlesAlongBeam do
+        local t = i / math.max(1, particlesAlongBeam)
+        local coreX = effect.sourceX + (beamEndX - effect.sourceX) * t
+        local coreY = effect.sourceY + (beamEndY - effect.sourceY) * t
+        
+        -- Perpendicular angle for beam width spread
+        local perpAngle = effect.beamAngle + math.pi/2
+        
+        -- Draw outer glow particles
+        local outerParticles = math.floor(beamWidth / 4)
+        for j = 1, outerParticles do
+            local offset = (j / outerParticles - 0.5) * beamWidth * 1.5
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                effect.color[1] * 0.4, 
+                effect.color[2] * 0.4, 
+                effect.color[3] * 0.4, 
+                0.3 * (1 - math.abs(offset) / (beamWidth * 0.75))
+            )
+            
+            local sprite = onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.5 + math.random() * 0.5, 1.5 + math.random() * 0.5,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Save current blend mode and set to additive for core
+        local prevMode = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        -- Draw inner core particles with additive blending
+        local innerParticles = math.floor(beamWidth / 6)
+        for j = 1, innerParticles do
+            local offset = (j / innerParticles - 0.5) * beamWidth * 0.7
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                math.min(1.0, effect.color[1] * 1.3), 
+                math.min(1.0, effect.color[2] * 1.3), 
+                math.min(1.0, effect.color[3] * 1.3), 
+                0.7 * (1 - math.abs(offset) / (beamWidth * 0.35))
+            )
+            
+            local sprite = (j % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.2 + math.random() * 0.3, 1.2 + math.random() * 0.3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Draw brightest center particles
+        local centerParticles = math.floor(beamWidth / 10) + 1
+        for j = 1, centerParticles do
+            local offset = (j / centerParticles - 0.5) * beamWidth * 0.3
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(1, 1, 1, 0.9 * (1 - math.abs(offset) / (beamWidth * 0.15)))
+            
+            local sprite = twinkle2Image or onePxImage
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random() * 0.2, 1 + math.random() * 0.2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    end
     
-    -- Draw inner beam core with additive blending
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7)
-    love.graphics.setLineWidth(beamWidth * 0.7)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw source glow using particle swarm
+    local sourceParticleCount = 15
+    local sourceRadius = beamWidth * 0.7
     
-    -- Draw brightest beam center with additive blending
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.setLineWidth(beamWidth * 0.3)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    for i = 1, sourceParticleCount do
+        local angle = (i / sourceParticleCount) * math.pi * 2 + love.timer.getTime() * 3
+        local radius = sourceRadius * (0.4 + math.random() * 0.6)
+        local px = effect.sourceX + math.cos(angle) * radius
+        local py = effect.sourceY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.5 + math.random() * 0.3) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Restore previous blend mode
-    love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    -- Draw impact glow using particle swarm
+    local impactParticleCount = 18
+    local impactRadius = beamWidth * 0.9
     
-    -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7 * pulseValue)
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, beamWidth * 0.7)
+    for i = 1, impactParticleCount do
+        local angle = (i / impactParticleCount) * math.pi * 2 + love.timer.getTime() * 4
+        local radius = impactRadius * (0.3 + math.random() * 0.7)
+        local px = beamEndX + math.cos(angle) * radius
+        local py = beamEndY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.6 + math.random() * 0.4) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1.2 + math.random() * 0.8, 1.2 + math.random() * 0.8,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Draw impact glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * pulseValue)
-    love.graphics.circle("fill", beamEndX, beamEndY, beamWidth * 0.9)
-    
-    -- Draw particles
+    -- Draw particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid or inactive particles
@@ -21430,19 +22448,32 @@ local function drawBeam(effect)
             particle.x = particle.x or effect.sourceX
             particle.y = particle.y or effect.sourceY
             
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.8)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.9)
             
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            if particle.spriteType == "pixel" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    particle.scale, particle.scale,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    particle.scale / 3, particle.scale / 3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback if image is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.scale * 50)
+                -- Final fallback
+                love.graphics.circle("fill", particle.x, particle.y, particle.scale)
             end
             
             ::next_draw_particle::
@@ -21463,9 +22494,25 @@ local function drawBeam(effect)
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
 
-        -- Draw impact flash
-        love.graphics.setColor(1, 1, 1, flashAlpha)
-        love.graphics.circle("fill", blockX, blockY, flashSize)
+        -- Draw impact flash using particle swarm
+        local flashParticleCount = math.floor(flashSize / 3)
+        for i = 1, flashParticleCount do
+            local angle = (i / flashParticleCount) * math.pi * 2
+            local radius = flashSize * (0.2 + math.random() * 0.8)
+            local px = blockX + math.cos(angle) * radius
+            local py = blockY + math.sin(angle) * radius
+            
+            love.graphics.setColor(1, 1, 1, flashAlpha * (0.6 + math.random() * 0.4))
+            
+            local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    2 + math.random() * 2, 2 + math.random() * 2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
 
         -- Get shield color based on type for distinctive visuals
         local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
@@ -21533,8 +22580,10 @@ local function drawBeam(effect)
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 
-    -- Restore the previous line width to avoid affecting other draw calls
+    -- Restore the previous line width, blend mode, and color to avoid affecting other draw calls
     love.graphics.setLineWidth(prevLineWidth)
+    love.graphics.setBlendMode(prevBlendMode[1], prevBlendMode[2])
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 -- Initialize function for beam effects
@@ -22995,11 +24044,35 @@ local function updateProjectile(effect, dt)
     
     -- Update particles for the projectile trail
     if effect.particles then
-        -- Add new particles at the current head position
-        local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
-        if math.random() < particleRate then
-            -- Create a new particle using specialized helper
+        -- Add many new particles at the current head position for dense swarm effect
+        local particleRate = effect.particleRate or 15.0 -- Massive rate for spectacular particle swarm
+        
+        -- Generate multiple particles per frame for dense effect
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Create different types of particles using primitive assets
             local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
+            
+            -- Assign primitive sprite types for variety
+            local spriteType = math.random(3)
+            if spriteType == 1 then
+                particle.spriteType = "pixel"
+                particle.size = math.random(1, 3)
+            elseif spriteType == 2 then
+                particle.spriteType = "twinkle1"
+                particle.size = math.random(2, 4)
+            else
+                particle.spriteType = "twinkle2"
+                particle.size = math.random(2, 4)
+            end
+            
+            -- Add some randomness to position for swarm effect
+            particle.x = particle.x + (math.random() - 0.5) * 8
+            particle.y = particle.y + (math.random() - 0.5) * 8
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -23045,13 +24118,20 @@ local function updateProjectile(effect, dt)
         end
     end
     
-    -- Update bolt animation frame (if using sprites)
+    -- Update sprite animation frame (if using sprites)
     if effect.useSprites then
         effect.frameTimer = effect.frameTimer + dt
         if effect.frameTimer >= effect.frameDuration then
             effect.frameTimer = 0
             effect.currentFrame = effect.currentFrame + 1
-            if effect.currentFrame > 3 then
+            
+            -- Determine max frames based on effect type
+            local maxFrames = 3  -- Default for bolt
+            if effect.type == "orb_base" then
+                maxFrames = 5
+            end
+            
+            if effect.currentFrame > maxFrames then
                 effect.currentFrame = 1
             end
         end
@@ -23098,15 +24178,22 @@ local function drawProjectile(effect)
             effect.headX, effect.headY, progress))
     end
     
-    -- Get assets
+    -- Get assets including new primitive sprites
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
-    -- Get bolt frames if needed
-    local boltFrames = nil
+    -- Get sprite frames if needed
+    local spriteFrames = nil
     if effect.useSprites then
-        boltFrames = getAssetInternal("boltFrames")
+        if effect.type == "orb_base" then
+            spriteFrames = getAssetInternal("orbFrames")
+        else
+            spriteFrames = getAssetInternal("boltFrames")
+        end
     end
     
     -- Calculate the actual trajectory angle for aimed shots
@@ -23127,40 +24214,59 @@ local function drawProjectile(effect)
         y = effect.headY or effect.sourceY
     }
     
-    -- If we have a trail, draw it
+    -- If we have a trail, draw it using particle swarms instead of large sprites
     if effect.useTrail and #effect.trailPoints > 1 then
-        -- Draw trail (from oldest to newest)
+        -- Draw trail using swarms of tiny particles at each point
         for i = #effect.trailPoints, 1, -1 do
             local point = effect.trailPoints[i]
-            local trailSize = (effect.size or 1.0) * 3 * (1 - (i-1)/#effect.trailPoints)
-            local trailAlpha = point.alpha * 0.4
+            local trailIntensity = (1 - (i-1)/#effect.trailPoints)
+            local trailAlpha = point.alpha * 0.6
+            local particleCount = math.floor(trailIntensity * 50) -- Massive particle count for spectacular trail
             
-            -- Draw trail glow at each point
-            local color = effect.color or {1, 1, 1} -- Default to white if no color
-            love.graphics.setColor(
-                color[1], 
-                color[2], 
-                color[3], 
-                trailAlpha
-            )
+            -- Draw swarm of tiny particles at each trail point
+            local color = effect.color or {1, 1, 1}
             
-            -- Draw a circle for each trail point
-            if glowImage then
-                love.graphics.draw(
-                    glowImage,
-                    point.x, point.y,
-                    0,
-                    trailSize, trailSize,
-                    glowImage:getWidth()/2, glowImage:getHeight()/2
-                )
-            else
-                -- Fallback to a circle if glow asset is missing
-                love.graphics.circle("fill", point.x, point.y, trailSize * 10)
+            for p = 1, particleCount do
+                -- Random offset for particle swarm
+                local offsetX = (math.random() - 0.5) * trailIntensity * 15
+                local offsetY = (math.random() - 0.5) * trailIntensity * 15
+                
+                -- Choose random primitive sprite
+                local spriteChoice = math.random(3)
+                local sprite, scale
+                
+                if spriteChoice == 1 and onePxImage then
+                    sprite = onePxImage
+                    scale = math.random(1, 2)
+                elseif spriteChoice == 2 and twinkle1Image then
+                    sprite = twinkle1Image
+                    scale = math.random(0.8, 1.5)
+                else
+                    sprite = twinkle2Image or onePxImage
+                    scale = math.random(0.8, 1.5)
+                end
+                
+                if sprite then
+                    love.graphics.setColor(
+                        color[1], 
+                        color[2], 
+                        color[3], 
+                        trailAlpha * (0.4 + math.random() * 0.6)
+                    )
+                    
+                    love.graphics.draw(
+                        sprite,
+                        point.x + offsetX, point.y + offsetY,
+                        0,
+                        scale, scale,
+                        sprite:getWidth()/2, sprite:getHeight()/2
+                    )
+                end
             end
         end
     end
     
-    -- Draw the particles
+    -- Draw the particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid particles
@@ -23173,21 +24279,36 @@ local function drawProjectile(effect)
                 particleColor[1],
                 particleColor[2],
                 particleColor[3],
-                (particle.alpha or 0.5) * 0.7
+                (particle.alpha or 0.5) * 0.8
             )
             
-            -- Draw particle
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            local scale = (particle.size or 3) / 3
+            
+            if particle.spriteType == "pixel" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            -- Draw particle with primitive sprite
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    (particle.size or 5)/20, (particle.size or 5)/20,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback to a circle if particle asset is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.size or 5)
+                -- Final fallback to a circle
+                love.graphics.circle("fill", particle.x, particle.y, particle.size or 3)
             end
             
             ::next_draw_particle::
@@ -23197,14 +24318,21 @@ local function drawProjectile(effect)
     -- Draw the projectile head
     local leadingIntensity = 1.3 -- Make the leading edge brighter
     
-    -- Draw sprite-based projectile (like a lightning bolt)
-    if effect.useSprites and boltFrames then
-        -- Use projectile sprites (like lightning bolt)
-        local frame = boltFrames[effect.currentFrame]
+    -- Draw sprite-based projectile (like lightning bolt or orb)
+    if effect.useSprites and spriteFrames then
+        -- Use projectile sprites
+        local frame = spriteFrames[effect.currentFrame]
         local scale = effect.size * 2
         
-        -- Rotate the bolt based on trajectory
-        local rotation = trajectoryAngle or 0
+        -- Handle rotation based on effect type
+        local rotation = 0
+        if effect.type == "orb_base" then
+            -- Orbs don't rotate with trajectory, but can have gentle spinning
+            rotation = (effect.spriteRotationOffset or 0) + (love.timer.getTime() * 0.5)
+        else
+            -- Bolts rotate based on trajectory
+            rotation = trajectoryAngle or 0
+        end
         
         love.graphics.setColor(
             effect.color[1], 
@@ -23221,60 +24349,139 @@ local function drawProjectile(effect)
             frame:getWidth()/2, frame:getHeight()/2
         )
     else
-        -- Draw particle-based projectile
+        -- Draw particle-based projectile using swarms of tiny primitives
         
-        -- Draw outer glow
+        -- Draw outer glow using massive swarm of tiny particles
         local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            color[1] * 0.8, 
-            color[2] * 0.8, 
-            color[3] * 0.8, 
-            0.5
-        )
-        local outerGlowScale = (effect.size or 1.0) * 5
+        local outerRadius = (effect.size or 1.0) * 25
+        local outerParticleCount = 80
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                outerGlowScale, outerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, outerParticleCount do
+            local angle = (i / outerParticleCount) * math.pi * 2
+            local radius = outerRadius * (0.6 + math.random() * 0.4)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                color[1] * 0.6, 
+                color[2] * 0.6, 
+                color[3] * 0.6, 
+                0.3 * (0.5 + math.random() * 0.5)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, outerGlowScale * 10)
+            
+            local sprite = (i % 2 == 0) and onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random(), 1 + math.random(),
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
-        -- Inner glow (brightest) - uses additive blending for extra brightness
-        local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            math.min(1.0, color[1] * leadingIntensity), 
-            math.min(1.0, color[2] * leadingIntensity), 
-            math.min(1.0, color[3] * leadingIntensity), 
-            0.7
-        )
-        local innerGlowScale = (effect.size or 1.0) * 2
+        -- Inner glow using massive swarm of tiny particles with additive blending
+        local innerRadius = (effect.size or 1.0) * 12
+        local innerParticleCount = 65
         
-        -- Save current blend mode and set to additive for the brightest elements
+        -- Save current blend mode and set to additive for brightness
         local prevMode = {love.graphics.getBlendMode()}
         love.graphics.setBlendMode("add")
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                innerGlowScale, innerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, innerParticleCount do
+            local angle = (i / innerParticleCount) * math.pi * 2 + love.timer.getTime() * 2
+            local radius = innerRadius * (0.3 + math.random() * 0.7)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                math.min(1.0, color[1] * leadingIntensity), 
+                math.min(1.0, color[2] * leadingIntensity), 
+                math.min(1.0, color[3] * leadingIntensity), 
+                0.6 * (0.4 + math.random() * 0.6)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, innerGlowScale * 10)
+            
+            local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    0.8 + math.random() * 0.6, 0.8 + math.random() * 0.6,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
         -- Restore previous blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
+        
+        -- Add electrical corona effect using primitive particles
+        local coronaRadius = (effect.size or 1.0) * 35
+        local coronaParticleCount = 45
+        local time = love.timer.getTime()
+        
+        -- Save current blend mode and set to additive for electrical effect
+        local prevMode2 = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        for i = 1, coronaParticleCount do
+            local angle = (i / coronaParticleCount) * math.pi * 2 + time * 3
+            local pulseRadius = coronaRadius * (0.8 + 0.3 * math.sin(time * 5 + i))
+            local px = head.x + math.cos(angle) * pulseRadius
+            local py = head.y + math.sin(angle) * pulseRadius
+            
+            -- Flickering alpha for electrical effect
+            local flickerAlpha = 0.15 + 0.1 * math.sin(time * 8 + i * 0.5)
+            
+            love.graphics.setColor(
+                color[1] * 0.8, 
+                color[2] * 0.9, 
+                color[3] * 1.0, 
+                flickerAlpha
+            )
+            
+            -- Use tiny 1px sprites for electrical sparks
+            if onePxImage then
+                love.graphics.draw(
+                    onePxImage, px, py, 0,
+                    1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                    onePxImage:getWidth()/2, onePxImage:getHeight()/2
+                )
+            end
+        end
+        
+        -- Add sparkle layer using twinkle sprites
+        local sparkleRadius = (effect.size or 1.0) * 40
+        local sparkleCount = 30
+        
+        for i = 1, sparkleCount do
+            local angle = (i / sparkleCount) * math.pi * 2 + time * -1.5
+            local radius = sparkleRadius * (0.6 + 0.4 * math.random())
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            -- Twinkling effect
+            local twinklePhase = math.sin(time * 4 + i * 1.2)
+            local twinkleAlpha = math.max(0, 0.2 + 0.3 * twinklePhase)
+            
+            love.graphics.setColor(
+                color[1], 
+                color[2], 
+                color[3], 
+                twinkleAlpha
+            )
+            
+            local sprite = (i % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                local scale = 0.8 + 0.4 * math.abs(twinklePhase)
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode2[1], prevMode2[2])
         
         -- Core (solid center)
         love.graphics.setColor(1, 1, 1, 0.9)
@@ -23812,74 +25019,44 @@ local function updateSurge(effect, dt)
         effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
     end
     
-    -- Fountain style upward burst with gravity pull and enhanced effects
+    -- Rising helix motion around the caster
     for _, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
         if not particle then
             goto next_particle
         end
-        
-        -- Initialize particle properties if missing
+
         particle.delay = particle.delay or 0
         particle.active = particle.active or false
-        
+
         if effect.timer > particle.delay then
             particle.active = true
         end
-        
+
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Apply gravity and update movement
-            if not particle.x then
-                -- Initialize particle position if missing
-                particle.x = effect.sourceX
-                particle.y = effect.sourceY
-                particle.baseX = effect.sourceX
-                particle.baseY = effect.sourceY
-            end
-            
-            -- Get particle age
-            local particleAge = effect.timer - particle.delay
-            
-            -- Get velocities or initialize them
-            particle.vx = particle.vx or (math.random() * 2 - 1) * 100
-            particle.vy = particle.vy or -80 - math.random() * 120 -- Initial upward velocity
-            
-            -- Apply gravity over time
-            local gravity = 150
-            particle.vy = particle.vy + gravity * dt
-            
-            -- Apply velocities to position
-            particle.x = particle.x + particle.vx * dt
-            particle.y = particle.y + particle.vy * dt
-            
-            -- Apply drag to slow particles
-            local drag = 0.98
-            particle.vx = particle.vx * drag
-            particle.vy = particle.vy * drag
-            
-            -- Calculate alpha based on lifetime (fade in, then fade out)
-            local alphaPeak = 0.3 -- Peak opacity at 30% of life
-            local alphaValue = 0
-            
-            if particleProgress < alphaPeak then
-                -- Fade in
-                alphaValue = particleProgress / alphaPeak
+            local age = effect.timer - particle.delay
+            local progress = math.min(age / effect.duration, 1.0)
+
+            local angle = (particle.startAngle or 0) + (particle.spinSpeed or 4) * age
+            local radius = (particle.baseRadius or 8) + progress * (particle.spiralAmplitude or 20)
+            local rise = progress * (effect.height or 160)
+
+            particle.x = effect.sourceX + math.cos(angle) * radius
+            particle.y = effect.sourceY - rise + math.sin(angle) * radius * 0.1
+
+            -- Alpha fades in then out
+            local alphaPeak = 0.3
+            local alphaValue
+            if progress < alphaPeak then
+                alphaValue = progress / alphaPeak
             else
-                -- Fade out
-                alphaValue = 1.0 - ((particleProgress - alphaPeak) / (1.0 - alphaPeak))
+                alphaValue = 1.0 - ((progress - alphaPeak) / (1.0 - alphaPeak))
             end
-            
-            -- Apply the calculated alpha
             particle.alpha = alphaValue * (particle.baseAlpha or 1.0)
-            
-            -- Update size based on life (grow slightly, then shrink)
-            local sizeCurve = 1.0 + math.sin(particleProgress * math.pi) * 0.5
+
+            local sizeCurve = 1.0 + math.sin(progress * math.pi) * 0.5
             particle.scale = (particle.baseScale or 0.3) * sizeCurve
         end
-        
+
         ::next_particle::
     end
     
@@ -23902,6 +25079,9 @@ local function drawSurge(effect)
     effect.centerGlowPulse = effect.centerGlowPulse or 1.0 -- Default pulse value
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Draw expanding ground effect ring at source
     if effect.progress < 0.7 then
@@ -23969,17 +25149,29 @@ local function drawSurge(effect)
         
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
         
-        if particleImage then
+        -- Choose sprite based on assigned type
+        local sprite
+        if particle.spriteType == "pixel" then
+            sprite = onePxImage
+        elseif particle.spriteType == "twinkle1" then
+            sprite = twinkle1Image
+        elseif particle.spriteType == "twinkle2" then
+            sprite = twinkle2Image
+        else
+            sprite = particleImage
+        end
+
+        if sprite then
             love.graphics.draw(
-                particleImage,
+                sprite,
                 particle.x, particle.y,
                 0,
                 particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
+                sprite:getWidth()/2, sprite:getHeight()/2
             )
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            -- Fallback if image missing
+            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 3)
         end
         
         -- Restore blend mode
@@ -24006,7 +25198,87 @@ return {
     initialize = initializeSurge,
     update = updateSurge,
     draw = drawSurge
-}```
+}
+```
+
+## ./vfx/effects/zap.lua
+```lua
+-- zap.lua
+-- Simple lightning zap effect drawing tiled sprites between source and target
+
+local VFX
+
+local function getAssetInternal(assetId)
+    if not VFX then
+        VFX = require("vfx")
+    end
+    return VFX.getAsset(assetId)
+end
+
+local function initializeZap(effect)
+    effect.timer = 0
+end
+
+local function updateZap(effect, dt)
+    -- ensure defaults
+    effect.useSourcePosition = (effect.useSourcePosition ~= false)
+    effect.useTargetPosition = (effect.useTargetPosition ~= false)
+    effect.followSourceEntity = (effect.followSourceEntity ~= false)
+    effect.followTargetEntity = (effect.followTargetEntity ~= false)
+    effect.color = effect.color or {1,1,1}
+    effect.segmentLength = effect.segmentLength or 20
+
+    if effect.useSourcePosition and effect.followSourceEntity and effect.sourceEntity then
+        if effect.sourceEntity.x and effect.sourceEntity.y then
+            effect.sourceX = effect.sourceEntity.x
+            effect.sourceY = effect.sourceEntity.y
+        end
+    end
+    if effect.useTargetPosition and effect.followTargetEntity and effect.targetEntity then
+        if effect.targetEntity.x and effect.targetEntity.y then
+            effect.targetX = effect.targetEntity.x
+            effect.targetY = effect.targetEntity.y
+        end
+    end
+
+    local dx = (effect.targetX or 0) - (effect.sourceX or 0)
+    local dy = (effect.targetY or 0) - (effect.sourceY or 0)
+    effect.angle = math.atan2(dy, dx)
+    effect.length = math.sqrt(dx*dx + dy*dy)
+    effect.headX = (effect.sourceX or 0) + dx * (effect.progress or 0)
+    effect.headY = (effect.sourceY or 0) + dy * (effect.progress or 0)
+end
+
+local function drawZap(effect)
+    local frames = getAssetInternal("zapFrames")
+    if not frames or #frames < 3 then return end
+    local seg1, seg2, terminus = frames[1], frames[2], frames[3]
+
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 1)
+
+    local segLen = effect.segmentLength or seg1:getWidth()
+    local drawn = 0
+    local maxLen = math.min(effect.length, effect.length * (effect.progress or 0))
+
+    while drawn + segLen < maxLen do
+        local img = (math.floor(drawn/segLen) % 2 == 0) and seg1 or seg2
+        local x = effect.sourceX + math.cos(effect.angle) * drawn
+        local y = effect.sourceY + math.sin(effect.angle) * drawn
+        love.graphics.draw(img, x, y, effect.angle, 1, 1, 0, img:getHeight()/2)
+        drawn = drawn + segLen
+    end
+
+    -- draw terminus at head
+    love.graphics.draw(terminus, effect.headX, effect.headY, effect.angle, 1, 1,
+        terminus:getWidth()/2, terminus:getHeight()/2)
+end
+
+return {
+    initialize = initializeZap,
+    update = updateZap,
+    draw = drawZap
+}
+```
 
 ## ./vfx/init.lua
 ```lua
@@ -24037,12 +25309,15 @@ local function initializeParticles(effect)
         -- Base templates
         ["proj_base"] = "projectile",
         ["bolt_base"] = "projectile",
+        ["orb_base"] = "projectile",
+        ["zap_base"] = "zap",
         ["impact_base"] = "impact",
         ["beam_base"] = "beam",
         ["blast_base"] = "cone",
         ["zone_base"] = "aura",
         ["util_base"] = "aura",
         ["surge_base"] = "surge",
+        ["wave_base"] = "projectile",
         ["conjure_base"] = "conjure",
         ["remote_base"] = "remote",
         ["warp_base"] = "remote",
@@ -24718,8 +25993,11 @@ function Wizard:queueSpell(spell)
     -- Find the innermost available spell slot
     for i = 1, #self.spellSlots do
         if not self.spellSlots[i].active then
+            -- Determine cost source (static table or dynamic function)
+            local costSource = spellToUse.getCost or spellToUse.cost
+
             -- Check if we can pay the mana cost from the pool
-            local tokenReservations = self:canPayManaCost(spell.cost)
+            local tokenReservations = self:canPayManaCost(costSource)
             
             if tokenReservations then
                 local tokens = {}
@@ -24729,8 +26007,11 @@ function Wizard:queueSpell(spell)
                     -- Free spell - no tokens needed
                     print("[TOKEN MANAGER] Free spell (no mana cost)")
                 else
+                    -- Resolve actual cost table now if using dynamic cost
+                    local actualCost = type(costSource) == "function" and costSource(self, nil) or costSource
+
                     -- Use TokenManager to acquire and position tokens for the spell
-                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, spell.cost)
+                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, actualCost)
                     
                     -- If TokenManager succeeded, use those tokens
                     if success and acquiredTokens then
@@ -24782,8 +26063,9 @@ function Wizard:queueSpell(spell)
                     end
                 end
                 
-                -- Store the tokens in the spell slot
+                -- Store the tokens and cost in the spell slot
                 self.spellSlots[i].tokens = tokens
+                self.spellSlots[i].cost = type(costSource) == "function" and costSource(self, nil) or costSource
                 
                 -- Successfully paid the cost, queue the spell
                 self.spellSlots[i].active = true
@@ -24915,7 +26197,15 @@ end
 
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 -- This is a wrapper around TokenManager functionality for backward compatibility
-function Wizard:canPayManaCost(cost)
+-- Helper function to check if mana cost can be paid without actually taking the tokens
+-- Accepts either a cost table or a getCost function
+function Wizard:canPayManaCost(costOrGetCostFn, target)
+    local cost = costOrGetCostFn
+
+    if type(costOrGetCostFn) == "function" then
+        cost = costOrGetCostFn(self, target)
+    end
+
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
@@ -26482,9 +27772,27 @@ This system is transitioning towards a pure event-based architecture, where spel
 *   **Purpose:** Defines the concrete spells available by combining keywords (`ingredients`) with specific parameters. Acts as a database of spell definitions.
 *   **Structure:** A large Lua table (`Spells`) where each key is a unique spell ID (e.g., `firebolt`). The value is a table adhering to a schema:
     *   **Basic Info:** `id`, `name`, `description`.
-    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
+    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`). If a `getCost` function is provided it will be used at runtime instead of the static table.
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+
+    The optional `getCost(caster, target)` function allows a spell's mana cost to change based on game state. It should return a table of token types just like the static `cost` field. `getCost` is evaluated each time the spell is queued or affordability is checked.
+
+    **Example:** A spell that gets cheaper as the caster's health drops might be implemented as:
+
+    ```lua
+    getCost = function(caster)
+        local fireCost = 3
+        if caster.health < 75 then fireCost = 2 end
+        if caster.health < 40 then fireCost = 1 end
+        if caster.health < 20 then fireCost = 0 end
+        local t = {}
+        for i = 1, fireCost do
+            t[i] = Constants.TokenType.FIRE
+        end
+        return t
+    end
+    ```
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `getCost` (dynamic mana cost), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef
@@ -26792,7 +28100,8 @@ Without the `visualShape` property, this spell would use the `remote_base` templ
 The `visualShape` property supports the following values:
 
 - `"beam"` - A sustained beam effect (uses `beam_base` template)
-- `"bolt"` or `"orb"` or `"zap"` - Projectile effects (use `proj_base` template)
+- `"bolt"` or `"orb"` - Projectile effects (use `proj_base` template)
+- `"zap"` - Lightning bolt effect (uses `zap_base` template)
 - `"blast"` or `"groundBurst"` - Area effects (use `zone_base` template)
 - `"warp"`, `"surge"`, or `"affectManaPool"` - Utility effects (use `util_base` template)
 - `"wings"` or `"mirror"` - Shield/barrier effects (use `shield_overlay` template)
@@ -26881,6 +28190,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 *   **`Wizard:queueSpell(spell)`:** Initiates spell casting.
     *   Finds an available `spellSlot`.
     *   Checks mana availability using `canPayManaCost`.
+        *   If the spell defines `getCost`, that function is called with `caster` and `target` to determine the token list.
     *   If affordable, acquires token references from `manaPool` via reservations.
     *   Sets token state to `CHANNELED`.
     *   Sets up animation parameters for tokens (Bezier curve towards wizard).
@@ -26895,7 +28205,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
         *   Normal Spells: Applies damage (`target.health`), status effects (burn, stun), position changes (range, elevation), mana manipulation (lock, delay) based on `effect` table. Returns caster's tokens (`requestReturnAnimation`/`manaPool:returnToken`), resets caster's slot (`resetSpellSlot`).
 *   **`Wizard:handleShieldBlock(slotIndex, blockedSpell)`:** (Called on the target wizard). Consumes tokens from the specified shield slot based on `blockedSpell.shieldBreaker`, returns consumed tokens, and calls `resetSpellSlot` if the shield breaks (runs out of tokens).
 *   **`Wizard:resetSpellSlot(slotIndex)`:** Utility function to reset all properties of a spell slot to default/inactive state and clear its token list. Used after normal casts, cancellations, or shield breaks.
-*   **`Wizard:canPayManaCost(cost)`:** Checks if mana cost can be paid from `manaPool` *without* consuming tokens. Returns reservation details or `nil`.
+*   **`Wizard:canPayManaCost(costOrFn[, target])`:** Checks if a mana cost can be paid without consuming tokens. `costOrFn` may be a static table or the `getCost` function from a spell definition. The function returns a reservation detail table or `nil` if the cost can't currently be met.
 *   **`Wizard:freeAllSpells()`:** Cancels all active spells/shields, returns their tokens, and resets the corresponding slots.
 
 ### 3. Token Interaction
@@ -27160,7 +28470,9 @@ Core Utilities (core/):
 Constants.lua: Centralized string constants. Crucial for avoiding magic strings.
 AssetCache.lua: Prevents duplicate loading of images and sounds.
 Pool.lua: Generic object pooling system.
-Input.lua: Unified input routing.
+Input.lua: Unified input routing. Uses an action-based scheme defined in
+  `Constants.ControlAction`. Keyboard and gamepad bindings are loaded from
+  Settings.lua and can be changed at runtime.
 Settings.lua: Handles persistent game settings.
 assetPreloader.lua: Manages preloading of assets.
 3. Key Interactions & Data Flow
@@ -27234,6 +28546,7 @@ Add to game.unlockedSpells in main.lua if it's unlockable.
 Modifying or Adding Keywords (keywords.lua):
 Event Generation: The execute function must add events to the passed-in events table. It should not directly modify caster, target, or gameState.
 Parameters: Keyword parameters defined in spells.lua can be static values or functions (resolved by keywords.lua.resolve()).
+Dynamic Costs: Spells may include a `getCost(caster, target)` function which returns a token cost table at runtime. Use this for mechanics like health-scaled or target-dependent costs.
 Metadata: Keep the behavior table updated with descriptive flags, targetType, and category.
 VFX: Keywords generally should not trigger VFX directly. Instead, the events they generate (e.g., DAMAGE, SET_ELEVATION) will be picked up by EventRunner, which then uses VisualResolver for VFX. If a keyword has a unique, inherent visual distinct from its gameplay event (rare), it can generate a specific EFFECT event.
 Documentation: Update docs/keywords.lua (or ensure it's auto-generated) if adding or significantly changing a keyword.
@@ -27249,6 +28562,10 @@ Create new personality files that implement the interface defined in ai/Personal
 Personality modules are responsible for spell selection logic for a specific character.
 Keep the core OpponentAI.lua generic; character-specific logic belongs in personality modules.
 AI actions should use wizard:queueSpell(), not simulate input.
+Input Handling:
+  The game uses an action-based input layer. All actions are defined in
+  `Constants.ControlAction`. Default bindings for keyboard and gamepad live in
+  `core/Settings.lua` and can be rebound at runtime through the Settings menu.
 UI (ui.lua, main.lua draw functions):
 Strive for diegetic UI where possible (information integrated into the game world).
 Keep UI drawing logic separate from game state update logic.
@@ -27311,11 +28628,34 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Controls
 
-### Player 1 (Ashgar)
-- Q, W, E: Queue spells in spell slots 1, 2, and 3
+Manastorm uses an **action-based** input layer. Each action is defined in
+`Constants.ControlAction` and can be bound independently for keyboard or
+gamepad via the Settings menu. The mappings below reflect the defaults shipped
+with the game.
 
-### Player 2 (Selene)
-- I, O, P: Queue spells in spell slots 1, 2, and 3
+### Default Keyboard Mapping
+
+**Player 1**
+
+- Q / W / E: Spell slots 1–3
+- F: Cast (also acts as menu confirm)
+- G: Free spells (also acts as menu cancel)
+- B: Toggle spellbook
+- Arrow Keys: Menu navigation
+
+**Player 2**
+
+- I / O / P: Spell slots 1–3
+- J: Cast
+- H: Free spells
+- M: Toggle spellbook
+
+### Default Gamepad Mapping
+
+Gamepad controls mirror the keyboard actions. Use the D-pad for spell slots and
+menu navigation. The **A** button casts or confirms, **Y** frees or cancels, and
+**B** toggles the spellbook. When a second gamepad is connected these mappings
+apply to Player 2 as well.
 
 ### General
 - ESC: Quit the game
@@ -27349,10 +28689,92 @@ This is a late prototype with basic full engine functionality:
 - Add basic main menu, mode select, control customization.
 - Add AI opponent (strategy design pattern).
 - Add content. Lots of content. Lots and lots and lots of content.
+
+## ./SFX_GATING_IMPLEMENTATION.md
+# SFX Gating Implementation
+
+## Overview
+The SFX gating system prevents crashes when sound files are missing or corrupted during development. All sound-related operations are now conditional based on an `ENABLE_SFX` configuration flag.
+
+## Changes Made
+
+### 1. Settings Module (`core/Settings.lua`)
+- Added `ENABLE_SFX = false` to the defaults configuration
+- This disables SFX by default during development
+
+### 2. VFX Module (`vfx.lua`)
+- Added Settings import
+- Added `VFX.isSFXEnabled()` helper function
+- Modified sound loading to check `ENABLE_SFX` before attempting to load sounds
+- Added error handling with `pcall` for sound loading
+- Modified sound playing to check `ENABLE_SFX` before playing
+- Added documentation comments
+
+### 3. AssetCache Module (`core/AssetCache.lua`)
+- Added Settings import
+- Modified `getSound()` function to check `ENABLE_SFX` before loading
+- Modified `preload()` function to skip sound loading when SFX is disabled
+- Added appropriate logging messages
+
+### 4. Main Module (`main.lua`)
+- Modified sound play operation in slot highlighting to check `ENABLE_SFX`
+
+## How to Enable SFX
+
+### Method 1: Edit settings.lua
+```lua
+return {
+    dummyFlag = false,
+    gameSpeed = "FAST",
+    ENABLE_SFX = true,  -- Enable SFX
+    controls = {
+        -- ... rest of settings
+    }
+}
+```
+
+### Method 2: Programmatically
+```lua
+local Settings = require("core.Settings")
+Settings.set("ENABLE_SFX", true)
+```
+
+### Method 3: Check SFX Status
+```lua
+local VFX = require("vfx")
+if VFX.isSFXEnabled() then
+    -- SFX is enabled
+else
+    -- SFX is disabled
+end
+```
+
+## Benefits
+
+1. **Crash Prevention**: Game won't crash when sound files are missing
+2. **Development Friendly**: Can develop without sound assets
+3. **Configurable**: Easy to enable/disable via settings
+4. **Graceful Degradation**: Visual effects work without sound
+5. **Error Handling**: Proper error messages when sound loading fails
+
+## Testing
+
+The system has been tested to ensure:
+- Game starts without crashes when SFX is disabled
+- Sound loading is properly gated
+- Sound playing is properly gated
+- Settings can be changed at runtime
+- Error handling works correctly
+
+## Future Considerations
+
+- When actual sound assets are created, set `ENABLE_SFX = true` in production
+- Consider adding individual sound enable/disable flags for fine-grained control
+- May want to add volume controls when SFX is enabled 
 
 ## ./manastorm_codebase_dump.md
 # Manastorm Codebase Dump
-Generated: Fri May 23 16:18:44 CDT 2025
+Generated: Thu Jun 26 14:09:07 CDT 2025
 
 # Source Code
 
@@ -27764,12 +29186,23 @@ function OpponentAI:decide()
     end
     
     -- If we found a specific spell and have a slot for it, cast it
-    if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-        return {
-            type = "CAST_SPELL",
-            spell = spell,
-            reason = reason
-        }
+    if spell and self:hasAvailableSpellSlot() then
+        -- Evaluate dynamic cost if provided
+        local costToEvaluate
+        if spell.getCost then
+            costToEvaluate = spell.getCost(self.wizard, self.playerWizard)
+        else
+            costToEvaluate = spell.cost
+        end
+
+        local canAfford = self.wizard:canPayManaCost(costToEvaluate)
+        if canAfford then
+            return {
+                type = "CAST_SPELL",
+                spell = spell,
+                reason = reason
+            }
+        end
     end
     
     -- Return the general action if no specific spell was found or affordable
@@ -28862,6 +30295,7 @@ characterData.Ashgar = {
         Spells.eruption,
         Spells.combustMana,
         Spells.blazingAscent,
+        Spells.desperationFire,
     },
     campaignOpponents = {"Selene", "Silex", "Borrak"}
 }
@@ -28887,6 +30321,7 @@ characterData.Selene = {
         Spells.fullmoonbeam,
         Spells.lunardisjunction,
         Spells.lunarTides,
+        Spells.moonDrain,
     },
     campaignOpponents = {"Ashgar", "Borrak", "Silex"}
 }
@@ -28999,7 +30434,8 @@ function love.conf(t)
     t.console = true
     
     -- Disable unused modules
-    t.modules.joystick = false
+    -- Enable joystick module for gamepad input
+    t.modules.joystick = true
     t.modules.physics = false
 end```
 
@@ -29314,7 +30750,6 @@ Constants.ShieldType = {
 }
 
 -- Attack types for spells
--- TODO: handle "beam" and "blast", which are purely visual variants of projectile. Maybe other hooks into them from non-Shield rules.
 -- This makes the overall palette: Projectiles, Beams, and Blasts beat nothing, Remotes beat Barriers, Zones beat Wards.
 Constants.AttackType = {
     PROJECTILE = "projectile",  -- Magic flies toward a target, blocked by all shield types but efficient
@@ -29327,6 +30762,7 @@ Constants.VisualShape = {
     BOLT = "bolt",
     BEAM = "beam",
     BLAST = "blast",
+    ZAP = "zap",
     CONE = "cone",
     REMOTE = "remote",
     METEOR = "meteor",
@@ -29549,6 +30985,8 @@ Constants.VFXType = {
     -- Base template effects (used by VisualResolver)
     PROJ_BASE = "proj_base",       -- Base projectile effect
     BOLT_BASE = "bolt_base",       -- Base bolt effect
+    ZAP_BASE = "zap_base",        -- Base zap lightning effect
+    ORB_BASE = "orb_base",         -- Base orb effect (lobbed arc projectile)
     BEAM_BASE = "beam_base",       -- Base beam effect
     REMOTE_BASE = "remote_base",   -- Base remote effect (explosion/flash)
     WARP_BASE = "warp_base",       -- Base warp effect (reality distortion)
@@ -29556,6 +30994,7 @@ Constants.VFXType = {
     BLAST_BASE = "blast_base",     -- Base conical blast effect
     UTIL_BASE = "util_base",       -- Base utility effect
     SURGE_BASE = "surge_base",      -- Base surge fountain effect
+    WAVE_BASE = "wave_base",       -- Base flowing wave effect
     CONJURE_BASE = "conjure_base", -- Base token conjuration effect
     IMPACT_BASE = "impact_base",   -- Base impact effect
     
@@ -29641,6 +31080,45 @@ function Constants.isValidVFXType(value)
     return false
 end
 
+-- Abstract game actions for input mapping
+Constants.ControlAction = {
+    -- Player 1 actions
+    P1_SLOT1 = "p1_slot1",
+    P1_SLOT2 = "p1_slot2",
+    P1_SLOT3 = "p1_slot3",
+    P1_CAST  = "p1_cast",
+    P1_FREE  = "p1_free",
+    P1_BOOK  = "p1_book",
+    P1_SLOT1_RELEASE = "p1_slot1_release",
+    P1_SLOT2_RELEASE = "p1_slot2_release",
+    P1_SLOT3_RELEASE = "p1_slot3_release",
+
+    -- Player 2 actions
+    P2_SLOT1 = "p2_slot1",
+    P2_SLOT2 = "p2_slot2",
+    P2_SLOT3 = "p2_slot3",
+    P2_CAST  = "p2_cast",
+    P2_FREE  = "p2_free",
+    P2_BOOK  = "p2_book",
+    P2_SLOT1_RELEASE = "p2_slot1_release",
+    P2_SLOT2_RELEASE = "p2_slot2_release",
+    P2_SLOT3_RELEASE = "p2_slot3_release",
+
+    -- Menu navigation
+    MENU_UP    = "menu_up",
+    MENU_DOWN  = "menu_down",
+    MENU_LEFT  = "menu_left",
+    MENU_RIGHT = "menu_right",
+
+    -- Menu actions
+    MENU_CONFIRM      = "menu_confirm",
+    MENU_CANCEL_BACK  = "menu_cancel_back",
+
+    -- System actions
+    SYS_TOGGLE_DEBUG   = "sys_toggle_debug",
+    SYS_QUIT_MENU_BACK = "sys_quit_menu_back"
+}
+
 -- Motion styles for VFX particles
 Constants.MotionStyle = {
     RADIAL = "radial",     -- Particles expand outward in all directions (default)
@@ -29662,7 +31140,8 @@ function Constants.getAllMotionStyles()
     return styles
 end
 
-return Constants```
+return Constants
+```
 
 ## ./core/Input.lua
 ```lua
@@ -29670,30 +31149,47 @@ return Constants```
 -- Unified input routing system for Manastorm
 
 local Input = {}
+local Constants = require("core.Constants")
 
 -- Store a reference to the game state for routing
 local gameState = nil
+Input.controls = nil
+
+-- States considered to have a menu active
+local MENU_STATES = {
+    MENU = true,
+    SETTINGS = true,
+    CHARACTER_SELECT = true,
+    COMPENDIUM = true,
+    CAMPAIGN_MENU = true,
+    CAMPAIGN_VICTORY = true,
+    CAMPAIGN_DEFEAT = true
+}
 
 -- Set up input routes by category
 Input.Routes = {
     -- System-level controls (scaling, fullscreen, quit)
     system = {},
-    
-    -- Player 1 controls
-    p1 = {},
-    
-    -- Player 2 controls
-    p2 = {},
-    
+
+    -- Player 1 keyboard controls
+    p1_kb = {},
+
+    -- Player 2 keyboard controls
+    p2_kb = {},
+
+    -- Gamepad routes will be added later
+    gp1 = {},
+    gp2 = {},
+
     -- Debug controls (only available outside gameOver state)
     debug = {},
-    
+
     -- Test controls (only available outside gameOver state)
     test = {},
-    
+
     -- UI controls (available in any state)
     ui = {},
-    
+
     -- Game over state controls
     gameOver = {}
 }
@@ -29701,7 +31197,172 @@ Input.Routes = {
 -- Initialize with game state reference
 function Input.init(game)
     gameState = game
+    Input.controls = gameState.settings.get("controls")
     Input.setupRoutes()
+end
+
+-- Central dispatch for abstract control actions
+function Input.triggerAction(action, playerIndex, params)
+    local gs = gameState
+    if not gs then return false end
+
+    -- Player 1 actions
+    if action == Constants.ControlAction.P1_SLOT1 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P1_SLOT2 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P1_SLOT3 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P1_CAST and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
+        gs.wizards[1]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P1_FREE and playerIndex == 1 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
+        gs.wizards[1]:freeAllSpells()
+    elseif action == Constants.ControlAction.P1_BOOK and playerIndex == 1 then
+        require("ui").toggleSpellbook(1)
+    elseif action == Constants.ControlAction.P1_SLOT1_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P1_SLOT2_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P1_SLOT3_RELEASE and playerIndex == 1 then
+        gs.wizards[1]:keySpell(3, false)
+
+    -- Player 2 actions
+    elseif action == Constants.ControlAction.P2_SLOT1 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P2_SLOT2 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, true)
+    elseif action == Constants.ControlAction.P2_SLOT3 and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, true)
+    elseif action == Constants.ControlAction.P2_CAST and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM, params)
+        end
+        gs.wizards[2]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P2_FREE and playerIndex == 2 then
+        if MENU_STATES[gs.currentState] then
+            Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK, params)
+        end
+        gs.wizards[2]:freeAllSpells()
+    elseif action == Constants.ControlAction.P2_BOOK and playerIndex == 2 then
+        require("ui").toggleSpellbook(2)
+    elseif action == Constants.ControlAction.P2_SLOT1_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(1, false)
+    elseif action == Constants.ControlAction.P2_SLOT2_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(2, false)
+    elseif action == Constants.ControlAction.P2_SLOT3_RELEASE and playerIndex == 2 then
+        gs.wizards[2]:keySpell(3, false)
+
+    -- Menu/UI actions
+    elseif action == Constants.ControlAction.MENU_UP
+        or action == Constants.ControlAction.MENU_DOWN
+        or action == Constants.ControlAction.MENU_LEFT
+        or action == Constants.ControlAction.MENU_RIGHT
+        or action == Constants.ControlAction.MENU_CONFIRM
+        or action == Constants.ControlAction.MENU_CANCEL_BACK then
+        return Input.triggerUIAction(action, params)
+    else
+        return false
+    end
+    return true
+end
+
+-- Handle UI related actions based on current state
+function Input.triggerUIAction(action, params)
+    local gs = gameState
+    if not gs then return false end
+
+    if action == Constants.ControlAction.MENU_CANCEL_BACK then
+        if gs.currentState == "MENU" then
+            love.event.quit()
+        elseif gs.currentState == "BATTLE" then
+            gs.currentState = "MENU"
+        elseif gs.currentState == "GAME_OVER" then
+            gs.currentState = "MENU"
+            gs.resetGame()
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectBack(true)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.currentState = "MENU"
+            gs.campaignMenu = nil
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+        elseif gs.currentState == "SETTINGS" then
+            if gs.settingsBack then
+                gs.settingsBack()
+            else
+                gs.currentState = "MENU"
+            end
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.currentState = "MENU"
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_CONFIRM then
+        if gs.currentState == "MENU" then
+            gs.startCharacterSelect()
+            return true
+        elseif gs.currentState == "SETTINGS" then
+            gs.settingsSelect()
+            return true
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuConfirm()
+            return true
+        elseif gs.currentState == "CHARACTER_SELECT" then
+            gs.characterSelectConfirm()
+            return true
+        elseif gs.currentState == "CAMPAIGN_DEFEAT" then
+            gs.retryCampaignBattle()
+            return true
+        elseif gs.currentState == "CAMPAIGN_VICTORY" then
+            gs.currentState = "MENU"
+            gs.campaignProgress = nil
+            return true
+        end
+        return false
+    elseif action == Constants.ControlAction.MENU_UP then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(-1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_DOWN then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsMove(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumMove(1)
+        elseif gs.currentState == "CAMPAIGN_MENU" then
+            gs.campaignMenuMove(1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_LEFT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(-1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(-1)
+        end
+        return true
+    elseif action == Constants.ControlAction.MENU_RIGHT then
+        if gs.currentState == "SETTINGS" then
+            gs.settingsAdjust(1)
+        elseif gs.currentState == "COMPENDIUM" then
+            gs.compendiumChangePage(1)
+        end
+        return true
+    end
+
+    return false
 end
 
 -- Main entry point for key handling
@@ -29711,18 +31372,22 @@ function Input.handleKey(key, scancode, isrepeat)
 
     -- Handle settings key capture
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
-        local action = gameState.settingsMenu.waitingForKey
+        local capture = gameState.settingsMenu.waitingForKey
         local controls = gameState.settings.get("controls")
-        controls[action.player][action.key] = key
-        gameState.settings.set("controls", controls)
-        gameState.settingsMenu.rebindIndex = gameState.settingsMenu.rebindIndex + 1
-        if gameState.settingsMenu.rebindIndex <= #gameState.settingsMenu.bindOrder then
-            local a = gameState.settingsMenu.bindOrder[gameState.settingsMenu.rebindIndex]
-            gameState.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
-        else
-            gameState.settingsMenu.waitingForKey = nil
-            gameState.settingsMenu.mode = nil
+        if controls[capture.playerType] then
+            controls[capture.playerType][capture.action] = key
+            gameState.settings.set("controls", controls)
+            if gameState.settings.save then gameState.settings.save() end
+            -- update list for UI
+            if gameState.settingsMenu.rebindActionList then
+                for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                    if entry.action == capture.action then
+                        entry.binding = key
+                    end
+                end
+            end
         end
+        gameState.settingsMenu.waitingForKey = nil
         Input.setupRoutes()
         return true
     end
@@ -29761,16 +31426,16 @@ function Input.handleKey(key, scancode, isrepeat)
         end
         -- fall through to player controls when not handled
     end
-    
-    -- Check player 1 controls
-    local p1Handler = Input.Routes.p1[key]
+
+    -- Check player 1 keyboard controls
+    local p1Handler = Input.Routes.p1_kb[key]
     if p1Handler then
         return p1Handler(key, scancode, isrepeat)
     end
-    
-    -- Check player 2 controls
-    local p2Handler = Input.Routes.p2[key]
-    if p2Handler then
+
+    -- Check player 2 keyboard controls if allowed
+    local p2Handler = Input.Routes.p2_kb[key]
+    if p2Handler and not gameState.useAI and not gameState.p2UsingGamepad then
         return p2Handler(key, scancode, isrepeat)
     end
     
@@ -29793,24 +31458,178 @@ end
 -- Handle key release events
 function Input.handleKeyReleased(key, scancode)
     local controls = gameState.settings.get("controls")
-    -- Handle player 1 key releases
-    if key == controls.p1.slot1 or key == controls.p1.slot2 or key == controls.p1.slot3 then
-        local slotIndex = (key == controls.p1.slot1) and 1 or (key == controls.p1.slot2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[1] then
-            gameState.wizards[1]:keySpell(slotIndex, false)
+    local kp1 = controls.keyboardP1 or (controls.p1 or {})
+    local kp2 = controls.keyboardP2 or (controls.p2 or {})
+
+    local p1s1 = kp1[Constants.ControlAction.P1_SLOT1] or kp1.slot1
+    local p1s2 = kp1[Constants.ControlAction.P1_SLOT2] or kp1.slot2
+    local p1s3 = kp1[Constants.ControlAction.P1_SLOT3] or kp1.slot3
+    if key == p1s1 or key == p1s2 or key == p1s3 then
+        local slotIndex = (key == p1s1) and 1 or (key == p1s2 and 2 or 3)
+        if slotIndex == 1 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, 1)
+        elseif slotIndex == 2 then
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, 1)
+        else
+            return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, 1)
+        end
+    end
+
+    if not gameState.useAI and not gameState.p2UsingGamepad then
+        local p2s1 = kp2[Constants.ControlAction.P2_SLOT1] or kp2.slot1
+        local p2s2 = kp2[Constants.ControlAction.P2_SLOT2] or kp2.slot2
+        local p2s3 = kp2[Constants.ControlAction.P2_SLOT3] or kp2.slot3
+        if key == p2s1 or key == p2s2 or key == p2s3 then
+            local slotIndex = (key == p2s1) and 1 or (key == p2s2 and 2 or 3)
+            if slotIndex == 1 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, 2)
+            elseif slotIndex == 2 then
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, 2)
+            else
+                return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, 2)
+            end
+        end
+    end
+
+    return false
+end
+
+-- Process gamepad button events
+function Input.handleGamepadButton(joystickID, buttonName, isPressed)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        gameState.p2UsingGamepad = true
+    end
+
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if capture.playerType == "gamepadP1" and playerIndex == 1 or capture.playerType == "gamepadP2" and playerIndex == 2 then
+            if isPressed then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = buttonName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = buttonName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
             return true
         end
     end
 
-    -- Handle player 2 key releases
-    if key == controls.p2.slot1 or key == controls.p2.slot2 or key == controls.p2.slot3 then
-        local slotIndex = (key == controls.p2.slot1) and 1 or (key == controls.p2.slot2 and 2 or 3)
-        if gameState and gameState.wizards and gameState.wizards[2] then
-            gameState.wizards[2]:keySpell(slotIndex, false)
+    local controls = Input.controls or gameState.settings.get("controls")
+    local map = (playerIndex == 1) and (controls.gamepadP1 or {}) or (controls.gamepadP2 or {})
+
+    for action, button in pairs(map) do
+        if button == buttonName then
+            if not isPressed then
+                -- Trigger release variants for spell slot buttons
+                if action == Constants.ControlAction.P1_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P1_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P1_SLOT3_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT1 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT1_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT2 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT2_RELEASE, playerIndex)
+                elseif action == Constants.ControlAction.P2_SLOT3 then
+                    return Input.triggerAction(Constants.ControlAction.P2_SLOT3_RELEASE, playerIndex)
+                end
+            end
+            return Input.triggerAction(action, playerIndex, {pressed = isPressed})
+        end
+    end
+
+    return false
+end
+
+-- Store previous axis values to implement deadzone and edge detection
+Input._axisState = { [1] = {}, [2] = {} }
+Input._axisRepeat = { [1] = {}, [2] = {} }
+Input.AXIS_DEADZONE = 0.3
+Input.AXIS_REPEAT_DELAY = 0.4
+Input.AXIS_REPEAT_INTERVAL = 0.2
+
+-- Process gamepad axis movements for menu navigation
+function Input.handleGamepadAxis(joystickID, axisName, value)
+    local playerIndex
+    if joystickID == gameState.p1GamepadID then
+        playerIndex = 1
+    elseif joystickID == gameState.p2GamepadID then
+        playerIndex = 2
+    end
+    if not playerIndex then return false end
+
+    if playerIndex == 2 then
+        if gameState.useAI then return false end
+        if math.abs(value) > Input.AXIS_DEADZONE then
+            gameState.p2UsingGamepad = true
+        end
+    end
+
+    if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
+        local capture = gameState.settingsMenu.waitingForKey
+        if (capture.playerType == "gamepadP1" and playerIndex == 1) or (capture.playerType == "gamepadP2" and playerIndex == 2) then
+            if math.abs(value) > Input.AXIS_DEADZONE then
+                local controls = gameState.settings.get("controls")
+                controls[capture.playerType][capture.action] = axisName
+                gameState.settings.set("controls", controls)
+                if gameState.settings.save then gameState.settings.save() end
+                if gameState.settingsMenu.rebindActionList then
+                    for _, entry in ipairs(gameState.settingsMenu.rebindActionList) do
+                        if entry.action == capture.action then
+                            entry.binding = axisName
+                        end
+                    end
+                end
+                gameState.settingsMenu.waitingForKey = nil
+                Input.setupRoutes()
+            end
             return true
         end
     end
-    
+
+    local prev = Input._axisState[playerIndex][axisName] or 0
+    Input._axisState[playerIndex][axisName] = value
+
+    local action
+    if axisName == "lefty" or axisName == "righty" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_UP
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_DOWN
+        end
+    elseif axisName == "leftx" or axisName == "rightx" then
+        if value < -Input.AXIS_DEADZONE and prev >= -Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_LEFT
+        elseif value > Input.AXIS_DEADZONE and prev <= Input.AXIS_DEADZONE then
+            action = Constants.ControlAction.MENU_RIGHT
+        end
+    end
+
+    if action then
+        Input._axisRepeat[playerIndex][axisName] = {action = action, timer = Input.AXIS_REPEAT_DELAY}
+        return Input.triggerUIAction(action, {value = value})
+    elseif math.abs(value) < Input.AXIS_DEADZONE then
+        Input._axisRepeat[playerIndex][axisName] = nil
+    end
+
     return false
 end
 
@@ -29818,50 +31637,102 @@ end
 function Input.setupRoutes()
     -- Reset route tables
     Input.Routes.system = {}
-    Input.Routes.p1 = {}
-    Input.Routes.p2 = {}
+    Input.Routes.p1_kb = {}
+    Input.Routes.p2_kb = {}
+    Input.Routes.gp1 = {}
+    Input.Routes.gp2 = {}
     Input.Routes.debug = {}
     Input.Routes.test = {}
     Input.Routes.ui = {}
     Input.Routes.gameOver = {}
-    -- Exit / Quit the game or return to menu
-    Input.Routes.ui["escape"] = function()
-        -- If in MENU state, quit the game
-        if gameState.currentState == "MENU" then
-            love.event.quit()
-            return true
-        -- If in BATTLE state, return to menu
-        elseif gameState.currentState == "BATTLE" then
-            gameState.currentState = "MENU"
-            print("Returning to main menu")
-            return true
-        -- If in GAME_OVER state, return to menu
-        elseif gameState.currentState == "GAME_OVER" then
-            gameState.currentState = "MENU"
-            gameState.resetGame()
-            print("Returning to main menu")
-            return true
-        -- If in CHARACTER_SELECT, go back to menu
-        elseif gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectBack(true)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.currentState = "MENU"
-            gameState.campaignMenu = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.currentState = "MENU"
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.currentState = "MENU"
+
+    local c = gameState.settings.get("controls")
+    Input.controls = c
+
+    local function addRoute(tbl, key, actionDesc, fn)
+        if not key or key == "" then
+            print("[Input] Warning: action " .. actionDesc .. " has no binding")
+            return
+        end
+        if tbl[key] then
+            print("[Input] Warning: conflicting binding for key/button '" .. key .. "'")
+        end
+        tbl[key] = fn
+    end
+
+    -- Build player 1 keyboard routes
+    local kp1 = c.keyboardP1 or {}
+    for action, key in pairs(kp1) do
+        addRoute(Input.Routes.p1_kb, key, action, function()
+            return Input.triggerAction(action, 1)
+        end)
+    end
+
+    -- Build player 2 keyboard routes
+    local kp2 = c.keyboardP2 or {}
+    for action, key in pairs(kp2) do
+        addRoute(Input.Routes.p2_kb, key, action, function()
+            return Input.triggerAction(action, 2)
+        end)
+    end
+
+    -- Build player 1 gamepad routes (button to action lookup)
+    local gp1 = c.gamepadP1 or {}
+    for action, button in pairs(gp1) do
+        addRoute(Input.Routes.gp1, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p1GamepadID, button, pressed)
+        end)
+    end
+
+    -- Build player 2 gamepad routes
+    local gp2 = c.gamepadP2 or {}
+    for action, button in pairs(gp2) do
+        addRoute(Input.Routes.gp2, button, action, function(pressed)
+            return Input.handleGamepadButton(gameState.p2GamepadID, button, pressed)
+        end)
+    end
+
+    -- SYSTEM CONTROLS (with ALT modifier)
+    Input.Routes.system["1"] = function()
+        love.window.setMode(gameState.baseWidth, gameState.baseHeight)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["2"] = function()
+        love.window.setMode(gameState.baseWidth * 2, gameState.baseHeight * 2)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["3"] = function()
+        love.window.setMode(gameState.baseWidth * 3, gameState.baseHeight * 3)
+        Input.recalculateScaling()
+        return true
+    end
+
+    Input.Routes.system["f"] = function()
+        love.window.setFullscreen(not love.window.getFullscreen())
+        Input.recalculateScaling()
+        return true
+    end
+
+    -- Developer hot-reload with Ctrl+R
+    Input.Routes.system["ctrl_r"] = function()
+        print("Hot-reloading assets...")
+        local AssetPreloader = require("core.assetPreloader")
+        local reloadStats = AssetPreloader.reloadAllAssets()
+        print(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
+                          reloadStats.imageCount,
+                          reloadStats.soundCount,
+                          reloadStats.loadTime))
+        return true
+    end
+
+    -- GAME OVER STATE CONTROLS
+    Input.Routes.gameOver["space"] = function()
+        if gameState.currentState == "GAME_OVER" then
+            gameState.winScreenTimer = gameState.winScreenDuration
             return true
         end
         return false
@@ -29971,67 +31842,28 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Legacy enter key starts Character Duel or confirms menu selections
+    -- Generic menu navigation keys
     Input.Routes.ui["return"] = function()
-        if gameState.currentState == "MENU" then
-            gameState.startCharacterSelect()
-            return true
-        elseif gameState.currentState == "SETTINGS" then
-            gameState.settingsSelect()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["space"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
+    end
+    Input.Routes.ui["escape"] = function()
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK)
     end
 
-    -- SETTINGS AND COMPENDIUM CONTROLS
     Input.Routes.ui["up"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(-1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_UP)
     end
     Input.Routes.ui["down"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsMove(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumMove(1)
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuMove(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_DOWN)
     end
     Input.Routes.ui["left"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(-1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(-1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_LEFT)
     end
     Input.Routes.ui["right"] = function()
-        if gameState.currentState == "SETTINGS" then
-            gameState.settingsAdjust(1)
-            return true
-        elseif gameState.currentState == "COMPENDIUM" then
-            gameState.compendiumChangePage(1)
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_RIGHT)
     end
 
     -- Assign spells to slots when in Compendium
@@ -30086,26 +31918,15 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Confirm selection / Fight
+    -- Confirm selection / Fight (legacy key)
     Input.Routes.ui["f"] = function()
-        if gameState.currentState == "CHARACTER_SELECT" then
-            gameState.characterSelectConfirm()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_MENU" then
-            gameState.campaignMenuConfirm()
-            return true
-        end
-        return false
+        return Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)
     end
 
-    -- Campaign victory/defeat options
-    Input.Routes.ui["space"] = function()
-        if gameState.currentState == "CAMPAIGN_DEFEAT" then
-            gameState.retryCampaignBattle()
-            return true
-        elseif gameState.currentState == "CAMPAIGN_VICTORY" then
-            gameState.currentState = "MENU"
-            gameState.campaignProgress = nil
+    -- Toggle Player 2 mode between Human and AI
+    Input.Routes.ui["tab"] = function()
+        if gameState.currentState == "CHARACTER_SELECT" and gameState.characterSelect.stage >= 2 then
+            gameState.useAI = not gameState.useAI
             return true
         end
         return false
@@ -30119,93 +31940,6 @@ function Input.setupRoutes()
         return false
     end
 
-    -- Escape backs out of character select handled in global escape route
-    
-    -- GAME OVER STATE CONTROLS
-    -- Advance from win screen on space bar press
-    Input.Routes.gameOver["space"] = function()
-        if gameState.currentState == "GAME_OVER" then
-            gameState.winScreenTimer = gameState.winScreenDuration
-            return true
-        end
-        return false
-    end
-    
-    -- PLAYER 1 CONTROLS (Ashgar)
-    local c = gameState.settings.get("controls")
-    local p1 = c.p1
-    local p2 = c.p2
-
-    -- Key spell slots
-    Input.Routes.p1[p1.slot1] = function()
-        gameState.wizards[1]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot2] = function()
-        gameState.wizards[1]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p1[p1.slot3] = function()
-        gameState.wizards[1]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p1[p1.cast] = function()
-        gameState.wizards[1]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p1[p1.free] = function()
-        gameState.wizards[1]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p1[p1.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(1)
-        return true
-    end
-
-    -- PLAYER 2 CONTROLS (Selene)
-    -- Key spell slots
-    Input.Routes.p2[p2.slot1] = function()
-        gameState.wizards[2]:keySpell(1, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot2] = function()
-        gameState.wizards[2]:keySpell(2, true)
-        return true
-    end
-
-    Input.Routes.p2[p2.slot3] = function()
-        gameState.wizards[2]:keySpell(3, true)
-        return true
-    end
-
-    -- Cast keyed spell
-    Input.Routes.p2[p2.cast] = function()
-        gameState.wizards[2]:castKeyedSpell()
-        return true
-    end
-
-    -- Free all spells
-    Input.Routes.p2[p2.free] = function()
-        gameState.wizards[2]:freeAllSpells()
-        return true
-    end
-
-    -- Toggle spellbook
-    Input.Routes.p2[p2.book] = function()
-        local UI = require("ui")
-        UI.toggleSpellbook(2)
-        return true
-    end
     
     -- DEBUG CONTROLS
     -- Add 30 random tokens with T key
@@ -30397,8 +32131,46 @@ function Input.recalculateScaling()
     end
 end
 
--- Document all currently used keys
+-- Update repeat timers for held gamepad axes
+function Input.update(dt)
+    for playerIndex, axes in pairs(Input._axisRepeat) do
+        for axis, state in pairs(axes) do
+            state.timer = state.timer - dt
+            if state.timer <= 0 then
+                Input.triggerUIAction(state.action, {value = Input._axisState[playerIndex][axis]})
+                state.timer = Input.AXIS_REPEAT_INTERVAL
+            end
+        end
+    end
+end
+
+-- Document all currently used keys and default bindings
+-- `actions` mirrors the defaults defined in core/Settings.lua so that
+-- documentation and debug overlays can display current mappings.
 Input.reservedKeys = {
+    actions = {
+        [Constants.ControlAction.P1_SLOT1] = {keyboardP1 = "q", gamepadP1 = "dpdown"},
+        [Constants.ControlAction.P1_SLOT2] = {keyboardP1 = "w", gamepadP1 = "dpleft"},
+        [Constants.ControlAction.P1_SLOT3] = {keyboardP1 = "e", gamepadP1 = "dpright"},
+        [Constants.ControlAction.P1_CAST]  = {keyboardP1 = "f", gamepadP1 = "a"},
+        [Constants.ControlAction.P1_FREE]  = {keyboardP1 = "g", gamepadP1 = "y"},
+        [Constants.ControlAction.P1_BOOK]  = {keyboardP1 = "b", gamepadP1 = "b"},
+
+        [Constants.ControlAction.P2_SLOT1] = {keyboardP2 = "i", gamepadP2 = "dpdown"},
+        [Constants.ControlAction.P2_SLOT2] = {keyboardP2 = "o", gamepadP2 = "dpleft"},
+        [Constants.ControlAction.P2_SLOT3] = {keyboardP2 = "p", gamepadP2 = "dpright"},
+        [Constants.ControlAction.P2_CAST]  = {keyboardP2 = "j", gamepadP2 = "a"},
+        [Constants.ControlAction.P2_FREE]  = {keyboardP2 = "h", gamepadP2 = "y"},
+        [Constants.ControlAction.P2_BOOK]  = {keyboardP2 = "m", gamepadP2 = "b"},
+
+        [Constants.ControlAction.MENU_UP]    = {keyboardP1 = "up",    keyboardP2 = "up",    gamepadP1 = "dpup",    gamepadP2 = "dpup"},
+        [Constants.ControlAction.MENU_DOWN]  = {keyboardP1 = "down",  keyboardP2 = "down",  gamepadP1 = "dpdown",  gamepadP2 = "dpdown"},
+        [Constants.ControlAction.MENU_LEFT]  = {keyboardP1 = "left",  keyboardP2 = "left",  gamepadP1 = "dpleft",  gamepadP2 = "dpleft"},
+        [Constants.ControlAction.MENU_RIGHT] = {keyboardP1 = "right", keyboardP2 = "right", gamepadP1 = "dpright", gamepadP2 = "dpright"},
+        [Constants.ControlAction.MENU_CONFIRM]     = {keyboardP1 = "return", keyboardP2 = "return", gamepadP1 = "a", gamepadP2 = "a"},
+        [Constants.ControlAction.MENU_CANCEL_BACK] = {keyboardP1 = "escape", keyboardP2 = "escape", gamepadP1 = "b", gamepadP2 = "b"}
+    },
+
     system = {
         "Alt+1", "Alt+2", "Alt+3", "Alt+f", -- Window scaling
         "Ctrl+R", -- Asset reload
@@ -30406,8 +32178,9 @@ Input.reservedKeys = {
     
     menu = {
         "1", "2", "3", "4", "5", "6", -- Main menu options
-        "Enter", -- Start character duel (shortcut)
-        "Escape", -- Quit game from menu
+        "Up", "Down", "Left", "Right", -- Navigation
+        "Enter", "Space", -- Confirm
+        "Escape", -- Quit/Back
     },
     
     battle = {
@@ -30415,17 +32188,17 @@ Input.reservedKeys = {
     },
 
     campaignMenu = {
-        "Up", "Down", "F", "Enter", "Escape"
+        "Up", "Down", "Left", "Right", "F", "Enter", "Space", "Escape"
     },
 
     characterSelect = {
         "Q", "E", -- Move cursor
-        "F", -- Confirm
+        "F", "Enter", "Space", -- Confirm
         "Escape" -- Back
     },
     
     gameOver = {
-        "Space", -- Return to menu after game over
+        "Space", "Enter", -- Return to menu after game over
         "Escape", -- Return to menu immediately
     },
     
@@ -30457,7 +32230,8 @@ Input.reservedKeys = {
     }
 }
 
-return Input```
+return Input
+```
 
 ## ./core/Log.lua
 ```lua
@@ -30754,14 +32528,53 @@ return Pool```
 ## ./core/Settings.lua
 ```lua
 local Settings = {}
+local Constants = require("core.Constants")
 
 -- Default configuration
 local defaults = {
     dummyFlag = false,
     gameSpeed = "FAST",
     controls = {
-        p1 = { slot1 = "q", slot2 = "w", slot3 = "e", cast = "f", free = "g", book = "b" },
-        p2 = { slot1 = "i", slot2 = "o", slot3 = "p", cast = "j", free = "h", book = "m" }
+        keyboardP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "q",
+            [Constants.ControlAction.P1_SLOT2] = "w",
+            [Constants.ControlAction.P1_SLOT3] = "e",
+            [Constants.ControlAction.P1_CAST]  = "f",
+            [Constants.ControlAction.P1_FREE]  = "g",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "up",
+            [Constants.ControlAction.MENU_DOWN]  = "down",
+            [Constants.ControlAction.MENU_LEFT]  = "left",
+            [Constants.ControlAction.MENU_RIGHT] = "right",
+            [Constants.ControlAction.MENU_CONFIRM]     = "return",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "escape"
+        },
+        keyboardP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "i",
+            [Constants.ControlAction.P2_SLOT2] = "o",
+            [Constants.ControlAction.P2_SLOT3] = "p",
+            [Constants.ControlAction.P2_CAST]  = "j",
+            [Constants.ControlAction.P2_FREE]  = "h",
+            [Constants.ControlAction.P2_BOOK]  = "m"
+        },
+        gamepadP1 = {
+            [Constants.ControlAction.P1_SLOT1] = "dpdown",
+            [Constants.ControlAction.P1_SLOT2] = "dpleft",
+            [Constants.ControlAction.P1_SLOT3] = "dpright",
+            [Constants.ControlAction.P1_CAST]  = "a",
+            [Constants.ControlAction.P1_FREE]  = "y",
+            [Constants.ControlAction.P1_BOOK]  = "b",
+            [Constants.ControlAction.MENU_UP]    = "dpup",
+            [Constants.ControlAction.MENU_DOWN]  = "dpdown",
+            [Constants.ControlAction.MENU_LEFT]  = "dpleft",
+            [Constants.ControlAction.MENU_RIGHT] = "dpright",
+            [Constants.ControlAction.MENU_CONFIRM]     = "a",
+            [Constants.ControlAction.MENU_CANCEL_BACK] = "b"
+        },
+        gamepadP2 = {
+            [Constants.ControlAction.P2_SLOT1] = "dpdown",
+            -- Placeholder for P2 controller mappings
+        }
     }
 }
 
@@ -30797,6 +32610,20 @@ local function serialize(tbl, indent)
     return table.concat(parts)
 end
 
+local function mergeDefaults(target, default)
+    for k, v in pairs(default) do
+        if type(v) == "table" then
+            if type(target[k]) ~= "table" then
+                target[k] = deepcopy(v)
+            else
+                mergeDefaults(target[k], v)
+            end
+        elseif target[k] == nil then
+            target[k] = v
+        end
+    end
+end
+
 Settings.data = nil
 
 function Settings.load()
@@ -30809,6 +32636,8 @@ function Settings.load()
             if type(Settings.data.gameSpeed) ~= "string" then
                 Settings.data.gameSpeed = "FAST"
             end
+            -- Merge new defaults for missing values
+            mergeDefaults(Settings.data, defaults)
             return
         end
     end
@@ -30838,6 +32667,57 @@ function Settings.getDefaults()
 end
 
 return Settings
+```
+
+## ./core/Tips.lua
+```lua
+local Tips = {}
+
+local loadedTips = nil
+
+local function parseTips(json)
+    local tips = {}
+    if not json then return tips end
+    for tipBlock in json:gmatch("%{[^{}]*%}") do
+        local title = tipBlock:match('"title"%s*:%s*"(.-)"')
+        local content = tipBlock:match('"content"%s*:%s*"(.-)"')
+        local source = tipBlock:match('"source"%s*:%s*"(.-)"')
+        if title and content and source then
+            table.insert(tips, {
+                title = title,
+                content = content,
+                source = source
+            })
+        end
+    end
+    return tips
+end
+
+function Tips.load(path)
+    if loadedTips then
+        return loadedTips
+    end
+    local data = love.filesystem.read(path)
+    if not data then
+        print("ERROR: Could not load tips file: " .. tostring(path))
+        loadedTips = {}
+        return loadedTips
+    end
+    loadedTips = parseTips(data)
+    return loadedTips
+end
+
+function Tips.getRandomTip()
+    if not loadedTips then
+        return nil
+    end
+    if #loadedTips == 0 then
+        return nil
+    end
+    return loadedTips[love.math.random(#loadedTips)]
+end
+
+return Tips
 ```
 
 ## ./core/assetPreloader.lua
@@ -32344,6 +34224,7 @@ local SpellCompiler = require("spellCompiler")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
 local Settings = require("core.Settings")
+local Tips = require("core.Tips")
 local OpponentAI = require("ai.OpponentAI")
 local SelenePersonality = require("ai.personalities.SelenePersonality")
 local AshgarPersonality = require("ai.personalities.AshgarPersonality")
@@ -32383,6 +34264,10 @@ game = {
     campaignProgress = nil, -- Holds campaign run info when active
     -- Game mode
     useAI = false,         -- Whether to use AI for the second player
+    -- Gamepad identifiers (assigned when controllers connect)
+    p1GamepadID = nil,
+    p2GamepadID = nil,
+    p2UsingGamepad = false,
     -- Attract mode properties
     attractModeActive = false,
     menuIdleTimer = 0,
@@ -32402,14 +34287,19 @@ game = {
             {"p2","slot3","P2 Slot 3"},
             {"p2","cast","P2 Cast"}
         },
-        rebindIndex = 1
+        rebindIndex = 1,
+        rebindSelection = 1,
+        rebindPlayerType = nil,
+        rebindActionList = nil,
+        rebindOptions = nil
     },
     -- Resolution properties
     baseWidth = baseWidth,
     baseHeight = baseHeight,
     scale = scale,
     offsetX = offsetX,
-    offsetY = offsetY
+    offsetY = offsetY,
+    currentTip = nil
 }
 
 -- Helper function to trigger screen shake
@@ -32504,6 +34394,8 @@ game.unlockedSpells = {
     brinechain = true,
     maelstrom = true,
     wavecrash = true,
+    desperationfire = true,
+    moondrain = true,
 }
 
 -- Custom spellbooks configured by the player
@@ -32657,6 +34549,9 @@ function love.load()
     
     -- Set default font for normal rendering
     love.graphics.setFont(game.font)
+
+    -- Load gameplay tips
+    Tips.load("assets/text/tips.json")
     
     -- Create mana pool positioned above the battlefield, but below health bars
     game.manaPool = ManaPool.new(baseWidth/2, 120)  -- Positioned between health bars and wizards
@@ -32843,6 +34738,7 @@ function resetGame()
     game.gameOver = false
     game.winner = nil
     game.winScreenTimer = 0
+    game.currentTip = nil
     
     -- Reset wizards
     for _, wizard in ipairs(game.wizards) do
@@ -33119,6 +35015,8 @@ function game.startCharacterSelect()
     game.characterSelect.stage = 1
     game.characterSelect.cursor = 1
     game.characterSelect.selected = {nil,nil}
+    game.useAI = true -- default to AI opponent
+    game.p2UsingGamepad = false
     game.currentState = "CHARACTER_SELECT"
 end
 
@@ -33146,7 +35044,6 @@ function game.characterSelectConfirm()
         game.characterSelect.stage = 3
     else
         setupWizards(game.characterSelect.selected[1], game.characterSelect.selected[2])
-        game.useAI = true
         resetGame()
         game.currentState = "BATTLE"
     end
@@ -33175,11 +35072,30 @@ function game.startSettings()
     game.settingsMenu.mode = nil
     game.settingsMenu.waitingForKey = nil
     game.settingsMenu.rebindIndex = 1
+    game.settingsMenu.rebindSelection = 1
+    game.settingsMenu.rebindPlayerType = nil
+    game.settingsMenu.rebindActionList = nil
+    game.settingsMenu.rebindOptions = {
+        {playerType = "keyboardP1", label = "Player 1 Keyboard"},
+        {playerType = "keyboardP2", label = "Player 2 Keyboard"},
+        {playerType = "gamepadP1",  label = "Player 1 Gamepad"}
+    }
     game.currentState = "SETTINGS"
 end
 
 function game.settingsMove(dir)
-    if game.settingsMenu.mode then return end
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        local list = (game.settingsMenu.mode == "rebind_select_player") and game.settingsMenu.rebindOptions or game.settingsMenu.rebindActionList
+        if not list then return end
+        local count = #list
+        local idx = game.settingsMenu.rebindSelection + dir
+        if idx < 1 then idx = count end
+        if idx > count then idx = 1 end
+        game.settingsMenu.rebindSelection = idx
+        return
+    elseif game.settingsMenu.mode then
+        return
+    end
     local count = 4
     local idx = game.settingsMenu.selected + dir
     if idx < 1 then idx = count end
@@ -33251,17 +35167,53 @@ function game.unlockAll()
 end
 
 function game.settingsSelect()
-    if game.settingsMenu.selected == 3 then
-        -- Unlock All (Dev) option
-        game.unlockAll()
-    elseif game.settingsMenu.selected == 4 then
-        game.settingsMenu.mode = "rebind"
-        game.settingsMenu.rebindIndex = 1
-        local a = game.settingsMenu.bindOrder[1]
-        game.settingsMenu.waitingForKey = {player=a[1], key=a[2], label=a[3]}
+    if game.settingsMenu.mode == "rebind_select_player" then
+        local option = game.settingsMenu.rebindOptions[game.settingsMenu.rebindSelection]
+        if option then
+            game.settingsMenu.rebindPlayerType = option.playerType
+            local controls = Settings.get("controls")[option.playerType] or {}
+            game.settingsMenu.rebindActionList = {}
+            for action, binding in pairs(controls) do
+                table.insert(game.settingsMenu.rebindActionList, {action = action, binding = binding})
+            end
+            table.sort(game.settingsMenu.rebindActionList, function(a,b) return a.action < b.action end)
+            game.settingsMenu.rebindSelection = 1
+            game.settingsMenu.mode = "rebind_action_list"
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local entry = game.settingsMenu.rebindActionList[game.settingsMenu.rebindSelection]
+        if entry then
+            game.settingsMenu.waitingForKey = {playerType = game.settingsMenu.rebindPlayerType, action = entry.action, label = entry.action}
+        end
     else
-        game.settingsAdjust(1)
+        if game.settingsMenu.selected == 3 then
+            game.unlockAll()
+        elseif game.settingsMenu.selected == 4 then
+            game.settingsMenu.mode = "rebind_select_player"
+            game.settingsMenu.rebindSelection = 1
+        else
+            game.settingsAdjust(1)
+        end
     end
+end
+
+function game.settingsBack()
+    if game.settingsMenu.waitingForKey then
+        game.settingsMenu.waitingForKey = nil
+        return
+    end
+    if game.settingsMenu.mode == "rebind_action_list" then
+        game.settingsMenu.mode = "rebind_select_player"
+        game.settingsMenu.rebindSelection = 1
+        return
+    elseif game.settingsMenu.mode == "rebind_select_player" then
+        game.settingsMenu.mode = nil
+        game.settingsMenu.rebindPlayerType = nil
+        game.settingsMenu.rebindActionList = nil
+        game.settingsMenu.rebindSelection = 1
+        return
+    end
+    game.currentState = "MENU"
 end
 
 function game.startCompendium()
@@ -33427,6 +35379,9 @@ function love.update(dt)
             shakeIntensity = 0
         end
     end
+
+    -- Update input repeat timers
+    Input.update(dt)
     
     -- Update Compendium assignment feedback timers
     if game.currentState == "COMPENDIUM" then
@@ -33510,6 +35465,7 @@ function love.update(dt)
             -- Transition to game over state
             game.currentState = "GAME_OVER"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
         
@@ -33547,9 +35503,10 @@ function love.update(dt)
                 end
                 
                 print(winner.name .. " wins!")
-                
+
                 -- Transition to game over state
                 game.currentState = "GAME_OVER"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -33613,6 +35570,7 @@ function love.update(dt)
             -- Transition to attract mode game over state
             game.currentState = "GAME_OVER_ATTRACT"
             game.winScreenTimer = 0
+            game.currentTip = Tips.getRandomTip()
             return
         end
 
@@ -33653,6 +35611,7 @@ function love.update(dt)
 
                 -- Transition to game over state
                 game.currentState = "GAME_OVER_ATTRACT"
+                game.currentTip = Tips.getRandomTip()
                 return
             end
         end
@@ -33983,6 +35942,20 @@ function drawWinScreen()
             screenWidth / 2 - countdownTextWidth / 2,
             textY + 200
         )
+    end
+
+    -- Draw gameplay tip overlay
+    if game.currentTip then
+        love.graphics.setColor(0, 0, 0, 0.6)
+        love.graphics.rectangle("fill", 0, screenHeight - 110, screenWidth, 110)
+
+        love.graphics.setColor(1, 1, 1, 0.9)
+        local header = "TIP: " .. game.currentTip.title
+        love.graphics.printf(header, 20, screenHeight - 100, screenWidth - 40, "center")
+
+        love.graphics.setColor(0.9, 0.9, 0.9, 0.9)
+        local body = game.currentTip.content .. " - " .. game.currentTip.source
+        love.graphics.printf(body, 20, screenHeight - 80, screenWidth - 40, "center")
     end
     
     -- Draw some victory effect particles
@@ -34553,6 +36526,13 @@ function drawCharacterSelect()
     end
     local w = game.font:getWidth(msg)
     love.graphics.print(msg,screenWidth/2 - w/2,gridY+gridHeight+20)
+
+    if game.characterSelect.stage >= 2 then
+        local modeText = game.useAI and "P2: AI" or "P2: Human"
+        local toggleMsg = modeText .. " (Tab to toggle)"
+        local tw = game.font:getWidth(toggleMsg)
+        love.graphics.print(toggleMsg, screenWidth/2 - tw/2, gridY+gridHeight+40)
+    end
 end
 
 -- Draw the settings menu
@@ -34561,6 +36541,11 @@ function drawSettingsMenu()
     local screenHeight = baseHeight
     love.graphics.setColor(20/255, 20/255, 40/255, 1)
     love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    if game.settingsMenu.mode == "rebind_select_player" or game.settingsMenu.mode == "rebind_action_list" then
+        drawRebindMenu()
+        return
+    end
 
     local options = {
         "Dummy Flag: " .. tostring(Settings.get("dummyFlag")),
@@ -34586,6 +36571,50 @@ function drawSettingsMenu()
         local scale = 1.2
         local w = game.font:getWidth(msg) * scale
         love.graphics.setColor(1, 0.6, 0.6, 1)
+        love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
+    end
+end
+
+function drawRebindMenu()
+    local screenWidth = baseWidth
+    local screenHeight = baseHeight
+    love.graphics.setColor(20/255, 20/255, 40/255, 1)
+    love.graphics.rectangle("fill", 0, 0, screenWidth, screenHeight)
+
+    if game.settingsMenu.mode == "rebind_select_player" then
+        for i, opt in ipairs(game.settingsMenu.rebindOptions or {}) do
+            local text = opt.label
+            local scale = 1.3
+            local y = screenHeight * 0.4 + (i-1)*30
+            local w = game.font:getWidth(text) * scale
+            if i == game.settingsMenu.rebindSelection then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, screenWidth/2 - w/2, y, 0, scale, scale)
+        end
+    elseif game.settingsMenu.mode == "rebind_action_list" then
+        local list = game.settingsMenu.rebindActionList or {}
+        local startY = screenHeight * 0.3
+        for i, entry in ipairs(list) do
+            local text = entry.action .. " : " .. tostring(entry.binding or "")
+            local scale = 1.1
+            local y = startY + (i-1)*24
+            if i == game.settingsMenu.rebindSelection and not game.settingsMenu.waitingForKey then
+                love.graphics.setColor(1,0.8,0.3,1)
+            else
+                love.graphics.setColor(0.9,0.9,0.9,0.9)
+            end
+            love.graphics.print(text, 60, y, 0, scale, scale)
+        end
+    end
+
+    if game.settingsMenu.waitingForKey then
+        local msg = "Press new input for " .. game.settingsMenu.waitingForKey.label
+        local scale = 1.2
+        local w = game.font:getWidth(msg) * scale
+        love.graphics.setColor(1,0.6,0.6,1)
         love.graphics.print(msg, screenWidth/2 - w/2, screenHeight - 60, 0, scale, scale)
     end
 end
@@ -35245,7 +37274,56 @@ function love.keyreleased(key, scancode)
 
     -- Forward all key releases to the Input module
     return Input.handleKeyReleased(key, scancode)
-end```
+end
+
+-- Handle gamepad button presses
+function love.gamepadpressed(joystick, button)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    elseif not game.p2GamepadID and not game.useAI then
+        game.p2GamepadID = jid
+        game.p2UsingGamepad = true
+    end
+    if game.attractModeActive then
+        exitAttractMode()
+        return true
+    end
+    return Input.handleGamepadButton(jid, button, true)
+end
+
+function love.gamepadreleased(joystick, button)
+    local jid = joystick:getID()
+    return Input.handleGamepadButton(jid, button, false)
+end
+
+-- Handle analog stick movement
+function love.gamepadaxis(joystick, axis, value)
+    local jid = joystick:getID()
+    return Input.handleGamepadAxis(jid, axis, value)
+end
+
+-- Track gamepad connections
+function love.joystickadded(joystick)
+    local jid = joystick:getID()
+    if not game.p1GamepadID then
+        game.p1GamepadID = jid
+    elseif not game.p2GamepadID and not game.useAI then
+        game.p2GamepadID = jid
+        game.p2UsingGamepad = true
+    end
+end
+
+function love.joystickremoved(joystick)
+    local jid = joystick:getID()
+    if game.p1GamepadID == jid then
+        game.p1GamepadID = nil
+    elseif game.p2GamepadID == jid then
+        game.p2GamepadID = nil
+        game.p2UsingGamepad = false
+    end
+end
+```
 
 ## ./manapool.lua
 ```lua
@@ -36907,6 +38985,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     if spellDef.getCastTime and type(spellDef.getCastTime) == "function" then
         compiledSpell.getCastTime = spellDef.getCastTime
     end
+
+    -- >>> ADDED: Copy dynamic mana cost function if present
+    if spellDef.getCost and type(spellDef.getCost) == "function" then
+        compiledSpell.getCost = spellDef.getCost
+    end
     
     -- Process keywords if they exist
     if spellDef.keywords then
@@ -37645,6 +39728,32 @@ FireSpells.battleshield = {
     sfx = "fire_shield",
 }
 
+-- Desperation Fire - cost decreases as caster health drops
+FireSpells.desperationFire = {
+    id = "desperationfire",
+    name = "Desperation Fire",
+    affinity = Constants.TokenType.FIRE,
+    description = "A fiery attack whose Fire cost decreases as your health lowers.",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = { Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE },
+    keywords = {
+        damage = { amount = 15, type = Constants.DamageType.FIRE }
+    },
+    getCost = function(caster, target)
+        local fireCost = 3
+        if caster and caster.health < 75 then fireCost = 2 end
+        if caster and caster.health < 40 then fireCost = 1 end
+        if caster and caster.health < 20 then fireCost = 0 end
+
+        local finalCost = {}
+        for i = 1, fireCost do
+            table.insert(finalCost, Constants.TokenType.FIRE)
+        end
+        return finalCost
+    end,
+}
+
 return FireSpells```
 
 ## ./spells/elements/generic.lua
@@ -38108,6 +40217,40 @@ MoonSpells.enhancedmirrorshield = {
     sfx = "crystal_ring",
 }
 
+-- Moon Drain - cost increases with opponent's STAR tokens
+MoonSpells.moonDrain = {
+    id = "moondrain",
+    name = "Moon Drain",
+    affinity = Constants.TokenType.MOON,
+    description = "Drains opponent. Costs more Moon tokens if opponent is channeling Star mana.",
+    attackType = Constants.AttackType.REMOTE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = { Constants.TokenType.MOON },
+    keywords = {
+        damage = { amount = 8, type = Constants.DamageType.MOON }
+    },
+    getCost = function(caster, target)
+        local moonTokens = 1
+        if target then
+            for _, slot in ipairs(target.spellSlots) do
+                if slot.active and slot.tokens then
+                    for _, tokenData in ipairs(slot.tokens) do
+                        if tokenData.token.type == Constants.TokenType.STAR then
+                            moonTokens = moonTokens + 1
+                        end
+                    end
+                end
+            end
+        end
+
+        local finalCost = {}
+        for i = 1, math.min(moonTokens, 4) do
+            table.insert(finalCost, Constants.TokenType.MOON)
+        end
+        return finalCost
+    end,
+}
+
 return MoonSpells```
 
 ## ./spells/elements/salt.lua
@@ -38308,6 +40451,7 @@ SaltSpells.shieldbreaker = {
     affinity = "salt",
     description = "A mineral lance that shatters wards and barriers",
     attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.SALT, Constants.TokenType.SALT, Constants.TokenType.SALT},
     keywords = {
@@ -38995,7 +41139,7 @@ WaterSpells.riptideguard = {
     keywords = {
         block = {
             type = Constants.ShieldType.BARRIER,
-            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
+            blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
 
             onBlock = function(defender, attacker, slotIndex, info)
                 local events = {}
@@ -39024,7 +41168,7 @@ WaterSpells.brinechain = {
     affinity = Constants.TokenType.WATER,
     description = "Salt-laced lash that slows the enemy. Damage scales with Water tokens in the pool",
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = Constants.VisualShape.BOLT,
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.WATER, Constants.TokenType.SALT},
     keywords = {
@@ -39182,6 +41326,7 @@ local Schema = {}
 --   * UTILITY:    Non-offensive spells that affect the caster - cannot be blocked
 -- castTime: Duration in seconds to cast the spell (number)
 -- cost: Array of token types required (array using Constants.TokenType.FIRE, etc.)
+-- getCost: Optional function(caster, target) -> cost table for dynamic costs
 -- keywords: Table of effect keywords and their parameters (table)
 --   - Available keywords: damage, burn, stagger, elevate, ground, rangeShift, forcePull, 
 --     tokenShift, conjure, dissipate, lock, delay, accelerate, dispel, disjoint, freeze,
@@ -39234,10 +41379,16 @@ function Schema.validateSpell(spell, spellId)
         spell.castTime = tonumber(spell.castTime) or 5.0
     end
     
-    -- Ensure cost is a table, if empty then create empty table
+    -- Ensure cost is a table if provided, or create an empty table when neither
+    -- cost nor getCost are specified. When getCost exists it's considered the
+    -- runtime source of truth so we don't warn about a missing cost table.
     if not spell.cost then
-        print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
-        spell.cost = {}
+        if spell.getCost and type(spell.getCost) == "function" then
+            spell.cost = {}
+        else
+            print("WARNING: Spell " .. spellId .. " missing required property: cost, creating empty cost")
+            spell.cost = {}
+        end
     elseif type(spell.cost) ~= "table" then
         print("WARNING: Spell " .. spellId .. " cost must be a table, fixing")
         -- Try to convert to a table if possible
@@ -42550,9 +44701,10 @@ local TEMPLATE_BY_SHAPE = {
     
     -- Projectile-like effects
     ["beam"] = Constants.VFXType.BEAM_BASE,
-    ["zap"] = Constants.VFXType.PROJ_BASE,
+    ["zap"] = Constants.VFXType.ZAP_BASE,
     ["bolt"] = Constants.VFXType.BOLT_BASE,
-    ["orb"] = Constants.VFXType.PROJ_BASE,
+    ["orb"] = Constants.VFXType.ORB_BASE,
+    ["wave"] = Constants.VFXType.WAVE_BASE,
     
     -- Area/zone effects
     ["blast"] = Constants.VFXType.BLAST_BASE,  -- Updated to new BLAST_BASE template
@@ -43744,11 +45896,15 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     -- Main arc
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, segStart, segEnd, 32)
 
-                    -- Spawn a sparkle at the arc head
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    -- Spawn multiple sparkles at the arc head for more dramatic effect
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, progressArcColor)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
@@ -43806,10 +45962,14 @@ function WizardVisuals.drawSpellSlots(wizard, layer)
                     love.graphics.setLineWidth(prevWidth)
                     WizardVisuals.drawEllipticalArc(slotX, slotY, radiusX, radiusY, 0, segEnd, 32)
 
-                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.05 then
+                    if not slot._lastArcSpark or love.timer.getTime() - slot._lastArcSpark > 0.02 then
                         local hx = slotX + math.cos(endAngle) * radiusX
                         local hy = slotY + math.sin(endAngle) * radiusY
-                        spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        -- Spawn 3-5 particles per frame for much more generous particle effect
+                        local particleCount = 3 + math.random(0, 2)
+                        for p = 1, particleCount do
+                            spawnArcSpark(slot, hx, hy, endAngle, cac)
+                        end
                         slot._lastArcSpark = love.timer.getTime()
                     end
                 end
@@ -45559,7 +47719,7 @@ end
 function UI.drawSpellbookModals(wizards)
     -- Local function to format costs for spellbook display
     local function formatCost(cost)
-        if not cost or #cost == 0 then
+        if not cost or type(cost) ~= "table" or #cost == 0 then
             return "Free"
         end
         
@@ -45623,11 +47783,11 @@ function UI.drawSpellbookModals(wizards)
     
     -- Draw spellbook popups if visible
     if UI.spellbookVisible.player1 then
-        UI.drawSpellbookModal(wizards[1], 1, formatCost)
+        UI.drawSpellbookModal(wizards[1], wizards[2], 1, formatCost)
     end
-    
+
     if UI.spellbookVisible.player2 then
-        UI.drawSpellbookModal(wizards[2], 2, formatCost)
+        UI.drawSpellbookModal(wizards[2], wizards[1], 2, formatCost)
     end
 end
 
@@ -45883,7 +48043,7 @@ function UI.updateHealthDisplays(dt, wizards)
     end
 end
 
-function UI.drawSpellbookModal(wizard, playerNum, formatCost)
+function UI.drawSpellbookModal(wizard, opponentWizard, playerNum, formatCost)
     local screenWidth = _G.game.baseWidth -- Use _G.game.baseWidth directly
     
     -- Determine position based on player number
@@ -46048,7 +48208,26 @@ function UI.drawSpellbookModal(wizard, playerNum, formatCost)
             
             -- Convert cast time to "x" characters instead of numbers
             local castTimeVisual = string.rep("x", spell.castTime)
-            love.graphics.print("Cost: " .. formatCost(spell.cost) .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
+
+            -- Determine cost, evaluating getCost if present
+            local costTable = spell.cost
+            local isDynamic = false
+            if spell.getCost and type(spell.getCost) == "function" then
+                local ok, result = pcall(spell.getCost, wizard, opponentWizard)
+                if ok and type(result) == "table" then
+                    costTable = result
+                    isDynamic = true
+                else
+                    print("ERROR evaluating getCost for " .. spell.name .. ": " .. tostring(result))
+                end
+            end
+
+            local costText = formatCost(costTable)
+            if isDynamic then
+                costText = costText .. "*"
+            end
+
+            love.graphics.print("Cost: " .. costText .. "   Cast Time: " .. castTimeVisual, modalX + 30, y + 25)
             
             -- Store the spell entry information for later use (for description popup)
             table.insert(spellEntries, {
@@ -46204,11 +48383,27 @@ function VFX.init()
             "assets/sprites/bolt/bolt3.png"
         },
         
+        -- Orb effects
+        orbFrames = {
+            "assets/sprites/orb/orb1.png",
+            "assets/sprites/orb/orb2.png",
+            "assets/sprites/orb/orb3.png",
+            "assets/sprites/orb/orb4.png",
+            "assets/sprites/orb/orb5.png"
+        },
+        
         -- Warp effects
         warpFrames = {
             "assets/sprites/warp/warp1.png",
             "assets/sprites/warp/warp2.png",
             "assets/sprites/warp/warp3.png"
+        },
+
+        -- Zap effects
+        zapFrames = {
+            "assets/sprites/zap/zap1.png",
+            "assets/sprites/zap/zap2.png",
+            "assets/sprites/zap/zap3.png"
         },
 
         -- Pixel primitive
@@ -46268,6 +48463,19 @@ function VFX.init()
         end
     end
     
+    -- Preload orb frames for the orb effects
+    print("[VFX] Preloading orb frame assets")
+    VFX.assets.orbFrames = {}
+    for i, orbPath in ipairs(VFX.assetPaths.orbFrames) do
+        print("[VFX] Preloading orb frame " .. i)
+        local orbImg = AssetCache.getImage(orbPath)
+        if orbImg then
+            table.insert(VFX.assets.orbFrames, orbImg)
+        else
+            print("[VFX] Warning: Failed to preload orb frame asset: " .. orbPath)
+        end
+    end
+    
     -- Preload warp frames for the warp effects
     print("[VFX] Preloading warp frame assets")
     VFX.assets.warpFrames = {}
@@ -46278,6 +48486,19 @@ function VFX.init()
             table.insert(VFX.assets.warpFrames, warpImg)
         else
             print("[VFX] Warning: Failed to preload warp frame asset: " .. warpPath)
+        end
+    end
+
+    -- Preload zap frames for the zap effects
+    print("[VFX] Preloading zap frame assets")
+    VFX.assets.zapFrames = {}
+    for i, zapPath in ipairs(VFX.assetPaths.zapFrames) do
+        print("[VFX] Preloading zap frame " .. i)
+        local zapImg = AssetCache.getImage(zapPath)
+        if zapImg then
+            table.insert(VFX.assets.zapFrames, zapImg)
+        else
+            print("[VFX] Warning: Failed to preload zap frame asset: " .. zapPath)
         end
     end
     
@@ -46304,7 +48525,7 @@ function VFX.init()
 
         bolt_base = {
             type = "bolt_base",  -- Template name as type
-            duration = 0.8,               -- Faster than standard projectile
+            duration = 1.0,               -- Slower to showcase enhanced particle effects
             particleCount = 20,           -- Fewer particles since we're using sprites
             startScale = 0.4,
             endScale = 0.7,
@@ -46329,6 +48550,47 @@ function VFX.init()
             useSourcePosition = true,     -- Track source (caster) position
             useTargetPosition = true,     -- Track target position
             criticalAssets = {"boltFrames"} -- Mark bolt frames as critical assets to preload
+        },
+
+        zap_base = {
+            type = "zap_base",
+            duration = 0.6,
+            color = Constants.Color.GRAY,
+            segmentLength = 20,
+            useSourcePosition = true,
+            useTargetPosition = true,
+            criticalAssets = {"zapFrames"}
+        },
+
+        orb_base = {
+            type = "orb_base",  -- Template name as type
+            duration = 1.8,               -- Significantly slower than bolt for dramatic arc
+            particleCount = 35,           -- More particles for richer trail effect
+            startScale = 0.6,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            radius = 65,                  -- Radius for particle effects and impact
+            trailLength = 25,             -- Longer trail for graceful arc
+            impactSize = 1.5,             -- Larger impact than bolt
+            sound = nil,                  -- No default sound
+            coreDensity = 0.5,            -- Balanced particle density
+            trailDensity = 0.6,           -- Dense trail for visible arc path
+            turbulence = 0.3,             -- Less turbulence for smoother flight
+            arcHeight = 120,              -- High arc for lobbed trajectory
+            straightLine = false,         -- Uses curved arc path
+            particleLifespan = 0.8,       -- Longer particle lifespan for persistent trail
+            leadingIntensity = 1.4,       -- Moderate leading edge intensity
+            flickerRate = 8,              -- Slower flicker for mystical effect
+            flickerIntensity = 0.2,       -- Subtle flicker
+            useSprites = true,            -- Flag to indicate this effect uses sprite frames
+            spriteFrameRate = 8,          -- Slower frame rate for floating effect
+            spriteRotationOffset = 0,     -- No rotation offset for orbs
+            spriteScale = 1.0,            -- Larger scale than bolts
+            spriteTint = true,            -- Whether to apply color tinting to sprites
+            useSourcePosition = true,     -- Track source (caster) position
+            useTargetPosition = true,     -- Track target position
+            useCurvedPath = true,         -- Enable curved path explicitly
+            criticalAssets = {"orbFrames"} -- Mark orb frames as critical assets to preload
         },
 
         warp_base = {
@@ -46425,9 +48687,9 @@ function VFX.init()
         surge_base = {
             type = "surge_base",          -- Template name as type
             duration = 1.5,                -- Longer duration for buff visual
-            particleCount = 60,            -- More particles for richer effect
-            startScale = 0.3,              -- Larger starting scale
-            endScale = 0.08,               -- Smaller end scale for fade-out
+            particleCount = 90,            -- Extra particles for dramatic burst
+            startScale = 1.0,              -- Pixel-sized primitives
+            endScale = 0.2,               -- Fade to tiny specks
             color = Constants.Color.YELLOW_HERO,   -- Default color, will be overridden
             height = 200,                  -- Higher fountain effect
             spread = 45,                   -- Narrower spread for more focused fountain
@@ -46443,11 +48705,30 @@ function VFX.init()
             bloomEffect = true,            -- Add bloom/glow to particles (new parameter)
             bloomIntensity = 0.8,          -- Intensity of bloom effect (new parameter)
             sparkleChance = 0.4,           -- Chance for sparkle effect on particles (new parameter)
-            useSprites = true,             -- Use sprite images
+            useSprites = false,            -- Use primitive pixel sprites
             spriteFrameRate = 8,           -- Frame rate for sprite animation
             pulsateParticles = true,       -- Pulsate particle size (new parameter)
             sound = "surge",               -- Sound effect
-            criticalAssets = {"sparkle"}   -- Required assets
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"} -- Required assets
+        },
+
+        wave_base = {
+            type = "wave_base",          -- Template name as type
+            duration = 1.2,
+            particleCount = 120,
+            startScale = 0.5,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,  -- Default color, will be overridden
+            trailLength = 20,
+            impactSize = 1.4,
+            coreDensity = 0.4,
+            trailDensity = 0.6,
+            turbulence = 0.75,
+            arcHeight = 40,
+            particleLifespan = 0.7,
+            leadingIntensity = 1.6,
+            useSprites = false,
+            criticalAssets = {"pixel", "twinkle1", "twinkle2"}
         },
 
         conjure_base = {
@@ -47126,9 +49407,15 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     if opts.scale then
         -- Apply scale factor to particle counts, sizes, radii, etc.
         local scaleFactor = opts.scale
-        effect.particleCount = math.floor(effect.particleCount * scaleFactor)
-        effect.startScale = effect.startScale * scaleFactor
-        effect.endScale = effect.endScale * scaleFactor
+        if effect.particleCount then
+            effect.particleCount = math.floor(effect.particleCount * scaleFactor)
+        end
+        if effect.startScale then
+            effect.startScale = effect.startScale * scaleFactor
+        end
+        if effect.endScale then
+            effect.endScale = effect.endScale * scaleFactor
+        end
         if effect.radius then effect.radius = effect.radius * scaleFactor end
         if effect.beamWidth then effect.beamWidth = effect.beamWidth * scaleFactor end
         if effect.height then effect.height = effect.height * scaleFactor end
@@ -47324,7 +49611,7 @@ function VFX.update(dt)
                 -- Trigger shield impact visuals for projectile-type effects
                 -- Accept both generic projectile templates (proj_base/bolt_base)
                 if not effect.impactParticlesCreated and
-                   (effect.type == "proj_base" or effect.type == "bolt_base" or
+                   (effect.type == "proj_base" or effect.type == "bolt_base" or effect.type == "orb_base" or
                     effect.type == "projectile") then
                     effect.impactParticlesCreated = true
                     
@@ -47526,10 +49813,19 @@ function VFX.draw()
         local effectType = effect.type
         local drawer = VFX.drawers[effectType]
         if drawer then
+            -- Preserve current graphics state so individual effect draw calls
+            -- cannot permanently modify color or blend mode
+            local prevR, prevG, prevB, prevA = love.graphics.getColor()
+            local prevBlendSrc, prevBlendDst = love.graphics.getBlendMode()
+
             -- Add safety pcall to prevent crashes
             local success, err = pcall(function()
                 drawer(effect)
             end)
+
+            -- Restore graphics state
+            love.graphics.setColor(prevR, prevG, prevB, prevA)
+            love.graphics.setBlendMode(prevBlendSrc, prevBlendDst)
 
             if not success then
                 print(string.format("[VFX] Error drawing effect type '%s': %s", tostring(effectType), tostring(err)))
@@ -47677,17 +49973,21 @@ local ConjureEffect = require("vfx.effects.conjure")
 local SurgeEffect = require("vfx.effects.surge")
 local RemoteEffect = require("vfx.effects.remote")
 local MeteorEffect = require("vfx.effects.meteor")
+local ZapEffect = require("vfx.effects.zap")
 
 -- Initialize the updaters table with update functions
 -- Map each template name/type to the appropriate handler
 VFX.updaters["proj_base"] = ProjectileEffect.update  -- Generic projectile template
 VFX.updaters["bolt_base"] = ProjectileEffect.update  -- Bolt uses projectile logic
+VFX.updaters["orb_base"] = ProjectileEffect.update   -- Orb uses projectile logic
+VFX.updaters["zap_base"] = ZapEffect.update        -- Zap lightning effect
 VFX.updaters["impact_base"] = ImpactEffect.update    -- Impact effect template
 VFX.updaters["beam_base"] = BeamEffect.update        -- Beam effect template
 VFX.updaters["blast_base"] = ConeEffect.update       -- Blast uses cone logic
 VFX.updaters["zone_base"] = AuraEffect.update        -- Zone uses aura logic
 VFX.updaters["util_base"] = AuraEffect.update        -- Utility uses aura logic
 VFX.updaters["surge_base"] = SurgeEffect.update      -- Surge fountain template
+VFX.updaters["wave_base"] = ProjectileEffect.update  -- Flowing wave uses projectile logic
 VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
 VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
 VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
@@ -47709,12 +50009,15 @@ VFX.updaters[Constants.AttackType.PROJECTILE] = ProjectileEffect.update
 -- Initialize the drawers table with draw functions
 VFX.drawers["proj_base"] = ProjectileEffect.draw    -- Generic projectile template
 VFX.drawers["bolt_base"] = ProjectileEffect.draw    -- Bolt uses projectile logic
+VFX.drawers["orb_base"] = ProjectileEffect.draw     -- Orb uses projectile logic
+VFX.drawers["zap_base"] = ZapEffect.draw          -- Zap lightning effect
 VFX.drawers["impact_base"] = ImpactEffect.draw      -- Impact effect template
 VFX.drawers["beam_base"] = BeamEffect.draw          -- Beam effect template
 VFX.drawers["blast_base"] = ConeEffect.draw         -- Blast uses cone logic
 VFX.drawers["zone_base"] = AuraEffect.draw          -- Zone uses aura logic
 VFX.drawers["util_base"] = AuraEffect.draw          -- Utility uses aura logic
 VFX.drawers["surge_base"] = SurgeEffect.draw        -- Surge fountain template
+VFX.drawers["wave_base"] = ProjectileEffect.draw    -- Flowing wave uses projectile logic
 VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
 VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
 VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
@@ -48069,35 +50372,18 @@ function ParticleManager.createSurgeParticle(effect)
     local particle = ParticleManager.createParticle()
 
     -- Get effect properties
-    local spread = effect.spread or 45
-    local riseFactor = effect.riseFactor or 1.4
-    local gravity = effect.gravity or 180
     local particleSizeVariance = effect.particleSizeVariance or 0.6
     local useSprites = effect.useSprites
 
-    -- Start at source position with slight random offset
-    local startOffsetX = math.random(-10, 10)
-    local startOffsetY = math.random(-10, 10)
-    particle.x = effect.sourceX + startOffsetX
-    particle.y = effect.sourceY + startOffsetY
+    -- Start at the source position
+    particle.x = effect.sourceX
+    particle.y = effect.sourceY
 
-    -- Store initial position for spiral motion calculations
-    particle.initialX = particle.x
-    particle.initialY = particle.y
-
-    -- Create upward velocity with variety
-    -- More focused in the center for a fountain effect
-    local horizontalBias = math.pow(math.random(), 1.5) -- Bias toward lower values
-    particle.speedX = (math.random() - 0.5) * spread * horizontalBias
-
-    -- Vertical speed with some variance and acceleration
-    local riseSpeed = math.random(220, 320) * riseFactor
-    if effect.riseAcceleration then
-        particle.riseAcceleration = math.random() * effect.riseAcceleration
-    end
-
-    particle.speedY = -riseSpeed
-    particle.gravity = gravity * (0.8 + math.random() * 0.4) -- Slight variance in gravity
+    -- Parameters for helix motion
+    particle.baseRadius = 6 + math.random() * 8
+    particle.startAngle = math.random() * math.pi * 2
+    particle.spinSpeed = 3 + math.random() * 2
+    particle.verticalSpeed = (effect.height or 160) / (effect.duration or 1)
 
     -- Visual properties with variance
     local sizeVariance = 1.0 + (math.random() * 2 - 1) * particleSizeVariance
@@ -48107,6 +50393,10 @@ function ParticleManager.createSurgeParticle(effect)
     particle.alpha = 0.9 + math.random() * 0.1
     particle.rotation = math.random() * math.pi * 2
     particle.rotationSpeed = math.random(-4, 4) -- Random rotation speed
+
+    -- Assign primitive sprite type for rendering
+    local spriteOptions = {"pixel", "twinkle1", "twinkle2"}
+    particle.spriteType = spriteOptions[math.random(#spriteOptions)]
 
     -- Staggered appearance
     particle.delay = math.random() * 0.4
@@ -48253,7 +50543,8 @@ function ParticleManager.printStats()
         stats.poolSize, stats.active, stats.available))
 end
 
-return ParticleManager```
+return ParticleManager
+```
 
 ## ./vfx/effects/aura.lua
 ```lua
@@ -48675,35 +50966,69 @@ local function updateBeam(effect, dt)
             ::next_particle::
         end
         
-        -- Add new particles at source and impact point
-        if math.random() < 0.3 then
-            -- Add particle at source
+        -- Add many new particles for dense swarm effect
+        local particleRate = 3.0 -- Much higher rate for particle swarm
+        
+        -- Generate multiple particles per frame
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Add particles at source with variety
             local sourceParticle = {
-                x = effect.sourceX + math.random(-5, 5),
-                y = effect.sourceY + math.random(-5, 5),
-                scale = math.random(5, 15) / 100,
-                startScale = math.random(5, 15) / 100,
+                x = effect.sourceX + math.random(-8, 8),
+                y = effect.sourceY + math.random(-8, 8),
+                scale = math.random(1, 3),
+                startScale = math.random(1, 3),
                 alpha = 1.0,
                 life = 0,
-                maxLife = math.random() * 0.2 + 0.1,
-                active = true -- Ensure particle is marked as active
+                maxLife = math.random() * 0.3 + 0.15,
+                active = true,
+                spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
             }
             table.insert(effect.particles, sourceParticle)
             
-            -- Add particle at impact point (if beam has traveled that far)
+            -- Add particles along the beam path
+            if effect.beamProgress > 0.1 then
+                local beamPos = math.random() * effect.beamProgress
+                local beamX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * beamPos)
+                local beamY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * beamPos)
+                
+                -- Perpendicular offset for beam width
+                local perpAngle = effect.beamAngle + math.pi/2
+                local perpOffset = (math.random() - 0.5) * effect.beamWidth
+                
+                local beamParticle = {
+                    x = beamX + math.cos(perpAngle) * perpOffset,
+                    y = beamY + math.sin(perpAngle) * perpOffset,
+                    scale = math.random(1, 2),
+                    startScale = math.random(1, 2),
+                    alpha = 1.0,
+                    life = 0,
+                    maxLife = math.random() * 0.2 + 0.1,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
+                }
+                table.insert(effect.particles, beamParticle)
+            end
+            
+            -- Add particles at impact point (if beam has traveled that far)
             if effect.beamProgress > 0.5 then
                 local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * effect.beamProgress)
                 
                 local impactParticle = {
-                    x = impactX + math.random(-10, 10),
-                    y = impactY + math.random(-10, 10),
-                    scale = math.random(5, 15) / 100,
-                    startScale = math.random(5, 15) / 100, 
+                    x = impactX + math.random(-12, 12),
+                    y = impactY + math.random(-12, 12),
+                    scale = math.random(2, 4),
+                    startScale = math.random(2, 4),
                     alpha = 1.0,
                     life = 0,
-                    maxLife = math.random() * 0.2 + 0.1,
-                    active = true -- Ensure particle is marked as active
+                    maxLife = math.random() * 0.25 + 0.15,
+                    active = true,
+                    spriteType = ({"pixel", "twinkle1", "twinkle2"})[math.random(3)]
                 }
                 table.insert(effect.particles, impactParticle)
             end
@@ -48713,8 +51038,10 @@ end
 
 -- Draw function for beam effects
 local function drawBeam(effect)
-    -- Preserve the current line width so we can restore it after drawing
+    -- Preserve the current line width and blend mode so we can restore them after drawing
     local prevLineWidth = love.graphics.getLineWidth()
+    local prevBlendMode = {love.graphics.getBlendMode()}
+    
     -- Make sure essential properties exist
     effect.color = effect.color or {1, 1, 1} -- Default color
     effect.particles = effect.particles or {} -- Initialize particles array if nil
@@ -48727,11 +51054,14 @@ local function drawBeam(effect)
     effect.pulseFactor = effect.pulseFactor or 1.0 -- Default pulse
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
-    -- Draw base beam
+    -- Draw particle-based beam core instead of line shapes
     local beamEndX = effect.sourceX + math.cos(effect.beamAngle) * beamLength
     local beamEndY = effect.sourceY + math.sin(effect.beamAngle) * beamLength
     
@@ -48739,37 +51069,147 @@ local function drawBeam(effect)
     local pulseValue = effect.pulseFactor or 1.0
     local beamWidth = (effect.beamWidth or 15) * pulseValue
     
-    -- Draw outer beam glow
-    love.graphics.setColor(effect.color[1] * 0.3, effect.color[2] * 0.3, effect.color[3] * 0.3, 0.3)
-    love.graphics.setLineWidth(beamWidth * 1.5)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw beam using dense particle chains
+    local particlesAlongBeam = math.floor(beamLength / 3) -- One particle every 3 pixels
     
-    -- Save current blend mode and set to additive for the brightest elements
-    local prevMode = {love.graphics.getBlendMode()}
-    love.graphics.setBlendMode("add")
+    for i = 0, particlesAlongBeam do
+        local t = i / math.max(1, particlesAlongBeam)
+        local coreX = effect.sourceX + (beamEndX - effect.sourceX) * t
+        local coreY = effect.sourceY + (beamEndY - effect.sourceY) * t
+        
+        -- Perpendicular angle for beam width spread
+        local perpAngle = effect.beamAngle + math.pi/2
+        
+        -- Draw outer glow particles
+        local outerParticles = math.floor(beamWidth / 4)
+        for j = 1, outerParticles do
+            local offset = (j / outerParticles - 0.5) * beamWidth * 1.5
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                effect.color[1] * 0.4, 
+                effect.color[2] * 0.4, 
+                effect.color[3] * 0.4, 
+                0.3 * (1 - math.abs(offset) / (beamWidth * 0.75))
+            )
+            
+            local sprite = onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.5 + math.random() * 0.5, 1.5 + math.random() * 0.5,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Save current blend mode and set to additive for core
+        local prevMode = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        -- Draw inner core particles with additive blending
+        local innerParticles = math.floor(beamWidth / 6)
+        for j = 1, innerParticles do
+            local offset = (j / innerParticles - 0.5) * beamWidth * 0.7
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(
+                math.min(1.0, effect.color[1] * 1.3), 
+                math.min(1.0, effect.color[2] * 1.3), 
+                math.min(1.0, effect.color[3] * 1.3), 
+                0.7 * (1 - math.abs(offset) / (beamWidth * 0.35))
+            )
+            
+            local sprite = (j % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1.2 + math.random() * 0.3, 1.2 + math.random() * 0.3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Draw brightest center particles
+        local centerParticles = math.floor(beamWidth / 10) + 1
+        for j = 1, centerParticles do
+            local offset = (j / centerParticles - 0.5) * beamWidth * 0.3
+            local px = coreX + math.cos(perpAngle) * offset
+            local py = coreY + math.sin(perpAngle) * offset
+            
+            love.graphics.setColor(1, 1, 1, 0.9 * (1 - math.abs(offset) / (beamWidth * 0.15)))
+            
+            local sprite = twinkle2Image or onePxImage
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random() * 0.2, 1 + math.random() * 0.2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    end
     
-    -- Draw inner beam core with additive blending
-    love.graphics.setColor(effect.color[1] * 1.3, effect.color[2] * 1.3, effect.color[3] * 1.3, 0.7)
-    love.graphics.setLineWidth(beamWidth * 0.7)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    -- Draw source glow using particle swarm
+    local sourceParticleCount = 15
+    local sourceRadius = beamWidth * 0.7
     
-    -- Draw brightest beam center with additive blending
-    love.graphics.setColor(1, 1, 1, 0.9)
-    love.graphics.setLineWidth(beamWidth * 0.3)
-    love.graphics.line(effect.sourceX, effect.sourceY, beamEndX, beamEndY)
+    for i = 1, sourceParticleCount do
+        local angle = (i / sourceParticleCount) * math.pi * 2 + love.timer.getTime() * 3
+        local radius = sourceRadius * (0.4 + math.random() * 0.6)
+        local px = effect.sourceX + math.cos(angle) * radius
+        local py = effect.sourceY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.5 + math.random() * 0.3) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Restore previous blend mode
-    love.graphics.setBlendMode(prevMode[1], prevMode[2])
+    -- Draw impact glow using particle swarm
+    local impactParticleCount = 18
+    local impactRadius = beamWidth * 0.9
     
-    -- Draw source glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.7 * pulseValue)
-    love.graphics.circle("fill", effect.sourceX, effect.sourceY, beamWidth * 0.7)
+    for i = 1, impactParticleCount do
+        local angle = (i / impactParticleCount) * math.pi * 2 + love.timer.getTime() * 4
+        local radius = impactRadius * (0.3 + math.random() * 0.7)
+        local px = beamEndX + math.cos(angle) * radius
+        local py = beamEndY + math.sin(angle) * radius
+        
+        love.graphics.setColor(
+            effect.color[1], 
+            effect.color[2], 
+            effect.color[3], 
+            (0.6 + math.random() * 0.4) * pulseValue
+        )
+        
+        local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+        if sprite then
+            love.graphics.draw(
+                sprite, px, py, 0,
+                1.2 + math.random() * 0.8, 1.2 + math.random() * 0.8,
+                sprite:getWidth()/2, sprite:getHeight()/2
+            )
+        end
+    end
     
-    -- Draw impact glow
-    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.8 * pulseValue)
-    love.graphics.circle("fill", beamEndX, beamEndY, beamWidth * 0.9)
-    
-    -- Draw particles
+    -- Draw particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid or inactive particles
@@ -48783,19 +51223,32 @@ local function drawBeam(effect)
             particle.x = particle.x or effect.sourceX
             particle.y = particle.y or effect.sourceY
             
-            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.8)
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.9)
             
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            if particle.spriteType == "pixel" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    particle.scale, particle.scale,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    particle.scale / 3, particle.scale / 3,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback if image is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.scale * 50)
+                -- Final fallback
+                love.graphics.circle("fill", particle.x, particle.y, particle.scale)
             end
             
             ::next_draw_particle::
@@ -48816,9 +51269,25 @@ local function drawBeam(effect)
         -- Set to additive blending for bright flash
         love.graphics.setBlendMode("add")
 
-        -- Draw impact flash
-        love.graphics.setColor(1, 1, 1, flashAlpha)
-        love.graphics.circle("fill", blockX, blockY, flashSize)
+        -- Draw impact flash using particle swarm
+        local flashParticleCount = math.floor(flashSize / 3)
+        for i = 1, flashParticleCount do
+            local angle = (i / flashParticleCount) * math.pi * 2
+            local radius = flashSize * (0.2 + math.random() * 0.8)
+            local px = blockX + math.cos(angle) * radius
+            local py = blockY + math.sin(angle) * radius
+            
+            love.graphics.setColor(1, 1, 1, flashAlpha * (0.6 + math.random() * 0.4))
+            
+            local sprite = (i % 3 == 0) and twinkle1Image or ((i % 3 == 1) and onePxImage or twinkle2Image)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    2 + math.random() * 2, 2 + math.random() * 2,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
 
         -- Get shield color based on type for distinctive visuals
         local shieldR, shieldG, shieldB = 1.0, 1.0, 0.3 -- Default yellow
@@ -48886,8 +51355,10 @@ local function drawBeam(effect)
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
     end
 
-    -- Restore the previous line width to avoid affecting other draw calls
+    -- Restore the previous line width, blend mode, and color to avoid affecting other draw calls
     love.graphics.setLineWidth(prevLineWidth)
+    love.graphics.setBlendMode(prevBlendMode[1], prevBlendMode[2])
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 -- Initialize function for beam effects
@@ -50348,11 +52819,35 @@ local function updateProjectile(effect, dt)
     
     -- Update particles for the projectile trail
     if effect.particles then
-        -- Add new particles at the current head position
-        local particleRate = effect.particleRate or 0.3 -- Default rate if not provided
-        if math.random() < particleRate then
-            -- Create a new particle using specialized helper
+        -- Add many new particles at the current head position for dense swarm effect
+        local particleRate = effect.particleRate or 15.0 -- Massive rate for spectacular particle swarm
+        
+        -- Generate multiple particles per frame for dense effect
+        local particlesThisFrame = math.floor(particleRate)
+        if math.random() < (particleRate - particlesThisFrame) then
+            particlesThisFrame = particlesThisFrame + 1
+        end
+        
+        for i = 1, particlesThisFrame do
+            -- Create different types of particles using primitive assets
             local particle = ParticleManager.createProjectileTrailParticle(effect, head.x, head.y)
+            
+            -- Assign primitive sprite types for variety
+            local spriteType = math.random(3)
+            if spriteType == 1 then
+                particle.spriteType = "pixel"
+                particle.size = math.random(1, 3)
+            elseif spriteType == 2 then
+                particle.spriteType = "twinkle1"
+                particle.size = math.random(2, 4)
+            else
+                particle.spriteType = "twinkle2"
+                particle.size = math.random(2, 4)
+            end
+            
+            -- Add some randomness to position for swarm effect
+            particle.x = particle.x + (math.random() - 0.5) * 8
+            particle.y = particle.y + (math.random() - 0.5) * 8
             
             -- Add the particle to the effect
             table.insert(effect.particles, particle)
@@ -50398,13 +52893,20 @@ local function updateProjectile(effect, dt)
         end
     end
     
-    -- Update bolt animation frame (if using sprites)
+    -- Update sprite animation frame (if using sprites)
     if effect.useSprites then
         effect.frameTimer = effect.frameTimer + dt
         if effect.frameTimer >= effect.frameDuration then
             effect.frameTimer = 0
             effect.currentFrame = effect.currentFrame + 1
-            if effect.currentFrame > 3 then
+            
+            -- Determine max frames based on effect type
+            local maxFrames = 3  -- Default for bolt
+            if effect.type == "orb_base" then
+                maxFrames = 5
+            end
+            
+            if effect.currentFrame > maxFrames then
                 effect.currentFrame = 1
             end
         end
@@ -50451,15 +52953,22 @@ local function drawProjectile(effect)
             effect.headX, effect.headY, progress))
     end
     
-    -- Get assets
+    -- Get assets including new primitive sprites
     local particleImage = getAssetInternal("fireParticle")
     local glowImage = getAssetInternal("fireGlow")
     local impactImage = getAssetInternal("impactRing")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
-    -- Get bolt frames if needed
-    local boltFrames = nil
+    -- Get sprite frames if needed
+    local spriteFrames = nil
     if effect.useSprites then
-        boltFrames = getAssetInternal("boltFrames")
+        if effect.type == "orb_base" then
+            spriteFrames = getAssetInternal("orbFrames")
+        else
+            spriteFrames = getAssetInternal("boltFrames")
+        end
     end
     
     -- Calculate the actual trajectory angle for aimed shots
@@ -50480,40 +52989,59 @@ local function drawProjectile(effect)
         y = effect.headY or effect.sourceY
     }
     
-    -- If we have a trail, draw it
+    -- If we have a trail, draw it using particle swarms instead of large sprites
     if effect.useTrail and #effect.trailPoints > 1 then
-        -- Draw trail (from oldest to newest)
+        -- Draw trail using swarms of tiny particles at each point
         for i = #effect.trailPoints, 1, -1 do
             local point = effect.trailPoints[i]
-            local trailSize = (effect.size or 1.0) * 3 * (1 - (i-1)/#effect.trailPoints)
-            local trailAlpha = point.alpha * 0.4
+            local trailIntensity = (1 - (i-1)/#effect.trailPoints)
+            local trailAlpha = point.alpha * 0.6
+            local particleCount = math.floor(trailIntensity * 50) -- Massive particle count for spectacular trail
             
-            -- Draw trail glow at each point
-            local color = effect.color or {1, 1, 1} -- Default to white if no color
-            love.graphics.setColor(
-                color[1], 
-                color[2], 
-                color[3], 
-                trailAlpha
-            )
+            -- Draw swarm of tiny particles at each trail point
+            local color = effect.color or {1, 1, 1}
             
-            -- Draw a circle for each trail point
-            if glowImage then
-                love.graphics.draw(
-                    glowImage,
-                    point.x, point.y,
-                    0,
-                    trailSize, trailSize,
-                    glowImage:getWidth()/2, glowImage:getHeight()/2
-                )
-            else
-                -- Fallback to a circle if glow asset is missing
-                love.graphics.circle("fill", point.x, point.y, trailSize * 10)
+            for p = 1, particleCount do
+                -- Random offset for particle swarm
+                local offsetX = (math.random() - 0.5) * trailIntensity * 15
+                local offsetY = (math.random() - 0.5) * trailIntensity * 15
+                
+                -- Choose random primitive sprite
+                local spriteChoice = math.random(3)
+                local sprite, scale
+                
+                if spriteChoice == 1 and onePxImage then
+                    sprite = onePxImage
+                    scale = math.random(1, 2)
+                elseif spriteChoice == 2 and twinkle1Image then
+                    sprite = twinkle1Image
+                    scale = math.random(0.8, 1.5)
+                else
+                    sprite = twinkle2Image or onePxImage
+                    scale = math.random(0.8, 1.5)
+                end
+                
+                if sprite then
+                    love.graphics.setColor(
+                        color[1], 
+                        color[2], 
+                        color[3], 
+                        trailAlpha * (0.4 + math.random() * 0.6)
+                    )
+                    
+                    love.graphics.draw(
+                        sprite,
+                        point.x + offsetX, point.y + offsetY,
+                        0,
+                        scale, scale,
+                        sprite:getWidth()/2, sprite:getHeight()/2
+                    )
+                end
             end
         end
     end
     
-    -- Draw the particles
+    -- Draw the particles using primitive sprites
     if effect.particles then
         for _, particle in ipairs(effect.particles) do
             -- Skip invalid particles
@@ -50526,21 +53054,36 @@ local function drawProjectile(effect)
                 particleColor[1],
                 particleColor[2],
                 particleColor[3],
-                (particle.alpha or 0.5) * 0.7
+                (particle.alpha or 0.5) * 0.8
             )
             
-            -- Draw particle
-            if particleImage then
+            -- Choose sprite based on particle type
+            local sprite = nil
+            local scale = (particle.size or 3) / 3
+            
+            if particle.spriteType == "pixel" and onePxImage then
+                sprite = onePxImage
+            elseif particle.spriteType == "twinkle1" and twinkle1Image then
+                sprite = twinkle1Image
+            elseif particle.spriteType == "twinkle2" and twinkle2Image then
+                sprite = twinkle2Image
+            else
+                -- Fallback to any available primitive
+                sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
+            end
+            
+            -- Draw particle with primitive sprite
+            if sprite then
                 love.graphics.draw(
-                    particleImage,
+                    sprite,
                     particle.x, particle.y,
                     0,
-                    (particle.size or 5)/20, (particle.size or 5)/20,
-                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
                 )
             else
-                -- Fallback to a circle if particle asset is missing
-                love.graphics.circle("fill", particle.x, particle.y, particle.size or 5)
+                -- Final fallback to a circle
+                love.graphics.circle("fill", particle.x, particle.y, particle.size or 3)
             end
             
             ::next_draw_particle::
@@ -50550,14 +53093,21 @@ local function drawProjectile(effect)
     -- Draw the projectile head
     local leadingIntensity = 1.3 -- Make the leading edge brighter
     
-    -- Draw sprite-based projectile (like a lightning bolt)
-    if effect.useSprites and boltFrames then
-        -- Use projectile sprites (like lightning bolt)
-        local frame = boltFrames[effect.currentFrame]
+    -- Draw sprite-based projectile (like lightning bolt or orb)
+    if effect.useSprites and spriteFrames then
+        -- Use projectile sprites
+        local frame = spriteFrames[effect.currentFrame]
         local scale = effect.size * 2
         
-        -- Rotate the bolt based on trajectory
-        local rotation = trajectoryAngle or 0
+        -- Handle rotation based on effect type
+        local rotation = 0
+        if effect.type == "orb_base" then
+            -- Orbs don't rotate with trajectory, but can have gentle spinning
+            rotation = (effect.spriteRotationOffset or 0) + (love.timer.getTime() * 0.5)
+        else
+            -- Bolts rotate based on trajectory
+            rotation = trajectoryAngle or 0
+        end
         
         love.graphics.setColor(
             effect.color[1], 
@@ -50574,60 +53124,139 @@ local function drawProjectile(effect)
             frame:getWidth()/2, frame:getHeight()/2
         )
     else
-        -- Draw particle-based projectile
+        -- Draw particle-based projectile using swarms of tiny primitives
         
-        -- Draw outer glow
+        -- Draw outer glow using massive swarm of tiny particles
         local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            color[1] * 0.8, 
-            color[2] * 0.8, 
-            color[3] * 0.8, 
-            0.5
-        )
-        local outerGlowScale = (effect.size or 1.0) * 5
+        local outerRadius = (effect.size or 1.0) * 25
+        local outerParticleCount = 80
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                outerGlowScale, outerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, outerParticleCount do
+            local angle = (i / outerParticleCount) * math.pi * 2
+            local radius = outerRadius * (0.6 + math.random() * 0.4)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                color[1] * 0.6, 
+                color[2] * 0.6, 
+                color[3] * 0.6, 
+                0.3 * (0.5 + math.random() * 0.5)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, outerGlowScale * 10)
+            
+            local sprite = (i % 2 == 0) and onePxImage or twinkle1Image
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    1 + math.random(), 1 + math.random(),
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
-        -- Inner glow (brightest) - uses additive blending for extra brightness
-        local color = effect.color or {1, 1, 1}
-        love.graphics.setColor(
-            math.min(1.0, color[1] * leadingIntensity), 
-            math.min(1.0, color[2] * leadingIntensity), 
-            math.min(1.0, color[3] * leadingIntensity), 
-            0.7
-        )
-        local innerGlowScale = (effect.size or 1.0) * 2
+        -- Inner glow using massive swarm of tiny particles with additive blending
+        local innerRadius = (effect.size or 1.0) * 12
+        local innerParticleCount = 65
         
-        -- Save current blend mode and set to additive for the brightest elements
+        -- Save current blend mode and set to additive for brightness
         local prevMode = {love.graphics.getBlendMode()}
         love.graphics.setBlendMode("add")
         
-        if glowImage then
-            love.graphics.draw(
-                glowImage,
-                head.x, head.y,
-                0,
-                innerGlowScale, innerGlowScale,
-                glowImage:getWidth()/2, glowImage:getHeight()/2
+        for i = 1, innerParticleCount do
+            local angle = (i / innerParticleCount) * math.pi * 2 + love.timer.getTime() * 2
+            local radius = innerRadius * (0.3 + math.random() * 0.7)
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            love.graphics.setColor(
+                math.min(1.0, color[1] * leadingIntensity), 
+                math.min(1.0, color[2] * leadingIntensity), 
+                math.min(1.0, color[3] * leadingIntensity), 
+                0.6 * (0.4 + math.random() * 0.6)
             )
-        else
-            -- Fallback
-            love.graphics.circle("fill", head.x, head.y, innerGlowScale * 10)
+            
+            local sprite = (i % 3 == 0) and twinkle2Image or ((i % 3 == 1) and twinkle1Image or onePxImage)
+            if sprite then
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    0.8 + math.random() * 0.6, 0.8 + math.random() * 0.6,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
         end
         
         -- Restore previous blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
+        
+        -- Add electrical corona effect using primitive particles
+        local coronaRadius = (effect.size or 1.0) * 35
+        local coronaParticleCount = 45
+        local time = love.timer.getTime()
+        
+        -- Save current blend mode and set to additive for electrical effect
+        local prevMode2 = {love.graphics.getBlendMode()}
+        love.graphics.setBlendMode("add")
+        
+        for i = 1, coronaParticleCount do
+            local angle = (i / coronaParticleCount) * math.pi * 2 + time * 3
+            local pulseRadius = coronaRadius * (0.8 + 0.3 * math.sin(time * 5 + i))
+            local px = head.x + math.cos(angle) * pulseRadius
+            local py = head.y + math.sin(angle) * pulseRadius
+            
+            -- Flickering alpha for electrical effect
+            local flickerAlpha = 0.15 + 0.1 * math.sin(time * 8 + i * 0.5)
+            
+            love.graphics.setColor(
+                color[1] * 0.8, 
+                color[2] * 0.9, 
+                color[3] * 1.0, 
+                flickerAlpha
+            )
+            
+            -- Use tiny 1px sprites for electrical sparks
+            if onePxImage then
+                love.graphics.draw(
+                    onePxImage, px, py, 0,
+                    1 + math.random() * 0.5, 1 + math.random() * 0.5,
+                    onePxImage:getWidth()/2, onePxImage:getHeight()/2
+                )
+            end
+        end
+        
+        -- Add sparkle layer using twinkle sprites
+        local sparkleRadius = (effect.size or 1.0) * 40
+        local sparkleCount = 30
+        
+        for i = 1, sparkleCount do
+            local angle = (i / sparkleCount) * math.pi * 2 + time * -1.5
+            local radius = sparkleRadius * (0.6 + 0.4 * math.random())
+            local px = head.x + math.cos(angle) * radius
+            local py = head.y + math.sin(angle) * radius
+            
+            -- Twinkling effect
+            local twinklePhase = math.sin(time * 4 + i * 1.2)
+            local twinkleAlpha = math.max(0, 0.2 + 0.3 * twinklePhase)
+            
+            love.graphics.setColor(
+                color[1], 
+                color[2], 
+                color[3], 
+                twinkleAlpha
+            )
+            
+            local sprite = (i % 2 == 0) and twinkle1Image or twinkle2Image
+            if sprite then
+                local scale = 0.8 + 0.4 * math.abs(twinklePhase)
+                love.graphics.draw(
+                    sprite, px, py, 0,
+                    scale, scale,
+                    sprite:getWidth()/2, sprite:getHeight()/2
+                )
+            end
+        end
+        
+        -- Restore previous blend mode
+        love.graphics.setBlendMode(prevMode2[1], prevMode2[2])
         
         -- Core (solid center)
         love.graphics.setColor(1, 1, 1, 0.9)
@@ -51165,74 +53794,44 @@ local function updateSurge(effect, dt)
         effect.centerParticleTimer = (effect.centerParticleTimer or 0) + dt
     end
     
-    -- Fountain style upward burst with gravity pull and enhanced effects
+    -- Rising helix motion around the caster
     for _, particle in ipairs(effect.particles) do
-        -- Skip invalid particles
         if not particle then
             goto next_particle
         end
-        
-        -- Initialize particle properties if missing
+
         particle.delay = particle.delay or 0
         particle.active = particle.active or false
-        
+
         if effect.timer > particle.delay then
             particle.active = true
         end
-        
+
         if particle.active then
-            -- Calculate particle progress
-            local particleProgress = math.min((effect.timer - particle.delay) / (effect.duration - particle.delay), 1.0)
-            
-            -- Apply gravity and update movement
-            if not particle.x then
-                -- Initialize particle position if missing
-                particle.x = effect.sourceX
-                particle.y = effect.sourceY
-                particle.baseX = effect.sourceX
-                particle.baseY = effect.sourceY
-            end
-            
-            -- Get particle age
-            local particleAge = effect.timer - particle.delay
-            
-            -- Get velocities or initialize them
-            particle.vx = particle.vx or (math.random() * 2 - 1) * 100
-            particle.vy = particle.vy or -80 - math.random() * 120 -- Initial upward velocity
-            
-            -- Apply gravity over time
-            local gravity = 150
-            particle.vy = particle.vy + gravity * dt
-            
-            -- Apply velocities to position
-            particle.x = particle.x + particle.vx * dt
-            particle.y = particle.y + particle.vy * dt
-            
-            -- Apply drag to slow particles
-            local drag = 0.98
-            particle.vx = particle.vx * drag
-            particle.vy = particle.vy * drag
-            
-            -- Calculate alpha based on lifetime (fade in, then fade out)
-            local alphaPeak = 0.3 -- Peak opacity at 30% of life
-            local alphaValue = 0
-            
-            if particleProgress < alphaPeak then
-                -- Fade in
-                alphaValue = particleProgress / alphaPeak
+            local age = effect.timer - particle.delay
+            local progress = math.min(age / effect.duration, 1.0)
+
+            local angle = (particle.startAngle or 0) + (particle.spinSpeed or 4) * age
+            local radius = (particle.baseRadius or 8) + progress * (particle.spiralAmplitude or 20)
+            local rise = progress * (effect.height or 160)
+
+            particle.x = effect.sourceX + math.cos(angle) * radius
+            particle.y = effect.sourceY - rise + math.sin(angle) * radius * 0.1
+
+            -- Alpha fades in then out
+            local alphaPeak = 0.3
+            local alphaValue
+            if progress < alphaPeak then
+                alphaValue = progress / alphaPeak
             else
-                -- Fade out
-                alphaValue = 1.0 - ((particleProgress - alphaPeak) / (1.0 - alphaPeak))
+                alphaValue = 1.0 - ((progress - alphaPeak) / (1.0 - alphaPeak))
             end
-            
-            -- Apply the calculated alpha
             particle.alpha = alphaValue * (particle.baseAlpha or 1.0)
-            
-            -- Update size based on life (grow slightly, then shrink)
-            local sizeCurve = 1.0 + math.sin(particleProgress * math.pi) * 0.5
+
+            local sizeCurve = 1.0 + math.sin(progress * math.pi) * 0.5
             particle.scale = (particle.baseScale or 0.3) * sizeCurve
         end
-        
+
         ::next_particle::
     end
     
@@ -51255,6 +53854,9 @@ local function drawSurge(effect)
     effect.centerGlowPulse = effect.centerGlowPulse or 1.0 -- Default pulse value
     
     local particleImage = getAssetInternal("sparkle")
+    local onePxImage = getAssetInternal("pixel")
+    local twinkle1Image = getAssetInternal("twinkle1")
+    local twinkle2Image = getAssetInternal("twinkle2")
     
     -- Draw expanding ground effect ring at source
     if effect.progress < 0.7 then
@@ -51322,17 +53924,29 @@ local function drawSurge(effect)
         
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
         
-        if particleImage then
+        -- Choose sprite based on assigned type
+        local sprite
+        if particle.spriteType == "pixel" then
+            sprite = onePxImage
+        elseif particle.spriteType == "twinkle1" then
+            sprite = twinkle1Image
+        elseif particle.spriteType == "twinkle2" then
+            sprite = twinkle2Image
+        else
+            sprite = particleImage
+        end
+
+        if sprite then
             love.graphics.draw(
-                particleImage,
+                sprite,
                 particle.x, particle.y,
                 0,
                 particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
+                sprite:getWidth()/2, sprite:getHeight()/2
             )
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            -- Fallback if image missing
+            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 3)
         end
         
         -- Restore blend mode
@@ -51359,7 +53973,87 @@ return {
     initialize = initializeSurge,
     update = updateSurge,
     draw = drawSurge
-}```
+}
+```
+
+## ./vfx/effects/zap.lua
+```lua
+-- zap.lua
+-- Simple lightning zap effect drawing tiled sprites between source and target
+
+local VFX
+
+local function getAssetInternal(assetId)
+    if not VFX then
+        VFX = require("vfx")
+    end
+    return VFX.getAsset(assetId)
+end
+
+local function initializeZap(effect)
+    effect.timer = 0
+end
+
+local function updateZap(effect, dt)
+    -- ensure defaults
+    effect.useSourcePosition = (effect.useSourcePosition ~= false)
+    effect.useTargetPosition = (effect.useTargetPosition ~= false)
+    effect.followSourceEntity = (effect.followSourceEntity ~= false)
+    effect.followTargetEntity = (effect.followTargetEntity ~= false)
+    effect.color = effect.color or {1,1,1}
+    effect.segmentLength = effect.segmentLength or 20
+
+    if effect.useSourcePosition and effect.followSourceEntity and effect.sourceEntity then
+        if effect.sourceEntity.x and effect.sourceEntity.y then
+            effect.sourceX = effect.sourceEntity.x
+            effect.sourceY = effect.sourceEntity.y
+        end
+    end
+    if effect.useTargetPosition and effect.followTargetEntity and effect.targetEntity then
+        if effect.targetEntity.x and effect.targetEntity.y then
+            effect.targetX = effect.targetEntity.x
+            effect.targetY = effect.targetEntity.y
+        end
+    end
+
+    local dx = (effect.targetX or 0) - (effect.sourceX or 0)
+    local dy = (effect.targetY or 0) - (effect.sourceY or 0)
+    effect.angle = math.atan2(dy, dx)
+    effect.length = math.sqrt(dx*dx + dy*dy)
+    effect.headX = (effect.sourceX or 0) + dx * (effect.progress or 0)
+    effect.headY = (effect.sourceY or 0) + dy * (effect.progress or 0)
+end
+
+local function drawZap(effect)
+    local frames = getAssetInternal("zapFrames")
+    if not frames or #frames < 3 then return end
+    local seg1, seg2, terminus = frames[1], frames[2], frames[3]
+
+    love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 1)
+
+    local segLen = effect.segmentLength or seg1:getWidth()
+    local drawn = 0
+    local maxLen = math.min(effect.length, effect.length * (effect.progress or 0))
+
+    while drawn + segLen < maxLen do
+        local img = (math.floor(drawn/segLen) % 2 == 0) and seg1 or seg2
+        local x = effect.sourceX + math.cos(effect.angle) * drawn
+        local y = effect.sourceY + math.sin(effect.angle) * drawn
+        love.graphics.draw(img, x, y, effect.angle, 1, 1, 0, img:getHeight()/2)
+        drawn = drawn + segLen
+    end
+
+    -- draw terminus at head
+    love.graphics.draw(terminus, effect.headX, effect.headY, effect.angle, 1, 1,
+        terminus:getWidth()/2, terminus:getHeight()/2)
+end
+
+return {
+    initialize = initializeZap,
+    update = updateZap,
+    draw = drawZap
+}
+```
 
 ## ./vfx/init.lua
 ```lua
@@ -51390,12 +54084,15 @@ local function initializeParticles(effect)
         -- Base templates
         ["proj_base"] = "projectile",
         ["bolt_base"] = "projectile",
+        ["orb_base"] = "projectile",
+        ["zap_base"] = "zap",
         ["impact_base"] = "impact",
         ["beam_base"] = "beam",
         ["blast_base"] = "cone",
         ["zone_base"] = "aura",
         ["util_base"] = "aura",
         ["surge_base"] = "surge",
+        ["wave_base"] = "projectile",
         ["conjure_base"] = "conjure",
         ["remote_base"] = "remote",
         ["warp_base"] = "remote",
@@ -52071,8 +54768,11 @@ function Wizard:queueSpell(spell)
     -- Find the innermost available spell slot
     for i = 1, #self.spellSlots do
         if not self.spellSlots[i].active then
+            -- Determine cost source (static table or dynamic function)
+            local costSource = spellToUse.getCost or spellToUse.cost
+
             -- Check if we can pay the mana cost from the pool
-            local tokenReservations = self:canPayManaCost(spell.cost)
+            local tokenReservations = self:canPayManaCost(costSource)
             
             if tokenReservations then
                 local tokens = {}
@@ -52082,8 +54782,11 @@ function Wizard:queueSpell(spell)
                     -- Free spell - no tokens needed
                     print("[TOKEN MANAGER] Free spell (no mana cost)")
                 else
+                    -- Resolve actual cost table now if using dynamic cost
+                    local actualCost = type(costSource) == "function" and costSource(self, nil) or costSource
+
                     -- Use TokenManager to acquire and position tokens for the spell
-                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, spell.cost)
+                    local success, acquiredTokens = TokenManager.acquireTokensForSpell(self, i, actualCost)
                     
                     -- If TokenManager succeeded, use those tokens
                     if success and acquiredTokens then
@@ -52135,8 +54838,9 @@ function Wizard:queueSpell(spell)
                     end
                 end
                 
-                -- Store the tokens in the spell slot
+                -- Store the tokens and cost in the spell slot
                 self.spellSlots[i].tokens = tokens
+                self.spellSlots[i].cost = type(costSource) == "function" and costSource(self, nil) or costSource
                 
                 -- Successfully paid the cost, queue the spell
                 self.spellSlots[i].active = true
@@ -52268,7 +54972,15 @@ end
 
 -- Helper function to check if mana cost can be paid without actually taking the tokens
 -- This is a wrapper around TokenManager functionality for backward compatibility
-function Wizard:canPayManaCost(cost)
+-- Helper function to check if mana cost can be paid without actually taking the tokens
+-- Accepts either a cost table or a getCost function
+function Wizard:canPayManaCost(costOrGetCostFn, target)
+    local cost = costOrGetCostFn
+
+    if type(costOrGetCostFn) == "function" then
+        cost = costOrGetCostFn(self, target)
+    end
+
     local tokenReservations = {}
     local reservedIndices = {} -- Track which token indices are already reserved
     
@@ -53835,9 +56547,27 @@ This system is transitioning towards a pure event-based architecture, where spel
 *   **Purpose:** Defines the concrete spells available by combining keywords (`ingredients`) with specific parameters. Acts as a database of spell definitions.
 *   **Structure:** A large Lua table (`Spells`) where each key is a unique spell ID (e.g., `firebolt`). The value is a table adhering to a schema:
     *   **Basic Info:** `id`, `name`, `description`.
-    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`).
+    *   **Mechanics:** `attackType` (`projectile`, `remote`, `zone`, `utility`), `castTime`, `cost` (array of token types like `Constants.TokenType.FIRE`). If a `getCost` function is provided it will be used at runtime instead of the static table.
     *   **`keywords`:** **The core.** A table mapping keyword names (from `keywords.lua`) to parameter tables (e.g., `damage = { amount = 10 }`, `elevate = { duration = 5.0 }`). Parameters can be static values or functions.
-*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
+
+    The optional `getCost(caster, target)` function allows a spell's mana cost to change based on game state. It should return a table of token types just like the static `cost` field. `getCost` is evaluated each time the spell is queued or affordability is checked.
+
+    **Example:** A spell that gets cheaper as the caster's health drops might be implemented as:
+
+    ```lua
+    getCost = function(caster)
+        local fireCost = 3
+        if caster.health < 75 then fireCost = 2 end
+        if caster.health < 40 then fireCost = 1 end
+        if caster.health < 20 then fireCost = 0 end
+        local t = {}
+        for i = 1, fireCost do
+            t[i] = Constants.TokenType.FIRE
+        end
+        return t
+    end
+    ```
+*   **Optional:** `vfx`, `sfx`, `getCastTime` (dynamic cast time function), `getCost` (dynamic mana cost), `onBlock`/`onMiss`/`onSuccess` (legacy callbacks).
 *   **Validation:** Includes a `validateSpell` function called at load time to ensure schema adherence and add defaults, printing warnings for issues.
 
 ### 3. `spellCompiler.lua` - The Chef
@@ -54145,7 +56875,8 @@ Without the `visualShape` property, this spell would use the `remote_base` templ
 The `visualShape` property supports the following values:
 
 - `"beam"` - A sustained beam effect (uses `beam_base` template)
-- `"bolt"` or `"orb"` or `"zap"` - Projectile effects (use `proj_base` template)
+- `"bolt"` or `"orb"` - Projectile effects (use `proj_base` template)
+- `"zap"` - Lightning bolt effect (uses `zap_base` template)
 - `"blast"` or `"groundBurst"` - Area effects (use `zone_base` template)
 - `"warp"`, `"surge"`, or `"affectManaPool"` - Utility effects (use `util_base` template)
 - `"wings"` or `"mirror"` - Shield/barrier effects (use `shield_overlay` template)
@@ -54234,6 +56965,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
 *   **`Wizard:queueSpell(spell)`:** Initiates spell casting.
     *   Finds an available `spellSlot`.
     *   Checks mana availability using `canPayManaCost`.
+        *   If the spell defines `getCost`, that function is called with `caster` and `target` to determine the token list.
     *   If affordable, acquires token references from `manaPool` via reservations.
     *   Sets token state to `CHANNELED`.
     *   Sets up animation parameters for tokens (Bezier curve towards wizard).
@@ -54248,7 +56980,7 @@ Each `Wizard` instance maintains a comprehensive set of state variables:
         *   Normal Spells: Applies damage (`target.health`), status effects (burn, stun), position changes (range, elevation), mana manipulation (lock, delay) based on `effect` table. Returns caster's tokens (`requestReturnAnimation`/`manaPool:returnToken`), resets caster's slot (`resetSpellSlot`).
 *   **`Wizard:handleShieldBlock(slotIndex, blockedSpell)`:** (Called on the target wizard). Consumes tokens from the specified shield slot based on `blockedSpell.shieldBreaker`, returns consumed tokens, and calls `resetSpellSlot` if the shield breaks (runs out of tokens).
 *   **`Wizard:resetSpellSlot(slotIndex)`:** Utility function to reset all properties of a spell slot to default/inactive state and clear its token list. Used after normal casts, cancellations, or shield breaks.
-*   **`Wizard:canPayManaCost(cost)`:** Checks if mana cost can be paid from `manaPool` *without* consuming tokens. Returns reservation details or `nil`.
+*   **`Wizard:canPayManaCost(costOrFn[, target])`:** Checks if a mana cost can be paid without consuming tokens. `costOrFn` may be a static table or the `getCost` function from a spell definition. The function returns a reservation detail table or `nil` if the cost can't currently be met.
 *   **`Wizard:freeAllSpells()`:** Cancels all active spells/shields, returns their tokens, and resets the corresponding slots.
 
 ### 3. Token Interaction
@@ -54513,7 +57245,9 @@ Core Utilities (core/):
 Constants.lua: Centralized string constants. Crucial for avoiding magic strings.
 AssetCache.lua: Prevents duplicate loading of images and sounds.
 Pool.lua: Generic object pooling system.
-Input.lua: Unified input routing.
+Input.lua: Unified input routing. Uses an action-based scheme defined in
+  `Constants.ControlAction`. Keyboard and gamepad bindings are loaded from
+  Settings.lua and can be changed at runtime.
 Settings.lua: Handles persistent game settings.
 assetPreloader.lua: Manages preloading of assets.
 3. Key Interactions & Data Flow
@@ -54587,6 +57321,7 @@ Add to game.unlockedSpells in main.lua if it's unlockable.
 Modifying or Adding Keywords (keywords.lua):
 Event Generation: The execute function must add events to the passed-in events table. It should not directly modify caster, target, or gameState.
 Parameters: Keyword parameters defined in spells.lua can be static values or functions (resolved by keywords.lua.resolve()).
+Dynamic Costs: Spells may include a `getCost(caster, target)` function which returns a token cost table at runtime. Use this for mechanics like health-scaled or target-dependent costs.
 Metadata: Keep the behavior table updated with descriptive flags, targetType, and category.
 VFX: Keywords generally should not trigger VFX directly. Instead, the events they generate (e.g., DAMAGE, SET_ELEVATION) will be picked up by EventRunner, which then uses VisualResolver for VFX. If a keyword has a unique, inherent visual distinct from its gameplay event (rare), it can generate a specific EFFECT event.
 Documentation: Update docs/keywords.lua (or ensure it's auto-generated) if adding or significantly changing a keyword.
@@ -54602,6 +57337,10 @@ Create new personality files that implement the interface defined in ai/Personal
 Personality modules are responsible for spell selection logic for a specific character.
 Keep the core OpponentAI.lua generic; character-specific logic belongs in personality modules.
 AI actions should use wizard:queueSpell(), not simulate input.
+Input Handling:
+  The game uses an action-based input layer. All actions are defined in
+  `Constants.ControlAction`. Default bindings for keyboard and gamepad live in
+  `core/Settings.lua` and can be rebound at runtime through the Settings menu.
 UI (ui.lua, main.lua draw functions):
 Strive for diegetic UI where possible (information integrated into the game world).
 Keep UI drawing logic separate from game state update logic.
@@ -54664,11 +57403,34 @@ Manastorm is a real-time strategic battler where two spellcasters clash in arcan
 
 ## Controls
 
-### Player 1 (Ashgar)
-- Q, W, E: Queue spells in spell slots 1, 2, and 3
+Manastorm uses an **action-based** input layer. Each action is defined in
+`Constants.ControlAction` and can be bound independently for keyboard or
+gamepad via the Settings menu. The mappings below reflect the defaults shipped
+with the game.
 
-### Player 2 (Selene)
-- I, O, P: Queue spells in spell slots 1, 2, and 3
+### Default Keyboard Mapping
+
+**Player 1**
+
+- Q / W / E: Spell slots 1–3
+- F: Cast (also acts as menu confirm)
+- G: Free spells (also acts as menu cancel)
+- B: Toggle spellbook
+- Arrow Keys: Menu navigation
+
+**Player 2**
+
+- I / O / P: Spell slots 1–3
+- J: Cast
+- H: Free spells
+- M: Toggle spellbook
+
+### Default Gamepad Mapping
+
+Gamepad controls mirror the keyboard actions. Use the D-pad for spell slots and
+menu navigation. The **A** button casts or confirms, **Y** frees or cancels, and
+**B** toggles the spellbook. When a second gamepad is connected these mappings
+apply to Player 2 as well.
 
 ### General
 - ESC: Quit the game
@@ -54702,6 +57464,88 @@ This is a late prototype with basic full engine functionality:
 - Add basic main menu, mode select, control customization.
 - Add AI opponent (strategy design pattern).
 - Add content. Lots of content. Lots and lots and lots of content.
+
+## ./SFX_GATING_IMPLEMENTATION.md
+# SFX Gating Implementation
+
+## Overview
+The SFX gating system prevents crashes when sound files are missing or corrupted during development. All sound-related operations are now conditional based on an `ENABLE_SFX` configuration flag.
+
+## Changes Made
+
+### 1. Settings Module (`core/Settings.lua`)
+- Added `ENABLE_SFX = false` to the defaults configuration
+- This disables SFX by default during development
+
+### 2. VFX Module (`vfx.lua`)
+- Added Settings import
+- Added `VFX.isSFXEnabled()` helper function
+- Modified sound loading to check `ENABLE_SFX` before attempting to load sounds
+- Added error handling with `pcall` for sound loading
+- Modified sound playing to check `ENABLE_SFX` before playing
+- Added documentation comments
+
+### 3. AssetCache Module (`core/AssetCache.lua`)
+- Added Settings import
+- Modified `getSound()` function to check `ENABLE_SFX` before loading
+- Modified `preload()` function to skip sound loading when SFX is disabled
+- Added appropriate logging messages
+
+### 4. Main Module (`main.lua`)
+- Modified sound play operation in slot highlighting to check `ENABLE_SFX`
+
+## How to Enable SFX
+
+### Method 1: Edit settings.lua
+```lua
+return {
+    dummyFlag = false,
+    gameSpeed = "FAST",
+    ENABLE_SFX = true,  -- Enable SFX
+    controls = {
+        -- ... rest of settings
+    }
+}
+```
+
+### Method 2: Programmatically
+```lua
+local Settings = require("core.Settings")
+Settings.set("ENABLE_SFX", true)
+```
+
+### Method 3: Check SFX Status
+```lua
+local VFX = require("vfx")
+if VFX.isSFXEnabled() then
+    -- SFX is enabled
+else
+    -- SFX is disabled
+end
+```
+
+## Benefits
+
+1. **Crash Prevention**: Game won't crash when sound files are missing
+2. **Development Friendly**: Can develop without sound assets
+3. **Configurable**: Easy to enable/disable via settings
+4. **Graceful Degradation**: Visual effects work without sound
+5. **Error Handling**: Proper error messages when sound loading fails
+
+## Testing
+
+The system has been tested to ensure:
+- Game starts without crashes when SFX is disabled
+- Sound loading is properly gated
+- Sound playing is properly gated
+- Settings can be changed at runtime
+- Error handling works correctly
+
+## Future Considerations
+
+- When actual sound assets are created, set `ENABLE_SFX = true` in production
+- Consider adding individual sound enable/disable flags for fine-grained control
+- May want to add volume controls when SFX is enabled 
 
 ## ./manastorm_codebase_dump.md
 
@@ -55624,6 +58468,538 @@ No crashes or major logical errors in campaign flow.
 Design Notes/Pitfalls:
 This ticket is crucial for catching edge cases and ensuring the feature feels complete enough for its basic scope.
 If an opponent in a campaign list doesn't have an AI personality, getPersonalityFor will return nil, and OpponentAI.new will use the PersonalityBase. This is acceptable for now but should be noted.
+
+## Tickets/S13_FlexibleSpellCosts/SCT-1-core-getcost-mechanism-wizard-integration.md
+# SCT-1: Core getCost Mechanism & Wizard Integration
+
+**Goal:** Establish the foundational mechanism for dynamic costs and integrate it into the wizard's spellcasting logic.
+
+## Tasks
+
+### 1. Modify spells/schema.lua
+- Update the `validateSpell` function to acknowledge an optional `getCost` function in spell definitions
+- If `getCost` is present, the static cost table can still exist (perhaps as a "base" or "UI display" cost) or be optional
+- For now, assume if `getCost` exists, it's the source of truth at runtime
+
+### 2. Modify wizard.lua - Wizard:canPayManaCost(costOrGetCostFn)
+- This function currently takes a cost table
+- Update to accept either a cost table OR the spell.getCost function
+- If `costOrGetCostFn` is a function, call it: `local actualCost = costOrGetCostFn(self, target, nil)`
+  - Note: `canPayManaCost` is often called without a specific target context (e.g., by AI checking general affordability)
+  - The `getCost` function signature should account for this: `getCost(caster, [potentialTarget])`
+- The rest of `canPayManaCost` (token reservation logic) will then use `actualCost`
+
+### 3. Modify wizard.lua - Wizard:queueSpell(spell)
+- When checking affordability, pass `spellToUse.getCost` or `spellToUse.cost` to `self:canPayManaCost()`
+- When acquiring tokens with `TokenManager.acquireTokensForSpell`, if `spellToUse.getCost` exists, call it to get the `actualCost` table to pass to TokenManager. Otherwise, pass `spellToUse.cost`
+- The `spellToUse.cost` in the `spellSlots[i]` entry should ideally store the actual cost paid if it was dynamic, for potential future use (e.g., Dispel keyword). For now, storing the original reference is fine
+
+### 4. Modify TokenManager.acquireTokensForSpell (if needed)
+- Ensure it robustly handles the `manaCost` table passed to it, which will now always be a resolved table of token types/counts
+- No major changes likely needed here if wizard.lua does the resolution
+
+## Acceptance Criteria
+- A spell can be defined with a `getCost` function
+- `Wizard:canPayManaCost` correctly evaluates affordability using the dynamic cost if `getCost` is present
+- `Wizard:queueSpell` correctly acquires tokens based on the dynamically calculated cost
+- Spells with static costs continue to work as before
+
+## Design Notes/Pitfalls
+- The `getCost` function must return a table in the same format as the static cost property (e.g., `{Constants.TokenType.FIRE, Constants.TokenType.WATER}` or `{ [Constants.TokenType.FIRE] = 2 }`)
+- Ensure the caster (and potentially target if relevant for a specific spell's dynamic cost) context is correctly passed to `getCost`
+
+## Tickets/S13_FlexibleSpellCosts/SCT-2-ai-adaptation-for-dynamic-costs.md
+# SCT-2: AI Adaptation for Dynamic Costs
+
+**Goal:** Enable the AI to understand and correctly evaluate the affordability of spells with dynamic costs.
+
+## Tasks
+
+### 1. Modify ai/OpponentAI.lua - OpponentAI:decide()
+When the AI considers casting a spell (e.g., `spell = self.personality:getAttackSpell(...)`), it currently checks `self.wizard:canPayManaCost(spell.cost)`.
+
+This check needs to be updated to correctly use the dynamic cost function if available:
+
+```lua
+local costToEvaluate
+if spell.getCost then
+    -- AI needs to evaluate the cost in its current perceived context
+    -- The OpponentAI's 'self.wizard' is the AI's wizard, 'self.playerWizard' is the opponent
+    costToEvaluate = spell.getCost(self.wizard, self.playerWizard) 
+else
+    costToEvaluate = spell.cost
+end
+local canAfford = self.wizard:canPayManaCost(costToEvaluate)
+
+if spell and self:hasAvailableSpellSlot() and canAfford then
+    return { type = "CAST_SPELL", spell = spell, reason = reason }
+end
+```
+
+### 2. Modify Personality Modules (e.g., ai/personalities/SelenePersonality.lua)
+- No direct changes needed in how personalities return spells
+- They should continue to return the spell object
+- The core AI (`OpponentAI:decide()`) will handle the dynamic cost evaluation
+- However, more advanced personality logic might internally call `wizard:canPayManaCost(spell.getCost and spell.getCost(...) or spell.cost)` if it needs to make finer-grained decisions about which spell to suggest based on fluctuating costs
+- For now, this isn't strictly necessary
+
+## Acceptance Criteria
+- The AI correctly determines if it can afford a spell with a dynamic cost
+- The AI attempts to cast dynamically-costed spells only when affordable based on the current game state
+
+## Design Notes/Pitfalls
+- The AI's perception of the game state (which `getCost` might depend on) might be slightly delayed due to `perceptionInterval`
+- This is generally acceptable for AI behavior
+
+## Tickets/S13_FlexibleSpellCosts/SCT-3-ui-display-of-dynamic-costs.md
+# SCT-3: UI Display of Dynamic Costs
+
+**Goal:** Update the UI (spellbook modal, keyed spell popup) to appropriately display costs for spells that might be dynamic.
+
+## Tasks
+
+### 1. Modify ui.lua - UI.drawSpellbookModal (and its internal formatCost)
+- The `formatCost` helper and the spell display logic currently expect `spell.cost` to be a static table
+- When displaying a spell's cost, check if `spell.getCost` exists
+- If it does, call `local displayCost = spell.getCost(wizard, opponentWizard)` to get the current cost for display purposes
+  - Need to ensure `opponentWizard` is available in this context, or `getCost` functions need to be robust to a nil target if not relevant
+- Then, use `displayCost` with the `formatCost` helper
+- Consider adding a visual indicator (e.g., an asterisk `*` or a different color) if a spell's cost is dynamic to inform the player
+
+### 2. Modify ui.lua - UI.drawPlayerSpellbook (for keyed spell popup)
+- Similar to the spellbook modal, if `wizard.currentKeyedSpell.getCost` exists, evaluate it in the current context to display its cost
+- Note: This part of the UI doesn't currently show cost, but if it were to be added, it would need this logic
+- The keyed spell popup `wizard.currentKeyedSpell.name` is drawn. Cost is not shown there, so no change needed for this specific part unless we decide to add cost display there
+
+### 3. Modify characterData.lua or spell definitions (spells/elements/*.lua)
+- If a spell uses `getCost`, its static cost field could represent a "base cost" or "typical cost" for display if evaluating the dynamic one is too complex or volatile for a quick UI glance
+- The UI would then need to be aware of this convention
+- For simplicity now, we'll assume UI always tries to evaluate `getCost`
+
+## Acceptance Criteria
+- Spellbook UI displays the dynamically calculated cost of spells if `getCost` is defined
+- (Optional) UI indicates that a spell's cost is dynamic
+
+## Design Notes/Pitfalls
+- Displaying a constantly changing cost in the UI might be distracting
+- A "base cost" with an indicator, or evaluating it only when the spellbook is opened, might be better UX long-term
+- For now, live evaluation is simplest to implement
+- The `formatCost` helper itself likely doesn't need changes, as it already expects a resolved cost table
+
+## Tickets/S13_FlexibleSpellCosts/SCT-4-example-spell-implementation.md
+# SCT-4: Example Spell Implementation
+
+**Goal:** Implement 1-2 spells that utilize the new dynamic getCost feature to demonstrate and test its functionality.
+
+## Tasks
+
+### 1. Choose/Design Spells
+- **Example 1:** A "Desperation Strike" spell whose cost in FIRE tokens decreases as the caster's health gets lower
+- **Example 2:** A "Resource Drain" spell whose cost in MOON tokens increases based on the number of STAR tokens the opponent has in their active spell slots
+
+### 2. Implement in spells/elements/*.lua
+
+#### Example: Desperation Fire
+```lua
+-- Example: Desperation Fire
+Spells.desperationFire = {
+    id = "desperationfire",
+    name = "Desperation Fire",
+    affinity = Constants.TokenType.FIRE,
+    description = "A fiery attack whose Fire cost decreases as your health lowers.",
+    attackType = Constants.AttackType.PROJECTILE,
+    castTime = Constants.CastSpeed.NORMAL,
+    cost = { Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE }, -- Base/max cost for UI reference
+    keywords = { damage = { amount = 15, type = Constants.DamageType.FIRE } },
+    getCost = function(caster, target)
+        local fireCost = 3
+        if caster.health < 75 then fireCost = 2 end
+        if caster.health < 40 then fireCost = 1 end
+        if caster.health < 20 then fireCost = 0 end -- Free at critical health
+        
+        local finalCost = {}
+        for i = 1, fireCost do
+            table.insert(finalCost, Constants.TokenType.FIRE)
+        end
+        -- Add any other static costs if necessary
+        -- table.insert(finalCost, Constants.TokenType.ANY) 
+        return finalCost
+    end
+}
+```
+
+#### Example: Moon Drain
+```lua
+-- Example: Moon Drain (cost depends on opponent's channeled STAR tokens)
+Spells.moonDrain = {
+    id = "moondrain",
+    name = "Moon Drain",
+    affinity = Constants.TokenType.MOON,
+    description = "Drains opponent. Costs more Moon tokens if opponent is channeling Star mana.",
+    attackType = Constants.AttackType.REMOTE,
+    castTime = Constants.CastSpeed.FAST,
+    cost = { Constants.TokenType.MOON }, -- Base cost
+    keywords = { damage = { amount = 8, type = Constants.DamageType.MOON } },
+    getCost = function(caster, target)
+        local moonTokens = 1
+        if target then
+            for _, slot in ipairs(target.spellSlots) do
+                if slot.active and slot.tokens then
+                    for _, tokenData in ipairs(slot.tokens) do
+                        if tokenData.token.type == Constants.TokenType.STAR then
+                            moonTokens = moonTokens + 1
+                        end
+                    end
+                end
+            end
+        end
+        local finalCost = {}
+        for i = 1, math.min(moonTokens, 4) do -- Cap cost increase
+            table.insert(finalCost, Constants.TokenType.MOON)
+        end
+        return finalCost
+    end
+}
+```
+
+### 3. Add to a Character's Spellbook (characterData.lua)
+Make these spells available to test.
+
+## Acceptance Criteria
+- The example spells function correctly, with their costs changing based on the defined game state conditions
+- These spells can be cast by both player and AI (if AI is configured to use them)
+
+## Design Notes/Pitfalls
+- `getCost` functions should be relatively lightweight
+- Can reuse `expr.lua` helpers within `getCost` if the desired output is a token type string, though direct logic as shown above is also fine
+
+## Tickets/S13_FlexibleSpellCosts/SCT-5-documentation.md
+# SCT-5: Documentation
+
+**Goal:** Document the new dynamic cost feature and ensure robust testing.
+
+## Tasks
+
+### 1. Update docs/spellcasting.md
+- Explain the `getCost` function in spell definitions
+- Provide an example of its usage
+
+### 2. Update docs/wizard.md
+- Mention how `canPayManaCost` and `queueSpell` handle dynamic costs
+
+### 3. Update docs/DevelopmentGuidelines.md
+- Add a section on defining spells with dynamic costs
+
+## Acceptance Criteria
+- Relevant documentation is updated
+
+## Tickets/S14_InputSystemRefactor/INPUT-1-define-control-actions-default-mappings-settings-integration.md
+# INPUT-1: Define Control Actions, Default Mappings, and Settings Integration
+
+**Goal:** Establish a canonical list of abstract game actions, define default keyboard/gamepad mappings for them, and update the settings system to store and manage these control configurations.
+
+## Tasks
+
+### 1. Define Action Constants (core/Constants.lua)
+Create `Constants.ControlAction = { ... }` enum table.
+
+Include actions for:
+- **Player 1:** P1_SLOT1, P1_SLOT2, P1_SLOT3, P1_CAST, P1_FREE, P1_BOOK
+- **Player 2:** P2_SLOT1, P2_SLOT2, P2_SLOT3, P2_CAST, P2_FREE, P2_BOOK
+- **Menu Navigation:** MENU_UP, MENU_DOWN, MENU_LEFT, MENU_RIGHT
+- **Menu Actions:** MENU_CONFIRM, MENU_CANCEL_BACK
+- **System (Optional):** SYS_TOGGLE_DEBUG, SYS_QUIT_MENU_BACK (for unified Escape key)
+
+### 2. Define Default Mappings & Update Settings (core/Settings.lua)
+Modify `defaults.controls` to map `Constants.ControlAction` enums to default input strings (e.g., "q", "a" for gamepad button, "dpup" for D-pad up).
+
+Structure:
+```lua
+defaults.controls = {
+    keyboardP1 = { [Constants.ControlAction.P1_SLOT1] = "q", ... },
+    keyboardP2 = { [Constants.ControlAction.P2_SLOT1] = "i", ... },
+    gamepadP1  = { [Constants.ControlAction.P1_SLOT1] = "dpdown", [Constants.ControlAction.P1_CAST] = "a", ... },
+    gamepadP2  = { [Constants.ControlAction.P2_SLOT1] = "dpdown", ... } -- Placeholder for P2 controller
+}
+```
+
+- Ensure `Settings.load()` correctly merges new defaults if a settings.lua file already exists (handle adding new control sections)
+- Ensure `Settings.save()` correctly serializes the new structure
+
+### 3. Update Input.lua (Initial Settings Load)
+- Modify `Input.init(game)` to load the new control structures from `gameState.settings.get("controls")`
+- For now, `Input.setupRoutes()` might be partially non-functional until INPUT-2, but ensure no crashes occur due to the changed settings structure
+
+## Acceptance Criteria
+- `Constants.ControlAction` enum table is fully defined in core/Constants.lua
+- core/Settings.lua contains default keyboard (P1 & P2) and generic gamepad (P1) mappings for all defined actions
+- The game loads settings with the new control structure without errors and saves them correctly
+- Game runs without crashing, input might be partially broken pending INPUT-2
+
+## Tickets/S14_InputSystemRefactor/INPUT-2-refactor-input-lua-action-based-dispatch.md
+# INPUT-2: Refactor Input.lua for Action-Based Dispatch
+
+**Goal:** Rework Input.lua to map physical inputs (keys/buttons) to abstract ControlActions, and have game logic respond to these actions.
+
+## Tasks
+
+### 1. Modify Input.setupRoutes() (core/Input.lua)
+- `Input.Routes` (e.g., `Input.Routes.p1_kb`, `Input.Routes.p2_kb`, `Input.Routes.gp1`, `Input.Routes.system`) will now store anonymous functions
+- Dynamically populate `Input.Routes` based on loaded settings:
+  - Iterate through `controls.keyboardP1`. For each `actionConstant = keyName` pair, `Input.Routes.p1_kb[keyName] = function() Input.triggerAction(actionConstant, 1) end`
+  - Similarly for `keyboardP2`
+  - Gamepad routes will be handled differently in INPUT-3
+
+### 2. Create Input.triggerAction(action, playerIndex, params) (core/Input.lua)
+This new central function will contain the if/elseif logic previously in individual route handlers.
+
+Takes the action (from `Constants.ControlAction`), an optional `playerIndex` (1 or 2), and optional `params`.
+
+Example:
+```lua
+function Input.triggerAction(action, playerIndex, params)
+    local gs = gameState -- Local reference for brevity
+    if action == Constants.ControlAction.P1_SLOT1 and playerIndex == 1 then
+        gs.wizards[1]:keySpell(1, true)
+    elseif action == Constants.ControlAction.P1_CAST and playerIndex == 1 then
+        gs.wizards[1]:castKeyedSpell()
+    elseif action == Constants.ControlAction.P1_SLOT1_RELEASE and playerIndex == 1 then -- New action type
+        gs.wizards[1]:keySpell(1, false)
+    -- ... similar for P2 actions ...
+    elseif action == Constants.ControlAction.MENU_UP then
+        Input.triggerUIAction(action, params) -- Delegate UI actions
+    -- ...
+    end
+end
+```
+
+### 3. Modify Input.handleKey(key, scancode, isrepeat)
+- Its role is now to look up `key` in the appropriate `Input.Routes` (e.g., `Input.Routes.p1_kb[key]`) and call the routed function if found
+- Distinguish between P1 and P2 keyboard routes
+
+### 4. Modify Input.handleKeyReleased(key, scancode)
+- Load current P1/P2 keyboard controls
+- If key matches a P1 slot key, call `Input.triggerAction(Constants.ControlAction.P1_SLOT1_RELEASE, 1)` (or SLOT2/3)
+- Similarly for P2
+
+### 5. Create Input.triggerUIAction(action, params) (core/Input.lua or main.lua)
+- This function will handle actions like `MENU_UP`, `MENU_CONFIRM`
+- It will check `gameState.currentState` and call the appropriate game logic (e.g., `gameState.settingsMove(-1)`, `gameState.characterSelectConfirm()`)
+
+## Acceptance Criteria
+- Player 1 and Player 2 keyboard controls function as before, now dispatched via `Input.triggerAction`
+- `Input.setupRoutes` dynamically builds routes from settings
+- Input.lua internally uses `Constants.ControlAction`
+- Menu-related system keys (like Escape for main menu back/quit) are routed to `Input.triggerUIAction`
+
+## Tickets/S14_InputSystemRefactor/INPUT-3-implement-gamepad-input-processing.md
+# INPUT-3: Implement Gamepad Input Processing
+
+**Goal:** Enable the game to receive and process input from gamepads, initially for Player 1.
+
+## Tasks
+
+### 1. Add Gamepad Event Handlers (main.lua)
+Implement:
+- `love.gamepadpressed(joystick, button)`
+- `love.gamepadreleased(joystick, button)`  
+- `love.axismoved(joystick, axis, value)` (note: `love.axispressed` is not a LÖVE callback, `love.joystickmoved` handles axes for gamepads too)
+
+Inside these:
+- Get `joystick:getID()`
+- Initially, assume the first active joystick (`joystick:getID() == 1` or the first one that sends an event) controls Player 1
+- Call new functions in Input.lua:
+  - `Input.handleGamepadButton(joystickID, buttonName, true/false)`
+  - `Input.handleGamepadAxis(joystickID, axisName, value)`
+
+### 2. Modify Input.lua for Gamepad
+
+#### Input.handleGamepadButton(joystickID, buttonName, isPressed)
+- Determine `playerIndex` (e.g., if `joystickID == game.p1GamepadID`, then `playerIndex = 1`)
+- Load `controls.gamepadP1` (or `gamepadP2`)
+- Iterate through this mapping to find which `ControlAction` corresponds to `buttonName`
+- Call `Input.triggerAction(action, playerIndex, {pressed = isPressed})`
+- Handle button release for spell slot keys by triggering `_RELEASE` variants of actions
+
+#### Input.handleGamepadAxis(joystickID, axisName, value)
+- Determine `playerIndex`
+- Load `controls.gamepadP1` (or `gamepadP2`)
+- Map axis movements (e.g., "leftx", "lefty", "dpup", "dpdown" - LÖVE uses "dpup" etc. for D-pad buttons) to `MENU_UP/DOWN/LEFT/RIGHT` actions
+- Implement a deadzone for analog stick axes
+- Implement a repeat timer for sustained axis input for menu navigation
+- Call `Input.triggerUIAction(action, {value = value})`
+
+### 3. Gamepad ID Management (main.lua or Input.lua)
+- Add `game.p1GamepadID = nil`, `game.p2GamepadID = nil`
+- In `love.joystickadded(joystick)`:
+  - If `game.p1GamepadID` is nil, assign `joystick:getID()` to it
+  - Or, if P2 needs a controller, assign it to `game.p2GamepadID`
+- In `love.joystickremoved(joystick)`:
+  - If `joystick:getID()` matches a stored ID, set it back to nil
+
+## Acceptance Criteria
+- A connected gamepad can control Player 1's wizard actions using the default gamepad bindings
+- Gamepad D-pad and/or left analog stick can navigate menus that currently support keyboard arrow navigation  
+- Gamepad connect/disconnect is handled gracefully
+
+## Tickets/S14_InputSystemRefactor/INPUT-4-settings-menu-for-control-rebinding.md
+# INPUT-4: Settings Menu for Control Rebinding
+
+**Goal:** Allow players to rebind keyboard and gamepad controls for all actions via an enhanced Settings menu.
+
+## Tasks
+
+### 1. Extend Settings Menu UI (main.lua -> drawSettingsMenu, new drawRebindMenu)
+- Add a "Rebind Controls" option to the main settings menu
+- Selecting it sets `game.settingsMenu.mode = "rebind_select_player"` (or similar)
+
+#### drawRebindMenu:
+- If `mode == "rebind_select_player"`: Show options like "Player 1 Keyboard", "Player 2 Keyboard", "Player 1 Gamepad"
+- If `mode == "rebind_action_list"`: Display a scrollable list of all `Constants.ControlAction` relevant to the selected player/input type. Show current binding next to each. Highlight selected action
+
+### 2. Implement Rebinding Logic (main.lua & Input.lua)
+When an action is selected for rebinding:
+- Set `game.settingsMenu.waitingForKey = { playerType = "keyboardP1", action = Constants.ControlAction.P1_SLOT1, label = "P1 Slot 1" }` (similar to existing but use `playerType` to specify `keyboardP1`, `gamepadP1` etc.)
+
+#### Input.handleKey():
+- If `waitingForKey`, capture key, update `game.settings.controls[playerType][action] = newKeyString`
+
+#### Input.handleGamepadButton():
+- If `waitingForKey`, capture button, update `game.settings.controls[playerType][action] = newButtonString`
+
+#### Input.handleGamepadAxis():
+- If `waitingForKey` and axis is suitable for binding (e.g., D-pad as buttons), capture axis input
+- (Analog stick full axis binding is more complex, might defer)
+
+After capture:
+- Call `game.settings.save()`
+- Clear `waitingForKey`
+- Call `Input.setupRoutes()` to apply changes immediately
+
+### 3. Update Input.setupRoutes()
+- Must now be robust enough to handle empty or conflicting bindings (e.g., log warnings, potentially revert to default for specific action if unbound)
+
+## Acceptance Criteria
+- Players can navigate to a detailed control rebinding screen
+- Players can select any rebindable game action and assign a new keyboard key or gamepad button to it
+- The UI updates to show the new binding
+- New bindings are saved persistently and are active immediately and upon game restart
+- The system handles attempts to bind already-used keys (e.g., prompt for overwrite or disallow)
+
+## Tickets/S14_InputSystemRefactor/INPUT-5-standardize-menu-navigation-with-abstract-actions.md
+# INPUT-5: Standardize Menu Navigation with Abstract Actions
+
+**Goal:** Unify menu navigation across all game menus to use the new abstract control actions, supporting keyboard arrows, gamepad D-pad/analog stick, and game action keys (Cast/Free).
+
+## Tasks
+
+### 1. Refactor Menu Input Logic (main.lua)
+- Modify existing menu-specific input functions (`settingsMove`, `compendiumMove`, `characterSelectMove`, `campaignMenuMove`, and their "select/confirm/back" counterparts)
+- These functions should now be callable with a generic direction (e.g., -1 for up/left, 1 for down/right) or an actionType (e.g., CONFIRM, CANCEL)
+- The core `Input.triggerUIAction(action, params)` function will call these refactored menu logic functions based on `gameState.currentState` and the action type (`MENU_UP`, `MENU_CONFIRM`, etc.)
+
+### 2. Update Input.setupRoutes() (core/Input.lua)
+- Map keyboard arrow keys (e.g., "up", "down", "left", "right") to `Constants.ControlAction.MENU_UP`, `MENU_DOWN`, `MENU_LEFT`, `MENU_RIGHT`
+- Map "return" (Enter) and "space" to `MENU_CONFIRM`
+- Map "escape" to `MENU_CANCEL_BACK`
+
+### 3. Enhance Input.triggerAction()
+If `gameState.currentState` indicates a menu is active:
+- If action is `P1_CAST` or `P2_CAST`, also call `Input.triggerUIAction(Constants.ControlAction.MENU_CONFIRM)`
+- If action is `P1_FREE` or `P2_FREE`, also call `Input.triggerUIAction(Constants.ControlAction.MENU_CANCEL_BACK)`
+
+## Acceptance Criteria
+- All game menus (Main, Settings, Rebind, Character Select, Compendium, Campaign) are navigable using keyboard arrow keys
+- All game menus are navigable using gamepad D-pad and/or left analog stick (with deadzone and repeat)
+- The primary "Cast" game action (default F/gamepad A) functions as "Confirm" in menus
+- The primary "Free" game action (default G/gamepad B) functions as "Cancel/Back" in menus
+- Escape key consistently functions as "Cancel/Back" in menus or "Quit" from the main menu
+
+## Tickets/S14_InputSystemRefactor/INPUT-6-player-2-ai-controller-management.md
+# INPUT-6: Player 2 & AI Controller Management
+
+**Goal:** Provide clear mechanisms for enabling/disabling Player 2 human control versus AI, and manage controller assignments.
+
+## Tasks
+
+### 1. Player 2 Mode Selection (Character Select Screen)
+- Modify `drawCharacterSelect()` and its associated logic in main.lua
+- When Player 2's character is being selected (or after P1 selection if it's a global P2 setting), display an option "P2: Human / AI"
+- Allow toggling this setting. This will set/unset `game.useAI`
+
+### 2. Conditional AI Initialization (main.lua)
+In `setupWizards()` or `resetGame()` or wherever AI is typically initialized for a battle:
+- If `game.useAI` is true, initialize `game.opponentAI` for `game.wizards[2]`
+- If `game.useAI` is false, ensure `game.opponentAI` is nil
+
+### 3. Controller Assignment (Input.lua and main.lua)
+Maintain `game.p1GamepadID` and `game.p2GamepadID`.
+
+#### love.joystickadded(joystick):
+- If `game.p1GamepadID` is nil, assign `joystick:getID()` to it
+- Else if `game.p2GamepadID` is nil (and potentially `game.useAI` is false or we are in a state allowing P2 join), assign `joystick:getID()` to `game.p2GamepadID`
+
+#### Input.handleGamepadButton/Axis: 
+- Determine `playerIndex` based on `joystickID` matching `game.p1GamepadID` or `game.p2GamepadID`
+
+**Stretch Goal:** If `game.useAI` is true and input is received from `game.p2GamepadID`, prompt "Player 2 Press Start?" or automatically switch `game.useAI` to false and activate P2.
+
+### 4. Disable P2 Keyboard if Gamepad P2 Active
+- If `game.p2GamepadID` is not nil and P2 is human, `Input.handleKey` should ignore P2 keyboard default routes to prevent conflicts
+- This can be a simple flag `game.p2UsingGamepad = true`
+
+## Acceptance Criteria
+- Player can explicitly choose between a human Player 2 or an AI opponent during character selection
+- If Human P2 is selected, keyboard controls (remappable) for P2 are active. If a second gamepad is connected and assigned, it controls P2
+- If AI P2 is selected, `game.opponentAI` controls `wizards[2]`, and P2 human inputs are ignored
+- Attract mode (AI vs AI) remains unaffected and uses its own AI instances
+
+## Tickets/S14_InputSystemRefactor/INPUT-7-input-system-documentation-and-testing.md
+# INPUT-7: Input System Documentation & Thorough Testing
+
+**Goal:** Update all relevant documentation to reflect the new input system and perform comprehensive testing across all control schemes and game states.
+
+## Tasks
+
+### 1. Update Documentation
+
+#### Update Input.reservedKeys in core/Input.lua
+- List `Constants.ControlActions` and their default bindings for keyboard (P1/P2) and gamepad (P1/P2)
+
+#### Update README.md
+- Update the section on controls
+
+#### Update CrashCourse.md and DevelopmentGuidelines.md
+- Explain the action-based input system
+- Document rebinding capabilities and controller support
+
+### 2. Comprehensive Testing
+
+#### Control Scheme Testing
+- Test P1 default keyboard & P1 default gamepad controls
+- Test P2 default keyboard controls (when P2 is human and no P2 gamepad)
+- Test P2 default gamepad controls (when P2 is human and P2 gamepad active)
+
+#### Rebinding Testing
+- Test rebinding for various actions across keyboard P1/P2 and gamepad P1/P2
+- Verify rebound controls work immediately and persist after game restart
+
+#### Menu Navigation Testing
+- Test all menu navigations with keyboard arrows, gamepad D-pad/analog, and Cast/Free as Confirm/Cancel
+
+#### AI/Human Mode Testing
+- Confirm AI mode selection works and AI behavior is correct when active
+- Confirm Human P2 works correctly
+
+#### Edge Case Testing
+- Check for input conflicts, especially if P2 keyboard and P2 gamepad are both potentially active
+- Test different controller connection scenarios (e.g., starting with no gamepad, connecting one mid-game)
+
+## Acceptance Criteria
+- All relevant documentation accurately reflects the new input system
+- The game is fully playable and configurable with keyboard for P1 & P2, and gamepad for P1 (& P2 if implemented)
+- No regressions in existing input-driven functionality
+- System is robust to different controller connection scenarios
 
 ## Tickets/S1_CoreGameplay/1-1-setup-new-files.md
 Ticket #1: Setup Keyword & Compiler Files

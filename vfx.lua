@@ -169,6 +169,12 @@ function VFX.init()
     print("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
     
+    -- Preload pixel and twinkle assets (used in wave effects and other primitives)
+    print("[VFX] Preloading essential assets: pixel, twinkle1, twinkle2")
+    VFX.assets.pixel = AssetCache.getImage(VFX.assetPaths.pixel)
+    VFX.assets.twinkle1 = AssetCache.getImage(VFX.assetPaths.twinkle1)
+    VFX.assets.twinkle2 = AssetCache.getImage(VFX.assetPaths.twinkle2)
+    
     -- Preload bolt frames for the bolt effects
     print("[VFX] Preloading bolt frame assets")
     VFX.assets.boltFrames = {}
@@ -433,9 +439,9 @@ function VFX.init()
 
         wave_base = {
             type = "wave_base",          -- Template name as type
-            duration = 1.5,
-            particleCount = 150,
-            startScale = 0.6,
+            duration = 2.0,              -- Increased duration for better visibility
+            particleCount = 300,         -- Increased particle count for richer effect
+            startScale = 1.0,            -- Increased base scale
             color = Constants.Color.GRAY,  -- Default color, will be overridden
 
             -- Wave-specific parameters
