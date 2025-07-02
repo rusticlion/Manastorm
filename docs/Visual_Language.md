@@ -45,6 +45,7 @@ The visual language is organized by:
 | Generic | Acceleration | Slot | `SPELL_ACCELERATE` | sparkle | LIME | Speed-up animation |
 | Generic | Cancel | Slot | `SPELL_CANCEL` | impactRing | CRIMSON | Spell interruption effect |
 | Generic | Echo | Slot | `SPELL_ECHO` | sparkle | BONE | Spell replication effect |
+| Generic | Shield Break | Self | `SHIELD_BREAK` | impactRing | SMOKE | Flash when a shield collapses |
 
 ## Shield Visual Language
 

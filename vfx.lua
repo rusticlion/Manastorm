@@ -501,6 +501,18 @@ function VFX.init()
             sound = "shield", -- Use shield sound
             criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
         },
+
+        shield_break = {
+            type = "shield_break",
+            duration = 1.0,
+            particleCount = 40,
+            startScale = 0.6,
+            endScale = 1.6,
+            color = Constants.Color.GRAY,
+            radius = 80,
+            sound = "shield_break",
+            criticalAssets = {"impactRing", "sparkle"}
+        },
         
         -- Existing effects
         -- General impact effect (used for many spell interactions)
@@ -1748,6 +1760,7 @@ VFX.updaters["conjure_base"] = ConjureEffect.update  -- Conjuration template
 VFX.updaters["remote_base"] = RemoteEffect.update    -- Remote effect template
 VFX.updaters["warp_base"] = RemoteEffect.update      -- Warp uses remote logic
 VFX.updaters["shield_hit_base"] = ImpactEffect.update -- Shield hit template
+VFX.updaters["shield_break"] = ImpactEffect.update -- Shield break uses impact logic
 
 -- Specific effect templates
 VFX.updaters["meteor"] = MeteorEffect.update         -- Meteor effect
@@ -1778,6 +1791,7 @@ VFX.drawers["conjure_base"] = ConjureEffect.draw    -- Conjuration template
 VFX.drawers["remote_base"] = RemoteEffect.draw      -- Remote effect template
 VFX.drawers["warp_base"] = RemoteEffect.draw        -- Warp uses remote logic
 VFX.drawers["shield_hit_base"] = ImpactEffect.draw  -- Shield hit template
+VFX.drawers["shield_break"] = ImpactEffect.draw    -- Shield break template
 
 -- Specific effect templates
 VFX.drawers["meteor"] = MeteorEffect.draw           -- Meteor effect

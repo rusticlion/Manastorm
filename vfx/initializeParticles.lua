@@ -30,6 +30,7 @@ local function initializeParticles(effect)
         ["remote_base"] = "remote",
         ["warp_base"] = "remote",
         ["shield_hit_base"] = "impact",
+        ["shield_break"] = "impact",
 
         -- Specific effect templates
         ["meteor"] = "meteor",

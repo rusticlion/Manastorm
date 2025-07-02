@@ -202,6 +202,37 @@ function VisualResolver.pick(event)
         
         return baseTemplate, opts
     end
+
+    -- PRIORITY 3b: Handle shield break event
+    if event.effectType == "shield_break" then
+        baseTemplate = Constants.VFXType.SHIELD_BREAK
+        selectionPath = "SHIELD_BREAK"
+
+        VisualResolver.debug("Handling shield break effect")
+
+        local color = DEFAULT_COLOR
+        if event.shieldType == Constants.ShieldType.BARRIER then
+            color = {1.0, 1.0, 0.3, 1.0}
+        elseif event.shieldType == Constants.ShieldType.WARD then
+            color = {0.3, 0.3, 1.0, 1.0}
+        elseif event.shieldType == Constants.ShieldType.FIELD then
+            color = {0.3, 1.0, 0.3, 1.0}
+        end
+
+        local opts = {
+            color = color,
+            scale = 1.5,
+            motion = Constants.MotionStyle.PULSE,
+            addons = {},
+            rangeBand = event.rangeBand,
+            elevation = event.elevation,
+        }
+
+        VisualResolver.debug(string.format(
+            "Resolved shield break event to base=%s via %s", baseTemplate, selectionPath))
+
+        return baseTemplate, opts
+    end
     
     -- PRIORITY 4: Legacy manual VFX: If the event has manualVfx flag and effectType
     if event.manualVfx and event.effectType then
