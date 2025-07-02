@@ -442,6 +442,23 @@ function TokenManager.checkFizzleCondition(wizard, slotIndex, removedToken)
     -- If slot has no tokens left, reset it
     if not slot.tokens or #slot.tokens == 0 then
         print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - no tokens left")
+
+        if slot.isShield and wizard.gameState and wizard.gameState.eventRunner then
+            local EventRunner = require("systems.EventRunner")
+            local Constants = require("core.Constants")
+            local breakEvent = {
+                type = "EFFECT",
+                source = Constants.TargetType.TARGET,
+                target = Constants.TargetType.TARGET,
+                effectType = "shield_break",
+                shieldType = slot.defenseType,
+                vfxParams = { x = wizard.x, y = wizard.y },
+                rangeBand = wizard.rangeBand,
+                elevation = wizard.elevation,
+            }
+            wizard.gameState.eventRunner.processEvents({breakEvent}, wizard, nil)
+        end
+
         wizard:resetSpellSlot(slotIndex)
         return true
     end

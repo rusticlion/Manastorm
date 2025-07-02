@@ -430,6 +430,7 @@ Constants.VFXType = {
     -- Defense effects
     SHIELD = "shield",
     REFLECT = "reflect",
+    SHIELD_BREAK = "shield_break",
     
     -- Spell timing effects
     SPELL_ACCELERATE = "spell_accelerate",
