@@ -30,6 +30,29 @@ WaterSpells.watergun = {
     sfx = "fire_whoosh",
 }
 
+WaterSpells.stormstrike = {
+    id = "stormstrike",
+    name = "Storm Strike",
+    affinity = "water",
+    description = "Zap that deals more damage against FAR opponents",
+    castTime = Constants.CastSpeed.FAST,
+    attackType = Constants.AttackType.PROJECTILE,
+    visualShape = Constants.VisualShape.ZAP,
+    cost = {Constants.TokenType.WATER, Constants.TokenType.ANY},
+    keywords = {
+        damage = {
+            amount = function(caster, target)
+                if target and target.gameState.rangeState == Constants.RangeState.FAR then
+                    return 15
+                end
+                return 10
+            end,
+            type = Constants.DamageType.WATER
+        }
+    },
+    sfx = "fire_whoosh",
+}
+
 -- Force blast spell (Steam Vent) - water and fire combo
 WaterSpells.forceBlast = {
     id = "forceblast",

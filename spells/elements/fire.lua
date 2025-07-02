@@ -262,7 +262,7 @@ FireSpells.battleshield = {
 -- Desperation Fire - cost decreases as caster health drops
 FireSpells.desperationFire = {
     id = "desperationfire",
-    name = "Desperation Fire",
+    name = "Burning Desperation",
     affinity = Constants.TokenType.FIRE,
     description = "A fiery attack whose Fire cost decreases as your health lowers.",
     attackType = Constants.AttackType.PROJECTILE,
