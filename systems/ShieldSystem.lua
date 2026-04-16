@@ -227,7 +227,7 @@ function ShieldSystem.checkShieldBlock(spell, attackType, defender, attacker)
 end
 
 -- Handle the effects of a spell being blocked by a shield
-function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
+function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell, attackerWizard)
     local slot = wizard.spellSlots[slotIndex]
     if not slot or not slot.active then
         print(string.format("WARNING: handleShieldBlock called on invalid or inactive slot %d for %s", slotIndex, wizard.name))
@@ -246,120 +246,19 @@ function ShieldSystem.handleShieldBlock(wizard, slotIndex, incomingSpell)
         return false
     end
 
-    -- Get defense type with safety check
-    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
-
-    -- Determine how many tokens to remove based on incoming spell's shieldBreaker property
-    local shieldBreakPower = (incomingSpell and incomingSpell.shieldBreaker) or 1
-    local tokensToConsume = math.min(shieldBreakPower, #slot.tokens)
-
-    -- Get spell name with safety check
-    local spellName = incomingSpell.name or "unknown spell"
-
-    print(string.format("[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).", 
-        wizard.name, defenseType, slotIndex, spellName, shieldBreakPower, tokensToConsume))
-
-    -- Consume the tokens
-    for i = 1, tokensToConsume do
-        -- misnomer since default bahvior changed
-        -- TODO: restore logic to actually "consume" tokens if shield has some keyword
-        if #slot.tokens > 0 then
-            -- Remove token data from the end (doesn't matter which one for shields)
-            local removedTokenData = table.remove(slot.tokens)
-            local removedTokenObject = removedTokenData and removedTokenData.token
-            
-            -- Safety check for removed token object
-            if removedTokenObject and removedTokenObject.type then
-                print(string.format("[TOKEN LIFECYCLE] Shield Token (%s) freed by block -> FREE", 
-                    tostring(removedTokenObject.type)))
-            else
-                print("[TOKEN LIFECYCLE] Shield Token (unknown type) freed by block -> FREE")
-            end
-                
-            -- Mark the consumed token for freeing using TokenManager
-            if removedTokenObject then
-                -- Get TokenManager
-                local TokenManager = require("systems.TokenManager")
-                
-                -- Create a token array for TokenManager to handle
-                local tokenToFree = {
-                    {token = removedTokenObject, index = 1}
-                }
-                
-                -- Use TokenManager to free the token
-                TokenManager.returnTokensToPool(tokenToFree)
-                
-                -- Call the wizard's centralized check *after* removing the token
-                wizard:checkFizzleOnTokenRemoval(slotIndex, removedTokenObject)
-            else
-                print("WARNING: Shield block consumed a token reference that had no token object.")
-                -- Still need to check fizzle even if token object missing
-                wizard:checkFizzleOnTokenRemoval(slotIndex, nil)
-            end
-        else
-            -- Should not happen if tokensToConsume calculation is correct, but break just in case
-            print("WARNING: Tried to consume more tokens than available in shield slot.")
-            break 
-        end
-    end
-    
-    -- Emit shield hit event for visual feedback through VisualResolver
-    if wizard.gameState and wizard.gameState.eventRunner then
-        local Constants = require("core.Constants")
-        local shieldHitEvent = {
-            type = "EFFECT",
-            source = Constants.TargetType.TARGET,  -- defender is both source & target visually
-            target = Constants.TargetType.TARGET,
-            effectType = "shield_hit", -- logical tag for VisualResolver
-            affinity = defenseType, -- Use defense type as affinity for color mapping
-            tags = { SHIELD_HIT = true },
-            shieldType = defenseType,
-            vfxParams = {
-                x = wizard.x,
-                y = wizard.y,
-            },
-            rangeBand = wizard.rangeBand,
-            elevation = wizard.elevation,
+    local eventRunner = wizard.gameState and wizard.gameState.eventRunner or require("systems.EventRunner")
+    local results = eventRunner.processEvents({
+        {
+            type = "SHIELD_BLOCK",
+            source = Constants.TargetType.SELF,
+            target = Constants.TargetType.SLOT_SELF,
+            slotIndex = slotIndex,
+            incomingSpell = incomingSpell,
+            attackerWizard = attackerWizard or incomingSpell.caster or nil,
         }
-        
-        -- Process the event immediately
-        wizard.gameState.eventRunner.processEvents({shieldHitEvent}, wizard, nil)
-    end
-    
-    -- Add support for on-block effects
-    -- Add safety check for slot.defenseType
-    local defenseType = slot.defenseType or Constants.ShieldType.BARRIER -- Default to barrier if unknown
-    print("[SHIELD DEBUG] Checking onBlock handler for " .. wizard.name .. "'s " .. defenseType .. " shield")
-    
-    if slot.onBlock then
-        print("[SHIELD DEBUG] onBlock handler found, executing")
-        -- Avoid importing EventRunner directly to prevent circular dependency
-        local ok, blockEvents = pcall(slot.onBlock,
-                                      wizard,          -- defender (owner of the shield)
-                                      incomingSpell and incomingSpell.caster, -- attacker (may be nil)
-                                      slotIndex,
-                                      { blockType = defenseType })
-        if ok and type(blockEvents) == "table" and #blockEvents > 0 then
-            print("[SHIELD DEBUG] onBlock returned " .. #blockEvents .. " events, processing")
-            -- Lazy load EventRunner only when needed
-            local EventRunner = require("systems.EventRunner")
-            EventRunner.processEvents(blockEvents, wizard, incomingSpell and incomingSpell.caster, slotIndex)
-        elseif not ok then
-            print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
-        else
-            print("[SHIELD DEBUG] onBlock successful but no events returned or invalid events format")
-            print("[SHIELD DEBUG] Return value: " .. type(blockEvents))
-            if type(blockEvents) == "table" then
-                print("[SHIELD DEBUG] Table length: " .. #blockEvents)
-            end
-        end
-    else
-        print("[SHIELD DEBUG] No onBlock handler found for this shield")
-    end
-    
-    -- The checkFizzleOnTokenRemoval method handles the actual shield breaking (slot reset)
-    
-    return true
+    }, wizard, attackerWizard or incomingSpell.caster or nil, slotIndex)
+
+    return results and (results.shieldBlocksResolved or 0) > 0 or false
 end
 
 -- Update shield visuals and animations

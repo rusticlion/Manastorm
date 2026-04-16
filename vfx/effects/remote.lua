@@ -4,6 +4,8 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -189,6 +191,13 @@ local function drawRemote(effect)
         end
     end
     
+    -- Optional CA overlay centered at target
+    if effect.options and effect.options.enableCA then
+        CARenderer.update(effect, 0)
+        love.graphics.setColor(1,1,1,1)
+        CARenderer.draw(effect)
+    end
+
     -- Draw effects at target position
     if effect.progress > 0.4 then
         -- Fade in at target position
@@ -250,17 +259,21 @@ local function drawRemote(effect)
         
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
         
-        if particleImage then
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
+        if effect.useBlocky and effect.blockSize then
+            BlockRenderer.drawBlock(particle.x, particle.y, math.max(2, math.floor(effect.blockSize)), {effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7})
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            if particleImage then
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    0,
+                    particle.scale, particle.scale,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            else
+                -- Fallback if particle image is missing
+                love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            end
         end
         
         -- Restore blend mode

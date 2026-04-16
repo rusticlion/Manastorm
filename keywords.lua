@@ -1039,6 +1039,11 @@ Keywords.vfx = {
         category = "SPECIAL"
     },
     execute = function(params, caster, target, results, events, spell)
+        local manaCost = 0
+        if caster and caster.spellSlots and results.currentSlot and caster.spellSlots[results.currentSlot] then
+            manaCost = #(caster.spellSlots[results.currentSlot].tokens or {})
+        end
+
         -- Instead of creating an event, just set effectOverride in results
         if params.effect then
             -- Get the effect type, whether it's a string or constant
@@ -1069,10 +1074,28 @@ Keywords.vfx = {
         
         -- Store other vfx parameters that might be useful
         results.vfxParams = params
+
+        if params.emitEvent then
+            table.insert(events or {}, {
+                type = "EFFECT",
+                source = "caster",
+                target = params.target or Constants.TargetType.SELF,
+                effectOverride = results.effectOverride,
+                affinity = spell and spell.affinity or nil,
+                attackType = spell and spell.attackType or nil,
+                amount = params.amount,
+                manaCost = manaCost,
+                tags = params.tags,
+                rangeBand = caster and caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster and caster.elevation or nil,
+                visualShape = params.visualShape or (spell and spell.visualShape) or nil,
+                duration = params.duration,
+                vfxParams = params.vfxParams
+            })
+        end
         
         return results
     end
 }
 
 return Keywords
-

@@ -22,6 +22,123 @@ local function generateUniqueId(wizard, slotIndex)
     return wizard.name .. "_" .. slotIndex .. "_" .. os.time() .. "_" .. math.random(1000)
 end
 
+local function getOpponentWizard(gameState, wizard)
+    if not gameState or not gameState.wizards then
+        return nil
+    end
+
+    for _, candidate in ipairs(gameState.wizards) do
+        if candidate ~= wizard then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+local function matchesTrapSignal(entry, triggerCondition, targetWizard)
+    local casterWizard = entry and entry.wizard or nil
+    local condition = entry and entry.triggerData and entry.triggerData.condition or nil
+    if not casterWizard or not targetWizard or not condition or condition ~= triggerCondition then
+        return false
+    end
+
+    local opponent = getOpponentWizard(casterWizard.gameState, casterWizard)
+    if opponent ~= targetWizard then
+        return false
+    end
+
+    if condition == "on_opponent_elevate"
+        and targetWizard.elevation == Constants.ElevationState.AERIAL then
+        print(string.format(
+            "[SustainedManager] Trap triggered by opponent elevation: %s",
+            targetWizard.elevation
+        ))
+        return true
+    end
+
+    if condition == "on_opponent_far"
+        and casterWizard.gameState
+        and casterWizard.gameState.rangeState == Constants.RangeState.FAR then
+        print("[SustainedManager] Trap triggered by opponent being far")
+        return true
+    end
+
+    if condition == "on_opponent_cast" then
+        print("[SustainedManager] Trap triggered by opponent casting spell")
+        return true
+    end
+
+    return false
+end
+
+local function dispatchTrapTrigger(entry, targetWizard)
+    local casterWizard = entry and entry.wizard or nil
+    local gameState = casterWizard and casterWizard.gameState or nil
+    local runner = gameState and gameState.eventRunner or nil
+    if not runner or type(runner.processEvents) ~= "function" then
+        print("[SustainedManager] WARNING: Cannot trigger trap without game.eventRunner")
+        return nil
+    end
+
+    return runner.processEvents({
+        {
+            type = "TRIGGER_TRAP",
+            source = "caster",
+            target = Constants.TargetType.ENEMY,
+            slotIndex = entry.slotIndex,
+            trapId = entry.id,
+            trapEffect = entry.effectData,
+            trapSpell = entry.spell,
+            cleanupReason = "trap_triggered"
+        }
+    }, casterWizard, targetWizard, entry.slotIndex)
+end
+
+function SustainedSpellManager.notifyTrapTrigger(triggerCondition, targetWizard, context)
+    if not triggerCondition or not targetWizard then
+        return 0
+    end
+
+    local matchingIds = {}
+    for id, entry in pairs(SustainedSpellManager.activeSpells) do
+        if entry.type == "trap"
+            and not entry.triggered
+            and not entry.processed
+            and matchesTrapSignal(entry, triggerCondition, targetWizard) then
+            table.insert(matchingIds, id)
+        end
+    end
+
+    local triggeredCount = 0
+    for _, id in ipairs(matchingIds) do
+        local entry = SustainedSpellManager.activeSpells[id]
+        if entry then
+            entry.triggered = true
+            entry.processed = true
+
+            print(string.format(
+                "[SustainedManager] Trap triggered for %s slot %d via %s",
+                entry.wizard.name,
+                entry.slotIndex,
+                triggerCondition
+            ))
+
+            local result = dispatchTrapTrigger(entry, targetWizard)
+            if result and (result.eventsProcessed or 0) > 0 then
+                triggeredCount = triggeredCount + 1
+            else
+                print("[SustainedManager] ERROR: Failed to dispatch trap trigger")
+                if SustainedSpellManager.activeSpells[id] then
+                    SustainedSpellManager.removeSustainedSpell(id)
+                end
+            end
+        end
+    end
+
+    return triggeredCount
+end
+
 -- Apply field status effect to both wizards
 local function applyFieldStatus(entry)
     if not entry or not entry.fieldStatus then return end
@@ -29,18 +146,51 @@ local function applyFieldStatus(entry)
     local gameState = entry.wizard and entry.wizard.gameState
     if not gameState or not gameState.wizards then return end
 
-    for _, wiz in ipairs(gameState.wizards) do
-        wiz.statusEffects = wiz.statusEffects or {}
-        wiz.statusEffects[entry.fieldStatus.statusType] = wiz.statusEffects[entry.fieldStatus.statusType] or {}
-        local effect = wiz.statusEffects[entry.fieldStatus.statusType]
-        effect.active = true
-        effect.duration = 0
-        effect.tickDamage = entry.fieldStatus.tickDamage
-        effect.tickInterval = entry.fieldStatus.tickInterval
-        effect.magnitude = entry.fieldStatus.magnitude
-        effect.elapsed = 0
-        effect.totalTime = 0
+    local runner = gameState.eventRunner
+    if not runner or not runner.processEvents then
+        print("[SustainedManager] WARNING: Cannot apply field status without game.eventRunner")
+        return
     end
+
+    local opponent = getOpponentWizard(gameState, entry.wizard)
+    local spell = entry.spell or {}
+    local slot = entry.wizard and entry.wizard.spellSlots and entry.wizard.spellSlots[entry.slotIndex]
+    local manaCost = slot and slot.tokens and #slot.tokens or 0
+
+    runner.processEvents({
+        {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = Constants.TargetType.SELF,
+            statusType = entry.fieldStatus.statusType,
+            duration = entry.fieldStatus.duration or 0,
+            tickDamage = entry.fieldStatus.tickDamage,
+            tickInterval = entry.fieldStatus.tickInterval,
+            magnitude = entry.fieldStatus.magnitude,
+            targetSlot = entry.fieldStatus.targetSlot,
+            affinity = spell.affinity,
+            attackType = spell.attackType or Constants.AttackType.UTILITY,
+            visualShape = spell.visualShape,
+            manaCost = manaCost,
+            tags = { FIELD = true }
+        },
+        {
+            type = "APPLY_STATUS",
+            source = "caster",
+            target = Constants.TargetType.ENEMY,
+            statusType = entry.fieldStatus.statusType,
+            duration = entry.fieldStatus.duration or 0,
+            tickDamage = entry.fieldStatus.tickDamage,
+            tickInterval = entry.fieldStatus.tickInterval,
+            magnitude = entry.fieldStatus.magnitude,
+            targetSlot = entry.fieldStatus.targetSlot,
+            affinity = spell.affinity,
+            attackType = spell.attackType or Constants.AttackType.UTILITY,
+            visualShape = spell.visualShape,
+            manaCost = manaCost,
+            tags = { FIELD = true }
+        }
+    }, entry.wizard, opponent, entry.slotIndex)
 end
 
 -- Remove field status effect from both wizards
@@ -50,14 +200,28 @@ local function removeFieldStatus(entry)
     local gameState = entry.wizard and entry.wizard.gameState
     if not gameState or not gameState.wizards then return end
 
-    for _, wiz in ipairs(gameState.wizards) do
-        if wiz.statusEffects and wiz.statusEffects[entry.fieldStatus.statusType] then
-            wiz.statusEffects[entry.fieldStatus.statusType].active = false
-            wiz.statusEffects[entry.fieldStatus.statusType].duration = 0
-            wiz.statusEffects[entry.fieldStatus.statusType].elapsed = 0
-            wiz.statusEffects[entry.fieldStatus.statusType].totalTime = 0
-        end
+    local runner = gameState.eventRunner
+    if not runner or not runner.processEvents then
+        print("[SustainedManager] WARNING: Cannot remove field status without game.eventRunner")
+        return
     end
+
+    local opponent = getOpponentWizard(gameState, entry.wizard)
+
+    runner.processEvents({
+        {
+            type = "REMOVE_STATUS",
+            source = "caster",
+            target = Constants.TargetType.SELF,
+            statusType = entry.fieldStatus.statusType
+        },
+        {
+            type = "REMOVE_STATUS",
+            source = "caster",
+            target = Constants.TargetType.ENEMY,
+            statusType = entry.fieldStatus.statusType
+        }
+    }, entry.wizard, opponent, entry.slotIndex)
 end
 
 -- Add a sustained spell to the manager
@@ -162,224 +326,7 @@ end
 
 -- Update all active sustained spells
 function SustainedSpellManager.update(dt)
-    -- Count active spells by type
-    local shieldCount = 0
-    local trapCount = 0
-    local fieldCount = 0
-    local genericCount = 0
-    
-    -- Spells to remove after iteration
-    local spellsToRemove = {}
-    
-    -- Update each active spell
-    for id, entry in pairs(SustainedSpellManager.activeSpells) do
-        -- Debug: check what types of sustained spells we have
-        if math.floor(os.time()) % 10 == 0 then -- Only log every 10 seconds to avoid spam
-            Log.debug(string.format("[DEBUG] Sustained spell: id=%s, type=%s, spell=%s",
-                id, entry.type, entry.spell and entry.spell.name or "unknown"))
-        end
-        
-        -- Count by type
-        if entry.type == "shield" then
-            shieldCount = shieldCount + 1
-        elseif entry.type == "trap" then
-            trapCount = trapCount + 1
-        elseif entry.type == "field" then
-            fieldCount = fieldCount + 1
-        else
-            genericCount = genericCount + 1
-        end
-        
-        
-        -- Process trap trigger conditions if this is a trap
-        if entry.type == "trap" and entry.triggerData and not entry.triggered then
-            local casterWizard = entry.wizard
-            local targetWizard = nil
-            
-            -- Find target wizard (the other wizard)
-            if casterWizard and casterWizard.gameState and casterWizard.gameState.wizards then
-                for _, wizard in ipairs(casterWizard.gameState.wizards) do
-                    if wizard ~= casterWizard then
-                        targetWizard = wizard
-                        break
-                    end
-                end
-            end
-            
-            -- Evaluate trigger conditions
-            if targetWizard and entry.triggerData.condition then
-                local condition = entry.triggerData.condition
-                local conditionMet = false
-                
-                -- Check elevation trigger condition
-                if condition == "on_opponent_elevate" and targetWizard.elevation == Constants.ElevationState.AERIAL then
-                    -- Enhancement idea: Track state changes rather than continuous state
-                    -- For now, trigger continuously while the opponent is elevated
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Trap triggered by opponent elevation: %s", targetWizard.elevation))
-                end
-
-                if condition == "on_opponent_far" and targetWizard.rangeState == Constants.RangeState.FAR then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Trap triggered by opponent being far"))
-                end
-                
-                -- Check cast trigger condition
-                if condition == "on_opponent_cast" and targetWizard.justCastSpellThisFrame then
-                    conditionMet = true
-                    print(string.format("[SustainedManager] Trap triggered by opponent casting spell"))
-                end
-                
-                -- Check other trigger conditions as needed...
-                -- Add more conditions here as the trap system expands
-                
-                -- If any condition is met, mark the trap as triggered
-                if conditionMet then
-                    entry.triggered = true
-                    print(string.format("[SustainedManager] Trap triggered for %s slot %d", 
-                        casterWizard.name, entry.slotIndex))
-                end
-            end
-        end
-        
-        -- Process triggered traps
-        if entry.type == "trap" and entry.triggered and not entry.processed then
-            -- Mark as processed to avoid duplicate execution
-            entry.processed = true
-            
-            local casterWizard = entry.wizard
-            local targetWizard = nil
-            
-            -- Find target wizard (the other wizard)
-            if casterWizard and casterWizard.gameState and casterWizard.gameState.wizards then
-                for _, wizard in ipairs(casterWizard.gameState.wizards) do
-                    if wizard ~= casterWizard then
-                        targetWizard = wizard
-                        break
-                    end
-                end
-            end
-            
-            -- Execute trap effect via EventRunner
-            if casterWizard and targetWizard and entry.effectData then
-                print(string.format("[SustainedManager] Executing trap effect for %s slot %d", 
-                    casterWizard.name, entry.slotIndex))
-                
-                -- Get Keywords module to execute the effect keywords
-                local Keywords = nil
-                if casterWizard.gameState and casterWizard.gameState.keywords then
-                    Keywords = casterWizard.gameState.keywords
-                else
-                    print("[SustainedManager] ERROR: Cannot access Keywords module")
-                    table.insert(spellsToRemove, id)
-                    goto continue
-                end
-                
-                -- Create events list to collect events from each keyword
-                local events = {}
-                
-                -- Iterate through each keyword in the trap effect
-                for keyword, params in pairs(entry.effectData) do
-                    if Keywords[keyword] and type(Keywords[keyword].execute) == "function" then
-                        local results = {}
-                        
-                        -- Call the keyword's execute function to generate events
-                        -- Note: Different keywords expect different parameters, we pass consistent ones
-                        -- and let each keyword pick what it needs
-                        local updated_results = Keywords[keyword].execute(
-                            params,          -- Parameters for the keyword
-                            casterWizard,    -- Caster
-                            targetWizard,    -- Target
-                            results,         -- Results table (legacy)
-                            events           -- Events list to populate
-                        )
-                        
-                        -- Merge results for backward compatibility
-                        if updated_results then
-                            for k, v in pairs(updated_results) do
-                                results[k] = v
-                            end
-                        end
-                    else
-                        print(string.format("[SustainedManager] WARNING: Keyword '%s' not found or not executable", 
-                            tostring(keyword)))
-                    end
-                end
-                
-                -- Process generated events with EventRunner
-                if #events > 0 then
-                    -- Process events - Use pcall for safety
-                    local result = { eventsProcessed = 0 }
-                    local ok, err = pcall(function()
-                        -- Get EventRunner at last possible moment
-                        local EventRunner = require("systems.EventRunner")
-                        result = EventRunner.processEvents(
-                            events,         -- Events to process
-                            casterWizard,   -- Caster
-                            targetWizard,   -- Target
-                            nil             -- No specific spell slot for effect execution
-                        )
-                    end)
-                    
-                    if not ok then
-                        print("[SustainedManager] ERROR: Failed to process events: " .. tostring(err))
-                    end
-                    
-                    print(string.format("[SustainedManager] Processed %d trap events", 
-                        result and result.eventsProcessed or 0))
-                else
-                    print("[SustainedManager] WARNING: No events generated from trap effect")
-                end
-                
-                -- Clean up the trap after execution
-                local TokenManager = require("systems.TokenManager")
-                
-                -- Get the spell slot
-                local slot = entry.wizard.spellSlots[entry.slotIndex]
-                if slot then
-                    -- Return tokens to the mana pool
-                    if #slot.tokens > 0 then
-                        TokenManager.returnTokensToPool(slot.tokens)
-                        print(string.format("[SustainedManager] Returning %d tokens from triggered trap", 
-                            #slot.tokens))
-                    end
-                    
-                    -- Reset the spell slot
-                    entry.wizard:resetSpellSlot(entry.slotIndex)
-                end
-                
-                -- Mark for removal from manager
-                table.insert(spellsToRemove, id)
-            else
-                print("[SustainedManager] ERROR: Missing wizard or effect data for trap execution")
-                table.insert(spellsToRemove, id)
-            end
-        end
-
-        ::continue::
-    end
-    
-    -- Remove triggered spells after iteration
-    for _, id in ipairs(spellsToRemove) do
-        local entry = SustainedSpellManager.activeSpells[id]
-        if entry then
-            -- Remove the spell from the manager
-            SustainedSpellManager.removeSustainedSpell(id)
-        end
-    end
-    
-    -- Log active spell counts (reduced frequency to avoid console spam)
-    if math.floor(os.time()) % 5 == 0 then  -- Log every 5 seconds
-        -- If we have at least one spell, log more details
-        if shieldCount + trapCount + fieldCount + genericCount > 0 then
-            for id, entry in pairs(SustainedSpellManager.activeSpells) do
-                local wizardName = entry.wizard and entry.wizard.name or "unknown"
-                local spellName = entry.spell and entry.spell.name or "unknown spell"
-                print(string.format("  - %s: %s's %s in slot %d (id: %s)",
-                    entry.type, wizardName, spellName, entry.slotIndex, id))
-            end
-        end
-    end
+    return
 end
 
 return SustainedSpellManager

@@ -1,5 +1,5 @@
 -- test_vfx_events.lua
--- Test script to verify all spells generate VFX events correctly
+-- Audits whether spells drive visuals directly or via EventRunner-visible events.
 
 local SpellCompiler = require("spellCompiler")
 local Spells = require("spells").spells
@@ -41,20 +41,96 @@ local dummyTarget = {
 
 local dummySlot = 1
 
+local VISUAL_EVENT_TYPES = {
+    EFFECT = true,
+    DAMAGE = true,
+    BLOCKED_DAMAGE = true,
+    APPLY_STATUS = true,
+    SET_ELEVATION = true,
+    SET_RANGE = true,
+    FORCE_POSITION = true,
+    CONJURE_TOKEN = true,
+    DISSIPATE_TOKEN = true,
+    SHIFT_TOKEN = true,
+    LOCK_TOKEN = true,
+    CONSUME_TOKENS = true,
+    ACCELERATE_SPELL = true,
+    CANCEL_SPELL = true,
+    FREEZE_SPELL = true,
+    DISRUPT_AND_SHIFT = true,
+    CREATE_SHIELD = true,
+    REFLECT = true,
+    ECHO = true
+}
+
+local function inspectEvents(events)
+    local info = {
+        hasDirectEffect = false,
+        hasVisualDriver = false,
+        eventTypes = {}
+    }
+
+    for _, event in ipairs(events or {}) do
+        if event and event.type then
+            info.eventTypes[event.type] = true
+            if event.type == "EFFECT" then
+                info.hasDirectEffect = true
+            end
+            if VISUAL_EVENT_TYPES[event.type] then
+                info.hasVisualDriver = true
+            end
+        end
+    end
+
+    return info
+end
+
+local function listEventTypes(eventTypes)
+    local names = {}
+    for eventType, present in pairs(eventTypes) do
+        if present then
+            table.insert(names, eventType)
+        end
+    end
+    table.sort(names)
+    return table.concat(names, ", ")
+end
+
+local function hasDeferredOnlyUtilityShape(spell)
+    if not spell or spell.attackType ~= Constants.AttackType.UTILITY then
+        return false
+    end
+
+    if spell.id == "none" then
+        return false
+    end
+
+    return spell.visualShape ~= nil
+        or spell.vfx ~= nil
+        or (spell.keywords and spell.keywords.vfx ~= nil)
+        or (spell.keywords and spell.keywords.sustain ~= nil)
+        or (spell.keywords and spell.keywords.trap_trigger ~= nil)
+        or (spell.keywords and spell.keywords.trap_effect ~= nil)
+        or (spell.keywords and spell.keywords.field_status ~= nil)
+end
+
 -- Main test function
 local function runTest()
     print("=== VFX Events Test ===")
-    print("Testing all spells for EFFECT events...")
+    print("Testing all spells for direct or EventRunner-driven visual events...")
     
     local results = {
         total = 0,
-        passed = 0,
+        directEffects = 0,
+        eventDriven = 0,
         failed = 0,
         skipped = 0,
-        utilityNoVfx = 0
+        warned = 0,
+        utilityDeferred = 0
     }
     
     local failures = {}
+    local warnings = {}
     
     -- Process all spells
     for spellId, spell in pairs(Spells) do
@@ -77,62 +153,32 @@ local function runTest()
         
         -- Generate events but don't execute them
         local events = compiledSpell.generateEvents(dummyCaster, dummyTarget, dummySlot)
-        
-        -- Check for at least one EFFECT event
-        local hasEffectEvent = false
-        if events then
-            for _, event in ipairs(events) do
-                if event.type == "EFFECT" then
-                    hasEffectEvent = true
-                    break
-                end
-            end
-        end
-        
-        -- Handle utility spells without VFX specially 
-        if not hasEffectEvent and spell.attackType == Constants.AttackType.UTILITY and not spell.vfx then
-            print(string.format("[INFO] Utility spell with no VFX: %s", spell.name))
-            results.utilityNoVfx = results.utilityNoVfx + 1
-            goto continue
-        end
-        
-        -- Check if the spell has a VFX defined at the top level
-        local hasTopLevelVfx = (spell.vfx ~= nil)
-        
-        -- Check if the spell has keywords that should generate VFX
-        local hasVfxKeyword = false
-        if spell.keywords and spell.keywords.vfx then
-            hasVfxKeyword = true
-        end
-        
-        -- Check for keywords that have built-in VFX
-        local hasBuiltInVfx = false
-        if spell.keywords then
-            for keyword, _ in pairs(spell.keywords) do
-                if keyword == "ground" or keyword == "elevate" then
-                    hasBuiltInVfx = true
-                    break
-                end
-            end
-        end
-        
-        -- Test result
-        if hasEffectEvent then
-            print(string.format("[PASS] %s generates EFFECT events", spell.name))
-            results.passed = results.passed + 1
-        else
-            -- Log what's missing
-            local missing = ""
-            if not hasTopLevelVfx and not hasVfxKeyword and not hasBuiltInVfx then
-                missing = "both top-level VFX and VFX keyword"
-            elseif not hasVfxKeyword then
-                missing = "VFX keyword (has top-level VFX)"
-            else
-                missing = "proper event generation"
-            end
-            
-            table.insert(failures, string.format("%s: Missing %s", spell.name, missing))
+
+        local audit = inspectEvents(events)
+        local eventTypeList = listEventTypes(audit.eventTypes)
+
+        if audit.hasDirectEffect then
+            print(string.format("[PASS] %s emits direct EFFECT (%s)", spell.name, eventTypeList))
+            results.directEffects = results.directEffects + 1
+        elseif audit.hasVisualDriver then
+            print(string.format("[PASS] %s emits visual-driving gameplay events (%s)", spell.name, eventTypeList))
+            results.eventDriven = results.eventDriven + 1
+        elseif spell.attackType ~= Constants.AttackType.UTILITY then
+            table.insert(
+                failures,
+                string.format("%s: no visual-driving events generated (%s)", spell.name, eventTypeList ~= "" and eventTypeList or "none")
+            )
             results.failed = results.failed + 1
+        elseif hasDeferredOnlyUtilityShape(spell) then
+            table.insert(
+                warnings,
+                string.format("%s: utility/sustained spell has visual intent but no immediate visual-driving event", spell.name)
+            )
+            print(string.format("[WARN] %s has no immediate visual-driving event", spell.name))
+            results.warned = results.warned + 1
+            results.utilityDeferred = results.utilityDeferred + 1
+        else
+            print(string.format("[INFO] Utility spell with no immediate visual-driving event: %s", spell.name))
         end
         
         ::continue::
@@ -141,10 +187,12 @@ local function runTest()
     -- Print test results
     print("\n=== Test Results ===")
     print(string.format("Total spells tested: %d", results.total))
-    print(string.format("Passed: %d (%.1f%%)", results.passed, (results.passed / results.total) * 100))
+    print(string.format("Direct EFFECT spells: %d", results.directEffects))
+    print(string.format("Event-driven visual spells: %d", results.eventDriven))
     print(string.format("Failed: %d (%.1f%%)", results.failed, (results.failed / results.total) * 100))
     print(string.format("Skipped: %d", results.skipped))
-    print(string.format("Utility spells without VFX: %d", results.utilityNoVfx))
+    print(string.format("Warnings: %d", results.warned))
+    print(string.format("Deferred utility visuals: %d", results.utilityDeferred))
     
     -- Print failures if any
     if #failures > 0 then
@@ -153,13 +201,75 @@ local function runTest()
             print(failure)
         end
     end
+
+    if #warnings > 0 then
+        print("\n=== Warnings ===")
+        for _, warning in ipairs(warnings) do
+            print(warning)
+        end
+    end
     
     return results.failed == 0
 end
 
 -- Run the test
-local success = runTest()
-print(string.format("\nTest %s!", success and "PASSED" and "FAILED"))
+-- Optional visual sweep runner: spawn base templates at NEAR/FAR with CA on/off
+local function visualSweep()
+    local VFX = require("vfx")
+    local Constants = require("core.Constants")
+    local VisualResolver = require("systems.VisualResolver")
 
--- Return success status (for automated testing)
+    local centerX, centerY = 400, 300
+    local offsets = {
+        {dx = -200, dy = -120},
+        {dx =  200, dy = -120},
+        {dx = -200, dy =  120},
+        {dx =  200, dy =  120},
+    }
+
+    local bases = {
+        Constants.VFXType.PROJ_BASE,
+        Constants.VFXType.BEAM_BASE,
+        Constants.VFXType.BLAST_BASE,
+        Constants.VFXType.REMOTE_BASE,
+        Constants.VFXType.ZONE_BASE,
+    }
+
+    local ranges = {Constants.RangeState.NEAR, Constants.RangeState.FAR}
+    local caModes = {false, true}
+
+    for r = 1, #ranges do
+        for c = 1, #caModes do
+            for i = 1, #bases do
+                local off = offsets[((i - 1) % #offsets) + 1]
+                local sx = centerX + off.dx * 0.6
+                local sy = centerY + off.dy * 0.6
+                local tx = centerX + off.dx
+                local ty = centerY + off.dy
+                local event = {
+                    type = "EFFECT",
+                    attackType = (i == 2 and Constants.AttackType.REMOTE) or (i == 5 and Constants.AttackType.ZONE) or Constants.AttackType.PROJECTILE,
+                    affinity = Constants.TokenType.FIRE,
+                    manaCost = 3,
+                    rangeBand = ranges[r]
+                }
+                local base, opts = VisualResolver.pick(event)
+                opts.enableCA = caModes[c]
+                opts.blockSize = opts.blockSize or 3
+                VFX.createEffect(bases[i], sx, sy, tx, ty, opts)
+            end
+        end
+    end
+    print("[VFX SWEEP] Spawned base templates across range/CA modes")
+end
+
+-- Entry: run textual event test, then (optionally) a visual sweep when running in-game
+local success = runTest()
+print(string.format("\nTest %s!", success and "PASSED" or "FAILED"))
+
+-- If running under Love with a window, schedule the sweep once
+if love and love.timer and love.graphics then
+    visualSweep()
+end
+
 return success

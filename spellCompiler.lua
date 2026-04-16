@@ -16,6 +16,7 @@
 -- }
 
 local SpellCompiler = {}
+local Constants = require("core.Constants")
 
 -- Add the EventRunner module for event-based execution
 local EventRunner = nil -- Lazy-loaded to avoid circular dependencies
@@ -38,9 +39,43 @@ local function mergeTables(target, source)
     return target
 end
 
+local function appendSustainRegistrationEvent(events, results, spellSlot)
+    if not events or not results or not results.isSustained or results.isShield then
+        return
+    end
+
+    table.insert(events, {
+        type = "REGISTER_SUSTAINED",
+        source = "caster",
+        target = "self_slot",
+        slotIndex = spellSlot,
+        sustainData = {
+            trapTrigger = results.trapTrigger,
+            trapEffect = results.trapEffect,
+            fieldStatus = results.fieldStatus
+        }
+    })
+end
+
 -- Main compilation function
 -- Takes a spell definition and keyword data, returns a compiled spell
 function SpellCompiler.compileSpell(spellDef, keywordData)
+    if not spellDef or type(spellDef) ~= "table" then
+        print("ERROR: SpellCompiler.compileSpell called with invalid spellDef")
+        return nil
+    end
+
+    -- Allow tools/one-off scripts to omit keywordData safely.
+    if not keywordData then
+        local ok, loadedKeywords = pcall(require, "keywords")
+        if ok and type(loadedKeywords) == "table" then
+            keywordData = loadedKeywords
+        else
+            print("ERROR: SpellCompiler.compileSpell could not load keywords table")
+            return nil
+        end
+    end
+
     -- Debug - check for onBlock in keywords.block
     if spellDef.keywords and spellDef.keywords.block and spellDef.keywords.block.onBlock then
         print("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
@@ -327,6 +362,8 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 print("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
             end
         end
+
+        appendSustainRegistrationEvent(events, results, spellSlot)
         
         -- Wrap event processing in pcall to avoid crashing the game
         local success, result = pcall(function()
@@ -380,7 +417,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                                 blockable = results.blockInfo.blockable,
                                 blockType = results.blockInfo.blockType,
                                 blockPoint = results.blockInfo.blockPoint,
-                                blockingSlot = results.blockInfo.blockingSlot
+                                blockingSlot = results.blockInfo.blockingSlot,
+                                -- Preserve impact callback so blocked casts can free tokens at shield hit time.
+                                onBlockImpact = results.blockInfo.onBlockImpact
                             }
                             
                             -- Explicitly set blockPoint at both levels for redundancy
@@ -427,6 +466,8 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             -- Add event processing results to the main results
             results.events = events
             results.eventsProcessed = eventResults.eventsProcessed
+            results.sustainedRegistered = eventResults.sustainedRegistered or false
+            results.sustainedId = eventResults.sustainedId
             
             -- Set blocked flag in results if blockInfo present
             if results.blockInfo and results.blockInfo.blockable then
@@ -453,7 +494,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     -- Add method for direct event generation without execution
     -- Useful for testing and debugging
     compiledSpell.generateEvents = function(caster, target, spellSlot)
+        local hasShieldBehavior = compiledSpell.behavior.block ~= nil
         local events = {}
+        local results = {}
         
         -- Execute each behavior to generate events
         for keyword, behavior in pairs(compiledSpell.behavior) do
@@ -494,6 +537,29 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 end
             end
         end
+
+        if hasShieldBehavior or compiledSpell.isShield then
+            results.isShield = true
+        end
+
+        if compiledSpell.behavior.sustain or
+           (compiledSpell.behavior.block and compiledSpell.behavior.block.marksSpellAsSustained) then
+            results.isSustained = true
+        end
+
+        if compiledSpell.behavior.trap_trigger then
+            results.trapTrigger = compiledSpell.behavior.trap_trigger.params or {}
+        end
+
+        if compiledSpell.behavior.trap_effect then
+            results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
+        end
+
+        if compiledSpell.behavior.field_status then
+            results.fieldStatus = compiledSpell.behavior.field_status.params or {}
+        end
+
+        appendSustainRegistrationEvent(events, results, spellSlot)
         
         return events
     end

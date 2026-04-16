@@ -12,8 +12,8 @@ MoonSpells.conjuremoonlight = {
     name = "Conjure Moonlight",
     affinity = Constants.TokenType.MOON,
     description = "Conjures a Moon mana token. Takes longer to cast the more Moon tokens already present.",
-    attackType = "utility",
-    visualShape = "affectManaPool",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.AFFECT_MANA_POOL,
     castTime = Constants.CastSpeed.FAST,
     cost = {},
     keywords = {
@@ -28,7 +28,7 @@ MoonSpells.conjuremoonlight = {
         local moonCount = 0
         if caster.manaPool then
             for _, token in ipairs(caster.manaPool.tokens) do
-                if token.type == Constants.TokenType.MOON and token.state == "FREE" then
+                if token.type == Constants.TokenType.MOON and token.state == Constants.TokenState.FREE then
                     moonCount = moonCount + 1
                 end
             end
@@ -44,7 +44,7 @@ MoonSpells.tidalforce = {
     affinity = Constants.TokenType.MOON,
     description = "Chip damage, forces AERIAL enemies out of the air",
     attackType = Constants.AttackType.REMOTE,
-    visualShape = "warp",
+    visualShape = Constants.VisualShape.WARP,
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.WATER, Constants.TokenType.MOON},
     keywords = {
@@ -54,9 +54,9 @@ MoonSpells.tidalforce = {
         },
         ground = {
             conditional = function(caster, target)
-                return target and target.elevation == "AERIAL"
+                return target and target.elevation == Constants.ElevationState.AERIAL
             end,
-            target = "ENEMY",
+            target = Constants.TargetType.ENEMY,
         },
     },
     sfx = "tidal_wave",
@@ -69,7 +69,7 @@ MoonSpells.lunardisjunction = {
     affinity = Constants.TokenType.MOON,
     description = "Cleansing moonlight cancels an opponent's spell and dissolves its mana",
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = "zap",
+    visualShape = Constants.VisualShape.ZAP,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON},
     keywords = {
@@ -82,7 +82,7 @@ MoonSpells.lunardisjunction = {
                     return 0  -- 0 means find the first active slot
                 end
             end,
-            target = "SLOT_ENEMY"
+            target = Constants.TargetType.SLOT_ENEMY
         },
     },
     sfx = "lunardisjunction_sound",
@@ -94,8 +94,8 @@ MoonSpells.moondance = {
     name = "Moon Dance",
     affinity = Constants.TokenType.MOON,
     description = "Warp space to switch range, deal chip damage, and Freeze xxx enemy Root slot.",
-    attackType = "remote",
-    visualShape = "warp",
+    attackType = Constants.AttackType.REMOTE,
+    visualShape = Constants.VisualShape.WARP,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON},
     keywords = {
@@ -109,11 +109,11 @@ MoonSpells.moondance = {
                 FAR = "NEAR",
                 default = "NEAR"
             }),
-            target = "SELF" 
+            target = Constants.TargetType.SELF 
         },
         freeze = {
             duration = 3,
-            target = "SLOT_ENEMY",
+            target = Constants.TargetType.SLOT_ENEMY,
             slot = 1
         }
     }
@@ -126,14 +126,14 @@ MoonSpells.gravity = {
     affinity = Constants.TokenType.MOON,
     description = "Grounds AERIAL enemies",
     attackType = Constants.AttackType.REMOTE,
-    visualShape = "warp",
+    visualShape = Constants.VisualShape.WARP,
     castTime = Constants.CastSpeed.FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.ANY},
     keywords = {
         damage = {
             amount = function(caster, target)
                 if target and target.elevation then
-                    return target.elevation == "AERIAL" and 15 or 3
+                    return target.elevation == Constants.ElevationState.AERIAL and 15 or 3
                 end
                 return 3
             end,
@@ -141,9 +141,9 @@ MoonSpells.gravity = {
         },
         ground = {
             conditional = function(caster, target)
-                return target and target.elevation == "AERIAL"
+                return target and target.elevation == Constants.ElevationState.AERIAL
             end,
-            target = "ENEMY",
+            target = Constants.TargetType.ENEMY,
         },
         stagger = {
             duration = 2.0
@@ -158,15 +158,15 @@ MoonSpells.eclipse = {
     name = "Total Eclipse",
     affinity = Constants.TokenType.MOON,
     description = "Freeze xxx your Heart slot. Conjure Sun.",
-    attackType = "utility", 
-    visualShape = "eclipse",
+    attackType = Constants.AttackType.UTILITY, 
+    visualShape = Constants.VisualShape.ECLIPSE,
     castTime = Constants.CastSpeed.VERY_FAST,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         freeze = {
             duration = 3,
             slot = 2,
-            target = "self"
+            target = Constants.TargetType.SELF
         },
         conjure = {
             token = Constants.TokenType.SUN,
@@ -183,7 +183,7 @@ MoonSpells.fullmoonbeam = {
     affinity = Constants.TokenType.MOON,
     description = "Channels moonlight into a beam that deals more damage the longer it's delayed.",
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = "beam",
+    visualShape = Constants.VisualShape.BEAM,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.MOON},
     unlockSpell = "lunartides",
@@ -226,7 +226,7 @@ MoonSpells.lunarTides = {
     affinity = Constants.TokenType.MOON,
     description = "Manipulates the battle flow based on range and elevation",
     attackType = Constants.AttackType.REMOTE,
-    visualShape = "warp",
+    visualShape = Constants.VisualShape.WARP,
     castTime = 7.0,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.ANY, Constants.TokenType.ANY},
     keywords = {
@@ -237,7 +237,7 @@ MoonSpells.lunarTides = {
                 default = 8
             }),
             type = Constants.TokenType.MOON,
-            target = "ENEMY"
+            target = Constants.TargetType.ENEMY
         },
         rangeShift = {
             position = expr.byRange({
@@ -245,7 +245,7 @@ MoonSpells.lunarTides = {
                 FAR = "NEAR",
                 default = "NEAR"
             }),
-            target = "SELF"
+            target = Constants.TargetType.SELF
         },
     },
     sfx = "tide_rush",
@@ -257,10 +257,10 @@ MoonSpells.wrapinmoonlight = {
     name = "Wings of Moonlight",
     affinity = Constants.TokenType.MOON,
     description = "A runic Ward that stops Projectile and Remote attacks, elevating the caster.",
-    attackType = "utility",
-    visualShape = "wings",
+    attackType = Constants.AttackType.UTILITY,
+    visualShape = Constants.VisualShape.WINGS,
     castTime = Constants.CastSpeed.FAST,
-    cost = {Constants.TokenType.MOON, "any"},
+    cost = {Constants.TokenType.MOON, Constants.TokenType.ANY},
     unlockSpell = "lunardisjunction",
     keywords = {
         block = {
@@ -275,7 +275,7 @@ MoonSpells.wrapinmoonlight = {
                 table.insert(events, {
                     type = "SET_ELEVATION",
                     source = "caster",
-                    target = "self",
+                    target = Constants.TargetType.SELF,
                     elevation = Constants.ElevationState.AERIAL,
                     duration = 4.0,
                 })
@@ -295,11 +295,16 @@ MoonSpells.gravityTrap = {
     affinity = Constants.TokenType.MOON,
     description = "Gravitational trap that triggers when an enemy becomes AERIAL, grounding and damaging them.",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "warp",
+    visualShape = Constants.VisualShape.WARP,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.MOON, Constants.TokenType.SUN},
     keywords = {
         sustain = true,
+        vfx = {
+            emitEvent = true,
+            target = Constants.TargetType.SELF,
+            duration = 0.9,
+        },
         
         trap_trigger = { 
             condition = "on_opponent_elevate" 
@@ -310,16 +315,16 @@ MoonSpells.gravityTrap = {
             damage = { 
                 amount = 3, 
                 type = Constants.TokenType.MOON,  
-                target = "ENEMY" 
+                target = Constants.TargetType.ENEMY 
             },
             ground = { 
-                target = "ENEMY", 
+                target = Constants.TargetType.ENEMY, 
             },
             burn = { 
                 duration = 1.5,
                 tickDamage = 3,
                 tickInterval = 0.5,
-                target = "ENEMY"
+                target = Constants.TargetType.ENEMY
             },
         },
     },
@@ -334,7 +339,7 @@ MoonSpells.infiniteprocession = {
     affinity = Constants.TokenType.MOON,
     description = "Transmutes MOON tokens into SUN or SUN into MOON.",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "affectManaPool",
+    visualShape = Constants.VisualShape.AFFECT_MANA_POOL,
     castTime = Constants.CastSpeed.NORMAL,
     cost = {},
     keywords = {
@@ -353,7 +358,7 @@ MoonSpells.enhancedmirrorshield = {
     affinity = Constants.TokenType.MOON,
     description = "A powerful reflective barrier that returns damage to attackers with interest",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "mirror",
+    visualShape = Constants.VisualShape.MIRROR,
     castTime = Constants.CastSpeed.VERY_SLOW,
     cost = {Constants.TokenType.MOON, Constants.TokenType.MOON, Constants.TokenType.STAR},
     keywords = {
@@ -369,16 +374,16 @@ MoonSpells.enhancedmirrorshield = {
                 table.insert(events, {
                     type = "DAMAGE",
                     source = "caster",
-                    target = "enemy",
+                    target = Constants.TargetType.ENEMY,
                     amount = 10,
-                    damageType = "star",
+                    damageType = Constants.DamageType.STAR,
                     reflectedDamage = true
                 })
                 
                 table.insert(events, {
                     type = "EFFECT",
                     source = "caster",
-                    target = "enemy",
+                    target = Constants.TargetType.ENEMY,
                     effectType = "reflect",
                     duration = 0.5
                 })

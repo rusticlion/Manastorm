@@ -1,94 +1,44 @@
-# Visual Language Reference
+# Spell Visual Language v1 (Chunky Blocks + Per-Effect CA)
 
-This document defines the visual language for the Manastorm game, mapping game concepts to visual elements to ensure consistency across the game.
+- Pixel style: chunky blocks rendered crisply with nearest-neighbor filtering; integer snapping for draw positions/sizes.
+- CA overlays: subtle, local grids bound to each effect’s main point (projectile head, zone center, beam path midpoint) to add motion/texture.
 
-## Overview
+## Mapping
+- Affinity → color: uses `Constants.getColorForTokenType`.
+- Attack type → base template: via `VisualResolver` (`PROJ_BASE`, `BEAM_BASE`, `BLAST_BASE`, `REMOTE_BASE`, `AURA/ZONE`, `SURGE_BASE`).
+- Range/Elevation → motion/arc: FAR raises arcs and trails; AERIAL offsets source/target.
+- Magnitude → `blockSize` and density: `blockSize` defaults 3 (NEAR) / 4 (FAR), scales with mana/damage; clamp 2–6.
+- Tags → overlays: DAMAGE/DOT/MOVEMENT/SHIELD use existing overlay templates.
 
-The visual language is organized by:
+## Tuning Knobs (from `VisualResolver.pick`)
+- `useBlocky` (bool): enable blocky drawing path.
+- `blockSize` (int): 2–6, default derived from range and magnitude.
+- `enableCA` (bool): if true, per-effect CA overlay enabled.
+- `caProfile`:
+  - `cellSize`: defaults to `blockSize` (clamped 2–6)
+  - `gridSize`: 24 (small, local grid)
+  - `alpha`: 0.16–0.22 (subtle)
+  - `stepRate`: 2–3 gens/sec
 
-1. **Element**: The magical element (Fire, Moon, etc.)
-2. **Concept**: The game mechanic (Damage, Heal, Shield, etc.)
-3. **Target**: Who/what the effect targets (Self, Enemy, Pool)
-4. **VFX Name**: The corresponding `Constants.VFXType` value
-5. **Particle Sprite**: The asset used by the VFX system
-6. **Core Color**: The base color used for the effect (from `Constants.Color`)
+## Implementation Notes
+- New helpers:
+  - `vfx/BlockRenderer.lua`: snapped block drawing (single and batched).
+  - `vfx/CARenderer.lua`: small CA grid per effect with B3/S23-like rule.
+- Resolver: `systems/VisualResolver.lua` now returns `blockSize`, `useBlocky`, `enableCA`, and `caProfile` alongside existing options.
+- VFX plumbing: `vfx.lua` stores/resets `blockSize`/`useBlocky`; effects can read `effect.blockSize` and `effect.options`.
+- Effects updated: `projectile.lua`, `impact.lua`, `beam.lua`, `cone.lua`, `remote.lua`, `aura.lua` draw blocks and invoke CA overlay when enabled.
+- Startup: `main.lua` sets `love.graphics.setDefaultFilter('nearest','nearest')` and `setLineStyle('rough')`.
 
-## Visual Language Map
+## Performance
+- Blocks use filled rects with integer snapping; prefer batching when possible (`BlockRenderer.drawBlocks`).
+- CA grids are tiny (24×24) and step at low frequency; alpha is low to avoid heavy overdraw.
+- Consider disabling CA for >N concurrent effects (future toggle) or reducing `gridSize`.
 
-| Element | Concept | Target | VFX Name | Particle Sprite | Core Color | Notes |
-|---------|---------|--------|----------|----------------|------------|-------|
-| **Fire** | Damage | Enemy | `FIREBOLT` | fireParticle | CRIMSON | Fast, direct projectile |
-| Fire | Area Damage | Enemy | `METEOR` | fireParticle | OCHRE | Impact-focused with larger radius |
-| Fire | Elevation | Self | `EMBERLIFT` | fireParticle | ORANGE | Vertical rising particles |
-| Fire | Conjure | Pool | `CONJUREFIRE` | fireParticle | ORANGE | Particles converge on mana pool |
-| **Water** | Damage | Enemy | `TIDAL_FORCE` | sparkle | OCEAN | Flowing, wave-like projectile |
-| Water | Ground | Enemy | `TIDAL_FORCE_GROUND` | impactRing | OCEAN | Downward pressing impact |
-| Water | Shield | Self | `SHIELD` | impactRing | OCEAN | Barrier-type with liquid appearance |
-| **Moon** | Damage | Enemy | `LUNARDISJUNCTION` | sparkle | PINK | Elegant, arcing projectile |
-| Moon | Disable | Enemy | `DISJOINT_CANCEL` | impactRing | PINK | Disruptive, sparkling impact |
-| Moon | Conjure | Pool | `CONJUREMOONLIGHT` | moonGlow | SKY | Soft, glowing particles to pool |
-| Moon | Shield | Self | `SHIELD` | runeAssets | SKY | Ward-type with runic symbols |
-| Moon | Field | Area | `MISTVEIL` | sparkle | SKY | Diffuse, fog-like effect |
-| **Sun** | Damage | Enemy | `METEOR` | fireParticle | ORANGE | Falling impact from above |
-| Sun | Shield | Self | `SHIELD` | impactRing | ORANGE | Barrier-type with bright rings |
-| Sun | Conjure | Pool | `NOVA_CONJURE` | sparkle | ORANGE | Bright, star-like particles |
-| **Star** | Damage | Enemy | `STAR_CONJURE` | sparkle | YELLOW | Small, bright flashes |
-| **Salt** | Control | Enemy | `TOKEN_LOCK` | impactRing | SAND | Crystalline, binding appearance |
-| **Force** | Push | Enemy | `FORCE_BLAST` | forceWave | YELLOW | Wave-like, rippling effect |
-| Force | Elevate | Enemy | `FORCE_BLAST_UP` | forceWave | YELLOW | Upward-moving force waves |
-| Force | Conjure | Pool | `FORCE_CONJURE` | sparkle | YELLOW | Dynamic, energetic particles |
-| **Life** | Heal | Self | `FREE_MANA` | sparkle | LIME | Gentle, pulsing aura |
-| **Mind** | Control | Enemy | `SPELL_FREEZE` | sparkle | PINK | Twisting, distorting effect |
-| **Void** | Consume | Enemy | `TOKEN_CONSUME` | sparkle | BONE | Draining, empty appearance |
-| **Generic** | Impact | Any | `IMPACT` | impactRing | SMOKE | Basic impact when no specific VFX |
-| Generic | Range Change | Both | `RANGE_CHANGE` | sparkle | SMOKE | Quick positional indicator |
-| Generic | Acceleration | Slot | `SPELL_ACCELERATE` | sparkle | LIME | Speed-up animation |
-| Generic | Cancel | Slot | `SPELL_CANCEL` | impactRing | CRIMSON | Spell interruption effect |
-| Generic | Echo | Slot | `SPELL_ECHO` | sparkle | BONE | Spell replication effect |
+## Visual Guidelines
+- Keep CA subtle; use alpha < 0.35. Favor negative space (don’t cover wizard silhouettes or UI text).
+- Use higher `blockSize` for impactful spells; lower at NEAR for clarity.
+- For beams, place sparse block markers along path; for auras/remote, center CA grid; for projectiles, track head.
 
-## Shield Visual Language
-
-Shields have distinct visual characteristics based on their type:
-
-| Shield Type | Visual Style | Color | Asset | Description |
-|-------------|--------------|-------|-------|-------------|
-| `barrier` | Solid, physical | ORANGE (Sun) | impactRing | Concentric rings that expand outward, solid appearance |
-| `ward` | Magical, runic | SKY (Moon) | runeAssets | Runic symbols that rotate around the wizard, ethereal glow |
-| `field` | Energy, force | YELLOW (Force) | forceWave | Wave-like energy that pulses outward, semi-transparent |
-
-## Element Color Reference
-
-For consistency, these are the primary colors associated with each element:
-
-- Fire: CRIMSON/ORANGE
-- Water: OCEAN
-- Salt: SAND
-- Sun: ORANGE (brighter than Fire)
-- Moon: SKY/PINK
-- Star: YELLOW
-- Life: LIME
-- Mind: PINK
-- Void: BONE
-- Force: YELLOW
-- Generic: SMOKE
-
-## Implementation Checklist
-
-When implementing visual effects for a new spell:
-
-1. Identify which element the spell belongs to
-2. Determine the primary concept (what game mechanic it represents)
-3. Choose the appropriate target type
-4. Select the matching VFX from the table above
-5. Use the color values in the spell's visual implementation
-6. Consider combining multiple VFX types for complex spells
-
-## Particle System Usage
-
-The particle system has several main effect types that produce different visual patterns:
-
-- `projectile`: Moves from source to target with trailing particles
-- `impact`: Creates a radial burst of particles from a central point
-- `aura`: Generates particles orbiting around a central point
-- `beam`: Creates a solid beam with particle effects along its length
-- `conjure`: Creates particles that rise toward the mana pool
+## Testing
+- Use existing `tools/test_vfx_events.lua` to spawn templates; compare NEAR/FAR, grounded/aerial.
+- Visual toggles to consider adding: show CA grid bounds, freeze CA, force blockSize.

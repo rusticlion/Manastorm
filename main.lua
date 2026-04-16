@@ -13,8 +13,11 @@ local UI = require("ui")
 local VFX = require("vfx")
 local Keywords = require("keywords")
 local SpellCompiler = require("spellCompiler")
+local EventRunner = require("systems.EventRunner")
 local SpellsModule = require("spells") -- Now using the modular spells structure
 local SustainedSpellManager = require("systems.SustainedSpellManager")
+local SustainedIndicatorRenderer = require("systems.SustainedIndicatorRenderer")
+local AttractModeInput = require("systems.AttractModeInput")
 local Settings = require("core.Settings")
 local Tips = require("core.Tips")
 local OpponentAI = require("ai.OpponentAI")
@@ -51,6 +54,7 @@ game = {
     winScreenDuration = 5,  -- How long to show the win screen before auto-reset
     keywords = Keywords,
     spellCompiler = SpellCompiler,
+    eventRunner = EventRunner,
     -- State management
     currentState = "MENU", -- Start in the menu state (MENU, CHARACTER_SELECT, BATTLE, GAME_OVER, BATTLE_ATTRACT, GAME_OVER_ATTRACT, CAMPAIGN_MENU, CAMPAIGN_VICTORY, CAMPAIGN_DEFEAT)
     campaignProgress = nil, -- Holds campaign run info when active
@@ -302,8 +306,9 @@ function love.load()
     -- Configure pixel art rendering -- REMOVE THIS CALL
     -- configurePixelArtRendering()
 
-    -- Set default texture filtering for sharper (potentially pixelated) look
+    -- Set default texture filtering for crisp chunky pixels
     love.graphics.setDefaultFilter("nearest", "nearest")
+    love.graphics.setLineStyle("rough")
     
     -- Calculate initial scaling
     calculateScaling()
@@ -661,14 +666,7 @@ function startGameAttractMode()
     setupWizards(name1, name2)
 
     -- Temporarily store input routes so we can restore them later
-    game.savedInputRoutes = {
-        p1 = Input.Routes.p1,
-        p2 = Input.Routes.p2
-    }
-
-    -- Disable player input during attract mode
-    Input.Routes.p1 = {}
-    Input.Routes.p2 = {}
+    game.savedInputRoutes = AttractModeInput.snapshotAndDisable(Input.Routes)
 
     -- Make sure AI mode is enabled but not tracked by the normal flag
     -- This way we can have two AI players without affecting the normal mode
@@ -703,8 +701,7 @@ function exitAttractMode()
 
     -- Restore input routes if we saved them
     if game.savedInputRoutes then
-        Input.Routes.p1 = game.savedInputRoutes.p1
-        Input.Routes.p2 = game.savedInputRoutes.p2
+        AttractModeInput.restore(Input.Routes, game.savedInputRoutes)
         game.savedInputRoutes = nil
     end
 
@@ -1304,6 +1301,10 @@ function love.update(dt)
         end
         
         -- Update wizards
+        if game.eventRunner and game.eventRunner.updateTimedEffects then
+            game.eventRunner.updateTimedEffects(game, dt)
+        end
+
         for _, wizard in ipairs(game.wizards) do
             wizard:update(dt)
         end
@@ -1409,6 +1410,10 @@ function love.update(dt)
         end
 
         -- Update wizards
+        if game.eventRunner and game.eventRunner.updateTimedEffects then
+            game.eventRunner.updateTimedEffects(game, dt)
+        end
+
         for _, wizard in ipairs(game.wizards) do
             wizard:update(dt)
         end
@@ -1527,6 +1532,9 @@ function love.draw()
         -- Draw visual effects layer (between wizards and UI)
         game.vfx.draw()
 
+        -- Draw persistent battlefield markers for active traps and fields
+        SustainedIndicatorRenderer.draw(game)
+
         -- Draw UI elements in proper z-order
         love.graphics.setColor(1, 1, 1)
 
@@ -1569,6 +1577,9 @@ function love.draw()
 
         -- Draw visual effects layer
         game.vfx.draw()
+
+        -- Draw persistent battlefield markers for active traps and fields
+        SustainedIndicatorRenderer.draw(game)
 
         -- Draw win screen on top
         drawWinScreen()

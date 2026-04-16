@@ -140,9 +140,19 @@ Constants.VisualShape = {
     BEAM = "beam",
     BLAST = "blast",
     ZAP = "zap",
+    ORB = "orb",
+    SLASH = "slash",
+    WARP = "warp",
     CONE = "cone",
     REMOTE = "remote",
     METEOR = "meteor",
+    GROUND_BURST = "groundBurst",
+    BARRIER = "barrier",
+    WINGS = "wings",
+    MIRROR = "mirror",
+    ECLIPSE = "eclipse",
+    NONE = "none",
+    AFFECT_MANA_POOL = "affectManaPool",
     CONJURE_BASE = "conjure",
     SURGE = "surge",
     AURA = "aura",
@@ -204,6 +214,7 @@ Constants.DamageType = {
     LIFE = "life",
     MIND = "mind",
     VOID = "void",
+    FORCE = "force",
     GENERIC = "generic",
     MIXED = "mixed"
 }
@@ -505,7 +516,8 @@ Constants.MotionStyle = {
     FALL = "fall",         -- Particles fall downward
     PULSE = "pulse",       -- Particles expand and contract rhythmically
     RIPPLE = "ripple",     -- Particles move in wave-like patterns
-    STATIC = "static"      -- Particles stay in place with minimal motion
+    STATIC = "static",      -- Particles stay in place with minimal motion
+    HEX = "hex"            -- Snapped hex-direction motion for pixel/CA style
 }
 
 -- Utility function to get all motion styles

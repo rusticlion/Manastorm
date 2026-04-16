@@ -46,6 +46,15 @@ All events follow a common structure:
 }
 ```
 
+```lua
+{
+  type = "REMOVE_STATUS",
+  source = "caster",
+  target = "enemy",
+  statusType = "burn"
+}
+```
+
 ### Elevation Events
 
 ```lua
@@ -180,6 +189,78 @@ All events follow a common structure:
 }
 ```
 
+### Cast Complete Events
+
+Internal lifecycle signal emitted when a cast resolves, so follow-up systems can react through the event layer.
+
+```lua
+{
+  type = "CAST_COMPLETE",
+  source = "caster",
+  target = "self",        -- Wizard whose completed cast may satisfy downstream triggers
+  slotIndex = 2,
+  spellId = "firebolt",
+  spell = spell,          -- Optional spell metadata for downstream consumers
+  blocked = false,        -- Whether the cast was blocked by a shield
+  isShield = false,       -- Whether the cast resolved into a shield
+  isSustained = false     -- Whether the cast registered as sustained
+}
+```
+
+### Cleanup Slot Events
+
+```lua
+{
+  type = "CLEANUP_SLOT",
+  source = "caster",
+  target = "self_slot",   -- Slot owned by the emitting wizard
+  slotIndex = 2,
+  returnTokens = true,    -- Return remaining tokens to the pool
+  resetSlot = true        -- Clear the slot after token cleanup
+}
+```
+
+### Register Sustained Events
+
+```lua
+{
+  type = "REGISTER_SUSTAINED",
+  source = "caster",
+  target = "self_slot",
+  slotIndex = 2,
+  sustainData = {
+    trapTrigger = {...},  -- Optional trap trigger payload
+    trapEffect = {...},   -- Optional trap effect payload
+    fieldStatus = {...}   -- Optional field status payload
+  }
+}
+```
+
+### Trigger Trap Events
+
+```lua
+{
+  type = "TRIGGER_TRAP",
+  source = "caster",
+  target = "enemy",
+  slotIndex = 2,
+  trapEffect = {...},      -- Keyword payload to execute when the trap fires
+  trapSpell = spell,       -- Original spell metadata for visual enrichment
+  cleanupReason = "trap_triggered"
+}
+```
+
+### Notify Trap Trigger Events
+
+```lua
+{
+  type = "NOTIFY_TRAP_TRIGGER",
+  source = "caster",
+  target = "self",                 -- Wizard whose action/state may satisfy a trap condition
+  triggerCondition = "on_opponent_cast"
+}
+```
+
 ## Defense Events
 
 ### Create Shield Events
@@ -193,6 +274,19 @@ All events follow a common structure:
   defenseType = "barrier", -- Type of shield
   blocksAttackTypes = {"projectile", "zone"}, -- Attack types this shield blocks
   reflect = false         -- Whether the shield reflects damage
+}
+```
+
+### Shield Block Events
+
+```lua
+{
+  type = "SHIELD_BLOCK",
+  source = "self",
+  target = "self_slot",   -- The defending wizard's shield slot
+  slotIndex = 1,
+  incomingSpell = spell,   -- The blocked spell definition/instance
+  attackerWizard = enemy   -- Optional explicit attacker context for onBlock events
 }
 ```
 

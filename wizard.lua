@@ -11,6 +11,11 @@ local ShieldSystem = require("systems.ShieldSystem")
 local WizardVisuals = require("systems.WizardVisuals")
 local TokenManager = require("systems.TokenManager")
 local UnlockSystem = require("systems.UnlockSystem")
+local BlockedCastLifecycle = require("systems.wizard.BlockedCastLifecycle")
+local CastExecution = require("systems.wizard.CastExecution")
+
+-- Fallback cleanup time in case a blocked spell's VFX callback is missed.
+local BLOCKED_IMPACT_FALLBACK_SECONDS = 2.0
 
 -- We'll use game.compiledSpells instead of a local compiled spells table
 
@@ -148,7 +153,10 @@ function Wizard.new(name, x, y, color, spellbook)
             freezeTimer = 0,
             castTimeModifier = 0, -- Additional time from freeze effects
             willBecomeShield = false,
-            wasAlreadyCast = false -- Track if the spell has already been cast
+            wasAlreadyCast = false, -- Track if the spell has already been cast
+            blockedPendingImpact = false,
+            blockImpactTimer = 0,
+            blockImpactTimeout = nil
         }
     end
     
@@ -215,8 +223,7 @@ function Wizard.new(name, x, y, color, spellbook)
     self.currentXOffset = 0
     self.currentYOffset = 0
     
-    -- Flags for trap triggering and spell expiry
-    self.justCastSpellThisFrame = false
+    -- Flags for spell-side transient effects
     self.justConjuredMana = false
     
     return self
@@ -224,7 +231,6 @@ end
 
 function Wizard:update(dt)
     -- Reset flags at the beginning of each frame
-    self.justCastSpellThisFrame = false
     self.justConjuredMana = false
 
     -- Update hit flash timer
@@ -275,117 +281,8 @@ function Wizard:update(dt)
         end
     end
     
-    -- Update stun status effect
-    if self.statusEffects[Constants.StatusType.STUN] and self.statusEffects[Constants.StatusType.STUN].active then
-        local stun = self.statusEffects[Constants.StatusType.STUN]
-        stun.totalTime = stun.totalTime + dt
-        if stun.duration > 0 and stun.totalTime >= stun.duration then
-            stun.active = false
-            stun.totalTime = stun.duration
-            print(self.name .. " is no longer stunned")
-        end
-    end
-    
-    -- Update elevation effects (NEW LOGIC)
-    if self.elevationEffects then
-        for elevationType, effectData in pairs(self.elevationEffects) do
-            effectData.duration = effectData.duration - dt
-            
-            if effectData.duration <= 0 then
-                -- Execute the expiration action (e.g., set elevation back to GROUNDED)
-                if effectData.expireAction then
-                    effectData.expireAction()
-                end
-                
-                -- Remove the effect from the table
-                self.elevationEffects[elevationType] = nil
-                
-                -- Create landing VFX if we just returned to GROUNDED
-                if self.elevation == Constants.ElevationState.GROUNDED then
-                    if self.gameState and self.gameState.vfx then
-                        local Constants = require("core.Constants")
-                        self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y + 30, nil, nil, {
-                            duration = 0.5,
-                            color = {0.7, 0.7, 0.7, 0.8},
-                            particleCount = 8,
-                            radius = 20
-                        })
-                    end
-                end
-            end
-        end
-    end
-    
     -- Update shield visuals using ShieldSystem
     ShieldSystem.updateShieldVisuals(self, dt)
-    
-    -- Update status effects generically
-    if self.statusEffects then
-        for effectType, effectData in pairs(self.statusEffects) do
-            if effectData.active then
-                -- Increment total time the effect has been active
-                effectData.totalTime = effectData.totalTime + dt
-                
-                -- Check for expiration
-                if effectData.duration > 0 then -- Only expire effects with explicit duration
-                    if effectData.totalTime >= effectData.duration then
-                        -- Reset the effect
-                        effectData.active = false
-                        effectData.elapsed = 0
-                        effectData.totalTime = 0
-                        print(string.format("%s's %s effect expired", self.name, effectType))
-                    end
-                end
-                
-                -- If this is a burn effect, handle damage ticks
-                if effectType == Constants.StatusType.BURN and effectData.active then
-                    effectData.elapsed = effectData.elapsed + dt
-                    if effectData.elapsed >= effectData.tickInterval then
-                        -- Apply burn damage
-                        self.health = math.max(0, self.health - effectData.tickDamage)
-                        
-                        -- Set hit flash timer for DoT visual feedback
-                        self.hitFlashTimer = 0.125 -- 125ms flash duration
-                        
-                        print(string.format("%s took %d burn damage (health: %d)", 
-                            self.name, effectData.tickDamage, self.health))
-                        
-                        -- Create burn damage effect
-                        if self.gameState and self.gameState.vfx then
-                            self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y, nil, nil, {
-                                duration = 0.3,
-                                color = {1.0, 0.2, 0.0, 0.6},
-                                particleCount = 10,
-                                radius = 25
-                            })
-                        end
-                        
-                        -- Reset tick interval timer but keep total duration timer
-                        effectData.elapsed = 0
-                        
-                        -- Check for defeat
-                        if self.health <= 0 then
-                            print(self.name .. " was defeated by burn damage!")
-                            if self.gameState then
-                                self.gameState.gameOver = true
-                                self.gameState.winner = self.name == "Ashgar" and "Selene" or "Ashgar"
-                                
-                                -- Create defeat effect
-                                if self.gameState.vfx then
-                                    self.gameState.vfx.createEffect(Constants.VFXType.IMPACT, self.x, self.y, nil, nil, {
-                                        duration = 1.0,
-                                        color = {1.0, 0.0, 0.0, 0.8},
-                                        particleCount = 30,
-                                        radius = 80
-                                    })
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
     
     -- Update block effect
     if self.blockVFX.active then
@@ -410,60 +307,39 @@ function Wizard:update(dt)
                 -- Shields remain active and don't progress further
                 -- But we still need to update token orbits, which happens below
             else
-                -- For frozen spells, don't increment progress but accumulate castTimeModifier
-                if slot.frozen then
-                    -- Track the total freeze time as castTimeModifier
-                    slot.castTimeModifier = (slot.castTimeModifier or 0) + dt
-                    
-                    -- Decrease freeze timer
-                    slot.freezeTimer = slot.freezeTimer - dt
-                    if slot.freezeTimer <= 0 then
-                        slot.frozen = false
-                        print(string.format("%s's spell in slot %d is no longer frozen after %.2f seconds (%.4f castTimeModifier)", 
-                            self.name, i, slot.castTimeModifier, slot.castTimeModifier))
-                    end
-                else
-                    -- Normal progress update for unfrozen spells
-                    slot.progress = slot.progress + dt
-                    
-                    -- Shield state is now managed directly in the castSpell function
-                    -- and tokens remain as CHANNELED until the shield is activated
-                    
-                    -- ONLY check for spell completion when NOT frozen
-                    if slot.progress >= slot.castTime and not slot.wasAlreadyCast then
-                        -- Mark this slot as already cast to prevent repeated casting
-                        slot.wasAlreadyCast = true
+                if not BlockedCastLifecycle.updatePending(
+                    self,
+                    i,
+                    slot,
+                    dt,
+                    BLOCKED_IMPACT_FALLBACK_SECONDS
+                ) then
+                    -- For frozen spells, don't increment progress but accumulate castTimeModifier
+                    if slot.frozen then
+                        -- Track the total freeze time as castTimeModifier
+                        slot.castTimeModifier = (slot.castTimeModifier or 0) + dt
                         
-                        -- Cast the spell
-                        self:castSpell(i)
+                        -- Decrease freeze timer
+                        slot.freezeTimer = slot.freezeTimer - dt
+                        if slot.freezeTimer <= 0 then
+                            slot.frozen = false
+                            print(string.format("%s's spell in slot %d is no longer frozen after %.2f seconds (%.4f castTimeModifier)", 
+                                self.name, i, slot.castTimeModifier, slot.castTimeModifier))
+                        end
+                    else
+                        -- Normal progress update for unfrozen spells
+                        slot.progress = slot.progress + dt
                         
-                        -- Debug message to confirm we're setting the flag
-                        print(string.format("[DEBUG] Marked slot %d as already cast to prevent repetition", i))
-                        
-                        -- For non-shield spells, we return tokens and reset the slot
-                        -- For shield spells, castSpell will handle setting up the shield 
-                        -- UNLESS the spell is a sustained spell like a trap
-                        
-                        -- Check for both shield and sustained spells (traps, etc.)
-                        if not slot.isShield and not slot.sustainedId then
-                            -- Start return animation for tokens
-                            if #slot.tokens > 0 then
-                                for _, tokenData in ipairs(slot.tokens) do
-                                    -- Request return animation directly on the token
-                                    if tokenData.token and tokenData.token.requestReturnAnimation then
-                                        tokenData.token:requestReturnAnimation()
-                                    else
-                                        -- Fallback to legacy method if token doesn't have the method
-                                        self.manaPool:returnToken(tokenData.index)
-                                    end
-                                end
-                                
-                                -- Clear token list (tokens still exist in the mana pool)
-                                slot.tokens = {}
-                            end
+                        -- ONLY check for spell completion when NOT frozen
+                        if slot.progress >= slot.castTime and not slot.wasAlreadyCast then
+                            -- Mark this slot as already cast to prevent repeated casting
+                            slot.wasAlreadyCast = true
                             
-                            -- Reset slot using unified method only if it's not a sustained spell
-                            self:resetSpellSlot(i)
+                            -- CastExecution/castSpell now owns blocked-cast setup and slot cleanup.
+                            self:castSpell(i)
+                            
+                            -- Debug message to confirm we're setting the flag
+                            print(string.format("[DEBUG] Marked slot %d as already cast to prevent repetition", i))
                         end
                     end
                 end
@@ -951,9 +827,6 @@ function Wizard:castSpell(spellSlot)
     local slot = self.spellSlots[spellSlot]
     if not slot or not slot.active or not slot.spell then return end
     
-    -- Set the flag to indicate a spell was cast this frame (for trap triggers)
-    self.justCastSpellThisFrame = true
-
     print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
 
     -- Activate cast frame animation if sprite is available
@@ -970,243 +843,33 @@ function Wizard:castSpell(spellSlot)
         color = {self.color[1]/255, self.color[2]/255, self.color[3]/255, 1.0}
     }
     
-    -- Get target (the other wizard)
-    local target = nil
-    for _, wizard in ipairs(self.gameState.wizards) do
-        if wizard ~= self then
-            target = wizard
-            break
-        end
-    end
-    
+    local target = CastExecution.findTargetWizard(self)
     if not target then return end
-    
-    -- Get the spell (either compiled or original)
-    local spellToUse = slot.spell
-    
-    -- Convert to compiled spell if needed
-    if spellToUse.id and not spellToUse.executeAll then
-        -- This is an original spell, not a compiled one - get the compiled version
-        local compiledSpell = getCompiledSpell(spellToUse.id, self)
-        if compiledSpell then
-            spellToUse = compiledSpell
-            -- Store the compiled spell back in the slot for future use
-            slot.spell = compiledSpell
-            print("Using compiled spell: " .. spellToUse.id)
-        else
-            print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
-        end
-    end
+
+    local spellToUse = CastExecution.resolveSpellForCast(self, slot, getCompiledSpell)
+    if not spellToUse then return end
 
     -- Check for character unlocks based on this spell
     UnlockSystem.checkSpellUnlock(spellToUse, self)
-    
-    -- Get attack type for shield checking
-    local attackType = spellToUse.attackType or Constants.AttackType.PROJECTILE
-    
-    -- Check if the spell can be blocked by any of the target's shields
-    -- This now happens BEFORE spell execution per ticket PROG-20
-    local blockInfo = ShieldSystem.checkShieldBlock(spellToUse, attackType, target, self)
-    
-    -- Handle shield block effects
-    if blockInfo.blockable then
-        print(string.format("[SHIELD BLOCK] %s's %s was blocked by %s's %s shield!", 
-            self.name, spellToUse.name, target.name, blockInfo.blockType or "unknown"))
-        
-        -- Set a standard blockPoint for visual effect (75% of the way from caster to target)
-        blockInfo.blockPoint = 0.75
-        
-        -- Use the ShieldSystem to handle token consumption for the shield
-        ShieldSystem.handleShieldBlock(target, blockInfo.blockingSlot, spellToUse)
-        
-        -- Create a partial results table with initialResults
-        local blockedResults = { blockInfo = blockInfo }
-        
-        -- Execute the spell, but convert the DAMAGE events to BLOCKED_DAMAGE
-        -- This will show visuals but prevent actual damage application
-        effect = spellToUse.executeAll(self, target, blockedResults, spellSlot)
-        
-        -- Set blocked flag in the effect results
-        effect.blocked = true
-        effect.blockType = blockInfo.blockType
-        effect.blockingSlot = blockInfo.blockingSlot
-        
-        -- Return tokens from our spell slot
-        if #slot.tokens > 0 then
-            -- Use TokenManager to return tokens to pool
-            TokenManager.returnTokensToPool(slot.tokens)
-            -- Clear token list after requesting return animations
-            slot.tokens = {}
-        end
-        
-        -- Reset our slot using unified method
-        self:resetSpellSlot(spellSlot)
-        
-        -- Return the effect
-        return effect
+
+    local blockedEffect = CastExecution.tryBlockedCast(
+        self,
+        target,
+        slot,
+        spellSlot,
+        spellToUse,
+        BLOCKED_IMPACT_FALLBACK_SECONDS
+    )
+    if blockedEffect then
+        CastExecution.dispatchCastComplete(self, target, spellSlot, spellToUse, blockedEffect)
+        return blockedEffect
     end
-    
-    -- Now execute the spell
-    
-    -- For tracking if the spell is a shield spell
-    local isShieldSpell = false
-    if slot.willBecomeShield or spellToUse.isShield then
-        isShieldSpell = true
-    end
-    
-    -- Handle spell execution based on type
-    local effect = nil
-    local shouldSustain = false  -- Initialize outside if-block so it's available throughout the function
-    
-    -- Execute the spell using compiled spell format
+
     print("Executing spell: " .. spellToUse.id)
-    
-    -- Execute the spell with blockInfo if the spell is blocked
-    local initialResults = blockInfo.blockable and { blockInfo = blockInfo } or {}
-    effect = spellToUse.executeAll(self, target, initialResults, spellSlot)
-    
-    -- After execution, check if the spell was blocked (results should have blocked=true)
-    if effect.blocked then
-        print(string.format("[SHIELD] %s's %s was fully blocked by shield!", 
-            self.name, spellToUse.name))
-    end
-    
-    -- Check if this is a sustained spell (from sustain keyword)
-    shouldSustain = effect.isSustained or false
-    print("DEBUG: effect.isSustained = " .. tostring(effect.isSustained) .. ", shouldSustain = " .. tostring(shouldSustain))
-    
-    -- If no valid effect was returned, create an empty one
-    if not effect then
-        print("WARNING: Spell " .. spellToUse.id .. " didn't return any effect")
-        effect = {}
-    end
-    
-    -- Shield spell creation - check if the effect has shield params
-    if effect.isShield and not effect.blocked and not slot.isShield then
-        if effect.shieldParams then
-            -- Create a shield in this spell slot using ShieldSystem
-            print("Creating shield in spell slot " .. spellSlot)
-            
-            -- Explicitly mark as sustained (shields are a type of sustained spell)
-            effect.isSustained = true
-            shouldSustain = true
-            
-            -- Mark this slot as already cast to prevent repeated casting
-            slot.wasAlreadyCast = true
-            
-            local shieldResult = ShieldSystem.createShield(self, spellSlot, effect.shieldParams)
-            
-            -- Register shield with SustainedSpellManager (shields are a type of sustained spell)
-            if shieldResult.shieldCreated and self.gameState and self.gameState.sustainedSpellManager then
-                -- Mark the effect as sustained for shields too
-                effect.isSustained = true
-                shouldSustain = true  -- Make sure shouldSustain is set for shields as well
-                
-                -- Make sure the shield params are set in the proper field expected by SustainedSpellManager
-                effect.shieldParams = effect.shieldParams or {}
-                effect.isShield = true
-                
-                local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
-                    self,        -- wizard who cast the spell
-                    spellSlot,   -- slot index where the shield is
-                    effect       -- effect table from executeAll with shield params
-                )
-                
-                -- Store the sustained spell ID in the slot for reference
-                slot.sustainedId = sustainedId
-                
-                print(string.format("[SUSTAINED] Registered shield in slot %d with ID: %s", 
-                    spellSlot, tostring(sustainedId)))
-            end
-            
-            -- Apply any elevation change specified by the shield
-            if shieldResult.shieldCreated and effect.shieldParams.setElevation then
-                self.elevation = effect.shieldParams.setElevation
-                if effect.shieldParams.elevationDuration and effect.shieldParams.setElevation == Constants.ElevationState.AERIAL then
-                    self.elevationTimer = effect.shieldParams.elevationDuration
-                end
-                print(self.name .. " moved to " .. self.elevation .. " elevation by shield spell")
-            end
-        else
-            print("ERROR: Shield spell missing shieldParams")
-        end
-    end
-    
-    -- For shields, skip the rest of the processing (shields are a specific kind of sustained spell)
-    if effect.isShield or slot.isShield then
-        -- Debug log - make it clear to use sustain instead in new code, but shields keep working
-        if effect.isSustained and effect.isShield then
-            print("[SUSTAINED] Note: Spell " .. spellToUse.id .. " has both isShield and isSustained flags - shields are already sustained")
-        end
-        return effect
-    end
-    
-    if not isShieldSpell and not slot.isShield and not effect.isShield then
-        -- Only reset slot and return tokens if this isn't a sustained spell
-        if not shouldSustain then
-            -- Start return animation for tokens
-            if #slot.tokens > 0 then
-                -- Check if any tokens are marked as SHIELDING using TokenManager
-                local hasShieldingTokens = false
-                for _, tokenData in ipairs(slot.tokens) do
-                    if tokenData.token and TokenManager.validateTokenState(tokenData.token, Constants.TokenStatus.SHIELDING) then
-                        hasShieldingTokens = true
-                        break
-                    end
-                end
-                
-                -- Handle blocked spells - should always return tokens
-                if effect and effect.blocked then
-                    print("Returning tokens for blocked spell")
-                    TokenManager.returnTokensToPool(slot.tokens)
-                    slot.tokens = {}
-                elseif not hasShieldingTokens then
-                    -- Normal case: Safe to return tokens if not shielding
-                    TokenManager.returnTokensToPool(slot.tokens)
-                    
-                    -- Clear token list (tokens still exist in the mana pool)
-                    slot.tokens = {}
-                else
-                    print("Found SHIELDING tokens, preventing token return")
-                end
-            end
-            
-            -- Reset slot only if it's not a shield
-            self:resetSpellSlot(spellSlot)
-        else
-            -- This is a sustained spell - keep slot active and tokens in place
-            print(string.format("[SUSTAINED] %s's spell in slot %d is being sustained", self.name, spellSlot))
-            
-            -- Keep the slot as active with full progress
-            slot.active = true
-            slot.progress = slot.castTime -- Mark as fully cast
-            slot.wasAlreadyCast = true -- Keep the flag set to prevent repeated casting
-            
-            -- Register with the SustainedSpellManager
-            if self.gameState and self.gameState.sustainedSpellManager then
-                local sustainedId = self.gameState.sustainedSpellManager.addSustainedSpell(
-                    self,        -- wizard who cast the spell
-                    spellSlot,   -- slot index where the spell is
-                    effect       -- effect table from executeAll (contains trapTrigger, trapEffect, etc.)
-                )
-                
-                -- Store the sustained spell ID in the slot for reference
-                slot.sustainedId = sustainedId
-                
-                print(string.format("[SUSTAINED] Registered spell in slot %d with ID: %s", 
-                    spellSlot, tostring(sustainedId)))
-            else
-                print("[SUSTAINED ERROR] Could not register sustained spell - gameState or sustainedSpellManager missing")
-            end
-        end
-    else
-        -- For shield spells, the slot remains active and tokens remain in orbit
-        -- Make sure slot is marked as a shield
-        slot.isShield = true
-        
-        -- Use TokenManager to mark tokens as SHIELDING
-        TokenManager.markTokensAsShielding(slot.tokens)
-    end
+    local effect = spellToUse.executeAll(self, target, {}, spellSlot)
+    local finalizedEffect = CastExecution.finalizeCast(self, slot, spellSlot, spellToUse, effect)
+    CastExecution.dispatchCastComplete(self, target, spellSlot, spellToUse, finalizedEffect)
+    return finalizedEffect
 end
 
 -- Reset a spell slot to its default state
@@ -1234,6 +897,9 @@ function Wizard:resetSpellSlot(slotIndex)
     slot.castProgress = 0
     slot.progress = 0 -- Used in many places instead of castProgress
     slot.wasAlreadyCast = false -- Reset the flag that tracks if the spell was already cast
+    slot.blockedPendingImpact = false
+    slot.blockImpactTimer = 0
+    slot.blockImpactTimeout = nil
     
     -- Reset shield-specific properties
     slot.isShield = false
@@ -1242,6 +908,7 @@ function Wizard:resetSpellSlot(slotIndex)
     slot.blocksAttackTypes = nil
     slot.blockTypes = nil
     slot.reflect = nil
+    slot.onBlock = nil
     slot.shieldStrength = 0
     
     -- Reset spell status properties
@@ -1271,7 +938,7 @@ end
 
 -- Handle the effects of a spell being blocked by a shield in a specific slot
 -- This is now a wrapper method that delegates to ShieldSystem
-function Wizard:handleShieldBlock(slotIndex, incomingSpell)
+function Wizard:handleShieldBlock(slotIndex, incomingSpell, attackerWizard)
     print("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
     
     -- Debug the shield slot to check for onBlock
@@ -1286,7 +953,7 @@ function Wizard:handleShieldBlock(slotIndex, incomingSpell)
         print("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
     end
     
-    return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell)
+    return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell, attackerWizard)
 end
 
 -- Determine the current positional key string for animation lookup

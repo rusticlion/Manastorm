@@ -4,6 +4,8 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -381,6 +383,16 @@ local function drawProjectile(effect)
     
     -- If we have a trail, draw it using particle swarms instead of large sprites
     if effect.useTrail and #effect.trailPoints > 1 then
+        -- If blocky style is enabled, use snapped blocks for the trail first
+        if effect.useBlocky and effect.blockSize then
+            local pts = {}
+            for i = #effect.trailPoints, 1, -1 do
+                local point = effect.trailPoints[i]
+                table.insert(pts, {x = point.x, y = point.y})
+            end
+            love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], 0.4)
+            BlockRenderer.drawBlocks(pts, math.max(2, math.floor(effect.blockSize)), effect.color)
+        end
         -- Draw trail using swarms of tiny particles at each point
         for i = #effect.trailPoints, 1, -1 do
             local point = effect.trailPoints[i]
@@ -515,6 +527,11 @@ local function drawProjectile(effect)
         )
     else
         -- Draw particle-based projectile using swarms of tiny primitives
+        -- Blocky core overlay
+        if effect.useBlocky and effect.blockSize then
+            local size = math.max(2, math.floor(effect.blockSize * 2))
+            BlockRenderer.drawBlock(head.x, head.y, size, {1, 1, 1, 0.9})
+        end
         
         -- Draw outer glow using massive swarm of tiny particles
         local color = effect.color or {1, 1, 1}

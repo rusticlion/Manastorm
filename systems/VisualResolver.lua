@@ -96,6 +96,13 @@ function VisualResolver.debug(message)
     print("[VisualResolver] " .. message)
 end
 
+-- Small helpers
+local function _clamp(x, lo, hi)
+    if x < lo then return lo end
+    if x > hi then return hi end
+    return x
+end
+
 -- Main resolver function: Maps event data to visual parameters
 -- Returns (baseTemplateName, options) as two separate values
 function VisualResolver.pick(event)
@@ -253,10 +260,17 @@ function VisualResolver.pick(event)
         color = COLOR_BY_AFF[event.affinity]
     end
     
-    -- Step 3: Calculate scale based on mana cost
-    local manaValue = event.manaCost or 1
+    -- Step 3: Calculate scale based on mana cost and (optionally) damage amount
+    local manaValue = tonumber(event.manaCost) or 1
     local scale = 0.8 + (0.15 * manaValue)
-    if scale > 2.0 then scale = 2.0 end  -- Cap at 2.0x scale
+    -- Nudge scale for higher-damage events
+    local amount = tonumber(event.amount) or 0
+    if amount >= 15 or (event.tags and event.tags.HIGH_IMPACT) then
+        scale = scale * 1.2
+    elseif amount >= 8 then
+        scale = scale * 1.1
+    end
+    scale = _clamp(scale, 0.8, 2.0)
     
     -- Step 4: Determine motion style from affinity
     local motion = DEFAULT_MOTION
@@ -274,7 +288,7 @@ function VisualResolver.pick(event)
         end
     end
     
-    -- Build and return the options table
+    -- Build options
     local opts = {
         color = color,
         scale = scale,
@@ -283,6 +297,39 @@ function VisualResolver.pick(event)
         rangeBand = event.rangeBand,
         elevation = event.elevation
     }
+
+    -- Shape-aware tuning for additional parameters
+    local shape = event.visualShape
+    if type(shape) == "string" then shape = shape:lower() end
+    
+    -- ORB: lobbed arc; increase arc height at FAR
+    if baseTemplate == Constants.VFXType.ORB_BASE or shape == "orb" then
+        local far = (event.rangeBand == Constants.RangeState.FAR)
+        opts.arcHeight = far and 90 or 60
+        opts.trailLength = far and 22 or 18
+    end
+    
+    -- BOLT/ZAP: flicker emphasizes intensity
+    if baseTemplate == Constants.VFXType.BOLT_BASE or shape == "bolt" then
+        opts.flickerRate = 10 + (scale - 1.0) * 10
+        opts.flickerIntensity = 0.25 + (scale - 1.0) * 0.2
+    elseif baseTemplate == Constants.VFXType.ZAP_BASE or shape == "zap" then
+        opts.flickerRate = 12 + (scale - 1.0) * 12
+        opts.flickerIntensity = 0.35 + (scale - 1.0) * 0.25
+    end
+    
+    -- BEAM: widen by intensity
+    if baseTemplate == Constants.VFXType.BEAM_BASE or shape == "beam" then
+        opts.beamWidth = 26 + 10 * (scale - 1.0)
+    end
+    
+    -- BLAST/ZONE: radius and waveCount scale with intensity
+    if baseTemplate == Constants.VFXType.BLAST_BASE or shape == "blast" then
+        opts.radius = 70 * scale
+        opts.waveCount = math.max(3, math.floor(4 * scale))
+    elseif baseTemplate == Constants.VFXType.ZONE_BASE or shape == "groundburst" then
+        opts.radius = 80 * scale
+    end
     
     VisualResolver.debug(string.format(
         "Resolved event to base=%s via %s, color=%s, scale=%.2f, motion=%s, addons=%d",
@@ -311,6 +358,39 @@ function VisualResolver.pick(event)
         VisualResolver.debug("Event has no tags")
     end
     
+    -- Pixel style: derive a default block size from range/magnitude
+    local baseBlock = (event.rangeBand == Constants.RangeState.FAR) and 4 or 3
+    if amount >= 15 then baseBlock = baseBlock + 1 elseif amount >= 8 then baseBlock = baseBlock + 0 end
+    baseBlock = _clamp(baseBlock, 2, 6)
+    opts.blockSize = baseBlock
+    opts.useBlocky = true
+
+    -- Per-effect CA overlay profile (subtle, affinity-tinted)
+    local caEnabled = true
+    local caCell = math.max(2, math.min(6, baseBlock))
+    local caAlpha = 0.2
+    -- Slight affinity-based alpha tweak
+    if event.affinity == Constants.TokenType.VOID then caAlpha = 0.18 end
+    if event.attackType == Constants.AttackType.UTILITY then caAlpha = 0.16 end
+    opts.enableCA = caEnabled
+    opts.caProfile = {
+        cellSize = caCell,
+        gridSize = 24,
+        alpha = caAlpha,
+        stepRate = 2.5
+    }
+
+    -- Affinity-specific CA styles
+    if event.affinity == Constants.TokenType.WATER then
+        -- Water: ripple CA overlay
+        opts.caProfile.rule = "ripple"
+        opts.caProfile.wavelength = 14 -- pixels between rings
+        opts.caProfile.speed = 1.8     -- ring expansion speed
+        opts.caProfile.thickness = 0.22 -- ring thickness threshold (0-1)
+        -- Slightly softer alpha for water ripples
+        opts.caProfile.alpha = math.max(0.14, (opts.caProfile.alpha or 0.18) - 0.02)
+    end
+
     VisualResolver.debug("==========================================")
     return baseTemplate, opts
 end

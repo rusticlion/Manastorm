@@ -4,6 +4,8 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -100,6 +102,13 @@ local function drawImpact(effect)
     local particleImage = getAssetInternal("fireParticle")
     local impactImage = getAssetInternal("impactRing")
     
+    -- Optional CA overlay first (underneath ring)
+    if effect.options and effect.options.enableCA then
+        CARenderer.update(effect, 0) -- ensure init
+        love.graphics.setColor(1,1,1,1)
+        CARenderer.draw(effect)
+    end
+
     -- Draw expanding ring
     local ringProgress = math.min(effect.progress * 1.5, 1.0) -- Ring expands faster than full effect
     love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], (1.0 - ringProgress)) -- Use base color, apply ring alpha
@@ -131,13 +140,17 @@ local function drawImpact(effect)
     for _, particle in ipairs(effect.particles) do
         if particle.active and particle.alpha > 0 then
             love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.7)
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
+            if effect.useBlocky and effect.blockSize then
+                BlockRenderer.drawBlock(particle.x, particle.y, math.max(2, math.floor(effect.blockSize)), effect.color)
+            else
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    0,
+                    particle.scale, particle.scale,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            end
         end
     end
 end

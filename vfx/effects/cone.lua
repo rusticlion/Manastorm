@@ -1,4 +1,6 @@
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 local VFX
 
 local function getAsset(assetId)
@@ -57,12 +59,20 @@ end
 -- Draw all particles for the cone effect
 local function drawCone(effect)
     local sparkleAsset = getAsset(effect.sparkleAssetKey or "sparkle")
+    -- Optional CA overlay at the cone center
+    if effect.options and effect.options.enableCA then
+        CARenderer.update(effect, 0)
+        love.graphics.setColor(1,1,1,1)
+        CARenderer.draw(effect)
+    end
     love.graphics.setBlendMode("add")
 
     for _, p in ipairs(effect.particles) do
         if p.active and p.alpha > 0 then
             love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], p.alpha)
-            if sparkleAsset then
+            if effect.useBlocky and effect.blockSize then
+                BlockRenderer.drawBlock(p.x, p.y, math.max(2, math.floor(effect.blockSize)), {effect.color[1], effect.color[2], effect.color[3], p.alpha})
+            elseif sparkleAsset then
                 love.graphics.draw(
                     sparkleAsset,
                     p.x,

@@ -9,11 +9,11 @@ local GenericSpells = {}
 GenericSpells.none = {
     id = "none",
     name = "<None>",
-    affinity = "generic",
+    affinity = Constants.DamageType.GENERIC,
     description = "Empty spell slot. Cast to do nothing.",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "none",
-    castTime = Constants.CastSpeed.INSTANT,
+    visualShape = Constants.VisualShape.NONE,
+    castTime = 0.0,
     cost = {},  -- No mana cost
     keywords = {
         -- No effect - this is a no-op spell

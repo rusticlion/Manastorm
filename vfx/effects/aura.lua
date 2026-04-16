@@ -4,6 +4,8 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -111,6 +113,13 @@ local function drawAura(effect)
     
     local particleImage = getAssetInternal("sparkle")
     
+    -- Optional CA overlay centered around source
+    if effect.options and effect.options.enableCA then
+        CARenderer.update(effect, 0)
+        love.graphics.setColor(1,1,1,1)
+        CARenderer.draw(effect)
+    end
+
     -- Draw base aura circle
     local pulseAmount = math.sin(effect.timer * effect.pulseRate) * 0.2
     local baseAlpha = 0.3 * (1 - (math.abs(effect.progress - 0.5) * 2)^2) -- Peak at middle of effect
@@ -152,17 +161,21 @@ local function drawAura(effect)
         -- Draw particle
         love.graphics.setColor(effect.color[1], effect.color[2], effect.color[3], particle.alpha)
         
-        if particleImage then
-            love.graphics.draw(
-                particleImage,
-                particle.x, particle.y,
-                0,
-                particle.scale, particle.scale,
-                particleImage:getWidth()/2, particleImage:getHeight()/2
-            )
+        if effect.useBlocky and effect.blockSize then
+            BlockRenderer.drawBlock(particle.x, particle.y, math.max(2, math.floor(effect.blockSize)), {effect.color[1], effect.color[2], effect.color[3], particle.alpha})
         else
-            -- Fallback if particle image is missing
-            love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            if particleImage then
+                love.graphics.draw(
+                    particleImage,
+                    particle.x, particle.y,
+                    0,
+                    particle.scale, particle.scale,
+                    particleImage:getWidth()/2, particleImage:getHeight()/2
+                )
+            else
+                -- Fallback if particle image is missing
+                love.graphics.circle("fill", particle.x, particle.y, particle.scale * 30)
+            end
         end
         
         ::next_draw_particle::

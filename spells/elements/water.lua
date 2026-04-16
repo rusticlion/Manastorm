@@ -10,7 +10,7 @@ local WaterSpells = {}
 WaterSpells.watergun = {
     id = "watergun",
     name = "Water Gun",
-    affinity = "water",
+    affinity = Constants.TokenType.WATER,
     description = "Quick ranged hit, more damage against NEAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
@@ -33,7 +33,7 @@ WaterSpells.watergun = {
 WaterSpells.stormstrike = {
     id = "stormstrike",
     name = "Storm Strike",
-    affinity = "water",
+    affinity = Constants.TokenType.WATER,
     description = "Zap that deals more damage against FAR opponents",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
@@ -57,19 +57,19 @@ WaterSpells.stormstrike = {
 WaterSpells.forceBlast = {
     id = "forceblast",
     name = "Steam Vent",
-    affinity = "water",
+    affinity = Constants.TokenType.WATER,
     description = "Unleashes a blast of steam that launches opponents into the air",
-    attackType = "remote",
+    attackType = Constants.AttackType.REMOTE,
     castTime = 4.0,
-    cost = {"fire", "water"},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.WATER},
     keywords = {
         damage = {
             amount = 8,
-            type = "force"
+            type = Constants.DamageType.FORCE
         },
         elevate = {
             duration = 3.0,
-            target = "ENEMY",
+            target = Constants.TargetType.ENEMY,
         },
     },
     sfx = "force_wind",
@@ -153,7 +153,7 @@ WaterSpells.riptideguard = {
                 table.insert(events, {
                     type = "SET_RANGE",
                     source = "caster",
-                    target = "both",
+                    target = Constants.TargetType.ALL,
                     position = newRange
                 })
                 return events

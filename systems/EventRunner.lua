@@ -13,14 +13,11 @@
 -- 2. For specialized effects in other handlers:
 --    - Generate an EFFECT event with proper metadata and dispatch it
 --    - This ensures consistent visual handling through the VisualResolver
---
--- 3. Legacy direct VFX calls:
---    - Some handlers still use safeCreateVFX() directly (marked with TODO comments)
---    - These will be gradually migrated to use the VisualResolver pattern
 
 local Constants = require("core.Constants")
 local VisualResolver = require("systems.VisualResolver")
 local Log = require("core.Log")
+local RangeHandlers = require("systems.event_handlers.RangeHandlers")
 local EventRunner = {}
 
 -- Constants for event processing order
@@ -42,13 +39,18 @@ local PROCESSING_PRIORITY = {
     ACCELERATE_SPELL = 210,
     CANCEL_SPELL = 220,
     FREEZE_SPELL = 230,
+    CAST_COMPLETE = 240,
     
     -- Defense events (fourth)
     CREATE_SHIELD = 300,
+    SHIELD_BLOCK = 305,
     REFLECT = 310,
+    REGISTER_SUSTAINED = 320,
+    TRIGGER_TRAP = 330,
     
     -- Status effects (fifth)
     APPLY_STATUS = 400,
+    REMOVE_STATUS = 410,
     
     -- Damage events (sixth)
     DAMAGE = 500,
@@ -59,7 +61,9 @@ local PROCESSING_PRIORITY = {
     
     -- Special effects (last)
     ECHO = 600,
-    ZONE_MULTI = 610
+    ZONE_MULTI = 610,
+    NOTIFY_TRAP_TRIGGER = 620,
+    CLEANUP_SLOT = 700
 }
 
 -- Sort events by their processing priority
@@ -72,66 +76,71 @@ local function sortEventsByPriority(events)
     return events
 end
 
--- Safe VFX creation helper function
-local function safeCreateVFX(vfx, methodName, fallbackType, x, y, params)
-    if not vfx then
-        Log.debug("DEBUG: VFX system is nil")
-        return false
+local mergeProcessResults
+local queueDeferredEventBatch
+local emitEffectEvent
+
+local function copyTags(tags)
+    if type(tags) ~= "table" then
+        return nil
     end
-    
-    -- Make sure x and y are valid numbers
-    if not x or not y or type(x) ~= "number" or type(y) ~= "number" then
-        x = 0
-        y = 0
-        Log.debug("DEBUG: Invalid coordinates for VFX, using (0,0)")
+
+    local cloned = {}
+    for key, value in pairs(tags) do
+        cloned[key] = value
     end
-    
-    -- Debug the parameters
-    Log.debug(string.format("[safeCreateVFX] Method: %s, EffectType: '%s', Coords: (%d, %d)",
-        methodName, tostring(fallbackType), x or 0, y or 0))
-        
-    -- Try to call the specific method
-    if type(vfx[methodName]) == "function" then
-        -- Method needs to be called as vfx:methodName() for self to be passed properly
-        local success, err = pcall(function() 
-            if methodName == "createEffect" then
-                -- Print the type of vfx and fallbackType for debugging
-                Log.debug("[safeCreateVFX] vfx is type: " .. type(vfx) .. ", fallbackType is type: " .. type(fallbackType))
-                
-                -- IMPORTANT: Need to use dot notation and pass VFX module as first arg for module functions
-                -- DO NOT use colon notation (vfx:createEffect) as it passes vfx as self which makes effectName a table
-                Log.debug("[safeCreateVFX] Calling vfx.createEffect with effectName: " .. tostring(fallbackType))
-                vfx.createEffect(fallbackType, x, y, nil, nil, params)
-            else
-                -- For other methods
-                Log.debug("[safeCreateVFX] Calling vfx." .. methodName)
-                vfx[methodName](vfx, x, y, params) 
-            end
-        end)
-        
-        if not success then
-            Log.debug("DEBUG: Error calling " .. methodName .. ": " .. tostring(err))
-            -- Try fallback on error
-            if methodName ~= "createEffect" and type(vfx.createEffect) == "function" then
-                pcall(function() vfx.createEffect(fallbackType, x, y, nil, nil, params) end)
-            end
+
+    return cloned
+end
+
+local function getSlotVisualContext(wizard, slotIndex)
+    local slot = wizard and wizard.spellSlots and slotIndex and wizard.spellSlots[slotIndex] or nil
+    local spell = slot and slot.spell or nil
+
+    return {
+        slot = slot,
+        spell = spell,
+        affinity = spell and spell.affinity or nil,
+        attackType = spell and spell.attackType or nil,
+        visualShape = spell and spell.visualShape or nil,
+        manaCost = slot and slot.tokens and #slot.tokens or nil
+    }
+end
+
+local function buildStatusEffectVisualEvent(event, targetWizard)
+    local tags = copyTags(event.tags) or {}
+    local effectOverride = Constants.VFXType.UTIL_BASE
+
+    if event.statusType == Constants.StatusType.BURN then
+        effectOverride = Constants.VFXType.EMBER_OVERLAY
+        tags.BURN = true
+        if event.tickDamage or (event.duration or 0) > 0 then
+            tags.DOT = true
         end
-        return true
-    -- Fall back to generic createEffect if available
-    elseif type(vfx.createEffect) == "function" then
-        local success, err = pcall(function() 
-            vfx.createEffect(fallbackType, x, y, nil, nil, params) 
-        end)
-        
-        if not success then
-            Log.debug("DEBUG: Error calling createEffect: " .. tostring(err))
-        end
-        return true
-    else
-        -- Debug output if no VFX methods are available
-        Log.debug("DEBUG: VFX system lacks both " .. methodName .. " and createEffect methods")
-        return false
+    elseif event.statusType == Constants.StatusType.REFLECT then
+        effectOverride = Constants.VFXType.SHIELD_OVERLAY
+        tags.SHIELD = true
     end
+
+    if next(tags) == nil then
+        tags = nil
+    end
+
+    return {
+        type = "EFFECT",
+        source = event.source or "caster",
+        target = event.target,
+        effectOverride = effectOverride,
+        affinity = event.affinity,
+        attackType = event.attackType or Constants.AttackType.UTILITY,
+        manaCost = event.manaCost or 1,
+        tags = tags,
+        rangeBand = targetWizard and targetWizard.gameState and targetWizard.gameState.rangeState or nil,
+        elevation = targetWizard and targetWizard.elevation or nil,
+        visualShape = event.visualShape,
+        duration = math.min(event.duration or 0.8, 1.0),
+        statusType = event.statusType
+    }
 end
 
 -- Process all events and apply them to game state
@@ -144,6 +153,10 @@ function EventRunner.processEvents(events, caster, target, spellSlot)
             damageDealt = 0,
             statusEffectsApplied = {},
             shieldCreated = false,
+            shieldBlocksResolved = 0,
+            sustainedRegistered = false,
+            trapsTriggered = 0,
+            slotsCleaned = 0,
             tokensAffected = 0,
             error = "Invalid events list"
         }
@@ -154,6 +167,9 @@ function EventRunner.processEvents(events, caster, target, spellSlot)
         print("WARNING: Nil caster passed to processEvents")
         return {
             eventsProcessed = 0,
+            sustainedRegistered = false,
+            trapsTriggered = 0,
+            slotsCleaned = 0,
             error = "Invalid caster"
         }
     end
@@ -163,7 +179,13 @@ function EventRunner.processEvents(events, caster, target, spellSlot)
         eventsProcessed = 0,
         damageDealt = 0,
         statusEffectsApplied = {},
+        statusEffectsRemoved = {},
         shieldCreated = false,
+        shieldBlocksResolved = 0,
+        sustainedRegistered = false,
+        sustainedId = nil,
+        trapsTriggered = 0,
+        slotsCleaned = 0,
         tokensAffected = 0
     }
     
@@ -199,8 +221,286 @@ function EventRunner.processEvents(events, caster, target, spellSlot)
         
         ::continue::
     end
+
+    local deferredBatches = results._deferredEventBatches
+    results._deferredEventBatches = nil
+    if deferredBatches then
+        for _, batch in ipairs(deferredBatches) do
+            local nestedResults = EventRunner.processEvents(
+                batch.events,
+                batch.caster or caster,
+                batch.target or target,
+                batch.spellSlot
+            )
+            mergeProcessResults(results, nestedResults)
+        end
+    end
     
     return results
+end
+
+local function getOpponentWizard(gameState, wizard)
+    if not gameState or not gameState.wizards then
+        return nil
+    end
+
+    for _, candidate in ipairs(gameState.wizards) do
+        if candidate ~= wizard then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+local function resetStatusEffect(effectData)
+    if not effectData then
+        return
+    end
+
+    effectData.active = false
+    effectData.duration = 0
+    effectData.elapsed = 0
+    effectData.totalTime = 0
+    effectData.tickDamage = nil
+    effectData.tickInterval = nil
+    effectData.magnitude = nil
+    effectData.targetSlot = nil
+end
+
+mergeProcessResults = function(results, nestedResults)
+    if not results or not nestedResults then
+        return
+    end
+
+    results.damageDealt = (results.damageDealt or 0) + (nestedResults.damageDealt or 0)
+    results.tokensAffected = (results.tokensAffected or 0) + (nestedResults.tokensAffected or 0)
+    results.shieldBlocksResolved = (results.shieldBlocksResolved or 0) + (nestedResults.shieldBlocksResolved or 0)
+    results.slotsCleaned = (results.slotsCleaned or 0) + (nestedResults.slotsCleaned or 0)
+    results.trapsTriggered = (results.trapsTriggered or 0) + (nestedResults.trapsTriggered or 0)
+    results.shieldCreated = results.shieldCreated or nestedResults.shieldCreated or false
+    results.sustainedRegistered = results.sustainedRegistered or nestedResults.sustainedRegistered or false
+    if not results.sustainedId and nestedResults.sustainedId then
+        results.sustainedId = nestedResults.sustainedId
+    end
+
+    if nestedResults.statusEffectsApplied then
+        results.statusEffectsApplied = results.statusEffectsApplied or {}
+        for _, statusType in ipairs(nestedResults.statusEffectsApplied) do
+            table.insert(results.statusEffectsApplied, statusType)
+        end
+    end
+
+    if nestedResults.statusEffectsRemoved then
+        results.statusEffectsRemoved = results.statusEffectsRemoved or {}
+        for _, statusType in ipairs(nestedResults.statusEffectsRemoved) do
+            table.insert(results.statusEffectsRemoved, statusType)
+        end
+    end
+end
+
+queueDeferredEventBatch = function(results, events, caster, target, spellSlot)
+    if not results or type(events) ~= "table" or #events == 0 then
+        return
+    end
+
+    results._deferredEventBatches = results._deferredEventBatches or {}
+    table.insert(results._deferredEventBatches, {
+        events = events,
+        caster = caster,
+        target = target,
+        spellSlot = spellSlot
+    })
+end
+
+local function clearBlockedImpactState(slot)
+    if not slot then
+        return
+    end
+
+    slot.blockedPendingImpact = false
+    slot.blockImpactTimer = 0
+    slot.blockImpactTimeout = nil
+end
+
+local function getKeywordRegistry(caster)
+    local gameState = caster and caster.gameState or nil
+    if gameState and gameState.keywords then
+        return gameState.keywords
+    end
+
+    local ok, keywords = pcall(require, "keywords")
+    if ok then
+        return keywords
+    end
+
+    return nil
+end
+
+local function buildKeywordPayloadEvents(payload, caster, target, slotIndex, spell)
+    if type(payload) ~= "table" then
+        return nil, "invalid keyword payload"
+    end
+
+    local keywords = getKeywordRegistry(caster)
+    if not keywords then
+        return nil, "cannot access Keywords module"
+    end
+
+    local events = {}
+    local keywordResults = {
+        currentSlot = slotIndex
+    }
+
+    for keyword, params in pairs(payload) do
+        local keywordDef = keywords[keyword]
+        if keywordDef and type(keywordDef.execute) == "function" then
+            local updatedResults = keywordDef.execute(
+                params,
+                caster,
+                target,
+                keywordResults,
+                events,
+                spell
+            )
+
+            if type(updatedResults) == "table" and updatedResults ~= keywordResults then
+                for k, v in pairs(updatedResults) do
+                    keywordResults[k] = v
+                end
+            end
+
+            keywordResults.currentSlot = slotIndex
+        else
+            print(string.format(
+                "[EVENT RUNNER] WARNING: Keyword '%s' not found or not executable",
+                tostring(keyword)
+            ))
+        end
+    end
+
+    return events, keywordResults
+end
+
+emitEffectEvent = function(effectEvent, caster, target, spellSlot, results)
+    if not caster or not caster.gameState or not caster.gameState.vfx then
+        return false
+    end
+
+    return EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
+end
+
+function EventRunner.updateTimedEffects(gameState, dt)
+    if not gameState or not gameState.wizards or not dt then
+        return
+    end
+
+    local pending = {}
+    local expiredElevationEffects = {}
+
+    for _, wizard in ipairs(gameState.wizards) do
+        local opponent = getOpponentWizard(gameState, wizard)
+
+        if wizard.statusEffects then
+            for statusType, effectData in pairs(wizard.statusEffects) do
+                if effectData and effectData.active then
+                    effectData.elapsed = (effectData.elapsed or 0) + dt
+                    effectData.totalTime = (effectData.totalTime or 0) + dt
+
+                    local duration = effectData.duration or 0
+                    local expired = duration > 0 and effectData.totalTime >= duration
+
+                    if expired then
+                        table.insert(pending, {
+                            caster = wizard,
+                            target = opponent,
+                            events = {
+                                {
+                                    type = "REMOVE_STATUS",
+                                    source = "caster",
+                                    target = Constants.TargetType.SELF,
+                                    statusType = statusType
+                                }
+                            }
+                        })
+                    elseif statusType == Constants.StatusType.BURN then
+                        local tickInterval = effectData.tickInterval or 1.0
+                        if tickInterval <= 0 then
+                            tickInterval = 1.0
+                        end
+                        local tickDamage = effectData.tickDamage or 0
+
+                        while tickDamage > 0 and effectData.elapsed >= tickInterval do
+                            effectData.elapsed = effectData.elapsed - tickInterval
+
+                            table.insert(pending, {
+                                caster = wizard,
+                                target = opponent,
+                                events = {
+                                    {
+                                        type = "DAMAGE",
+                                        source = "caster",
+                                        target = Constants.TargetType.SELF,
+                                        amount = tickDamage,
+                                        damageType = effectData.damageType or effectData.affinity or Constants.DamageType.GENERIC,
+                                        affinity = effectData.affinity,
+                                        attackType = effectData.attackType or Constants.AttackType.UTILITY,
+                                        visualShape = effectData.visualShape,
+                                        manaCost = effectData.manaCost or 0,
+                                        tags = effectData.tags or { BURN = true, DOT = true },
+                                        rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+                                        elevation = wizard.elevation,
+                                        delayDamage = false
+                                    }
+                                }
+                            })
+                        end
+                    end
+                end
+            end
+        end
+
+        if wizard.elevationEffects then
+            for elevationType, effectData in pairs(wizard.elevationEffects) do
+                if effectData and effectData.duration then
+                    effectData.duration = effectData.duration - dt
+
+                    if effectData.duration <= 0 then
+                        table.insert(pending, {
+                            caster = wizard,
+                            target = opponent,
+                            events = {
+                                {
+                                    type = "SET_ELEVATION",
+                                    source = "caster",
+                                    target = Constants.TargetType.SELF,
+                                    elevation = effectData.revertElevation or Constants.ElevationState.GROUNDED,
+                                    affinity = effectData.affinity,
+                                    manaCost = effectData.manaCost,
+                                    visualShape = effectData.visualShape
+                                }
+                            }
+                        })
+
+                        table.insert(expiredElevationEffects, {
+                            wizard = wizard,
+                            elevationType = elevationType
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    for _, item in ipairs(pending) do
+        EventRunner.processEvents(item.events, item.caster, item.target, nil)
+    end
+
+    for _, expired in ipairs(expiredElevationEffects) do
+        if expired.wizard.elevationEffects then
+            expired.wizard.elevationEffects[expired.elevationType] = nil
+        end
+    end
 end
 
 -- Handle a single event
@@ -314,6 +614,12 @@ function EventRunner.resolveTarget(event, caster, target)
     end
 end
 
+local rangeHandlers = RangeHandlers.build({
+    Constants = Constants,
+    emitEffectEvent = emitEffectEvent,
+    queueDeferredEventBatch = queueDeferredEventBatch,
+})
+
 -- Event handler functions
 EventRunner.EVENT_HANDLERS = {
     -- ===== Damage Events =====
@@ -345,6 +651,19 @@ EventRunner.EVENT_HANDLERS = {
             
             -- Ensure health doesn't go below zero
             if targetWizard.health < 0 then targetWizard.health = 0 end
+
+            if targetWizard.health <= 0 and targetWizard.gameState then
+                targetWizard.gameState.gameOver = true
+
+                if targetWizard.gameState.wizards then
+                    for index, wizard in ipairs(targetWizard.gameState.wizards) do
+                        if wizard == targetWizard then
+                            targetWizard.gameState.winner = 3 - index
+                            break
+                        end
+                    end
+                end
+            end
             
             -- Set hit flash timer for visual feedback
             targetWizard.hitFlashTimer = 0.125 -- 125ms flash duration
@@ -398,65 +717,67 @@ EventRunner.EVENT_HANDLERS = {
         
         -- Track damage for results, even if delayed
         results.damageDealt = results.damageDealt + event.amount
-        
-        -- Generate an EFFECT event for the damage
-        -- Check if we have a spell with effectOverride first
-        local effectOverride = nil
-        if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and 
-           caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
-            effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+
+        if not event.suppressVisual then
+            -- Generate an EFFECT event for the damage
+            -- Check if we have a spell with effectOverride first
+            local effectOverride = nil
+            if spellSlot and caster.spellSlots and caster.spellSlots[spellSlot] and
+               caster.spellSlots[spellSlot].spell and caster.spellSlots[spellSlot].spell.effectOverride then
+                effectOverride = caster.spellSlots[spellSlot].spell.effectOverride
+            end
+
+            -- Create EFFECT event
+            local effectEvent = {
+                type = "EFFECT",
+                source = "caster",
+                target = event.target,
+                effectOverride = effectOverride, -- Use override if we have one
+
+                -- Copy visual metadata from the damage event
+                affinity = event.affinity,
+                attackType = event.attackType,
+                damageType = event.damageType,
+                manaCost = event.manaCost,
+                tags = event.tags or { DAMAGE = true },
+                rangeBand = event.rangeBand,
+                elevation = event.elevation,
+                visualShape = event.visualShape, -- Copy visualShape if present
+
+                -- Add delayed damage information
+                delayedDamage = delayDamage and event.amount or nil,
+                delayedDamageTarget = delayDamage and targetWizard or nil,
+
+                -- Copy blockInfo if present for shield block visualization
+                blockInfo = event.blockInfo
+            }
+
+            -- If this is a blocked spell, add SHIELD_BLOCKED tag
+            if event.blockInfo and event.blockInfo.blockable then
+                effectEvent.tags = effectEvent.tags or {}
+                effectEvent.tags.SHIELD_BLOCKED = true
+
+                -- Add standard blockPoint
+                effectEvent.blockPoint = event.blockInfo.blockPoint or 0.75
+
+                print("[DAMAGE->EFFECT] Passing blockInfo to EFFECT event for shield block visuals")
+            end
+
+            -- Debug log the generated EFFECT event
+            print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s",
+                tostring(effectOverride)))
+            print(string.format("[DAMAGE->EFFECT] Transferred metadata: affinity=%s, attackType=%s, damageType=%s",
+                tostring(effectEvent.affinity),
+                tostring(effectEvent.attackType),
+                tostring(effectEvent.damageType)))
+            print(string.format("[DAMAGE->EFFECT] More metadata: tags=%s, rangeBand=%s, elevation=%s",
+                effectEvent.tags and "present" or "nil",
+                tostring(effectEvent.rangeBand),
+                tostring(effectEvent.elevation)))
+
+            -- Process the effect event to create visuals
+            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         end
-        
-        -- Create EFFECT event
-        local effectEvent = {
-            type = "EFFECT",
-            source = "caster",
-            target = event.target,
-            effectOverride = effectOverride, -- Use override if we have one
-            
-            -- Copy visual metadata from the damage event
-            affinity = event.affinity,
-            attackType = event.attackType,
-            damageType = event.damageType,
-            manaCost = event.manaCost,
-            tags = event.tags or { DAMAGE = true },
-            rangeBand = event.rangeBand,
-            elevation = event.elevation,
-            visualShape = event.visualShape, -- Copy visualShape if present
-            
-            -- Add delayed damage information
-            delayedDamage = delayDamage and event.amount or nil,
-            delayedDamageTarget = delayDamage and targetWizard or nil,
-            
-            -- Copy blockInfo if present for shield block visualization
-            blockInfo = event.blockInfo
-        }
-        
-        -- If this is a blocked spell, add SHIELD_BLOCKED tag
-        if event.blockInfo and event.blockInfo.blockable then
-            effectEvent.tags = effectEvent.tags or {}
-            effectEvent.tags.SHIELD_BLOCKED = true
-            
-            -- Add standard blockPoint
-            effectEvent.blockPoint = event.blockInfo.blockPoint or 0.75
-            
-            print("[DAMAGE->EFFECT] Passing blockInfo to EFFECT event for shield block visuals")
-        end
-        
-        -- Debug log the generated EFFECT event
-        print(string.format("[DAMAGE->EFFECT] Generated EFFECT event with effectOverride=%s", 
-            tostring(effectOverride)))
-        print(string.format("[DAMAGE->EFFECT] Transferred metadata: affinity=%s, attackType=%s, damageType=%s", 
-            tostring(effectEvent.affinity),
-            tostring(effectEvent.attackType),
-            tostring(effectEvent.damageType)))
-        print(string.format("[DAMAGE->EFFECT] More metadata: tags=%s, rangeBand=%s, elevation=%s", 
-            effectEvent.tags and "present" or "nil",
-            tostring(effectEvent.rangeBand),
-            tostring(effectEvent.elevation)))
-        
-        -- Process the effect event to create visuals
-        EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
         
         return true
     end,
@@ -535,6 +856,8 @@ EventRunner.EVENT_HANDLERS = {
             -- Copy block info for visual effects - ensure it's always present
             blockInfo = event.blockInfo,
             blockPoint = event.blockPoint or 0.75,
+            -- Attach a completion callback to run exactly at shield impact (tokens return/reset)
+            onComplete = (event.blockInfo and event.blockInfo.onBlockImpact) or event.onBlockImpact or nil,
             
             -- Add the amount of damage for screen shake calculation
             amount = event.amount or 10
@@ -587,7 +910,13 @@ EventRunner.EVENT_HANDLERS = {
             targetSlot = event.targetSlot,
             elapsed = 0,
             totalTime = 0,
-            source = caster
+            source = caster,
+            affinity = event.affinity,
+            attackType = event.attackType,
+            visualShape = event.visualShape,
+            manaCost = event.manaCost,
+            tags = event.tags,
+            damageType = event.damageType or event.affinity
         }
 
         if event.statusType == Constants.StatusType.STUN then
@@ -602,15 +931,40 @@ EventRunner.EVENT_HANDLERS = {
         print(string.format("[STATUS] Applied %s to %s (Duration: %.1f, Magnitude: %s, Slot: %s)", 
             event.statusType, targetWizard.name, event.duration or 0, tostring(event.magnitude), tostring(event.targetSlot)))
 
+        results.statusEffectsApplied = results.statusEffectsApplied or {}
+
         -- Track applied status for results
         table.insert(results.statusEffectsApplied, event.statusType)
         
-        -- Create status effect VFX if available
-        if caster.gameState and caster.gameState.vfx then
-            -- Assuming createStatusEffect takes the wizard object
-            caster.gameState.vfx.createStatusEffect(targetWizard, event.statusType)
-        end
+        emitEffectEvent(
+            buildStatusEffectVisualEvent(event, targetWizard),
+            caster,
+            target,
+            spellSlot,
+            results
+        )
         
+        return true
+    end,
+
+    REMOVE_STATUS = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: REMOVE_STATUS handler could not resolve target wizard")
+            return false
+        end
+
+        local targetWizard = targetInfo.wizard
+        if not targetWizard.statusEffects or not targetWizard.statusEffects[event.statusType] then
+            return false
+        end
+
+        resetStatusEffect(targetWizard.statusEffects[event.statusType])
+        results.statusEffectsRemoved = results.statusEffectsRemoved or {}
+        table.insert(results.statusEffectsRemoved, event.statusType)
+
+        print(string.format("[STATUS] Removed %s from %s", event.statusType, targetWizard.name))
+
         return true
     end,
     
@@ -632,10 +986,10 @@ EventRunner.EVENT_HANDLERS = {
             targetWizard.elevationEffects = targetWizard.elevationEffects or {}
             targetWizard.elevationEffects[event.elevation] = {
                 duration = event.duration,
-                expireAction = function()
-                    -- When effect expires, return to default elevation (usually GROUNDED)
-                    targetWizard.elevation = Constants.ElevationState.GROUNDED
-                end
+                revertElevation = event.revertElevation or Constants.ElevationState.GROUNDED,
+                affinity = event.affinity,
+                manaCost = event.manaCost,
+                visualShape = event.visualShape
             }
         end
         
@@ -670,91 +1024,26 @@ EventRunner.EVENT_HANDLERS = {
             -- Note: The above approach is cleaner than calling VisualResolver directly
             -- as it ensures all event parameters are properly passed through
         end
+
+        if event.elevation == Constants.ElevationState.AERIAL then
+            queueDeferredEventBatch(results, {
+                {
+                    type = "NOTIFY_TRAP_TRIGGER",
+                    source = event.source or "caster",
+                    target = event.target,
+                    triggerCondition = "on_opponent_elevate"
+                }
+            }, caster, target, spellSlot)
+        end
         
         return true
     end,
     
     -- ===== Range Events =====
     
-    SET_RANGE = function(event, caster, target, spellSlot, results)
-        local targetEntities
-        
-        -- Range changes always affect both wizards
-        if event.target == "both" then
-            targetEntities = {caster, target}
-        else
-            targetEntities = {EventRunner.resolveTarget(event, caster, target)}
-        end
-        
-        -- Update game state with new range
-        if caster.gameState then
-            -- Store the new range state
-            caster.gameState.rangeState = event.position
-            
-            -- No need to call any extra position animation functions - the wizards'
-            -- positionAnimation state is automatically detected and updated in 
-            -- WizardVisuals.drawWizard when it sees the range state has changed
-        end
-        
-        -- Create range change VFX if available
-        if caster.gameState and caster.gameState.vfx then
-            -- Generate an EFFECT event for consistent handling through VisualResolver
-            local effectEvent = {
-                type = "EFFECT",
-                source = "caster",
-                target = "both", -- Range changes affect both wizards
-                effectOverride = Constants.VFXType.RANGE_CHANGE, -- Use explicit override for this special effect
-                -- Provide relevant metadata for the resolver
-                affinity = event.affinity,
-                attackType = Constants.AttackType.UTILITY,
-                manaCost = 1,
-                tags = { MOVEMENT = true },
-                rangeBand = event.position, -- The new range state
-                elevation = caster.elevation,
-                visualShape = event.visualShape, -- Preserve visualShape if specified
-                duration = 1.0,
-                -- Extra params specific to range changes
-                position = event.position
-            }
-            
-            -- Process the effect event through the standard pipeline
-            EventRunner.handleEvent(effectEvent, caster, target, spellSlot, results)
-        end
-        
-        return true
-    end,
+    SET_RANGE = rangeHandlers.SET_RANGE,
     
-    FORCE_POSITION = function(event, caster, target, spellSlot, results)
-        -- Force opponent to match caster's range
-        -- Range is stored in game state, not on individual wizards
-        if caster.gameState then
-            -- Just a shortcut to quickly force range change - could be expanded if needed
-            caster.gameState.rangeState = caster.gameState.rangeState
-            
-            -- Create position force VFX if available
-            if caster.gameState.vfx then
-                -- TODO: VFX-R5 - Update this to use VisualResolver pattern
-                -- This handler should be refactored to generate an EFFECT event
-                -- for consistency, but we'll leave it for now as it's a specialized effect
-                local params = {
-                    duration = 1.0,
-                    source = caster.name,
-                    target = target.name
-                }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createPositionForceEffect",
-                    Constants.VFXType.FORCE_POSITION,
-                    (caster.x + target.x) / 2,  -- Midpoint
-                    (caster.y + target.y) / 2,  -- Midpoint
-                    params
-                )
-            end
-        end
-        
-        return true
-    end,
+    FORCE_POSITION = rangeHandlers.FORCE_POSITION,
     
     -- ===== Resource & Token Events =====
     
@@ -925,22 +1214,24 @@ EventRunner.EVENT_HANDLERS = {
             tokensLocked = tokensLocked + 1
             results.tokensAffected = results.tokensAffected + 1
             
-            -- Create lock visual effect if VFX system available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = event.duration,
-                    tokenType = tokenToLock.type
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = Constants.TargetType.SELF,
+                effectOverride = Constants.VFXType.RESOURCE_OVERLAY,
+                affinity = tokenToLock.type,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = 1,
+                tags = { RESOURCE = true },
+                rangeBand = caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster.elevation,
+                duration = event.duration or 0.8,
+                tokenType = tokenToLock.type,
+                vfxParams = {
+                    x = tokenToLock.x,
+                    y = tokenToLock.y
                 }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createTokenLockEffect",
-                    Constants.VFXType.TOKEN_LOCK,
-                    tokenToLock.x,
-                    tokenToLock.y,
-                    params
-                )
-            end
+            }, caster, caster, spellSlot, results)
         end
         
         return tokensLocked > 0 -- Return true if at least one token was locked
@@ -965,23 +1256,25 @@ EventRunner.EVENT_HANDLERS = {
         if slot and slot.active and not slot.isShield then
             slot.progress = slot.progress + event.amount
             
-            -- Create acceleration VFX if available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = 1.0,
-                    amount = event.amount,
-                    slotIndex = slotIndex
+            local visualContext = getSlotVisualContext(wizard, slotIndex)
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.SURGE_BASE,
+                affinity = event.affinity or visualContext.affinity,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = visualContext.manaCost or 1,
+                rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+                elevation = wizard.elevation,
+                duration = 1.0,
+                amount = event.amount,
+                slotIndex = slotIndex,
+                vfxParams = {
+                    x = wizard.x,
+                    y = wizard.y
                 }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createSpellAccelerateEffect",
-                    Constants.VFXType.SPELL_ACCELERATE,
-                    wizard.x,
-                    wizard.y,
-                    params
-                )
-            end
+            }, caster, wizard, slotIndex, results)
             
             return true
         end
@@ -1016,6 +1309,8 @@ EventRunner.EVENT_HANDLERS = {
         -- Apply cancel to the slot
         local slot = wizard.spellSlots[slotIndex]
         if slot and slot.active and not slot.isShield then
+            local visualContext = getSlotVisualContext(wizard, slotIndex)
+
             -- Check if mana should be returned to the pool
             if event.returnMana then
                 -- Return tokens to the pool (dispel)
@@ -1036,23 +1331,26 @@ EventRunner.EVENT_HANDLERS = {
             -- Reset the slot
             wizard:resetSpellSlot(slotIndex)
             
-            -- Create cancel VFX if available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = 1.0,
-                    returnMana = event.returnMana,
-                    slotIndex = slotIndex
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = event.target,
+                effectOverride = event.returnMana and Constants.VFXType.FREE_MANA or Constants.VFXType.WARP_BASE,
+                affinity = event.affinity or visualContext.affinity,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = visualContext.manaCost or 1,
+                tags = event.returnMana and { RESOURCE = true } or nil,
+                rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+                elevation = wizard.elevation,
+                visualShape = visualContext.visualShape,
+                duration = 1.0,
+                returnMana = event.returnMana,
+                slotIndex = slotIndex,
+                vfxParams = {
+                    x = wizard.x,
+                    y = wizard.y
                 }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createSpellCancelEffect",
-                    Constants.VFXType.SPELL_CANCEL,
-                    wizard.x,
-                    wizard.y,
-                    params
-                )
-            end
+            }, caster, wizard, slotIndex, results)
             
             return true
         end
@@ -1127,22 +1425,25 @@ EventRunner.EVENT_HANDLERS = {
             slot.frozen = true
             slot.freezeTimer = event.duration
             
-            -- Create freeze VFX if available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = event.duration,
-                    slotIndex = slotIndexToFreeze
+            local visualContext = getSlotVisualContext(wizardToFreeze, slotIndexToFreeze)
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.WARP_BASE,
+                affinity = event.affinity or visualContext.affinity,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = visualContext.manaCost or 1,
+                rangeBand = wizardToFreeze.gameState and wizardToFreeze.gameState.rangeState or nil,
+                elevation = wizardToFreeze.elevation,
+                visualShape = visualContext.visualShape,
+                duration = event.duration,
+                slotIndex = slotIndexToFreeze,
+                vfxParams = {
+                    x = wizardToFreeze.x,
+                    y = wizardToFreeze.y
                 }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createSpellFreezeEffect",
-                    Constants.VFXType.SPELL_FREEZE,
-                    wizardToFreeze.x,
-                    wizardToFreeze.y,
-                    params
-                )
-            end
+            }, caster, wizardToFreeze, slotIndexToFreeze, results)
             
             -- Return true and results structure
             results.freezeApplied = true
@@ -1152,6 +1453,52 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         return false
+    end,
+
+    CLEANUP_SLOT = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: CLEANUP_SLOT handler could not resolve target wizard")
+            return false
+        end
+
+        local wizard = targetInfo.wizard
+        local slotIndex = targetInfo.slotIndex or event.slotIndex or spellSlot
+        local slot = wizard.spellSlots and wizard.spellSlots[slotIndex] or nil
+        if not slot then
+            print(string.format("WARNING: CLEANUP_SLOT received invalid slot %s for %s", tostring(slotIndex), wizard.name or "wizard"))
+            return false
+        end
+
+        if event.requireBlockedPendingImpact and not slot.blockedPendingImpact then
+            return false
+        end
+
+        local TokenManager = require("systems.TokenManager")
+        local tokens = slot.tokens or {}
+        local tokenCount = #tokens
+
+        if event.returnTokens and tokenCount > 0 then
+            TokenManager.returnTokensToPool(tokens)
+            results.tokensAffected = (results.tokensAffected or 0) + tokenCount
+        elseif event.destroyTokens and tokenCount > 0 then
+            TokenManager.destroyTokens(tokens)
+            results.tokensAffected = (results.tokensAffected or 0) + tokenCount
+        end
+
+        if event.clearBlockedPendingImpact then
+            clearBlockedImpactState(slot)
+        end
+
+        if event.resetSlot then
+            wizard:resetSpellSlot(slotIndex)
+        elseif event.clearTokens then
+            slot.tokens = {}
+        end
+
+        results.slotsCleaned = (results.slotsCleaned or 0) + 1
+
+        return true
     end,
     
     -- NEW HANDLER: Disrupts channeling, shifts token type, returns it to pool
@@ -1204,22 +1551,25 @@ EventRunner.EVENT_HANDLERS = {
             -- Request token return animation
             removedTokenObject:requestReturnAnimation()
 
-            -- Trigger a VFX for the type shift
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    duration = 0.8,
-                    oldType = oldType,
-                    newType = newType
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = Constants.TargetType.SELF,
+                effectOverride = Constants.VFXType.CONJURE_BASE,
+                affinity = newType,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = 1,
+                tags = { RESOURCE = true },
+                rangeBand = caster.gameState and caster.gameState.rangeState or nil,
+                elevation = caster.elevation,
+                duration = 0.8,
+                oldType = oldType,
+                newType = newType,
+                vfxParams = {
+                    x = removedTokenObject.x,
+                    y = removedTokenObject.y
                 }
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createTokenShiftEffect", -- Need to add this VFX method
-                    Constants.VFXType.TOKEN_SHIFT,
-                    removedTokenObject.x, 
-                    removedTokenObject.y,
-                    params
-                )
-            end
+            }, caster, wizard, slotIndex, results)
         else
             print("WARNING: Could not find token object to shift after removal from slot.")
         end
@@ -1266,21 +1616,27 @@ EventRunner.EVENT_HANDLERS = {
             end
         end
         
-        -- Create VFX for token consumption if available
-        if tokensConsumed > 0 and caster.gameState and caster.gameState.vfx then
-            local params = {
+        if tokensConsumed > 0 then
+            local visualContext = getSlotVisualContext(wizard, slotIndex)
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.RESOURCE_OVERLAY,
+                affinity = event.affinity or visualContext.affinity,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = tokensConsumed,
+                tags = { RESOURCE = true },
+                rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+                elevation = wizard.elevation,
+                duration = 0.8,
                 slotIndex = slotIndex,
-                tokensConsumed = tokensConsumed
-            }
-            
-            safeCreateVFX(
-                caster.gameState.vfx,
-                "createTokenConsumeEffect",
-                Constants.VFXType.TOKEN_CONSUME,
-                wizard.x,
-                wizard.y,
-                params
-            )
+                tokensConsumed = tokensConsumed,
+                vfxParams = {
+                    x = wizard.x,
+                    y = wizard.y
+                }
+            }, caster, wizard, slotIndex, results)
         end
         
         print(string.format("[CONSUME] Consumed %d tokens from slot %d", tokensConsumed, slotIndex))
@@ -1352,6 +1708,8 @@ EventRunner.EVENT_HANDLERS = {
         end
         
         -- Check if the wizard has a createShield method
+        local shieldCreated = false
+
         if type(wizard.createShield) ~= "function" then
             print("ERROR: Wizard " .. wizard.name .. " does not have createShield method")
             
@@ -1370,14 +1728,283 @@ EventRunner.EVENT_HANDLERS = {
                     Log.debug("DEBUG: Marked token as SHIELDING to prevent return to pool")
                 end
             end
+            shieldCreated = true
         else
             -- Call the wizard's createShield method
-            wizard:createShield(slotIndex, shieldParams)
+            local shieldResult = wizard:createShield(slotIndex, shieldParams)
+            shieldCreated = shieldResult and shieldResult.shieldCreated == true or false
         end
         
         -- Track shield creation in results
-        results.shieldCreated = true
-        
+        results.shieldCreated = shieldCreated
+
+        if shieldCreated
+            and wizard.gameState
+            and wizard.gameState.sustainedSpellManager
+            and not slot.sustainedId then
+            local sustainedId = wizard.gameState.sustainedSpellManager.addSustainedSpell(
+                wizard,
+                slotIndex,
+                {
+                    isShield = true,
+                    isSustained = true,
+                    shieldParams = shieldParams
+                }
+            )
+
+            slot.sustainedId = sustainedId
+        end
+
+        return shieldCreated
+    end,
+
+    SHIELD_BLOCK = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: SHIELD_BLOCK handler could not resolve target wizard")
+            return false
+        end
+
+        local wizard = targetInfo.wizard
+        local slotIndex = targetInfo.slotIndex or event.slotIndex or spellSlot
+        local slot = wizard.spellSlots and wizard.spellSlots[slotIndex] or nil
+        if not slot or not slot.active then
+            print(string.format("WARNING: SHIELD_BLOCK received invalid or inactive slot %s for %s", tostring(slotIndex), wizard.name or "wizard"))
+            return false
+        end
+
+        if not slot.isShield then
+            print(string.format("WARNING: SHIELD_BLOCK received non-shield slot %s for %s", tostring(slotIndex), wizard.name or "wizard"))
+            return false
+        end
+
+        local incomingSpell = event.incomingSpell
+        if not incomingSpell then
+            print("WARNING: SHIELD_BLOCK called without incomingSpell")
+            return false
+        end
+
+        local defenseType = slot.defenseType or Constants.ShieldType.BARRIER
+        local shieldBreakPower = event.shieldBreakPower or incomingSpell.shieldBreaker or 1
+        local tokensToConsume = math.min(event.tokensToConsume or shieldBreakPower, #(slot.tokens or {}))
+        local onBlock = slot.onBlock
+        local attackerWizard = event.attackerWizard or target
+
+        print(string.format(
+            "[SHIELD BLOCK] %s's %s shield (slot %d) hit by %s (%d break power). Consuming %d token(s).",
+            wizard.name or "Unknown wizard",
+            defenseType,
+            slotIndex,
+            incomingSpell.name or "unknown spell",
+            shieldBreakPower,
+            tokensToConsume
+        ))
+
+        local TokenManager = require("systems.TokenManager")
+        local consumedTokens = {}
+
+        for _ = 1, tokensToConsume do
+            if #slot.tokens == 0 then
+                break
+            end
+
+            local removedTokenData = table.remove(slot.tokens)
+            local removedTokenObject = removedTokenData and removedTokenData.token or nil
+
+            if removedTokenObject and removedTokenObject.type then
+                print(string.format(
+                    "[TOKEN LIFECYCLE] Shield Token (%s) freed by block -> FREE",
+                    tostring(removedTokenObject.type)
+                ))
+                table.insert(consumedTokens, {
+                    token = removedTokenObject,
+                    index = removedTokenData.index or 1
+                })
+            else
+                print("[TOKEN LIFECYCLE] Shield Token (unknown type) freed by block -> FREE")
+            end
+        end
+
+        if #consumedTokens > 0 then
+            TokenManager.returnTokensToPool(consumedTokens)
+            results.tokensAffected = (results.tokensAffected or 0) + #consumedTokens
+        end
+
+        local effectEvent = {
+            type = "EFFECT",
+            source = Constants.TargetType.TARGET,
+            target = Constants.TargetType.TARGET,
+            effectType = "shield_hit",
+            affinity = defenseType,
+            tags = { SHIELD_HIT = true },
+            shieldType = defenseType,
+            vfxParams = {
+                x = wizard.x,
+                y = wizard.y,
+            },
+            rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+            elevation = wizard.elevation,
+        }
+        EventRunner.handleEvent(effectEvent, wizard, attackerWizard, slotIndex, results)
+
+        if onBlock then
+            local ok, blockEvents = pcall(onBlock, wizard, attackerWizard, slotIndex, {
+                blockType = defenseType,
+                shieldBreakPower = shieldBreakPower,
+                tokensConsumed = tokensToConsume
+            })
+
+            if ok and type(blockEvents) == "table" and #blockEvents > 0 then
+                local nestedResults = EventRunner.processEvents(blockEvents, wizard, attackerWizard, slotIndex)
+                mergeProcessResults(results, nestedResults)
+            elseif not ok then
+                print("[SHIELD ERROR] Error executing onBlock handler: " .. tostring(blockEvents))
+            end
+        end
+
+        if #slot.tokens == 0 then
+            print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - no tokens left")
+            wizard:resetSpellSlot(slotIndex)
+        end
+
+        results.shieldBlocksResolved = (results.shieldBlocksResolved or 0) + 1
+
+        return true
+    end,
+
+    REGISTER_SUSTAINED = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: REGISTER_SUSTAINED handler could not resolve target wizard")
+            return false
+        end
+
+        local wizard = targetInfo.wizard
+        local slotIndex = targetInfo.slotIndex or event.slotIndex or spellSlot
+        local slot = wizard.spellSlots and wizard.spellSlots[slotIndex] or nil
+        if not slot or not slot.active then
+            print(string.format("WARNING: REGISTER_SUSTAINED received invalid or inactive slot %s for %s", tostring(slotIndex), wizard.name or "wizard"))
+            return false
+        end
+
+        if slot.isShield then
+            return false
+        end
+
+        if slot.sustainedId then
+            results.sustainedRegistered = true
+            results.sustainedId = slot.sustainedId
+            return true
+        end
+
+        local gameState = wizard.gameState
+        local manager = gameState and gameState.sustainedSpellManager or nil
+        if not manager or type(manager.addSustainedSpell) ~= "function" then
+            print("[SUSTAINED ERROR] Cannot register sustained spell without sustainedSpellManager")
+            return false
+        end
+
+        local sustainData = event.sustainData or {}
+        local sustainedId = manager.addSustainedSpell(wizard, slotIndex, {
+            isSustained = true,
+            trapTrigger = sustainData.trapTrigger,
+            trapEffect = sustainData.trapEffect,
+            fieldStatus = sustainData.fieldStatus
+        })
+
+        if not sustainedId then
+            return false
+        end
+
+        slot.sustainedId = sustainedId
+        results.sustainedRegistered = true
+        results.sustainedId = sustainedId
+
+        return true
+    end,
+
+    CAST_COMPLETE = function(event, caster, target, spellSlot, results)
+        return EventRunner.handleEvent({
+            type = "NOTIFY_TRAP_TRIGGER",
+            source = event.source or "caster",
+            target = event.target or Constants.TargetType.SELF,
+            triggerCondition = "on_opponent_cast",
+            spellId = event.spellId,
+            spell = event.spell,
+            blocked = event.blocked,
+            isShield = event.isShield,
+            isSustained = event.isSustained
+        }, caster, target, event.slotIndex or spellSlot, results)
+    end,
+
+    NOTIFY_TRAP_TRIGGER = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: NOTIFY_TRAP_TRIGGER handler could not resolve target wizard")
+            return false
+        end
+
+        local subjectWizard = targetInfo.wizard
+        local gameState = (caster and caster.gameState) or (subjectWizard and subjectWizard.gameState) or nil
+        local manager = gameState and gameState.sustainedSpellManager or nil
+        if not manager or type(manager.notifyTrapTrigger) ~= "function" then
+            return false
+        end
+
+        manager.notifyTrapTrigger(event.triggerCondition, subjectWizard, event)
+        return true
+    end,
+
+    TRIGGER_TRAP = function(event, caster, target, spellSlot, results)
+        local targetInfo = EventRunner.resolveTarget(event, caster, target)
+        if not targetInfo or not targetInfo.wizard then
+            print("ERROR: TRIGGER_TRAP handler could not resolve target wizard")
+            return false
+        end
+
+        local targetWizard = targetInfo.wizard
+        local slotIndex = event.slotIndex or spellSlot
+        if not slotIndex then
+            print("ERROR: TRIGGER_TRAP missing slot context")
+            return false
+        end
+
+        local trapSpell = event.trapSpell
+        local trapName = trapSpell and trapSpell.name or "unnamed trap"
+        print(string.format("[TRAP] Resolving %s for %s slot %d", trapName, caster.name or "caster", slotIndex))
+
+        local trapEvents, err = buildKeywordPayloadEvents(
+            event.trapEffect or {},
+            caster,
+            targetWizard,
+            slotIndex,
+            trapSpell
+        )
+        if not trapEvents then
+            print("[TRAP] ERROR: Failed to build trap events: " .. tostring(err))
+            return false
+        end
+
+        if event.cleanupSlot ~= false then
+            table.insert(trapEvents, {
+                type = "CLEANUP_SLOT",
+                source = "caster",
+                target = Constants.TargetType.SLOT_SELF,
+                slotIndex = slotIndex,
+                returnTokens = true,
+                resetSlot = true,
+                cleanupReason = event.cleanupReason or "trap_triggered"
+            })
+        end
+
+        if #trapEvents == 0 then
+            print("[TRAP] WARNING: No events generated for trap payload")
+        end
+
+        local nestedResults = EventRunner.processEvents(trapEvents, caster, targetWizard, slotIndex)
+        mergeProcessResults(results, nestedResults)
+        results.trapsTriggered = (results.trapsTriggered or 0) + 1
+
         return true
     end,
     
@@ -1438,23 +2065,27 @@ EventRunner.EVENT_HANDLERS = {
                 timer = event.delay
             })
             
-            -- Create echo VFX if available
-            if caster.gameState and caster.gameState.vfx then
-                local params = {
-                    delay = event.delay,
-                    slotIndex = slotIndex,
-                    spellName = slot.spell.name
+            local visualContext = getSlotVisualContext(wizard, slotIndex)
+            emitEffectEvent({
+                type = "EFFECT",
+                source = event.source or "caster",
+                target = event.target,
+                effectOverride = Constants.VFXType.WARP_BASE,
+                affinity = event.affinity or visualContext.affinity,
+                attackType = Constants.AttackType.UTILITY,
+                manaCost = visualContext.manaCost or 1,
+                rangeBand = wizard.gameState and wizard.gameState.rangeState or nil,
+                elevation = wizard.elevation,
+                visualShape = visualContext.visualShape,
+                duration = event.delay or 1.0,
+                delay = event.delay,
+                slotIndex = slotIndex,
+                spellName = slot.spell.name,
+                vfxParams = {
+                    x = wizard.x,
+                    y = wizard.y
                 }
-                
-                safeCreateVFX(
-                    caster.gameState.vfx,
-                    "createEchoEffect",
-                    Constants.VFXType.SPELL_ECHO,
-                    wizard.x,
-                    wizard.y,
-                    params
-                )
-            end
+            }, caster, wizard, slotIndex, results)
             
             return true
         end
@@ -1537,20 +2168,30 @@ EventRunner.EVENT_HANDLERS = {
             -- Source coordinates (caster)
             srcX = caster and caster.x or 0
             srcY = caster and caster.y or 0
-            
-            -- Target coordinates 
-            local targetInfo = EventRunner.resolveTarget(event, caster, target)
-            if targetInfo and targetInfo.wizard then 
-                local targetWizard = targetInfo.wizard
-                tgtX = targetWizard.x
-                tgtY = targetWizard.y
-                Log.debug(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)",
-                    srcX, srcY, tgtX or srcX, tgtY or srcY))
+
+            local targetsAll = event.target == Constants.TargetType.ALL
+                or (type(event.target) == "string" and string.lower(event.target) == "both")
+
+            -- Target coordinates
+            if targetsAll and target and target.x and target.y then
+                tgtX = target.x
+                tgtY = target.y
+                Log.debug(string.format("[EFFECT EVENT] Using all-target coordinates: (%d, %d) -> (%d, %d)",
+                    srcX, srcY, tgtX, tgtY))
             else
-                -- If target resolution fails, use same coordinates as source
-                tgtX = srcX
-                tgtY = srcY
-                Log.debug("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
+                local targetInfo = EventRunner.resolveTarget(event, caster, target)
+                if targetInfo and targetInfo.wizard then
+                    local targetWizard = targetInfo.wizard
+                    tgtX = targetWizard.x
+                    tgtY = targetWizard.y
+                    Log.debug(string.format("[EFFECT EVENT] Using wizard coordinates: (%d, %d) -> (%d, %d)",
+                        srcX, srcY, tgtX or srcX, tgtY or srcY))
+                else
+                    -- If target resolution fails, use same coordinates as source
+                    tgtX = srcX
+                    tgtY = srcY
+                    Log.debug("[EFFECT EVENT] WARNING: Could not resolve target coordinates, using source as target")
+                end
             end
         end
         
@@ -1687,6 +2328,13 @@ EventRunner.EVENT_HANDLERS = {
                 vfxOpts.tags.SHIELD_BLOCKED = true
             end
             
+            -- Forward completion callback for precise timing (e.g., shield impact)
+            if event.onComplete then
+                vfxOpts.onComplete = event.onComplete
+            elseif event.blockInfo and event.blockInfo.onBlockImpact then
+                vfxOpts.onComplete = event.blockInfo.onBlockImpact
+            end
+
             -- Set default duration if not provided
             if not vfxOpts.duration then
                 vfxOpts.duration = event.duration or 0.5
@@ -1697,49 +2345,46 @@ EventRunner.EVENT_HANDLERS = {
                 Log.debug(string.format("[EFFECT EVENT] Adding delayed damage %d to effect options", event.delayedDamage))
                 vfxOpts.delayedDamage = event.delayedDamage
                 vfxOpts.delayedDamageTarget = event.delayedDamageTarget
+                local priorOnComplete = vfxOpts.onComplete
                 
                 -- Provide a callback function to apply the damage when the animation completes
                 vfxOpts.onComplete = function(effect)
+                    -- Preserve earlier completion hooks (e.g. shield impact token release).
+                    if priorOnComplete then
+                        local priorOk, priorErr = pcall(function()
+                            priorOnComplete(effect)
+                        end)
+                        if not priorOk then
+                            Log.debug("[EFFECT EVENT] WARNING: prior onComplete callback failed: " .. tostring(priorErr))
+                        end
+                    end
+
                     -- Apply the delayed damage
                     local target = vfxOpts.delayedDamageTarget
                     local amount = vfxOpts.delayedDamage
                     
                     if target and amount then
-                        target.health = target.health - amount
-                        if target.health < 0 then target.health = 0 end
-                        
-                        -- Set hit flash timer for delayed damage visual feedback
-                        target.hitFlashTimer = 0.125 -- 125ms flash duration
-                        
-                        -- Apply screen shake and hitstop for delayed damage too
-                        if amount >= 15 or (event.tags and event.tags.HIGH_IMPACT) then
-                            -- Strong hit
-                            if target.gameState and target.gameState.triggerShake then
-                                local intensity = math.min(10, 5 + (amount / 10))
-                                target.gameState.triggerShake(0.35, intensity)
-                                target.gameState.triggerHitstop(0.12)
-                                Log.debug(string.format("[DELAYED DAMAGE] High impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
-                                    0.35, intensity, 0.12))
-                            end
-                        elseif amount >= 8 then
-                            -- Medium hit
-                            if target.gameState and target.gameState.triggerShake then
-                                target.gameState.triggerShake(0.25, 6)
-                                target.gameState.triggerHitstop(0.08)
-                                Log.debug(string.format("[DELAYED DAMAGE] Medium impact hit! Triggering shake (%.2f, %.2f) and hitstop (%.2f)",
-                                    0.25, 6, 0.08))
-                            end
-                        elseif amount >= 3 then
-                            -- Light hit
-                            if target.gameState and target.gameState.triggerShake then
-                                target.gameState.triggerShake(0.15, 4)
-                                Log.debug(string.format("[DELAYED DAMAGE] Light impact hit! Triggering shake (%.2f, %.2f)",
-                                    0.15, 4))
-                            end
-                        end
-                        
-                        Log.debug(string.format("[DELAYED DAMAGE] Applied %d damage to %s. New health: %d",
-                            amount, target.name, target.health))
+                        local delayedDamageEvent = {
+                            type = "DAMAGE",
+                            source = event.source or "caster",
+                            target = event.target or Constants.TargetType.ENEMY,
+                            amount = amount,
+                            damageType = event.damageType,
+                            affinity = event.affinity,
+                            attackType = event.attackType,
+                            manaCost = event.manaCost,
+                            tags = event.tags,
+                            rangeBand = event.rangeBand,
+                            elevation = event.elevation,
+                            visualShape = event.visualShape,
+                            delayDamage = false,
+                            suppressVisual = true
+                        }
+
+                        EventRunner.processEvents({ delayedDamageEvent }, caster, target, spellSlot)
+
+                        Log.debug(string.format("[DELAYED DAMAGE] Routed %d delayed damage back through EventRunner",
+                            amount))
                     end
                 end
             end
@@ -1748,9 +2393,8 @@ EventRunner.EVENT_HANDLERS = {
             Log.debug(string.format("[EFFECT EVENT] Creating effect: '%s' at coords: (%d, %d) -> (%d, %d)",
                 tostring(baseEffectName), srcX or 0, srcY or 0, tgtX or srcX, tgtY or srcY))
                 
-            -- Call VFX.createEffect directly instead of using safeCreateVFX
-            -- This pattern matches how we want VFX module to be called in the future
-            -- with directional information (source -> target)
+            -- The EFFECT handler is the single place that talks to VFX.createEffect directly.
+            -- It has the fully resolved source/target coordinates and metadata at this point.
             local vfxModule = caster.gameState.vfx
             if vfxModule and vfxModule.createEffect then
                 local success, err = pcall(function()

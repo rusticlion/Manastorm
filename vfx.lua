@@ -13,6 +13,8 @@ local Pool = require("core.Pool")
 local Constants = require("core.Constants")
 local AssetCache = require("core.AssetCache")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 local initializeParticlesModule = require("vfx.initializeParticles")
 
 -- Table to store active effects
@@ -501,6 +503,54 @@ function VFX.init()
             sound = "shield", -- Use shield sound
             criticalAssets = {"impactRing", "sparkle"} -- Assets needed for shield hit
         },
+
+        -- Lightweight overlays (can be layered atop base effects)
+        damage_overlay = {
+            type = "impact",
+            duration = 0.35,
+            particleCount = 18,
+            startScale = 0.3,
+            endScale = 0.6,
+            color = Constants.Color.WHITE,
+            radius = 40
+        },
+        ember_overlay = {
+            type = "impact",
+            duration = 0.5,
+            particleCount = 22,
+            startScale = 0.3,
+            endScale = 0.8,
+            color = Constants.Color.RED_HERO,
+            radius = 50
+        },
+        shield_overlay = {
+            type = "impact",
+            duration = 0.4,
+            particleCount = 20,
+            startScale = 0.4,
+            endScale = 0.9,
+            color = Constants.Color.GRAY,
+            radius = 60
+        },
+        sparkle_overlay = {
+            type = "aura",
+            duration = 0.6,
+            particleCount = 30,
+            startScale = 0.2,
+            endScale = 0.6,
+            color = Constants.Color.WHITE,
+            radius = 50
+        },
+        -- Alias for RESOURCE overlay (maps to sparkle behavior for now)
+        resource_overlay = {
+            type = "aura",
+            duration = 0.6,
+            particleCount = 30,
+            startScale = 0.2,
+            endScale = 0.6,
+            color = Constants.Color.WHITE,
+            radius = 50
+        },
         
         -- Existing effects
         -- General impact effect (used for many spell interactions)
@@ -851,6 +901,9 @@ function VFX.resetEffect(effect)
     effect.rangeBand = nil
     effect.elevation = nil
     effect.addons = nil
+    effect.blockSize = nil
+    effect.useBlocky = nil
+    effect.ca = nil
     effect.spread = nil
     effect.visualProgress = nil
     effect.blockTimerStarted = nil
@@ -1153,12 +1206,25 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         if effect.height then effect.height = effect.height * scaleFactor end
         if effect.spread then effect.spread = effect.spread * scaleFactor end
     end
+
+    -- Apply direct overrides for common parameters supplied by resolver
+    local overrideFields = {
+        "radius", "waveCount", "beamWidth", "arcHeight",
+        "flickerRate", "flickerIntensity", "trailLength"
+    }
+    for _, k in ipairs(overrideFields) do
+        if opts[k] ~= nil then
+            effect[k] = opts[k]
+        end
+    end
     
     -- Store motion style and positional info
     effect.motion = opts.motion
     effect.rangeBand = opts.rangeBand
     effect.elevation = opts.elevation
     effect.addons = opts.addons
+    effect.blockSize = opts.blockSize
+    effect.useBlocky = opts.useBlocky
     
     -- Effect specific properties
     effect.particles = {}
@@ -1234,7 +1300,28 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     
     -- Add to active effects list
     table.insert(VFX.activeEffects, effect)
-    
+
+    -- Spawn lightweight overlay effects, if requested
+    if opts.addons and type(opts.addons) == "table" and #opts.addons > 0 then
+        for _, addon in ipairs(opts.addons) do
+            if type(addon) == "string" then
+                local childOpts = {
+                    duration = (opts.duration or effect.duration or 0.5) * 0.6,
+                    scale = (opts.scale or 1.0) * 0.8,
+                    color = opts.color,
+                    motion = opts.motion,
+                    rangeBand = opts.rangeBand,
+                    elevation = opts.elevation,
+                    sourceEntity = opts.sourceEntity,
+                    targetEntity = opts.targetEntity,
+                    useSourcePosition = effect.useSourcePosition,
+                    useTargetPosition = effect.useTargetPosition
+                }
+                VFX.createEffect(addon, effect.sourceX, effect.sourceY, effect.targetX, effect.targetY, childOpts)
+            end
+        end
+    end
+
     return effect
 end
 

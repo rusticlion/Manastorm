@@ -4,6 +4,8 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local BlockRenderer = require("vfx.BlockRenderer")
+local CARenderer = require("vfx.CARenderer")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -300,6 +302,13 @@ local function drawBeam(effect)
     local twinkle1Image = getAssetInternal("twinkle1")
     local twinkle2Image = getAssetInternal("twinkle2")
     
+    -- Optional CA overlay first (subtle underlay)
+    if effect.options and effect.options.enableCA then
+        CARenderer.update(effect, 0)
+        love.graphics.setColor(1, 1, 1, 1)
+        CARenderer.draw(effect)
+    end
+
     -- Use current beam properties (which have been updated in updateBeam)
     local beamLength = effect.beamLength * effect.beamProgress
     
@@ -395,6 +404,12 @@ local function drawBeam(effect)
         
         -- Restore previous blend mode
         love.graphics.setBlendMode(prevMode[1], prevMode[2])
+
+        -- Blocky core markers along the beam path (sparse)
+        if effect.useBlocky and effect.blockSize and (i % 6 == 0) then
+            local bs = math.max(2, math.floor(effect.blockSize))
+            BlockRenderer.drawBlock(coreX, coreY, bs, {effect.color[1], effect.color[2], effect.color[3], 0.35})
+        end
     end
     
     -- Draw source glow using particle swarm
@@ -480,17 +495,21 @@ local function drawBeam(effect)
                 sprite = onePxImage or twinkle1Image or twinkle2Image or particleImage
             end
             
-            if sprite then
-                love.graphics.draw(
-                    sprite,
-                    particle.x, particle.y,
-                    0,
-                    particle.scale / 3, particle.scale / 3,
-                    sprite:getWidth()/2, sprite:getHeight()/2
-                )
+            if effect.useBlocky and effect.blockSize then
+                BlockRenderer.drawBlock(particle.x, particle.y, math.max(2, math.floor(effect.blockSize)), {effect.color[1], effect.color[2], effect.color[3], particle.alpha * 0.9})
             else
-                -- Final fallback
-                love.graphics.circle("fill", particle.x, particle.y, particle.scale)
+                if sprite then
+                    love.graphics.draw(
+                        sprite,
+                        particle.x, particle.y,
+                        0,
+                        particle.scale / 3, particle.scale / 3,
+                        sprite:getWidth()/2, sprite:getHeight()/2
+                    )
+                else
+                    -- Final fallback
+                    love.graphics.circle("fill", particle.x, particle.y, particle.scale)
+                end
             end
             
             ::next_draw_particle::

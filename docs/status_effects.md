@@ -13,7 +13,7 @@ This document lists the built-in status effects available in the game and their 
 
 ## Usage
 
-Status effects are applied through `APPLY_STATUS` events emitted by keywords or spell logic. Event handlers store the effect data on the target wizard in the `statusEffects` table.
+Status effects are applied through `APPLY_STATUS` events emitted by keywords or spell logic. They are cleared through `REMOVE_STATUS` events. Event handlers store the effect data on the target wizard in the `statusEffects` table, and `EventRunner.updateTimedEffects(...)` advances timed effects each frame.
 
 ```lua
 -- Example APPLY_STATUS event
@@ -29,4 +29,3 @@ Status effects are applied through `APPLY_STATUS` events emitted by keywords or 
 ```
 
 The `EventRunner` module processes these events and manages status state each frame.
-

@@ -10,10 +10,10 @@ local FireSpells = {}
 FireSpells.conjurefire = {
     id = "conjurefire",
     name = "Conjure Fire",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Conjures a Fire mana token. Takes longer to cast the more Fire tokens already present.",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "surge",
+    visualShape = Constants.VisualShape.SURGE,
     castTime = Constants.CastSpeed.FAST,
     cost = {},  -- No mana cost
     keywords = {
@@ -47,11 +47,11 @@ FireSpells.conjurefire = {
 FireSpells.firebolt = {
     id = "firebolt",
     name = "Firebolt",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Superheated bolt. Maximum damage at FAR RANGE.",
     castTime = Constants.CastSpeed.FAST,
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = "bolt",
+    visualShape = Constants.VisualShape.BOLT,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -71,11 +71,11 @@ FireSpells.firebolt = {
 FireSpells.fireball = {
     id = "fireball",
     name = "Fireball",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Fireball that deals damage and burns.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.PROJECTILE,
-    visualShape = "orb",
+    visualShape = Constants.VisualShape.ORB,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.ANY},
     keywords = {
         damage = {
@@ -92,11 +92,11 @@ FireSpells.fireball = {
 FireSpells.blastwave = {
     id = "blastwave",
     name = "Blast Wave",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Blast of flame. Maximum damage at NEAR RANGE and matched ELEVATION.",
     castTime = Constants.CastSpeed.SLOW,
     attackType = Constants.AttackType.ZONE,
-    visualShape = "blast",
+    visualShape = Constants.VisualShape.BLAST,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         damage = {
@@ -120,11 +120,11 @@ FireSpells.blastwave = {
 FireSpells.combustMana = {
     id = "combustMana",
     name = "Combust Mana",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Disrupts opponent channeling, burning one token to Salt.",
     castTime = Constants.CastSpeed.NORMAL,
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "affectManaPool",
+    visualShape = Constants.VisualShape.AFFECT_MANA_POOL,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
         disruptAndShift = {
@@ -137,19 +137,19 @@ FireSpells.combustMana = {
 FireSpells.blazingAscent = {
     id = "blazingascent",
     name = "Blazing Ascent",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Rockets upward in a burst of fire, dealing damage and becoming AERIAL.",
     attackType = Constants.AttackType.ZONE,
-    visualShape = "blast",
+    visualShape = Constants.VisualShape.BLAST,
     castTime = Constants.CastSpeed.SLOW,
-    cost = {"fire", "fire", "star"},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.STAR},
     keywords = {
         damage = {
             amount = function(caster, target)
                 -- More damage if already AERIAL (harder to cast while falling)
-                return caster.elevation == "AERIAL" and 15 or 10
+                return caster.elevation == Constants.ElevationState.AERIAL and 15 or 10
             end,
-            type = "fire"
+            type = Constants.DamageType.FIRE
         },
         elevate = {
             duration = 6.0
@@ -166,24 +166,24 @@ FireSpells.blazingAscent = {
 FireSpells.eruption = {
     id = "eruption",
     name = "Molten Ash",
-    affinity = "fire",
+    affinity = Constants.TokenType.FIRE,
     description = "Creates a volcanic eruption under the opponent. Only works at NEAR range.",
     attackType = Constants.AttackType.ZONE,
-    visualShape = "groundBurst",
+    visualShape = Constants.VisualShape.GROUND_BURST,
     castTime = Constants.CastSpeed.SLOW,
-    cost = {"fire", "fire", "salt"},
+    cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.SALT},
     unlockSpell = "blazingascent",
     keywords = {
         zoneAnchor = {
             range = function(caster, target)
                 return caster.gameState.rangeState
             end,
-            elevation = "GROUNDED",
+            elevation = Constants.ElevationState.GROUNDED,
             requireAll = true
         },
         damage = {
             amount = 16,
-            type = "fire"
+            type = Constants.DamageType.FIRE
         },
         burn = {
             duration = 4.0,
@@ -215,10 +215,10 @@ FireSpells.eruption = {
 FireSpells.battleshield = {
     id = "battleshield",
     name = "Flamewreath",
-    affinity = "fire", 
+    affinity = Constants.TokenType.FIRE, 
     description = "A Barrier of flames that stops Projectile and Zone attacks, burning NEAR attackers.",
     attackType = Constants.AttackType.UTILITY,
-    visualShape = "barrier",
+    visualShape = Constants.VisualShape.BARRIER,
     castTime = Constants.CastSpeed.SLOW,
     cost = {Constants.TokenType.FIRE, Constants.TokenType.FIRE, Constants.TokenType.FIRE},
     keywords = {
@@ -230,11 +230,15 @@ FireSpells.battleshield = {
                 print("[SPELL DEBUG] Flamewreath onBlock handler executing!")
                 local events = {}
                 
-                if attacker.elevation == Constants.ElevationState.NEAR then
+                local isNearRange = defender
+                    and defender.gameState
+                    and defender.gameState.rangeState == Constants.RangeState.NEAR
+
+                if isNearRange then
                     table.insert(events, {
                         type = "APPLY_STATUS",
                         source = "caster",
-                        target = "enemy",
+                        target = Constants.TargetType.ENEMY,
                         statusType = Constants.StatusType.BURN,
                         duration = 1.5,
                         tickDamage = 4,
@@ -245,7 +249,7 @@ FireSpells.battleshield = {
                 table.insert(events, {
                     type = "EFFECT",
                     source = "caster",
-                    target = "self",
+                    target = Constants.TargetType.SELF,
                     effectType = "battle_shield_counter",
                     duration = 0.8,
                     color = {1.0, 0.7, 0.2, 0.8}
