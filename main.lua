@@ -4,7 +4,9 @@
 -- Load dependencies
 local AssetCache = require("core.AssetCache")
 local AssetPreloader = require("core.assetPreloader")
+local BattleUpdate = require("systems.BattleUpdate")
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local Input = require("core.Input")
 local Pool = require("core.Pool")
 local Wizard = require("wizard")
@@ -102,13 +104,13 @@ game = {
 function triggerShake(duration, intensity)
     shakeTimer = duration or 0.5
     shakeIntensity = intensity or 5
-    print("Screen shake triggered: " .. duration .. "s, intensity " .. intensity)
+    Log.debug("Screen shake triggered: " .. duration .. "s, intensity " .. intensity)
 end
 
 -- Helper function to trigger hitstop (game pause)
 function triggerHitstop(duration)
     hitstopTimer = duration or 0.1
-    print("Hitstop triggered: " .. duration .. "s")
+    Log.debug("Hitstop triggered: " .. duration .. "s")
 end
 
 -- Make these functions available to other modules through the game table
@@ -272,7 +274,7 @@ function calculateScaling()
     game.offsetX = offsetX
     game.offsetY = offsetY
     
-    print("Window resized: " .. windowWidth .. "x" .. windowHeight .. " -> Simple scale: " .. scale .. ", Offset: (" .. offsetX .. ", " .. offsetY .. ")")
+    Log.debug("Window resized: " .. windowWidth .. "x" .. windowHeight .. " -> Simple scale: " .. scale .. ", Offset: (" .. offsetX .. ", " .. offsetY .. ")")
 end
 
 -- Set a scissor rectangle taking current scale and offsets into account
@@ -317,9 +319,9 @@ function love.load()
     game.backgroundImage = AssetCache.getImage("assets/sprites/background.png")
     
     -- Preload all assets to prevent in-game loading hitches
-    print("Preloading game assets...")
+    Log.debug("Preloading game assets...")
     local preloadStats = AssetPreloader.preloadAllAssets()
-    print(string.format("Asset preloading complete: %d images, %d sounds in %.2f seconds",
+    Log.debug(string.format("Asset preloading complete: %d images, %d sounds in %.2f seconds",
                         preloadStats.imageCount,
                         preloadStats.soundCount,
                         preloadStats.loadTime))
@@ -338,10 +340,10 @@ function love.load()
     
     if fontExists then
         game.font = love.graphics.newFont(fontPath, 16)
-        print("Using custom game font: " .. fontPath)
+        Log.debug("Using custom game font: " .. fontPath)
     else
         game.font = love.graphics.newFont(16)  -- Default system font
-        print("Custom font not found, using system font")
+        Log.debug("Custom font not found, using system font")
     end
     
     -- Set default font for normal rendering
@@ -373,7 +375,7 @@ function love.load()
     VFX.triggerHitstop = triggerHitstop
     
     -- Precompile all spells for better performance
-    print("Precompiling all spells...")
+    Log.debug("Precompiling all spells...")
     
     -- Create a compiledSpells table and do the compilation ourselves
     game.compiledSpells = {}
@@ -384,7 +386,7 @@ function love.load()
     -- Compile each spell
     for id, spell in pairs(allSpells) do
         game.compiledSpells[id] = game.spellCompiler.compileSpell(spell, game.keywords)
-        print("Compiled spell: " .. spell.name)
+        Log.debug("Compiled spell: " .. spell.name)
     end
     
     -- Count compiled spells
@@ -393,7 +395,7 @@ function love.load()
         count = count + 1
     end
     
-    print("Precompiled " .. count .. " spells")
+    Log.debug("Precompiled " .. count .. " spells")
     
     -- Create custom shield spells just for hotkeys
     -- These are complete, independent spell definitions
@@ -442,22 +444,22 @@ function love.load()
     -- Compile custom spells too
     for id, spell in pairs(game.customSpells) do
         game.compiledSpells[id] = game.spellCompiler.compileSpell(spell, game.keywords)
-        print("Compiled custom spell: " .. spell.name)
+        Log.debug("Compiled custom spell: " .. spell.name)
     end
     
     -- Initialize mana pool with a single random token to start
     local tokenType = game.addRandomToken()
     
     -- Log which token was added
-    print("Starting the game with a single " .. tokenType .. " token")
+    Log.debug("Starting the game with a single " .. tokenType .. " token")
     
     -- Initialize input system with game state reference
     Input.init(game)
-    print("Input system initialized")
+    Log.debug("Input system initialized")
     
     -- Initialize SustainedSpellManager
     game.sustainedSpellManager = SustainedSpellManager
-    print("SustainedSpellManager initialized")
+    Log.debug("SustainedSpellManager initialized")
     
     -- We'll initialize the AI opponent when starting a game with AI
     -- instead of here, so it's not always active
@@ -597,7 +599,7 @@ function resetGame()
     if game.manaPool then
         game.manaPool:clear()
         local tokenType = game.addRandomToken()
-        print("Game reset! Starting with a single " .. tokenType .. " token")
+        Log.debug("Game reset! Starting with a single " .. tokenType .. " token")
     end
     
     -- Reinitialize AI opponent if AI mode is enabled and not being set up by campaign
@@ -606,12 +608,12 @@ function resetGame()
             local aiWizard = game.wizards[2]
             local personality = getPersonalityFor(aiWizard.name)
             if personality then
-                print("Initializing " .. aiWizard.name .. " AI personality")
+                Log.debug("Initializing " .. aiWizard.name .. " AI personality")
             else
-                print("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
+                Log.debug("Unknown wizard type: " .. aiWizard.name .. ". Using default personality.")
             end
             game.opponentAI = OpponentAI.new(aiWizard, game, personality)
-            print("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
+            Log.debug("AI opponent reinitialized with personality: " .. (personality and personality.name or "Default"))
         end
     else
         -- Disable AI if we're switching to PvP mode
@@ -632,7 +634,7 @@ function resetGame()
     end
     
     -- The current state is handled by the caller
-    print("Game reset complete")
+    Log.debug("Game reset complete")
 end
 
 -- Add resetGame function to game state so Input system can call it
@@ -642,7 +644,7 @@ end
 
 -- Function to start an AI vs AI attract mode game
 function startGameAttractMode()
-    print("Starting attract mode...")
+    Log.debug("Starting attract mode...")
 
     -- Mark attract mode as active
     game.attractModeActive = true
@@ -653,7 +655,7 @@ function startGameAttractMode()
     -- Choose two random unlocked characters
     local unlocked = getUnlockedCharacterList()
     if #unlocked < 2 then
-        print("Not enough unlocked characters for attract mode")
+        Log.debug("Not enough unlocked characters for attract mode")
         return
     end
 
@@ -682,12 +684,12 @@ function startGameAttractMode()
     -- Transition to the attract mode battle state
     game.currentState = "BATTLE_ATTRACT"
 
-    print("Attract mode started: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name)
+    Log.debug("Attract mode started: " .. game.wizards[1].name .. " vs " .. game.wizards[2].name)
 end
 
 -- Function to exit attract mode and return to the menu
 function exitAttractMode()
-    print("Exiting attract mode...")
+    Log.debug("Exiting attract mode...")
 
     -- Disable attract mode
     game.attractModeActive = false
@@ -711,20 +713,20 @@ function exitAttractMode()
     -- Return to menu
     game.currentState = "MENU"
 
-    print("Attract mode ended, returned to menu")
+    Log.debug("Attract mode ended, returned to menu")
 end
 
 -- Handle successful completion of a campaign
 function handleCampaignVictory()
     if not game.campaignProgress then return end
-    print(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins)
+    Log.debug(game.campaignProgress.characterName .. " campaign complete! Wins: " .. game.campaignProgress.wins)
     game.currentState = "CAMPAIGN_VICTORY"
 end
 
 -- Handle failure of a campaign run
 function handleCampaignDefeat()
     if not game.campaignProgress then return end
-    print(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
+    Log.debug(game.campaignProgress.characterName .. " campaign failed at opponent " .. game.campaignProgress.currentOpponentIndex)
     resetGame()
     game.currentState = "CAMPAIGN_DEFEAT"
 end
@@ -766,7 +768,7 @@ function startCampaignBattle()
         if handleCampaignVictory then
             handleCampaignVictory()
         else
-            print("Campaign complete for " .. tostring(playerCharacterName))
+            Log.debug("Campaign complete for " .. tostring(playerCharacterName))
         end
         return
     end
@@ -952,7 +954,7 @@ function game.unlockAll()
         game.unlockedSpells[spellId] = true
     end
     
-    print("[DEV] All characters and spells unlocked!")
+    Log.debug("[DEV] All characters and spells unlocked!")
 end
 
 function game.settingsSelect()
@@ -1249,92 +1251,7 @@ function love.update(dt)
         end
         return
     elseif game.currentState == "BATTLE" then
-        -- Check for win condition before updates
-        if game.gameOver then
-            -- Transition to game over state
-            game.currentState = "GAME_OVER"
-            game.winScreenTimer = 0
-            game.currentTip = Tips.getRandomTip()
-            return
-        end
-        
-        -- Check if any wizard's health has reached zero
-        for i, wizard in ipairs(game.wizards) do
-            if wizard.health <= 0 then
-                game.gameOver = true
-                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
-                game.winScreenTimer = 0
-                
-                -- Create victory VFX around the winner
-                local winner = game.wizards[game.winner]
-                for j = 1, 15 do
-                    local angle = math.random() * math.pi * 2
-                    local distance = math.random(40, 100)
-                    local x = winner.x + math.cos(angle) * distance
-                    local y = winner.y + math.sin(angle) * distance
-                    
-                    -- Determine winner's color for effects
-                    local color
-                    if game.winner == 1 then -- Ashgar
-                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
-                    else -- Selene
-                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
-                    end
-                    
-                    -- Create sparkle effect with delay
-                    game.vfx.createEffect("impact", x, y, nil, nil, {
-                        duration = 0.8 + math.random() * 0.5,
-                        color = color,
-                        particleCount = 5,
-                        radius = 15,
-                        delay = j * 0.1
-                    })
-                end
-                
-                print(winner.name .. " wins!")
-
-                -- Transition to game over state
-                game.currentState = "GAME_OVER"
-                game.currentTip = Tips.getRandomTip()
-                return
-            end
-        end
-        
-        -- Update wizards
-        if game.eventRunner and game.eventRunner.updateTimedEffects then
-            game.eventRunner.updateTimedEffects(game, dt)
-        end
-
-        for _, wizard in ipairs(game.wizards) do
-            wizard:update(dt)
-        end
-        
-        -- Update mana pool
-        game.manaPool:update(dt)
-        
-        -- Update VFX system
-        game.vfx.update(dt)
-        
-        -- Update SustainedSpellManager for trap and shield management
-        game.sustainedSpellManager.update(dt)
-        
-        -- Update animated health displays
-        UI.updateHealthDisplays(dt, game.wizards)
-        
-        -- Update AI opponent if it exists and AI mode is enabled
-        if game.useAI and game.opponentAI then
-            game.opponentAI:update(dt)
-        end
-
-        -- Update both AI players in attract mode
-        if game.attractModeActive then
-            if game.player1AI then
-                game.player1AI:update(dt)
-            end
-            if game.player2AI then
-                game.player2AI:update(dt)
-            end
-        end
+        BattleUpdate.updateBattle(game, dt)
     elseif game.currentState == "GAME_OVER" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt
@@ -1358,85 +1275,7 @@ function love.update(dt)
         -- Still update VFX system for visual effects
         game.vfx.update(dt)
     elseif game.currentState == "BATTLE_ATTRACT" then
-        -- Check for win condition before updates
-        if game.gameOver then
-            -- Transition to attract mode game over state
-            game.currentState = "GAME_OVER_ATTRACT"
-            game.winScreenTimer = 0
-            game.currentTip = Tips.getRandomTip()
-            return
-        end
-
-        -- Check if any wizard's health has reached zero
-        for i, wizard in ipairs(game.wizards) do
-            if wizard.health <= 0 then
-                game.gameOver = true
-                game.winner = 3 - i  -- Winner is the other wizard (3-1=2, 3-2=1)
-                game.winScreenTimer = 0
-
-                -- Create victory VFX around the winner
-                local winner = game.wizards[game.winner]
-                for j = 1, 15 do
-                    local angle = math.random() * math.pi * 2
-                    local distance = math.random(40, 100)
-                    local x = winner.x + math.cos(angle) * distance
-                    local y = winner.y + math.sin(angle) * distance
-
-                    -- Determine winner's color for effects
-                    local color
-                    if game.winner == 1 then -- Ashgar
-                        color = {1.0, 0.5, 0.2, 0.9} -- Fire-like
-                    else -- Selene
-                        color = {0.3, 0.3, 1.0, 0.9} -- Moon-like
-                    end
-
-                    -- Create sparkle effect with delay
-                    game.vfx.createEffect("impact", x, y, nil, nil, {
-                        duration = 0.8 + math.random() * 0.5,
-                        color = color,
-                        particleCount = 5,
-                        radius = 15,
-                        delay = j * 0.1
-                    })
-                end
-
-                print("[Attract Mode] " .. winner.name .. " wins!")
-
-                -- Transition to game over state
-                game.currentState = "GAME_OVER_ATTRACT"
-                game.currentTip = Tips.getRandomTip()
-                return
-            end
-        end
-
-        -- Update wizards
-        if game.eventRunner and game.eventRunner.updateTimedEffects then
-            game.eventRunner.updateTimedEffects(game, dt)
-        end
-
-        for _, wizard in ipairs(game.wizards) do
-            wizard:update(dt)
-        end
-
-        -- Update mana pool
-        game.manaPool:update(dt)
-
-        -- Update VFX system
-        game.vfx.update(dt)
-
-        -- Update SustainedSpellManager for trap and shield management
-        game.sustainedSpellManager.update(dt)
-
-        -- Update animated health displays
-        UI.updateHealthDisplays(dt, game.wizards)
-
-        -- Update both AI players in attract mode
-        if game.player1AI then
-            game.player1AI:update(dt)
-        end
-        if game.player2AI then
-            game.player2AI:update(dt)
-        end
+        BattleUpdate.updateAttractBattle(game, dt)
     elseif game.currentState == "GAME_OVER_ATTRACT" then
         -- Update win screen timer
         game.winScreenTimer = game.winScreenTimer + dt

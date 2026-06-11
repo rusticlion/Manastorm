@@ -2,6 +2,7 @@
 -- Resolves events to appropriate visual effects based on event metadata
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 local VisualResolver = {}
 
@@ -93,7 +94,7 @@ local DEFAULT_MOTION = Constants.MotionStyle.RADIAL
 
 -- Helper function for debug output without requiring vfx module dependency
 function VisualResolver.debug(message)
-    print("[VisualResolver] " .. message)
+    Log.debug("[VisualResolver] " .. message)
 end
 
 -- Small helpers

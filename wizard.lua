@@ -13,6 +13,7 @@ local TokenManager = require("systems.TokenManager")
 local UnlockSystem = require("systems.UnlockSystem")
 local BlockedCastLifecycle = require("systems.wizard.BlockedCastLifecycle")
 local CastExecution = require("systems.wizard.CastExecution")
+local Log = require("core.Log")
 
 -- Fallback cleanup time in case a blocked spell's VFX callback is missed.
 local BLOCKED_IMPACT_FALLBACK_SECONDS = 2.0
@@ -46,7 +47,7 @@ local function getCompiledSpell(spellId, wizard)
             Spells[spellId], 
             gameState.keywords
         )
-        print("Compiled spell on demand: " .. spellId)
+        Log.debug("Compiled spell on demand: " .. spellId)
         return gameState.compiledSpells[spellId]
     else
         print("Error: Could not compile spell with ID: " .. spellId)
@@ -168,7 +169,7 @@ function Wizard.new(name, x, y, color, spellbook)
 
     if success then
         self.sprite = result
-        print("Loaded wizard sprite: " .. spritePath)
+        Log.debug("Loaded wizard sprite: " .. spritePath)
     else
         -- Fallback to default wizard sprite
         print("Warning: Could not load sprite " .. spritePath .. ". Using default wizard.png instead.")
@@ -183,7 +184,7 @@ function Wizard.new(name, x, y, color, spellbook)
 
     if castSuccess then
         self.castFrameSprite = castResult
-        print("Loaded wizard cast frame: " .. castFramePath)
+        Log.debug("Loaded wizard cast frame: " .. castFramePath)
     else
         -- No fallback for cast frame, just leave it nil
         print("Warning: Could not load cast frame " .. castFramePath .. ". Cast animation will be disabled.")
@@ -323,7 +324,7 @@ function Wizard:update(dt)
                         slot.freezeTimer = slot.freezeTimer - dt
                         if slot.freezeTimer <= 0 then
                             slot.frozen = false
-                            print(string.format("%s's spell in slot %d is no longer frozen after %.2f seconds (%.4f castTimeModifier)", 
+                            Log.debug(string.format("%s's spell in slot %d is no longer frozen after %.2f seconds (%.4f castTimeModifier)", 
                                 self.name, i, slot.castTimeModifier, slot.castTimeModifier))
                         end
                     else
@@ -339,7 +340,7 @@ function Wizard:update(dt)
                             self:castSpell(i)
                             
                             -- Debug message to confirm we're setting the flag
-                            print(string.format("[DEBUG] Marked slot %d as already cast to prevent repetition", i))
+                            Log.debug(string.format("[DEBUG] Marked slot %d as already cast to prevent repetition", i))
                         end
                     end
                 end
@@ -382,7 +383,7 @@ function Wizard:keySpell(keyIndex, isPressed)
     local stun = self.statusEffects[Constants.StatusType.STUN]
     if stun and stun.active and isPressed then
         local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
-        print(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
+        Log.debug(self.name .. " tried to key a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
@@ -405,14 +406,14 @@ function Wizard:keySpell(keyIndex, isPressed)
         
         -- Log the currently keyed spell
         if self.currentKeyedSpell then
-            print(self.name .. " keyed " .. self.currentKeyedSpell.name .. " (" .. keyCombo .. ")")
+            Log.debug(self.name .. " keyed " .. self.currentKeyedSpell.name .. " (" .. keyCombo .. ")")
             
             -- Debug: verify spell definition is complete
             if not self.currentKeyedSpell.cost then
                 print("WARNING: Spell '" .. self.currentKeyedSpell.name .. "' has no cost defined!")
             end
         else
-            print(self.name .. " has no spell for key combination: " .. keyCombo)
+            Log.debug(self.name .. " has no spell for key combination: " .. keyCombo)
         end
     end
     
@@ -425,13 +426,13 @@ function Wizard:castKeyedSpell()
     local stun = self.statusEffects[Constants.StatusType.STUN]
     if stun and stun.active then
         local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
-        print(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
+        Log.debug(self.name .. " tried to cast a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
     -- Check if a spell is keyed
     if not self.currentKeyedSpell then
-        print(self.name .. " tried to cast, but no spell is keyed")
+        Log.debug(self.name .. " tried to cast, but no spell is keyed")
         return false
     end
     
@@ -466,13 +467,13 @@ function Wizard:queueSpell(spell)
     local stun = self.statusEffects[Constants.StatusType.STUN]
     if stun and stun.active then
         local remaining = stun.duration > 0 and (stun.duration - stun.totalTime) or 0
-        print(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
+        Log.debug(self.name .. " tried to queue a spell but is stunned for " .. string.format("%.1f", remaining) .. " more seconds")
         return false
     end
     
     -- Validate the spell
     if not spell then
-        print("No spell provided to queue")
+        print("Warning: No spell provided to queue")
         return false
     end
     
@@ -483,7 +484,7 @@ function Wizard:queueSpell(spell)
         local compiledSpell = getCompiledSpell(spell.id, self)
         if compiledSpell then
             spellToUse = compiledSpell
-            print("Using compiled spell for queue: " .. spellToUse.id)
+            Log.debug("Using compiled spell for queue: " .. spellToUse.id)
         else
             print("Warning: Using original spell definition - could not get compiled version of " .. spell.id)
         end
@@ -504,7 +505,7 @@ function Wizard:queueSpell(spell)
                 -- Check if we need tokens (empty cost doesn't need tokens)
                 if #tokenReservations == 0 then
                     -- Free spell - no tokens needed
-                    print("[TOKEN MANAGER] Free spell (no mana cost)")
+                    Log.debug("[TOKEN MANAGER] Free spell (no mana cost)")
                 else
                     -- Resolve actual cost table now if using dynamic cost
                     local actualCost = type(costSource) == "function" and costSource(self, nil) or costSource
@@ -517,7 +518,7 @@ function Wizard:queueSpell(spell)
                         tokens = acquiredTokens
                     else
                         -- TokenManager failed, fallback to legacy method
-                        print("[TokenManager] Failed to acquire tokens, using legacy method")
+                        Log.debug("[TokenManager] Failed to acquire tokens, using legacy method")
                         
                         -- Move each token from mana pool to spell slot with animation
                         for _, reservation in ipairs(tokenReservations) do
@@ -575,7 +576,7 @@ function Wizard:queueSpell(spell)
                 local baseCastTime
                 if spellToUse.getCastTime and type(spellToUse.getCastTime) == "function" then
                     baseCastTime = spellToUse.getCastTime(self)
-                    print(self.name .. " is using dynamic base cast time: " .. baseCastTime .. "s")
+                    Log.debug(self.name .. " is using dynamic base cast time: " .. baseCastTime .. "s")
                 else
                     baseCastTime = spellToUse.castTime
                 end
@@ -591,7 +592,7 @@ function Wizard:queueSpell(spell)
                     if targetSlot == nil or targetSlot == 0 or targetSlot == queueingSlot then
                         local slowMagnitude = slowEffect.magnitude or 0
                         finalCastTime = baseCastTime + slowMagnitude
-                        print(string.format("[STATUS] Slow effect applied! Base cast: %.1fs, Slowed cast: %.1fs (Slot %s)",
+                        Log.debug(string.format("[STATUS] Slow effect applied! Base cast: %.1fs, Slowed cast: %.1fs (Slot %s)",
                             baseCastTime, finalCastTime, tostring(targetSlot or "Any")))
                         
                         -- Consume the slow effect
@@ -609,7 +610,7 @@ function Wizard:queueSpell(spell)
                 
                 -- Check if this is a shield spell and mark it accordingly
                 if spellToUse.isShield or (spellToUse.keywords and spellToUse.keywords.block) then
-                    print("SHIELD SPELL DETECTED during queue: " .. spellToUse.name)
+                    Log.debug("SHIELD SPELL DETECTED during queue: " .. spellToUse.name)
                     -- Flag that this will become a shield when cast
                     self.spellSlots[i].willBecomeShield = true
                     
@@ -630,18 +631,18 @@ function Wizard:queueSpell(spell)
                     self.spellSlots[i].attackType = spellToUse.attackType
                 end
                 
-                print(self.name .. " queued " .. spellToUse.name .. " in slot " .. i .. " (cast time: " .. spellToUse.castTime .. "s)")
+                Log.debug(self.name .. " queued " .. spellToUse.name .. " in slot " .. i .. " (cast time: " .. spellToUse.castTime .. "s)")
                 return true
             else
                 -- Couldn't pay the cost
-                print(self.name .. " tried to queue " .. spellToUse.name .. " but couldn't pay the mana cost")
+                Log.debug(self.name .. " tried to queue " .. spellToUse.name .. " but couldn't pay the mana cost")
                 return false
             end
         end
     end
     
     -- No available slots
-    print(self.name .. " tried to queue " .. spellToUse.name .. " but all slots are full")
+    Log.debug(self.name .. " tried to queue " .. spellToUse.name .. " but all slots are full")
     return false
 end
 
@@ -657,7 +658,7 @@ end
 
 -- Free all active spells and return their mana to the pool
 function Wizard:freeAllSpells()
-    print(self.name .. " is freeing all active spells")
+    Log.debug(self.name .. " is freeing all active spells")
     
     -- Iterate through all spell slots
     for i, slot in ipairs(self.spellSlots) do
@@ -674,7 +675,7 @@ function Wizard:freeAllSpells()
             -- Reset all slot properties using unified method
             self:resetSpellSlot(i)
             
-            print("Freed spell in slot " .. i)
+            Log.debug("Freed spell in slot " .. i)
         end
     end
     
@@ -715,7 +716,7 @@ function Wizard:canPayManaCost(costOrGetCostFn, target)
     
     -- Check if cost is a valid table we can iterate through
     if type(cost) ~= "table" then
-        print("Cost is not a table, it's a " .. type(cost))
+        Log.debug("Cost is not a table, it's a " .. type(cost))
         return nil
     end
     
@@ -742,7 +743,7 @@ function Wizard:canPayManaCost(costOrGetCostFn, target)
             standardizedCost[Constants.TokenType.ANY] = (standardizedCost[Constants.TokenType.ANY] or 0) + component
         else
             -- Unknown cost component format
-            print("Unknown cost component format: " .. type(component))
+            Log.debug("Unknown cost component format: " .. type(component))
             return nil
         end
     end
@@ -806,14 +807,14 @@ function Wizard:canPayManaCost(costOrGetCostFn, target)
             -- Random/any token type (any token will do)
             local success = reserveToken(tokenType, amount)
             if not success then
-                print("Cannot find " .. amount .. " tokens of any type")
+                Log.debug("Cannot find " .. amount .. " tokens of any type")
                 return nil
             end
         else
             -- Specific token type
             local success = reserveToken(tokenType, amount)
             if not success then
-                print("Cannot find enough " .. tokenType .. " tokens (need " .. amount .. ")")
+                Log.debug("Cannot find enough " .. tokenType .. " tokens (need " .. amount .. ")")
                 return nil
             end
         end
@@ -827,7 +828,7 @@ function Wizard:castSpell(spellSlot)
     local slot = self.spellSlots[spellSlot]
     if not slot or not slot.active or not slot.spell then return end
     
-    print(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
+    Log.debug(self.name .. " cast " .. slot.spellType .. " from slot " .. spellSlot)
 
     -- Activate cast frame animation if sprite is available
     if self.castFrameSprite then
@@ -865,7 +866,7 @@ function Wizard:castSpell(spellSlot)
         return blockedEffect
     end
 
-    print("Executing spell: " .. spellToUse.id)
+    Log.debug("Executing spell: " .. spellToUse.id)
     local effect = spellToUse.executeAll(self, target, {}, spellSlot)
     local finalizedEffect = CastExecution.finalizeCast(self, slot, spellSlot, spellToUse, effect)
     CastExecution.dispatchCastComplete(self, target, spellSlot, spellToUse, finalizedEffect)
@@ -879,12 +880,12 @@ function Wizard:resetSpellSlot(slotIndex)
     if not slot then return end
     
     -- Debug message when slot reset happens
-    print(string.format("[DEBUG] resetSpellSlot called for %s slot %d", self.name, slotIndex))
+    Log.debug(string.format("[DEBUG] resetSpellSlot called for %s slot %d", self.name, slotIndex))
     
     -- Remove from SustainedSpellManager if it's a sustained spell
     if slot.sustainedId and self.gameState and self.gameState.sustainedSpellManager then
         self.gameState.sustainedSpellManager.removeSustainedSpell(slot.sustainedId)
-        print(string.format("[SUSTAINED] Removed spell in slot %d with ID: %s during slot reset", 
+        Log.debug(string.format("[SUSTAINED] Removed spell in slot %d with ID: %s during slot reset", 
             slotIndex, tostring(slot.sustainedId)))
         slot.sustainedId = nil
     end
@@ -939,18 +940,18 @@ end
 -- Handle the effects of a spell being blocked by a shield in a specific slot
 -- This is now a wrapper method that delegates to ShieldSystem
 function Wizard:handleShieldBlock(slotIndex, incomingSpell, attackerWizard)
-    print("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
+    Log.debug("[WIZARD DEBUG] handleShieldBlock called for " .. self.name .. " slot " .. slotIndex)
     
     -- Debug the shield slot to check for onBlock
     if self.spellSlots and self.spellSlots[slotIndex] then
         local slot = self.spellSlots[slotIndex]
         if slot.onBlock then
-            print("[WIZARD DEBUG] onBlock handler found in shield slot")
+            Log.debug("[WIZARD DEBUG] onBlock handler found in shield slot")
         else
-            print("[WIZARD DEBUG] No onBlock handler found in shield slot")
+            Log.debug("[WIZARD DEBUG] No onBlock handler found in shield slot")
         end
     else
-        print("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
+        Log.debug("[WIZARD DEBUG] Invalid slot index: " .. tostring(slotIndex))
     end
     
     return ShieldSystem.handleShieldBlock(self, slotIndex, incomingSpell, attackerWizard)

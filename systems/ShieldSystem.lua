@@ -2,6 +2,7 @@
 -- Centralized shield management system for Manastorm
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local ShieldSystem = {}
 
 -- Get appropriate shield color based on defense type
@@ -50,9 +51,9 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     
     -- Debug log for onBlock handler
     if blockParams.onBlock then
-        print("[SHIELD DEBUG] Shield creation: onBlock handler saved to slot")
+        Log.debug("[SHIELD DEBUG] Shield creation: onBlock handler saved to slot")
     else
-        print("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
+        Log.debug("[SHIELD DEBUG] Shield creation: No onBlock handler provided")
     end
     
     -- Remove duplicate onBlock assignment from line 67
@@ -118,7 +119,7 @@ function ShieldSystem.createShield(wizard, spellSlot, blockParams)
     end
     
     -- Print debug info - simplified to only show token count
-    print(string.format("[SHIELD] %s created a %s shield in slot %d with %d tokens",
+    Log.debug(string.format("[SHIELD] %s created a %s shield in slot %d with %d tokens",
         wizard.name or "Unknown wizard",
         slot.defenseType,
         spellSlot,
@@ -146,17 +147,17 @@ function ShieldSystem.checkShieldBlock(spell, attackType, defender, attacker)
     
     -- Early exit cases
     if not defender or not spell or not attackType then
-        print("[SHIELD DEBUG] checkShieldBlock early exit - missing parameter")
+        Log.debug("[SHIELD DEBUG] checkShieldBlock early exit - missing parameter")
         return result
     end
     
     -- Utility spells can't be blocked
     if attackType == Constants.AttackType.UTILITY then
-        print("[SHIELD DEBUG] checkShieldBlock early exit - utility spell can't be blocked")
+        Log.debug("[SHIELD DEBUG] checkShieldBlock early exit - utility spell can't be blocked")
         return result
     end
     
-    print("[SHIELD DEBUG] Checking if " .. attackType .. " spell can be blocked by " .. defender.name .. "'s shields")
+    Log.debug("[SHIELD DEBUG] Checking if " .. attackType .. " spell can be blocked by " .. defender.name .. "'s shields")
     
     -- Check each of the defender's spell slots for active shields
     for i, slot in ipairs(defender.spellSlots) do
@@ -281,7 +282,7 @@ end
 -- compatibility but will be removed in a future version.
 function ShieldSystem.createBlockVFX(caster, target, blockInfo, spellInfo)
     print("[SHIELD SYSTEM] WARNING: ShieldSystem.createBlockVFX is deprecated")
-    print("[SHIELD SYSTEM] Shield block visuals are now handled by the VFX system")
+    Log.debug("[SHIELD SYSTEM] Shield block visuals are now handled by the VFX system")
     
     -- No-op function, kept for backward compatibility
     return 

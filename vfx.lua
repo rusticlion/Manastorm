@@ -12,6 +12,7 @@ VFX.__index = VFX
 local Pool = require("core.Pool")
 local Constants = require("core.Constants")
 local AssetCache = require("core.AssetCache")
+local Log = require("core.Log")
 local ParticleManager = require("vfx.ParticleManager")
 local BlockRenderer = require("vfx.BlockRenderer")
 local CARenderer = require("vfx.CARenderer")
@@ -50,7 +51,7 @@ local function getAssetInternal(assetId)
         -- If array exists but is empty, load runes
         if #VFX.assets.runes == 0 then
             for i, runePath in ipairs(path) do
-                print("[VFX] Loading rune asset on demand: rune" .. i)
+                Log.debug("[VFX] Loading rune asset on demand: rune" .. i)
                 local runeImg = AssetCache.getImage(runePath)
                 if runeImg then
                     table.insert(VFX.assets.runes, runeImg)
@@ -62,7 +63,7 @@ local function getAssetInternal(assetId)
         
         -- Log if runes were loaded successfully
         if #VFX.assets.runes > 0 then
-            print("[VFX] Successfully loaded " .. #VFX.assets.runes .. " rune assets")
+            Log.debug("[VFX] Successfully loaded " .. #VFX.assets.runes .. " rune assets")
         else 
             print("[VFX] Warning: No rune assets were loaded!")
         end
@@ -71,7 +72,7 @@ local function getAssetInternal(assetId)
     end
     
     -- Load on demand using AssetCache
-    print("[VFX] Lazily loading asset: " .. assetId)
+    Log.debug("[VFX] Lazily loading asset: " .. assetId)
     VFX.assets[assetId] = AssetCache.getImage(path)
     return VFX.assets[assetId]
 end
@@ -153,12 +154,12 @@ function VFX.init()
     
     -- Preload critical assets immediately
     -- This ensures essential effects like ward shields work even on first use
-    print("[VFX] Eagerly preloading critical assets...")
+    Log.debug("[VFX] Eagerly preloading critical assets...")
     
     -- Preload rune assets for ward shields
     VFX.assets.runes = {}
     for i, runePath in ipairs(VFX.assetPaths.runes) do
-        print("[VFX] Preloading essential asset: rune" .. i)
+        Log.debug("[VFX] Preloading essential asset: rune" .. i)
         local runeImg = AssetCache.getImage(runePath)
         if runeImg then
             table.insert(VFX.assets.runes, runeImg)
@@ -168,20 +169,20 @@ function VFX.init()
     end
     
     -- Preload sparkle asset (used in many effects)
-    print("[VFX] Preloading essential asset: sparkle")
+    Log.debug("[VFX] Preloading essential asset: sparkle")
     VFX.assets.sparkle = AssetCache.getImage(VFX.assetPaths.sparkle)
     
     -- Preload pixel and twinkle assets (used in wave effects and other primitives)
-    print("[VFX] Preloading essential assets: pixel, twinkle1, twinkle2")
+    Log.debug("[VFX] Preloading essential assets: pixel, twinkle1, twinkle2")
     VFX.assets.pixel = AssetCache.getImage(VFX.assetPaths.pixel)
     VFX.assets.twinkle1 = AssetCache.getImage(VFX.assetPaths.twinkle1)
     VFX.assets.twinkle2 = AssetCache.getImage(VFX.assetPaths.twinkle2)
     
     -- Preload bolt frames for the bolt effects
-    print("[VFX] Preloading bolt frame assets")
+    Log.debug("[VFX] Preloading bolt frame assets")
     VFX.assets.boltFrames = {}
     for i, boltPath in ipairs(VFX.assetPaths.boltFrames) do
-        print("[VFX] Preloading bolt frame " .. i)
+        Log.debug("[VFX] Preloading bolt frame " .. i)
         local boltImg = AssetCache.getImage(boltPath)
         if boltImg then
             table.insert(VFX.assets.boltFrames, boltImg)
@@ -191,10 +192,10 @@ function VFX.init()
     end
     
     -- Preload orb frames for the orb effects
-    print("[VFX] Preloading orb frame assets")
+    Log.debug("[VFX] Preloading orb frame assets")
     VFX.assets.orbFrames = {}
     for i, orbPath in ipairs(VFX.assetPaths.orbFrames) do
-        print("[VFX] Preloading orb frame " .. i)
+        Log.debug("[VFX] Preloading orb frame " .. i)
         local orbImg = AssetCache.getImage(orbPath)
         if orbImg then
             table.insert(VFX.assets.orbFrames, orbImg)
@@ -204,10 +205,10 @@ function VFX.init()
     end
     
     -- Preload warp frames for the warp effects
-    print("[VFX] Preloading warp frame assets")
+    Log.debug("[VFX] Preloading warp frame assets")
     VFX.assets.warpFrames = {}
     for i, warpPath in ipairs(VFX.assetPaths.warpFrames) do
-        print("[VFX] Preloading warp frame " .. i)
+        Log.debug("[VFX] Preloading warp frame " .. i)
         local warpImg = AssetCache.getImage(warpPath)
         if warpImg then
             table.insert(VFX.assets.warpFrames, warpImg)
@@ -217,10 +218,10 @@ function VFX.init()
     end
 
     -- Preload zap frames for the zap effects
-    print("[VFX] Preloading zap frame assets")
+    Log.debug("[VFX] Preloading zap frame assets")
     VFX.assets.zapFrames = {}
     for i, zapPath in ipairs(VFX.assetPaths.zapFrames) do
-        print("[VFX] Preloading zap frame " .. i)
+        Log.debug("[VFX] Preloading zap frame " .. i)
         local zapImg = AssetCache.getImage(zapPath)
         if zapImg then
             table.insert(VFX.assets.zapFrames, zapImg)
@@ -962,24 +963,24 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     local Constants = require("core.Constants")
     
     -- Enhanced debugging for VFX-R5 implementation
-    print("\n====== VFX CREATION CALL ======")
-    print("[VFX] CALL STACK: " .. debug.traceback())
-    print("[VFX] effectName: " .. tostring(effectName))
-    print("[VFX] sourceX: " .. tostring(sourceX) .. " sourceY: " .. tostring(sourceY))
+    Log.debug("\n====== VFX CREATION CALL ======")
+    Log.debug("[VFX] CALL STACK: " .. debug.traceback())
+    Log.debug("[VFX] effectName: " .. tostring(effectName))
+    Log.debug("[VFX] sourceX: " .. tostring(sourceX) .. " sourceY: " .. tostring(sourceY))
     if targetX and targetY then
-        print("[VFX] targetX: " .. tostring(targetX) .. " targetY: " .. tostring(targetY))
+        Log.debug("[VFX] targetX: " .. tostring(targetX) .. " targetY: " .. tostring(targetY))
     end
     if options then
-        print("[VFX] Options:")
+        Log.debug("[VFX] Options:")
         for k, v in pairs(options) do
             if type(v) == "table" then
-                print("  " .. k .. ": [table]")
+                Log.debug("  " .. k .. ": [table]")
             else
-                print("  " .. k .. ": " .. tostring(v))
+                Log.debug("  " .. k .. ": " .. tostring(v))
             end
         end
     end
-    print("================================\n")
+    Log.debug("================================\n")
     
     -- Handle both string and Constants.VFXType format
     local effectNameStr
@@ -994,10 +995,10 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     end
     
     -- Regular debug output
-    print("[VFX] Creating effect: " .. effectNameStr)
-    print("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
+    Log.debug("[VFX] Creating effect: " .. effectNameStr)
+    Log.debug("[VFX] sourceX: " .. sourceX .. " sourceY: " .. sourceY)
     if targetX and targetY then
-        print("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
+        Log.debug("[VFX] targetX: " .. targetX .. " targetY: " .. targetY)
     end
     
     -- Process options
@@ -1006,7 +1007,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     -- Process options.addons if provided (for future work)
     if opts.addons and #opts.addons > 0 then
         for _, addon in ipairs(opts.addons) do
-            print("[VFX] TODO addon: " .. tostring(addon))
+            Log.debug("[VFX] TODO addon: " .. tostring(addon))
             -- In future work, we would create or modify effects based on addons
             -- Example: Apply a fire overlay to a projectile, add a sparkle effect, etc.
         end
@@ -1022,11 +1023,11 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
                 local asset = VFX.getAsset(assetId)
                 if not asset or (assetId == "runes" and #asset == 0) then
                     -- Asset failed to load, try emergency loading
-                    print("[VFX] Critical asset missing: " .. assetId .. ", attempting emergency load")
+                    print("[VFX] Warning: Critical asset missing: " .. assetId .. ", attempting emergency load")
                     
                     -- Emergency loading of critical asset
                     if assetId == "runes" and VFX.assetPaths and VFX.assetPaths.runes then
-                        print("[VFX] Emergency loading of rune assets")
+                        Log.debug("[VFX] Emergency loading of rune assets")
                         local AssetCache = require("core.AssetCache")
                         VFX.assets.runes = VFX.assets.runes or {}
                         for i, runePath in ipairs(VFX.assetPaths.runes) do
@@ -1036,7 +1037,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
                             end
                         end
                     elseif VFX.assetPaths and VFX.assetPaths[assetId] then
-                        print("[VFX] Emergency loading of asset: " .. assetId)
+                        Log.debug("[VFX] Emergency loading of asset: " .. assetId)
                         local AssetCache = require("core.AssetCache")
                         VFX.assets[assetId] = AssetCache.getImage(VFX.assetPaths[assetId])
                     end
@@ -1056,7 +1057,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
                     local AssetCache = require("core.AssetCache")
                     VFX.assets.runes = {}
                     for i, runePath in ipairs(VFX.assetPaths.runes) do
-                        print("[VFX] Emergency loading of rune asset: " .. i)
+                        Log.debug("[VFX] Emergency loading of rune asset: " .. i)
                         local runeImg = AssetCache.getImage(runePath)
                         if runeImg then
                             table.insert(VFX.assets.runes, runeImg)
@@ -1077,7 +1078,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
             if not template then
                 return nil -- Give up if no fallback is available
             end
-            print("[VFX] Falling back to '" .. Constants.VFXType.IMPACT .. "' effect")
+            Log.debug("[VFX] Falling back to '" .. Constants.VFXType.IMPACT .. "' effect")
         end
     end
     
@@ -1142,18 +1143,18 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
     
     -- Store shield block information if provided (for projectile block visuals)
     if options and options.blockInfo then
-        print("[VFX] Effect has blockInfo - will show shield block visuals")
+        Log.debug("[VFX] Effect has blockInfo - will show shield block visuals")
         effect.blockInfo = options.blockInfo
         effect.options = effect.options or {}
         effect.options.blockPoint = options.blockPoint or 0.75 -- Default to 75% of the way
         effect.options.shieldType = options.blockInfo.blockType or (options.shieldType or "ward")
         
         -- Enhanced debugging for shield block effects
-        print(string.format("[VFX] Created blocked effect '%s' with blockPoint=%.2f and shieldType=%s", 
+        Log.debug(string.format("[VFX] Created blocked effect '%s' with blockPoint=%.2f and shieldType=%s", 
             effectName, effect.options.blockPoint, effect.options.shieldType or "unknown"))
     elseif options and options.blockPoint then
         -- Fallback for cases where blockPoint is provided without blockInfo
-        print("[VFX] Effect has blockPoint but no blockInfo - creating minimal blockInfo")
+        Log.debug("[VFX] Effect has blockPoint but no blockInfo - creating minimal blockInfo")
         effect.options = effect.options or {}
         effect.options.blockPoint = options.blockPoint
         effect.options.shieldType = options.shieldType or "ward"
@@ -1164,11 +1165,11 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         }
         
         -- Enhanced debugging for fallback shield block effects
-        print(string.format("[VFX] Created fallback blocked effect '%s' with blockPoint=%.2f", 
+        Log.debug(string.format("[VFX] Created fallback blocked effect '%s' with blockPoint=%.2f", 
             effectName, effect.options.blockPoint))
     elseif options and options.tags and options.tags.SHIELD_BLOCKED then
         -- Ultra fallback for SHIELD_BLOCKED tag without proper blockInfo
-        print("[VFX] Effect has SHIELD_BLOCKED tag but no blockInfo or blockPoint - creating default blockInfo")
+        Log.debug("[VFX] Effect has SHIELD_BLOCKED tag but no blockInfo or blockPoint - creating default blockInfo")
         effect.options = effect.options or {}
         effect.options.blockPoint = 0.75
         effect.options.shieldType = options.shieldType or "ward"
@@ -1179,7 +1180,7 @@ function VFX.createEffect(effectName, sourceX, sourceY, targetX, targetY, option
         }
         
         -- Enhanced debugging for ultra fallback shield block effects
-        print(string.format("[VFX] Created ultra fallback blocked effect '%s' with default blockPoint=0.75", 
+        Log.debug(string.format("[VFX] Created ultra fallback blocked effect '%s' with default blockPoint=0.75", 
             effectName))
     end
     
@@ -1404,12 +1405,12 @@ function VFX.update(dt)
         -- Mark effect as blocked if necessary
         if isBlocked and not effect.isBlocked then
             effect.isBlocked = true
-            print("[VFX] Setting effect.isBlocked = true for projectile")
+            Log.debug("[VFX] Setting effect.isBlocked = true for projectile")
         end
 
         -- Debug to verify blocked effect tracking
         if isBlocked and effect.timer == dt then  -- First update frame
-            print(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f",
+            Log.debug(string.format("[VFX] Tracking blocked effect '%s' with blockPoint=%.2f",
                 effect.name or "unknown", effect.options.blockPoint))
         end
         
@@ -1424,7 +1425,7 @@ function VFX.update(dt)
             if not effect.visualProgress then
                 -- Initialize visualProgress at the beginning (first frame)
                 effect.visualProgress = 0
-                print("[VFX] Initializing blocked projectile trajectory")
+                Log.debug("[VFX] Initializing blocked projectile trajectory")
             end
             
             -- Update visualProgress for smooth animation - speed up slightly for gameplay feel
@@ -1446,7 +1447,7 @@ function VFX.update(dt)
                 effect.visualProgress = effect.options.blockPoint
                 
                 -- Enhanced debugging
-                print(string.format("[VFX] Effect '%s' blocked at %.2f, starting shield impact sequence", 
+                Log.debug(string.format("[VFX] Effect '%s' blocked at %.2f, starting shield impact sequence", 
                     effect.name or "unknown", effect.options.blockPoint))
                 
                 -- Create shield impact effect
@@ -1463,7 +1464,7 @@ function VFX.update(dt)
                     local impactY = effect.sourceY + (effect.targetY - effect.sourceY) * progress
                     
                     -- Create a separate shield hit effect
-                    print(string.format("[VFX] Creating shield hit effect at (%.1f, %.1f)", impactX, impactY))
+                    Log.debug(string.format("[VFX] Creating shield hit effect at (%.1f, %.1f)", impactX, impactY))
                     
                     -- Determine shield color based on shield type
                     local shieldColor = {1.0, 1.0, 0.3, 0.7}  -- Default yellow
@@ -1496,7 +1497,7 @@ function VFX.update(dt)
                     VFX.createEffect(impactEffect, impactX, impactY, impactX, impactY, burstParams)
                     
                     -- No need to add particles to current effect
-                    print("[VFX] Created shield impact effects")
+                    Log.debug("[VFX] Created shield impact effects")
 
                     -- Clean up the projectile immediately after impact
                     ParticleManager.releaseAllParticles(effect.particles or {})
@@ -1505,45 +1506,45 @@ function VFX.update(dt)
                     effect.progress = 1.0
                     
                     -- Trigger screen shake at the exact moment of shield impact
-                    print("[VFX] Attempting to trigger screen shake for shield block")
+                    Log.debug("[VFX] Attempting to trigger screen shake for shield block")
                     
                     -- Get the game state reference from the effect options if available
                     local gameState = nil
                     
                     -- First try to use the directly passed gameState if available
                     if effect.options and effect.options.gameState then
-                        print("[VFX] Found gameState directly in options")
+                        Log.debug("[VFX] Found gameState directly in options")
                         gameState = effect.options.gameState
                     -- Next try through sourceEntity
                     elseif effect.options and effect.options.sourceEntity and effect.options.sourceEntity.gameState then
-                        print("[VFX] Found gameState through sourceEntity")
+                        Log.debug("[VFX] Found gameState through sourceEntity")
                         gameState = effect.options.sourceEntity.gameState
                     -- Next try through targetEntity
                     elseif effect.options and effect.options.targetEntity and effect.options.targetEntity.gameState then
-                        print("[VFX] Found gameState through targetEntity")
+                        Log.debug("[VFX] Found gameState through targetEntity")
                         gameState = effect.options.targetEntity.gameState
                     -- Finally try the global game object
                     else
                         -- Try to find it through the global game object
-                        print("[VFX] No entity references found, looking for global game object")
+                        Log.debug("[VFX] No entity references found, looking for global game object")
                         if _G.game then
-                            print("[VFX] Found global game object via _G.game")
+                            Log.debug("[VFX] Found global game object via _G.game")
                             gameState = _G.game
                         elseif game then -- Try directly referencing the global variable 
-                            print("[VFX] Found global game object via direct access")
+                            Log.debug("[VFX] Found global game object via direct access")
                             gameState = game
                         -- As a last resort, use the VFX module's stored reference
                         elseif VFX.gameState then
-                            print("[VFX] Using VFX.gameState reference")
+                            Log.debug("[VFX] Using VFX.gameState reference")
                             gameState = VFX.gameState
                         end
                     end
                     
                     -- Check if we have game state and trigger methods
                     if gameState then
-                        print("[VFX] GameState found. Has triggerShake: " .. tostring(gameState.triggerShake ~= nil))
+                        Log.debug("[VFX] GameState found. Has triggerShake: " .. tostring(gameState.triggerShake ~= nil))
                     else
-                        print("[VFX] No gameState found for triggering shake!")
+                        Log.debug("[VFX] No gameState found for triggering shake!")
                     end
                     
                     -- Determine impact amount for shake intensity (from effect or default)
@@ -1554,23 +1555,23 @@ function VFX.update(dt)
                     -- Trigger shake if we have access to the game state
                     if gameState and gameState.triggerShake then
                         -- Trigger a light shake for shield blocks via gameState
-                        print(string.format("[VFX] About to call gameState.triggerShake(%.2f, %.2f)", shakeDuration, intensity))
+                        Log.debug(string.format("[VFX] About to call gameState.triggerShake(%.2f, %.2f)", shakeDuration, intensity))
                         gameState.triggerShake(shakeDuration, intensity)
-                        print(string.format("[VFX] Shield block impact! Triggered light shake (%.2f, %.2f) at blockPoint=%.2f", 
+                        Log.debug(string.format("[VFX] Shield block impact! Triggered light shake (%.2f, %.2f) at blockPoint=%.2f", 
                             shakeDuration, intensity, effect.options.blockPoint or 0))
                     elseif VFX.triggerShake then
                         -- Use the VFX module's direct function reference
-                        print(string.format("[VFX] About to call VFX.triggerShake(%.2f, %.2f)", shakeDuration, intensity))
+                        Log.debug(string.format("[VFX] About to call VFX.triggerShake(%.2f, %.2f)", shakeDuration, intensity))
                         VFX.triggerShake(shakeDuration, intensity)
-                        print(string.format("[VFX] Shield block impact! Triggered light shake via VFX.triggerShake"))
+                        Log.debug(string.format("[VFX] Shield block impact! Triggered light shake via VFX.triggerShake"))
                     else
                         -- Last resort: Try to use the global function directly
                         if _G.triggerShake then
-                            print(string.format("[VFX] About to call global triggerShake(%.2f, %.2f)", shakeDuration, intensity))
+                            Log.debug(string.format("[VFX] About to call global triggerShake(%.2f, %.2f)", shakeDuration, intensity))
                             _G.triggerShake(shakeDuration, intensity)
-                            print("[VFX] Called global triggerShake function")
+                            Log.debug("[VFX] Called global triggerShake function")
                         else
-                            print("[VFX] Could not trigger shake - no valid triggerShake function found")
+                            Log.debug("[VFX] Could not trigger shake - no valid triggerShake function found")
                         end
                     end
                 end
@@ -1583,7 +1584,7 @@ function VFX.update(dt)
                 if effect.blockTimer > 1.2 then
                     -- After the hold period, mark the effect complete
                     effect.progress = 1.0
-                    print(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
+                    Log.debug(string.format("[VFX] Blocked effect '%s' cleanup - forcing completion", effect.name or "unknown"))
                 else
                     -- Lock both visual and logical progress at the block point so the effect isn't removed early
                     effect.visualProgress = effect.options.blockPoint
@@ -1627,7 +1628,7 @@ function VFX.update(dt)
         if effect.progress >= 1.0 then
             -- Execute onComplete callback if it exists
             if effect.options and effect.options.onComplete then
-                print("[VFX] Executing onComplete callback for effect: " .. (effect.name or "unnamed"))
+                Log.debug("[VFX] Executing onComplete callback for effect: " .. (effect.name or "unnamed"))
                 local success, err = pcall(function()
                     effect.options.onComplete(effect)
                 end)
@@ -1758,7 +1759,7 @@ function VFX.createEffectAsync(effectName, sourceX, sourceY, targetX, targetY, o
         
         -- Method to register a callback for when the effect completes
         onComplete = function(callback)
-            print("[VFX] Async VFX callback registered (stub)")
+            Log.debug("[VFX] Async VFX callback registered (stub)")
             -- In a full implementation, this would store the callback and call it 
             -- when the effect completes (tracked via effect.progress reaching 1.0)
             return effect

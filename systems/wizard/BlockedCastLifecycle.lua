@@ -2,6 +2,7 @@
 -- Manages timing and cleanup for blocked casts waiting on impact VFX callbacks.
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local BlockedCastLifecycle = {}
 
 local function dispatchBlockedCleanup(wizard, slotIndex)
@@ -55,7 +56,7 @@ function BlockedCastLifecycle.updatePending(wizard, slotIndex, slot, dt, default
         return true
     end
 
-    print(string.format(
+    Log.debug(string.format(
         "[SHIELD BLOCK] Fallback cleanup triggered for %s slot %d after %.2fs",
         wizard.name,
         slotIndex,

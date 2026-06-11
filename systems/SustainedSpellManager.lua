@@ -50,7 +50,7 @@ local function matchesTrapSignal(entry, triggerCondition, targetWizard)
 
     if condition == "on_opponent_elevate"
         and targetWizard.elevation == Constants.ElevationState.AERIAL then
-        print(string.format(
+        Log.debug(string.format(
             "[SustainedManager] Trap triggered by opponent elevation: %s",
             targetWizard.elevation
         ))
@@ -60,12 +60,12 @@ local function matchesTrapSignal(entry, triggerCondition, targetWizard)
     if condition == "on_opponent_far"
         and casterWizard.gameState
         and casterWizard.gameState.rangeState == Constants.RangeState.FAR then
-        print("[SustainedManager] Trap triggered by opponent being far")
+        Log.debug("[SustainedManager] Trap triggered by opponent being far")
         return true
     end
 
     if condition == "on_opponent_cast" then
-        print("[SustainedManager] Trap triggered by opponent casting spell")
+        Log.debug("[SustainedManager] Trap triggered by opponent casting spell")
         return true
     end
 
@@ -117,7 +117,7 @@ function SustainedSpellManager.notifyTrapTrigger(triggerCondition, targetWizard,
             entry.triggered = true
             entry.processed = true
 
-            print(string.format(
+            Log.debug(string.format(
                 "[SustainedManager] Trap triggered for %s slot %d via %s",
                 entry.wizard.name,
                 entry.slotIndex,
@@ -296,7 +296,7 @@ function SustainedSpellManager.addSustainedSpell(wizard, slotIndex, spellData)
     end
 
     -- Log the addition
-    print(string.format("[SustainedManager] Added %s '%s' for %s in slot %d",
+    Log.debug(string.format("[SustainedManager] Added %s '%s' for %s in slot %d",
         spellType, entry.spell.name or "unnamed spell", wizard.name, slotIndex))
     
     return uniqueId
@@ -311,7 +311,7 @@ function SustainedSpellManager.removeSustainedSpell(id)
     end
     
     -- Log removal
-    print(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d",
+    Log.debug(string.format("[SustainedManager] Removed %s '%s' for %s in slot %d",
         entry.type, entry.spell.name or "unnamed spell", entry.wizard.name, entry.slotIndex))
 
     if entry.type == "field" then

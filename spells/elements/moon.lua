@@ -3,6 +3,7 @@
 
 local Constants = require("core.Constants")
 local expr = require("expr")
+local Log = require("core.Log")
 
 local MoonSpells = {}
 
@@ -195,20 +196,20 @@ MoonSpells.fullmoonbeam = {
                 
                 if slot and caster.spellSlots[slot] then
                     local spellSlotData = caster.spellSlots[slot]
-                    print(string.format("DEBUG_FMB_SLOT_CHECK: Slot=%d, Active=%s, Progress=%.2f, CastTime=%.1f, Modifier=%.4f, Frozen=%s",
+                    Log.debug(string.format("DEBUG_FMB_SLOT_CHECK: Slot=%d, Active=%s, Progress=%.2f, CastTime=%.1f, Modifier=%.4f, Frozen=%s",
                         slot, tostring(spellSlotData.active), spellSlotData.progress or -1, spellSlotData.castTime or -1, spellSlotData.castTimeModifier or -99, tostring(spellSlotData.frozen)))
                     
                     baseCastTime = spellSlotData.castTime 
                     accruedModifier = spellSlotData.castTimeModifier or 0
-                    print(string.format("DEBUG_FMB: Read castTimeModifier=%.4f from spellSlotData", accruedModifier))
+                    Log.debug(string.format("DEBUG_FMB: Read castTimeModifier=%.4f from spellSlotData", accruedModifier))
                 else
-                    print(string.format("DEBUG_FMB_WARN: Slot %s or caster.spellSlots[%s] is nil!", tostring(slot), tostring(slot)))
+                    print(string.format("WARNING: Full Moon Beam slot %s or caster.spellSlots[%s] is nil", tostring(slot), tostring(slot)))
                 end
                 
                 local effectiveCastTime = math.max(0.1, baseCastTime + accruedModifier)
                 local damage = math.floor(effectiveCastTime * 2.5)
                 
-                print(string.format("Full Moon Beam: Base Cast=%.1fs, Modifier=%.1fs, Effective=%.1fs => Damage=%d", 
+                Log.debug(string.format("Full Moon Beam: Base Cast=%.1fs, Modifier=%.1fs, Effective=%.1fs => Damage=%d", 
                     baseCastTime, accruedModifier, effectiveCastTime, damage))
                 
                 return damage
@@ -268,7 +269,7 @@ MoonSpells.wrapinmoonlight = {
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.REMOTE},
             
             onBlock = function(defender, attacker, slot, info)
-                print("[SPELL DEBUG] Wings of Moonlight onBlock handler executing!")
+                Log.debug("[SPELL DEBUG] Wings of Moonlight onBlock handler executing!")
                 
                 local events = {}
                 
@@ -280,7 +281,7 @@ MoonSpells.wrapinmoonlight = {
                     duration = 4.0,
                 })
                 
-                print("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
+                Log.debug("[SPELL DEBUG] Wings of Moonlight returning " .. #events .. " events")
                 return events
             end
         },

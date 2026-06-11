@@ -2,6 +2,7 @@
 -- Contains schema definition and validation for spells
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 local Schema = {}
 
@@ -36,7 +37,7 @@ function Schema.validateSpell(spell, spellId)
     -- Add a missing ID based on spell name if needed
     if not spell.id and spell.name then
         spell.id = spell.name:lower():gsub(" ", "")
-        print("INFO: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
+        Log.debug("INFO: Added missing ID for spell: " .. spell.name .. " -> " .. spell.id)
     end
     
     -- Check essential properties with better error handling
@@ -86,7 +87,7 @@ function Schema.validateSpell(spell, spellId)
         local originalCost = spell.cost
         spell.cost = {}
         if originalCost then
-            print("INFO: Converting non-table cost to table for: " .. spell.name)
+            Log.debug("INFO: Converting non-table cost to table for: " .. spell.name)
             table.insert(spell.cost, tostring(originalCost))
         end
     end

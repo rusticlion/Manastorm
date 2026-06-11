@@ -3,6 +3,7 @@
 
 local Input = {}
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 -- Store a reference to the game state for routing
 local gameState = nil
@@ -221,7 +222,7 @@ end
 -- Main entry point for key handling
 function Input.handleKey(key, scancode, isrepeat)
     -- Log key presses for debugging
-    print("DEBUG: Key pressed: '" .. key .. "'")
+    Log.debug("DEBUG: Key pressed: '" .. key .. "'")
 
     -- Handle settings key capture
     if gameState and gameState.currentState == "SETTINGS" and gameState.settingsMenu and gameState.settingsMenu.waitingForKey then
@@ -572,10 +573,10 @@ function Input.setupRoutes()
 
     -- Developer hot-reload with Ctrl+R
     Input.Routes.system["ctrl_r"] = function()
-        print("Hot-reloading assets...")
+        Log.debug("Hot-reloading assets...")
         local AssetPreloader = require("core.assetPreloader")
         local reloadStats = AssetPreloader.reloadAllAssets()
-        print(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
+        Log.debug(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
                           reloadStats.imageCount,
                           reloadStats.soundCount,
                           reloadStats.loadTime))
@@ -622,10 +623,10 @@ function Input.setupRoutes()
     
     -- Developer hot-reload with Ctrl+R
     Input.Routes.system["ctrl_r"] = function()
-        print("Hot-reloading assets...")
+        Log.debug("Hot-reloading assets...")
         local AssetPreloader = require("core.assetPreloader")
         local reloadStats = AssetPreloader.reloadAllAssets()
-        print(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
+        Log.debug(string.format("Asset reload complete: %d images, %d sounds in %.2f seconds",
                           reloadStats.imageCount,
                           reloadStats.soundCount,
                           reloadStats.loadTime))
@@ -653,7 +654,7 @@ function Input.setupRoutes()
     -- Research Duel stub
     Input.Routes.ui["3"] = function()
         if gameState.currentState == "MENU" then
-            print("Research Duel not implemented yet")
+            Log.debug("Research Duel not implemented yet")
             return true
         end
         return false
@@ -805,7 +806,7 @@ function Input.setupRoutes()
         
         -- Print summary of added tokens
         for tokenType, count in pairs(addedTokens) do
-            print("Added " .. count .. " " .. tokenType .. " tokens to the mana pool")
+            Log.debug("Added " .. count .. " " .. tokenType .. " tokens to the mana pool")
         end
         return true
     end
@@ -814,21 +815,21 @@ function Input.setupRoutes()
     Input.Routes.debug["z"] = function()
         local tokenType = "moon"
         gameState.manaPool:addToken(tokenType, gameState.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
+        Log.debug("Added a " .. tokenType .. " token to the mana pool")
         return true
     end
     
     Input.Routes.debug["x"] = function()
         local tokenType = "star"
         gameState.manaPool:addToken(tokenType, gameState.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
+        Log.debug("Added a " .. tokenType .. " token to the mana pool")
         return true
     end
     
     Input.Routes.debug["c"] = function()
         local tokenType = "force"
         gameState.manaPool:addToken(tokenType, gameState.tokenImages[tokenType])
-        print("Added a " .. tokenType .. " token to the mana pool")
+        Log.debug("Added a " .. tokenType .. " token to the mana pool")
         return true
     end
     
@@ -840,7 +841,7 @@ function Input.setupRoutes()
         else
             gameState.rangeState = "NEAR"
         end
-        print("Range state toggled to: " .. gameState.rangeState)
+        Log.debug("Range state toggled to: " .. gameState.rangeState)
         return true
     end
     
@@ -851,7 +852,7 @@ function Input.setupRoutes()
         else
             gameState.wizards[1].elevation = "GROUNDED"
         end
-        print("Ashgar elevation toggled to: " .. gameState.wizards[1].elevation)
+        Log.debug("Ashgar elevation toggled to: " .. gameState.wizards[1].elevation)
         return true
     end
     
@@ -862,7 +863,7 @@ function Input.setupRoutes()
         else
             gameState.wizards[2].elevation = "GROUNDED"
         end
-        print("Selene elevation toggled to: " .. gameState.wizards[2].elevation)
+        Log.debug("Selene elevation toggled to: " .. gameState.wizards[2].elevation)
         return true
     end
     
@@ -874,7 +875,7 @@ function Input.setupRoutes()
     Input.Routes.test["1"] = function()
         if not hasActiveSpellInput() then
             gameState.vfx.createEffect("firebolt", gameState.wizards[1].x, gameState.wizards[1].y, gameState.wizards[2].x, gameState.wizards[2].y)
-            print("Testing firebolt VFX")
+            Log.debug("Testing firebolt VFX")
             return true
         end
         return false
@@ -884,7 +885,7 @@ function Input.setupRoutes()
     Input.Routes.test["2"] = function()
         if not hasActiveSpellInput() then
             gameState.vfx.createEffect("meteor", gameState.wizards[2].x, gameState.wizards[2].y - 100, gameState.wizards[2].x, gameState.wizards[2].y)
-            print("Testing meteor VFX")
+            Log.debug("Testing meteor VFX")
             return true
         end
         return false
@@ -893,21 +894,21 @@ function Input.setupRoutes()
     -- Test mist veil effect
     Input.Routes.test["3"] = function()
         gameState.vfx.createEffect("mistveil", gameState.wizards[1].x, gameState.wizards[1].y)
-        print("Testing mist veil VFX")
+        Log.debug("Testing mist veil VFX")
         return true
     end
     
     -- Test emberlift effect
     Input.Routes.test["4"] = function()
         gameState.vfx.createEffect("emberlift", gameState.wizards[2].x, gameState.wizards[2].y)
-        print("Testing emberlift VFX") 
+        Log.debug("Testing emberlift VFX") 
         return true
     end
     
     -- Test full moon beam effect
     Input.Routes.test["5"] = function()
         gameState.vfx.createEffect("fullmoonbeam", gameState.wizards[2].x, gameState.wizards[2].y, gameState.wizards[1].x, gameState.wizards[1].y)
-        print("Testing full moon beam VFX")
+        Log.debug("Testing full moon beam VFX")
         return true
     end
     
@@ -917,7 +918,7 @@ function Input.setupRoutes()
             manaPoolX = gameState.manaPool.x,
             manaPoolY = gameState.manaPool.y
         })
-        print("Testing conjure fire VFX")
+        Log.debug("Testing conjure fire VFX")
         return true
     end
     
@@ -927,7 +928,7 @@ function Input.setupRoutes()
             manaPoolX = gameState.manaPool.x,
             manaPoolY = gameState.manaPool.y
         })
-        print("Testing conjure moonlight VFX")
+        Log.debug("Testing conjure moonlight VFX")
         return true
     end
     
@@ -937,7 +938,7 @@ function Input.setupRoutes()
             manaPoolX = gameState.manaPool.x,
             manaPoolY = gameState.manaPool.y
         })
-        print("Testing volatile conjuring VFX")
+        Log.debug("Testing volatile conjuring VFX")
         return true
     end
     
@@ -945,17 +946,17 @@ function Input.setupRoutes()
     -- This is a special case for spell debugging
     Input.Routes.debug["kp1"] = function() -- Using KeyPad 1 instead of regular 1
         -- Force cast Moon Ward for Selene
-        print("DEBUG: Directly casting Moon Ward for Selene")
+        Log.debug("DEBUG: Directly casting Moon Ward for Selene")
         local result = gameState.wizards[2]:queueSpell(gameState.customSpells.moonWard)
-        print("DEBUG: Moon Ward cast result: " .. tostring(result))
+        Log.debug("DEBUG: Moon Ward cast result: " .. tostring(result))
         return true
     end
     
     Input.Routes.debug["kp2"] = function() -- Using KeyPad 2 instead of regular 2
         -- Force cast Mirror Shield for Selene
-        print("DEBUG: Directly casting Mirror Shield for Selene")
+        Log.debug("DEBUG: Directly casting Mirror Shield for Selene")
         local result = gameState.wizards[2]:queueSpell(gameState.customSpells.mirrorShield)
-        print("DEBUG: Mirror Shield cast result: " .. tostring(result))
+        Log.debug("DEBUG: Mirror Shield cast result: " .. tostring(result))
         return true
     end
 end

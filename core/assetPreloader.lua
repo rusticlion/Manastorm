@@ -2,6 +2,7 @@
 -- Centralized preloader for game assets
 
 local AssetCache = require("core.AssetCache")
+local Log = require("core.Log")
 
 local AssetPreloader = {}
 
@@ -80,7 +81,7 @@ function AssetPreloader.preloadAllAssets()
         if love.filesystem.getInfo(path) then
             table.insert(filteredManifest.images, path)
         else
-            print("Asset not found, will skip: " .. path)
+            Log.debug("Asset not found, will skip: " .. path)
         end
     end
     
@@ -88,7 +89,7 @@ function AssetPreloader.preloadAllAssets()
         if love.filesystem.getInfo(soundData[1]) then
             table.insert(filteredManifest.sounds, soundData)
         else
-            print("Sound asset not found, will skip: " .. soundData[1])
+            Log.debug("Sound asset not found, will skip: " .. soundData[1])
         end
     end
     
@@ -97,7 +98,7 @@ function AssetPreloader.preloadAllAssets()
     
     -- Report preload time
     local loadTime = love.timer.getTime() - startTime
-    print(string.format("AssetPreloader: Loaded %d images and %d sounds in %.2f seconds", 
+    Log.debug(string.format("AssetPreloader: Loaded %d images and %d sounds in %.2f seconds", 
                         loaded.images, loaded.sounds, loadTime))
                         
     -- Return statistics for verification

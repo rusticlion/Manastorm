@@ -6,6 +6,7 @@ local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
 local BlockRenderer = require("vfx.BlockRenderer")
 local CARenderer = require("vfx.CARenderer")
+local Log = require("core.Log")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -45,7 +46,7 @@ local function updateProjectile(effect, dt)
 
         if not effect.visualProgress or effect.visualProgress < effect.progress then
             effect.visualProgress = math.min(effect.progress, blockPoint)
-            print("[PROJECTILE DEBUG] Updating visualProgress for blocked effect: " .. effect.visualProgress)
+            Log.debug("[PROJECTILE DEBUG] Updating visualProgress for blocked effect: " .. effect.visualProgress)
         end
     else
         -- For normal effects, always sync visualProgress with progress on each update
@@ -76,7 +77,7 @@ local function updateProjectile(effect, dt)
     -- This ensures the head position consistently updates with each frame
     local baseProgress = effect.visualProgress
 
-    print(string.format("[PROJECTILE PROGRESS] isBlocked=%s, progress=%.2f, visualProgress=%.2f, baseProgress=%.2f",
+    Log.debug(string.format("[PROJECTILE PROGRESS] isBlocked=%s, progress=%.2f, visualProgress=%.2f, baseProgress=%.2f",
         tostring(effect.isBlocked), effect.progress or 0, effect.visualProgress or 0, baseProgress))
     
     -- Calculate projectile position along the path
@@ -173,7 +174,7 @@ local function updateProjectile(effect, dt)
             shouldUpdateTrail = (distanceMoved >= minDistance)
 
             if not shouldUpdateTrail then
-                print(string.format("[PROJECTILE DEBUG] Head position hasn't changed significantly: dist=%.2f < %.2f",
+                Log.debug(string.format("[PROJECTILE DEBUG] Head position hasn't changed significantly: dist=%.2f < %.2f",
                     distanceMoved, minDistance))
             end
         end
@@ -195,7 +196,7 @@ local function updateProjectile(effect, dt)
                 effect.trailPoints[i].alpha = 1.0 - (i-1)/effect.trailLength
             end
 
-            print(string.format("[PROJECTILE DEBUG] Updated trail with new head position: (%.1f, %.1f)", head.x, head.y))
+            Log.debug(string.format("[PROJECTILE DEBUG] Updated trail with new head position: (%.1f, %.1f)", head.x, head.y))
         end
     else
         -- If there are no trail points yet, initialize with current head position
@@ -206,7 +207,7 @@ local function updateProjectile(effect, dt)
                 alpha = i == 1 and 1.0 or (1.0 - (i-1)/effect.trailLength)
             })
         end
-        print("[PROJECTILE DEBUG] Initialized trail with starting position")
+        Log.debug("[PROJECTILE DEBUG] Initialized trail with starting position")
     end
     
     -- Update particles for the projectile trail
@@ -311,7 +312,7 @@ local function updateProjectile(effect, dt)
     effect.headY = head.y
 
     -- Debug logging - track position updates
-    print(string.format("[PROJECTILE DEBUG] Updated head position: (%.1f, %.1f) at progress=%.2f",
+    Log.debug(string.format("[PROJECTILE DEBUG] Updated head position: (%.1f, %.1f) at progress=%.2f",
         head.x, head.y, baseProgress))
 end
 
@@ -327,9 +328,9 @@ local function drawProjectile(effect)
     effect.useTrail = (effect.useTrail ~= false) -- Default to true
     
     -- Debug info for drawing
-    print(string.format("[PROJECTILE DRAW] Effect: %s, Timer: %.2f, Progress: %.2f", 
+    Log.debug(string.format("[PROJECTILE DRAW] Effect: %s, Timer: %.2f, Progress: %.2f", 
         effect.name or "unnamed", effect.timer or 0, effect.progress or 0))
-    print(string.format("[PROJECTILE DRAW] Head Position: (%.0f, %.0f), Source: (%.0f, %.0f), Target: (%.0f, %.0f)", 
+    Log.debug(string.format("[PROJECTILE DRAW] Head Position: (%.0f, %.0f), Source: (%.0f, %.0f), Target: (%.0f, %.0f)", 
         effect.headX or 0, effect.headY or 0, 
         effect.sourceX or 0, effect.sourceY or 0,
         effect.targetX or 0, effect.targetY or 0))
@@ -341,7 +342,7 @@ local function drawProjectile(effect)
         effect.headX = effect.sourceX + (effect.targetX - effect.sourceX) * progress
         effect.headY = effect.sourceY + (effect.targetY - effect.sourceY) * progress
         
-        print(string.format("[PROJECTILE DRAW] Recalculated head position to (%.0f, %.0f) with progress %.2f", 
+        Log.debug(string.format("[PROJECTILE DRAW] Recalculated head position to (%.0f, %.0f) with progress %.2f", 
             effect.headX, effect.headY, progress))
     end
     
@@ -771,7 +772,7 @@ local function initializeProjectile(effect)
 
     -- Check for block info and set block properties
     if effect.options and effect.options.blockPoint then
-        print(string.format("[PROJECTILE INIT] Detected block at point %.2f", effect.options.blockPoint))
+        Log.debug(string.format("[PROJECTILE INIT] Detected block at point %.2f", effect.options.blockPoint))
         effect.isBlocked = true
         effect.blockPoint = effect.options.blockPoint
         effect.blockType = effect.options.shieldType or "ward"

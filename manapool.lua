@@ -4,6 +4,7 @@
 -- Import modules at module level so they're available to all methods
 local AssetCache = require("core.AssetCache")
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local Pool = require("core.Pool")
 
 local ManaPool = {}
@@ -124,7 +125,7 @@ end
 function TokenMethods:requestDestructionAnimation()
     -- Validate current state
     if self.status == Constants.TokenStatus.DISSOLVING or self.status == Constants.TokenStatus.POOLED then
-        print("[TOKEN LIFECYCLE] Token is already dissolving or pooled")
+        Log.debug("[TOKEN LIFECYCLE] Token is already dissolving or pooled")
         return false
     end
     

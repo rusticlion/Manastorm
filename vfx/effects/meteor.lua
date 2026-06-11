@@ -4,6 +4,7 @@
 -- Import dependencies
 local Constants = require("core.Constants")
 local ParticleManager = require("vfx.ParticleManager")
+local Log = require("core.Log")
 
 -- Access to the main VFX module (will be required after vfx.lua is loaded)
 local VFX
@@ -22,7 +23,7 @@ end
 
 -- Update function for meteor effects - SIMPLIFIED IMPLEMENTATION
 local function updateMeteor(effect, dt)
-    print("[METEOR] Start of updateMeteor()")
+    Log.debug("[METEOR] Start of updateMeteor()")
 
     -- Initialize basic effect properties
     effect.particles = effect.particles or {}
@@ -35,13 +36,13 @@ local function updateMeteor(effect, dt)
     effect.delaysDamage = true
     
     -- Debug output
-    print(string.format("[METEOR] Effect: timer=%.2f, progress=%.2f, particles=%d, target=(%d,%d)",
+    Log.debug(string.format("[METEOR] Effect: timer=%.2f, progress=%.2f, particles=%d, target=(%d,%d)",
                       effect.timer or 0, effect.progress or 0, #effect.particles, 
                       effect.targetX or 0, effect.targetY or 0))
     
     -- Create particles if none exist
     if #effect.particles == 0 and effect.targetX and effect.targetY then
-        print("[METEOR] Creating new meteor particles")
+        Log.debug("[METEOR] Creating new meteor particles")
 
         local particleCount = effect.particleCount or 8
 
@@ -62,7 +63,7 @@ local function updateMeteor(effect, dt)
             meteor.y = meteor.startY
             
             table.insert(effect.particles, meteor)
-            print(string.format("[METEOR] Created particle #%d at (%.1f, %.1f)", i, meteor.x, meteor.y))
+            Log.debug(string.format("[METEOR] Created particle #%d at (%.1f, %.1f)", i, meteor.x, meteor.y))
         end
     end
     
@@ -87,7 +88,7 @@ local function updateMeteor(effect, dt)
             
             -- Logging for first particle
             if i == 1 then
-                print(string.format("[METEOR] Main particle: progress=%.2f, pos=(%.1f, %.1f)", 
+                Log.debug(string.format("[METEOR] Main particle: progress=%.2f, pos=(%.1f, %.1f)", 
                                  moveProgress, particle.x, particle.y))
             end
             
@@ -129,7 +130,7 @@ local function updateMeteor(effect, dt)
     
     -- Create impact particles at end of animation
     if effect.progress > 0.8 and effect.progress < 0.9 and not effect.impactCreated then
-        print("[METEOR] Creating impact particles")
+        Log.debug("[METEOR] Creating impact particles")
 
         -- Create impact effect
         local impactCount = 12
@@ -144,7 +145,7 @@ local function updateMeteor(effect, dt)
         -- TRIGGER DAMAGE EVENT AT IMPACT (similar to projectile implementation)
         -- Execute the damage callback if it exists (this is how we delay the actual damage until impact)
         if effect.options and effect.options.onImpact then
-            print("[METEOR] Triggering onImpact callback for delayed damage!")
+            Log.debug("[METEOR] Triggering onImpact callback for delayed damage!")
 
             local success, err = pcall(function()
                 effect.options.onImpact(effect)
@@ -162,13 +163,13 @@ local function updateMeteor(effect, dt)
         -- Try to trigger screen shake if available
         if VFX.triggerShake then
             VFX.triggerShake(shakeDuration, shakeIntensity)
-            print("[METEOR] Triggered screen shake")
+            Log.debug("[METEOR] Triggered screen shake")
         end
 
         -- Try to trigger hit stop if available
         if VFX.triggerHitstop then
             VFX.triggerHitstop(0.08)  -- Brief hitstop for impact feel
-            print("[METEOR] Triggered hit stop")
+            Log.debug("[METEOR] Triggered hit stop")
         end
 
         effect.impactCreated = true
@@ -180,10 +181,10 @@ local function updateMeteor(effect, dt)
     end)
 
     if removedCount > 0 then
-        print(string.format("[METEOR] Cleaned up %d expired particles", removedCount))
+        Log.debug(string.format("[METEOR] Cleaned up %d expired particles", removedCount))
     end
     
-    print(string.format("[METEOR] End of update: %d particles", #effect.particles))
+    Log.debug(string.format("[METEOR] End of update: %d particles", #effect.particles))
 end
 
 -- Draw function for meteor effects

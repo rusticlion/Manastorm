@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local ParticleManager = require("vfx.ParticleManager")
 local BlockRenderer = require("vfx.BlockRenderer")
 local CARenderer = require("vfx.CARenderer")
@@ -94,7 +95,7 @@ local function updateBeam(effect, dt)
         local impactX = effect.sourceX + math.cos(effect.beamAngle) * (effect.beamLength * blockPoint)
         local impactY = effect.sourceY + math.sin(effect.beamAngle) * (effect.beamLength * blockPoint)
 
-        print(string.format("[BEAM] Creating shield impact effect at (%.1f, %.1f)", impactX, impactY))
+        Log.debug(string.format("[BEAM] Creating shield impact effect at (%.1f, %.1f)", impactX, impactY))
 
         -- Get the VFX module (should be loaded by now)
         if not VFX then VFX = require("vfx") end
@@ -153,7 +154,7 @@ local function updateBeam(effect, dt)
         -- Trigger shake if we have access to game state
         if gameState and gameState.triggerShake then
             gameState.triggerShake(shakeDuration, intensity)
-            print(string.format("[BEAM] Shield block impact! Triggered shake (%.2f, %.2f) at blockPoint=%.2f",
+            Log.debug(string.format("[BEAM] Shield block impact! Triggered shake (%.2f, %.2f) at blockPoint=%.2f",
                 shakeDuration, intensity, blockPoint))
         elseif VFX.triggerShake then
             VFX.triggerShake(shakeDuration, intensity)
@@ -631,7 +632,7 @@ local function initializeBeam(effect)
 
     -- Check for block info and set block properties
     if effect.options and effect.options.blockPoint then
-        print(string.format("[BEAM INIT] Detected block at point %.2f", effect.options.blockPoint))
+        Log.debug(string.format("[BEAM INIT] Detected block at point %.2f", effect.options.blockPoint))
         effect.isBlocked = true
         effect.blockPoint = effect.options.blockPoint
         effect.blockType = effect.options.shieldType or "ward"

@@ -2,6 +2,7 @@
 -- Centralized management of token acquisition, positioning, and state transitions
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 local TokenManager = {}
 
@@ -20,7 +21,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
     
     -- Handle empty cost (free spells)
     if next(manaCost) == nil or #manaCost == 0 then
-        print("[TOKEN MANAGER] Free spell (no mana cost)")
+        Log.debug("[TOKEN MANAGER] Free spell (no mana cost)")
         return true, {} -- Success with no tokens
     end
     
@@ -32,7 +33,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
     
     -- Handle array-style format (legacy format)
     if isArrayFormat then
-        print("[TOKEN MANAGER] Processing array-style mana cost with " .. #manaCost .. " components")
+        Log.debug("[TOKEN MANAGER] Processing array-style mana cost with " .. #manaCost .. " components")
         
         -- Process each component in the array
         for i, component in ipairs(manaCost) do
@@ -142,7 +143,7 @@ function TokenManager.acquireTokensForSpell(wizard, slotIndex, manaCost)
         end
     else
         -- Handle key-value format (new standardized format)
-        print("[TOKEN MANAGER] Processing key-value style mana cost")
+        Log.debug("[TOKEN MANAGER] Processing key-value style mana cost")
         
         -- Check if a specific mana cost can be paid from available tokens
         for tokenType, count in pairs(manaCost) do
@@ -441,7 +442,7 @@ function TokenManager.checkFizzleCondition(wizard, slotIndex, removedToken)
     
     -- If slot has no tokens left, reset it
     if not slot.tokens or #slot.tokens == 0 then
-        print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - no tokens left")
+        Log.debug("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - no tokens left")
         wizard:resetSpellSlot(slotIndex)
         return true
     end
@@ -470,7 +471,7 @@ function TokenManager.checkFizzleCondition(wizard, slotIndex, removedToken)
                     end
                     
                     if totalRemaining < count then
-                        print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough tokens for '" .. Constants.TokenType.RANDOM .. "' cost")
+                        Log.debug("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough tokens for '" .. Constants.TokenType.RANDOM .. "' cost")
                         wizard:resetSpellSlot(slotIndex)
                         return true
                     end
@@ -478,7 +479,7 @@ function TokenManager.checkFizzleCondition(wizard, slotIndex, removedToken)
                     -- Check specific token type
                     local remaining = remainingTokensByType[tokenType] or 0
                     if remaining < count then
-                        print("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough " .. tokenType .. " tokens")
+                        Log.debug("[TOKEN MANAGER] Spell in slot " .. slotIndex .. " fizzled - not enough " .. tokenType .. " tokens")
                         wizard:resetSpellSlot(slotIndex)
                         return true
                     end

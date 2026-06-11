@@ -52,6 +52,7 @@
 -- See docs/combat_events.md for the event schema and types.
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 -- Utility: resolve a param that may be a callable
 local function resolve(value, caster, target, slot, default)
@@ -113,7 +114,7 @@ Keywords.trap_trigger = {
     -- Implementation function - Stores trigger condition
     execute = function(params, caster, target, results, events)
         results.trapTrigger = params
-        print(string.format("[TRAP] Stored trigger condition: %s", 
+        Log.debug(string.format("[TRAP] Stored trigger condition: %s", 
             params.condition or "unknown"))
         return results
     end
@@ -140,7 +141,7 @@ Keywords.trap_effect = {
         
         -- Log the effects included
         if #effectNames > 0 then
-            print(string.format("[TRAP] Stored effect payload with effects: %s", 
+            Log.debug(string.format("[TRAP] Stored effect payload with effects: %s", 
                 table.concat(effectNames, ", ")))
         else
             print("[TRAP] Warning: Effect payload with no effects defined")
@@ -855,7 +856,7 @@ Keywords.block = {
     execute = function(params, caster, target, results, events, spell)
         -- Mark the spell as sustained
         results.isSustained = true
-        print("[DEBUG] Block keyword setting results.isSustained = true")
+        Log.debug("[DEBUG] Block keyword setting results.isSustained = true")
         
         -- Get relevant token count from slot for manaCost approximation
         local manaCost = 0
@@ -1058,7 +1059,7 @@ Keywords.vfx = {
             results.effectOverride = effectType
             
             -- Debug output
-            print(string.format("[VFX KEYWORD] Setting effectOverride: %s for %s", 
+            Log.debug(string.format("[VFX KEYWORD] Setting effectOverride: %s for %s", 
                 tostring(effectType),
                 caster and caster.name or "unknown"))
         end

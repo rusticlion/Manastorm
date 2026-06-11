@@ -2,6 +2,7 @@
 -- Contains salt-element spells
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 local SaltSpells = {}
 
@@ -228,7 +229,7 @@ SaltSpells.shieldbreaker = {
     sfx = "shield_break",
     
     onBlock = function(caster, target, slot, blockInfo)
-        print(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
+        Log.debug(string.format("[SHIELD BREAKER] %s's Shield Breaker is testing the %s shield's strength!", 
             caster.name, blockInfo.blockType))
         
         return {

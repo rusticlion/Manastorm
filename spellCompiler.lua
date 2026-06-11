@@ -17,6 +17,7 @@
 
 local SpellCompiler = {}
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 -- Add the EventRunner module for event-based execution
 local EventRunner = nil -- Lazy-loaded to avoid circular dependencies
@@ -78,7 +79,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
 
     -- Debug - check for onBlock in keywords.block
     if spellDef.keywords and spellDef.keywords.block and spellDef.keywords.block.onBlock then
-        print("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
+        Log.debug("[COMPILER DEBUG] Spell " .. spellDef.id .. " has onBlock handler in keywords.block")
     end
     
     -- Create a new compiledSpell object
@@ -111,9 +112,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     
     -- Process keywords if they exist
     if spellDef.keywords then
-        print("DEBUG: Processing keywords for spell " .. spellDef.id)
+        Log.debug("DEBUG: Processing keywords for spell " .. spellDef.id)
         for keyword, params in pairs(spellDef.keywords) do
-            print("DEBUG:   Found keyword: " .. keyword)
+            Log.debug("DEBUG:   Found keyword: " .. keyword)
             -- Check if the keyword exists in the keyword data
             if keywordData[keyword] and keywordData[keyword].behavior then
                 -- Get the behavior definition for this keyword
@@ -153,7 +154,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     
     -- Handle top-level vfx field (convert to vfx keyword if not already present)
     if spellDef.vfx and not (spellDef.keywords and spellDef.keywords.vfx) and keywordData.vfx then
-        print("DEBUG: Converting top-level vfx to keyword for spell " .. spellDef.id)
+        Log.debug("DEBUG: Converting top-level vfx to keyword for spell " .. spellDef.id)
         
         -- Create behavior entry for vfx keyword
         compiledSpell.behavior.vfx = {}
@@ -179,11 +180,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- Return dummy EventRunner to break the circular dependency
                 return {
                     processEvents = function(events, caster, target, spellSlot)
-                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.processEvents")
+                        Log.debug("CIRCULAR DEPENDENCY: Using dummy EventRunner.processEvents")
                         return {eventsProcessed = 0}
                     end,
                     debugPrintEvents = function(events)
-                        print("CIRCULAR DEPENDENCY: Using dummy EventRunner.debugPrintEvents")
+                        Log.debug("CIRCULAR DEPENDENCY: Using dummy EventRunner.debugPrintEvents")
                     end
                 }
             end
@@ -206,11 +207,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- Return a dummy EventRunner with processEvents to avoid crashes
                 return {
                     processEvents = function(events, caster, target, spellSlot)
-                        print("FALLBACK: Using dummy EventRunner.processEvents")
+                        Log.debug("FALLBACK: Using dummy EventRunner.processEvents")
                         return {eventsProcessed = 0}
                     end,
                     debugPrintEvents = function(events)
-                        print("FALLBACK: Using dummy EventRunner.debugPrintEvents")
+                        Log.debug("FALLBACK: Using dummy EventRunner.debugPrintEvents")
                     end
                 }
             end
@@ -222,11 +223,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
     compiledSpell.executeAll = function(caster, target, results, spellSlot)
         -- LOGGING with safety checks
         if caster and caster.spellSlots and spellSlot and caster.spellSlots[spellSlot] then
-            print(string.format("DEBUG_EXECUTE_ALL: Slot %d castTimeModifier=%.4f", 
+            Log.debug(string.format("DEBUG_EXECUTE_ALL: Slot %d castTimeModifier=%.4f", 
                 spellSlot, caster.spellSlots[spellSlot].castTimeModifier or 0))
         else
             -- Safe fallback logging
-            print(string.format("DEBUG_EXECUTE_ALL: Slot %s (safety check failed, some values are nil)", 
+            Log.debug(string.format("DEBUG_EXECUTE_ALL: Slot %s (safety check failed, some values are nil)", 
                 tostring(spellSlot)))
         end
 
@@ -267,7 +268,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 
                 -- Debug output for events immediately after execute
                 if keyword == "freeze" then
-                    print(string.format("DEBUG: After executing %s keyword, events table has %d entries", 
+                    Log.debug(string.format("DEBUG: After executing %s keyword, events table has %d entries", 
                         keyword, events and #events or 0))
                 end
                 
@@ -289,13 +290,13 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
                     -- Debug the block keyword behavior 
-                    print("[COMPILER DEBUG] Processing block keyword in executeAll")
+                    Log.debug("[COMPILER DEBUG] Processing block keyword in executeAll")
                     
                     -- Check for onBlock in params
                     if params and params.onBlock then
-                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                        Log.debug("[COMPILER DEBUG] Found onBlock handler in params")
                     else
-                        print("[COMPILER DEBUG] No onBlock handler in params")
+                        Log.debug("[COMPILER DEBUG] No onBlock handler in params")
                     end
                     
                     -- NOTE: We no longer create a CREATE_SHIELD event here
@@ -305,7 +306,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     -- Debug info about shield parameters if available
                     if behaviorResults and behaviorResults.shieldParams then
                         local defenseType = behaviorResults.shieldParams.defenseType or Constants.ShieldType.BARRIER
-                        print("[COMPILER DEBUG] Shield type: " .. defenseType)
+                        Log.debug("[COMPILER DEBUG] Shield type: " .. defenseType)
                     end
                 end
             end
@@ -321,17 +322,17 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
            (compiledSpell.behavior.block and compiledSpell.behavior.block.marksSpellAsSustained) then
             -- This will be picked up by Wizard:castSpell to handle sustained spells
             results.isSustained = true
-            print("DEBUG: Spell " .. compiledSpell.id .. " marked as sustained")
+            Log.debug("DEBUG: Spell " .. compiledSpell.id .. " marked as sustained")
         else
-            print("DEBUG: Spell " .. compiledSpell.id .. " not marked as sustained. Checking for sustain/shield keywords...")
+            Log.debug("DEBUG: Spell " .. compiledSpell.id .. " not marked as sustained. Checking for sustain/shield keywords...")
             
             -- Debug: Print out the behavior table keys to see if sustain or block is there
             for behaviorKey, _ in pairs(compiledSpell.behavior) do
-                print("  Behavior found: " .. behaviorKey)
+                Log.debug("  Behavior found: " .. behaviorKey)
                 
                 -- If it's the block keyword, check if it has marksSpellAsSustained
                 if behaviorKey == "block" then
-                    print("    Block keyword found. marksSpellAsSustained = " .. 
+                    Log.debug("    Block keyword found. marksSpellAsSustained = " .. 
                         tostring(compiledSpell.behavior.block.marksSpellAsSustained))
                 end
             end
@@ -343,7 +344,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             -- Make sure trapTrigger data is in the results
             if not results.trapTrigger then
                 results.trapTrigger = compiledSpell.behavior.trap_trigger.params or {}
-                print("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
+                Log.debug("DEBUG: Adding trapTrigger data to results: " .. tostring(results.trapTrigger))
             end
         end
 
@@ -352,14 +353,14 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             -- Make sure trapEffect data is in the results
             if not results.trapEffect then
                 results.trapEffect = compiledSpell.behavior.trap_effect.params or {}
-                print("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
+                Log.debug("DEBUG: Adding trapEffect data to results: " .. tostring(results.trapEffect))
             end
         end
 
         if compiledSpell.behavior.field_status then
             if not results.fieldStatus then
                 results.fieldStatus = compiledSpell.behavior.field_status.params or {}
-                print("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
+                Log.debug("DEBUG: Adding fieldStatus data to results: " .. tostring(results.fieldStatus))
             end
         end
 
@@ -378,18 +379,18 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
             -- Process the events to apply them to the game state
             local eventResults = {}
             if events and #events > 0 then
-                print(string.format("DEBUG_EVENTS: Processing %d events for spell %s", 
+                Log.debug(string.format("DEBUG_EVENTS: Processing %d events for spell %s", 
                     #events, compiledSpell.id or "unknown"))
                 
                 -- Print type of first event as sanity check
                 if events[1] and events[1].type then
-                    print(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
+                    Log.debug(string.format("DEBUG_EVENTS: First event type is %s", events[1].type))
                 end
                 
                 -- If spell is blocked, convert DAMAGE events to BLOCKED_DAMAGE
                 -- This preserves visuals while preventing actual damage application
                 if results.blockInfo and results.blockInfo.blockable then
-                    print("[COMPILER] Spell blocked - converting DAMAGE to BLOCKED_DAMAGE events")
+                    Log.debug("[COMPILER] Spell blocked - converting DAMAGE to BLOCKED_DAMAGE events")
                     
                     -- Ensure blockInfo has a blockPoint for visuals
                     if not results.blockInfo.blockPoint then
@@ -398,9 +399,9 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     end
                     
                     -- Enhanced debugging for blockInfo
-                    print("[COMPILER] BlockInfo details:")
+                    Log.debug("[COMPILER] BlockInfo details:")
                     for k, v in pairs(results.blockInfo) do
-                        print("  " .. k .. ": " .. tostring(v))
+                        Log.debug("  " .. k .. ": " .. tostring(v))
                     end
                     
                     -- Process each event
@@ -429,7 +430,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                             event.tags = event.tags or {}
                             event.tags.SHIELD_BLOCKED = true
                             
-                            print(string.format("[COMPILER] Converted DAMAGE to BLOCKED_DAMAGE event with blockPoint=%.2f", 
+                            Log.debug(string.format("[COMPILER] Converted DAMAGE to BLOCKED_DAMAGE event with blockPoint=%.2f", 
                                 event.blockPoint))
                         end
                     end
@@ -474,7 +475,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 results.blocked = true
                 results.blockType = results.blockInfo.blockType
                 
-                print("[COMPILER] Spell was blocked by shield - setting blocked flag")
+                Log.debug("[COMPILER] Spell was blocked by shield - setting blocked flag")
             end
             
             return results
@@ -519,7 +520,7 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                 -- DEBUG ONLY: Log info about block keyword, but don't create duplicate events
                 if keyword == "block" then
                     -- Debug the block keyword behavior
-                    print("[COMPILER DEBUG] Processing block keyword in generateEvents")
+                    Log.debug("[COMPILER DEBUG] Processing block keyword in generateEvents")
                     
                     -- NOTE: We no longer create a CREATE_SHIELD event here
                     -- The Keywords.block.execute function already creates this event
@@ -528,11 +529,11 @@ function SpellCompiler.compileSpell(spellDef, keywordData)
                     -- Debug info about shield parameters
                     local shieldParams = localResults.shieldParams or {}
                     local defenseType = shieldParams.defenseType or Constants.ShieldType.BARRIER
-                    print("[COMPILER DEBUG] Shield type from generateEvents: " .. defenseType)
+                    Log.debug("[COMPILER DEBUG] Shield type from generateEvents: " .. defenseType)
                     
                     -- Check if onBlock is in the params (just for debug info)
                     if params and params.onBlock then
-                        print("[COMPILER DEBUG] Found onBlock handler in params")
+                        Log.debug("[COMPILER DEBUG] Found onBlock handler in params")
                     end
                 end
             end

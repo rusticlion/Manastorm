@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 
 -- Initialize particles function
 local function initializeParticles(effect)
@@ -59,7 +60,7 @@ local function initializeParticles(effect)
                          effectType == "surge" or
                          effectType == "conjure") then
             moduleName = effectType
-            print(string.format("[VFX] Using effect.type '%s' directly as module name", effectType))
+            Log.debug(string.format("[VFX] Using effect.type '%s' directly as module name", effectType))
         else
             -- Last fallback to avoid crashes - default to impact effect
             print(string.format("[VFX] Warning: Unknown effect type: '%s' - falling back to impact", tostring(effectType)))

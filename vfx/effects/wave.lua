@@ -2,6 +2,7 @@
 -- Flowing wave visual effect for spells with a "wave" shape
 
 local ParticleManager = require("vfx.ParticleManager")
+local Log = require("core.Log")
 local VFX
 
 -- Lazily require VFX to avoid circular dependency
@@ -13,23 +14,23 @@ end
 --- Initialize wave effect particles
 -- @param effect table Effect instance
 local function initializeWave(effect)
-    print("[WAVE EFFECT] ===== WAVE EFFECT INITIALIZED =====")
-    print("[WAVE EFFECT] Particle count: " .. tostring(effect.particleCount))
-    print("[WAVE EFFECT] Duration: " .. tostring(effect.duration))
-    print("[WAVE EFFECT] Start scale: " .. tostring(effect.startScale))
-    print("[WAVE EFFECT] Source position: (" .. tostring(effect.sourceX) .. ", " .. tostring(effect.sourceY) .. ")")
-    print("[WAVE EFFECT] Target position: (" .. tostring(effect.targetX) .. ", " .. tostring(effect.targetY) .. ")")
+    Log.debug("[WAVE EFFECT] ===== WAVE EFFECT INITIALIZED =====")
+    Log.debug("[WAVE EFFECT] Particle count: " .. tostring(effect.particleCount))
+    Log.debug("[WAVE EFFECT] Duration: " .. tostring(effect.duration))
+    Log.debug("[WAVE EFFECT] Start scale: " .. tostring(effect.startScale))
+    Log.debug("[WAVE EFFECT] Source position: (" .. tostring(effect.sourceX) .. ", " .. tostring(effect.sourceY) .. ")")
+    Log.debug("[WAVE EFFECT] Target position: (" .. tostring(effect.targetX) .. ", " .. tostring(effect.targetY) .. ")")
     
     effect.particles = effect.particles or {}
 
     -- Calculate distance from source to target for proper particle travel
     local distance = math.sqrt((effect.targetX - effect.sourceX)^2 + (effect.targetY - effect.sourceY)^2)
-    print("[WAVE EFFECT] Distance to target: " .. string.format("%.1f", distance))
+    Log.debug("[WAVE EFFECT] Distance to target: " .. string.format("%.1f", distance))
 
     local coreCount = math.floor(effect.particleCount * 0.4)  -- Increased core particles
     local wakeCount = effect.particleCount - coreCount
 
-    print("[WAVE EFFECT] Creating " .. coreCount .. " core particles and " .. wakeCount .. " wake particles")
+    Log.debug("[WAVE EFFECT] Creating " .. coreCount .. " core particles and " .. wakeCount .. " wake particles")
 
     for i = 1, coreCount do
         local p = ParticleManager.createParticle()
@@ -66,8 +67,8 @@ local function initializeWave(effect)
         table.insert(effect.particles, p)
     end
 
-    print("[WAVE EFFECT] Created " .. #effect.particles .. " total particles")
-    print("[WAVE EFFECT] ===== WAVE EFFECT INITIALIZATION COMPLETE =====")
+    Log.debug("[WAVE EFFECT] Created " .. #effect.particles .. " total particles")
+    Log.debug("[WAVE EFFECT] ===== WAVE EFFECT INITIALIZATION COMPLETE =====")
 end
 
 --- Update wave effect
@@ -78,7 +79,7 @@ local function updateWave(effect, dt)
 
     -- Debug output every few frames
     if effect.timer and effect.timer % 0.5 < dt then
-        print("[WAVE EFFECT] Progress: " .. string.format("%.2f", progress) .. ", Particles: " .. #effect.particles)
+        Log.debug("[WAVE EFFECT] Progress: " .. string.format("%.2f", progress) .. ", Particles: " .. #effect.particles)
     end
 
     for i = #effect.particles, 1, -1 do
@@ -181,7 +182,7 @@ local function drawWave(effect)
 
     -- Debug output only if assets are missing
     if not glowAsset or not sparkleAsset then
-        print("[WAVE EFFECT] Missing assets - Glow: " .. tostring(glowAsset) .. ", Sparkle: " .. tostring(sparkleAsset))
+        Log.debug("[WAVE EFFECT] Missing assets - Glow: " .. tostring(glowAsset) .. ", Sparkle: " .. tostring(sparkleAsset))
     end
 
     love.graphics.setBlendMode("add")
@@ -207,7 +208,7 @@ local function drawWave(effect)
     
     -- Only report if we drew particles
     if drawnCount > 0 and effect.timer and effect.timer % 1.0 < 0.016 then
-        print("[WAVE EFFECT] Drew " .. drawnCount .. " particles")
+        Log.debug("[WAVE EFFECT] Drew " .. drawnCount .. " particles")
     end
 end
 
@@ -216,4 +217,3 @@ return {
     update = updateWave,
     draw = drawWave,
 }
-

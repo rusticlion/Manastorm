@@ -3,6 +3,7 @@
 
 local Constants = require("core.Constants")
 local expr = require("expr")
+local Log = require("core.Log")
 
 local FireSpells = {}
 
@@ -193,7 +194,7 @@ FireSpells.eruption = {
     sfx = "volcano_rumble",
     
     onMiss = function(caster, target, slot)
-        print(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
+        Log.debug(string.format("[MISS] %s's Lava Eruption misses because conditions aren't right!", caster.name))
         return {
             missBackfire = true,
             backfireDamage = 4,
@@ -202,7 +203,7 @@ FireSpells.eruption = {
     end,
     
     onSuccess = function(caster, target, slot, results)
-        print(string.format("[SUCCESS] %s's Lava Eruption hits %s with full force!", caster.name, target.name))
+        Log.debug(string.format("[SUCCESS] %s's Lava Eruption hits %s with full force!", caster.name, target.name))
         return {
             successMessage = "The ground trembles with volcanic fury!",
             extraEffect = "area_burn",
@@ -227,7 +228,7 @@ FireSpells.battleshield = {
             blocks = {Constants.AttackType.PROJECTILE, Constants.AttackType.ZONE},
             
             onBlock = function(defender, attacker, slotIndex, blockInfo)
-                print("[SPELL DEBUG] Flamewreath onBlock handler executing!")
+                Log.debug("[SPELL DEBUG] Flamewreath onBlock handler executing!")
                 local events = {}
                 
                 local isNearRange = defender
@@ -255,7 +256,7 @@ FireSpells.battleshield = {
                     color = {1.0, 0.7, 0.2, 0.8}
                 })
                 
-                print("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
+                Log.debug("[SPELL DEBUG] Battle Shield returning " .. #events .. " events")
                 return events
             end
         },

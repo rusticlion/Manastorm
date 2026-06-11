@@ -5,6 +5,8 @@
 local Pool = {}
 Pool.__index = Pool
 
+local Log = require("core.Log")
+
 -- Store different pools for different object types
 Pool.pools = {}
 
@@ -52,7 +54,7 @@ function Pool.create(id, initialSize, factoryFn, resetFn)
     end
     
     Pool.pools[id] = pool
-    print("[POOL] Created new pool '" .. id .. "' with " .. (initialSize or 0) .. " objects")
+    Log.debug("[POOL] Created new pool '" .. id .. "' with " .. (initialSize or 0) .. " objects")
     
     return pool
 end
@@ -162,7 +164,7 @@ function Pool.clear(id)
     -- Reset stats
     Pool.stats.poolSizes[id] = 0
     
-    print("[POOL] Cleared pool '" .. id .. "'")
+    Log.debug("[POOL] Cleared pool '" .. id .. "'")
 end
 
 -- Get debug stats about pool usage

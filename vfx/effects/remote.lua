@@ -3,6 +3,7 @@
 
 -- Import dependencies
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local ParticleManager = require("vfx.ParticleManager")
 local BlockRenderer = require("vfx.BlockRenderer")
 local CARenderer = require("vfx.CARenderer")
@@ -302,7 +303,7 @@ local function initializeRemote(effect)
         effect.targetX = centerX
         effect.targetY = centerY
 
-        print(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)",
+        Log.debug(string.format("[VFX] Initializing warp at (%d, %d) with offsets (%d, %d)",
             centerX, centerY, effect.targetEntity.currentXOffset, effect.targetEntity.currentYOffset))
     end
 

@@ -7,6 +7,7 @@ local SpellCompiler = require("spellCompiler")
 local expr = require("expr")
 local ManaHelpers = require("systems.ManaHelpers")
 local Schema = require("spells.schema")
+local Log = require("core.Log")
 
 -- Import all elemental spell collections
 local FireSpells = require("spells.elements.fire")
@@ -54,7 +55,7 @@ local SpellsModule = {
             Schema.validateSpell(spell, id)
             -- References to SpellCompiler and Keywords need to be passed from game object
             -- This function will be called with the correct context from main.lua
-            print("Waiting for SpellCompiler to compile: " .. spell.name)
+            Log.debug("Waiting for SpellCompiler to compile: " .. spell.name)
         end
         return compiled
     end,

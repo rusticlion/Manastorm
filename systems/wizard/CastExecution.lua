@@ -5,6 +5,7 @@ local Constants = require("core.Constants")
 local ShieldSystem = require("systems.ShieldSystem")
 local TokenManager = require("systems.TokenManager")
 local BlockedCastLifecycle = require("systems.wizard.BlockedCastLifecycle")
+local Log = require("core.Log")
 
 local CastExecution = {}
 
@@ -35,7 +36,7 @@ function CastExecution.resolveSpellForCast(caster, slot, resolveCompiledSpell)
         if compiledSpell then
             spellToUse = compiledSpell
             slot.spell = compiledSpell
-            print("Using compiled spell: " .. spellToUse.id)
+            Log.debug("Using compiled spell: " .. spellToUse.id)
         else
             print("Warning: Falling back to original spell - could not get compiled version of " .. spellToUse.id)
         end
@@ -52,7 +53,7 @@ function CastExecution.tryBlockedCast(caster, target, slot, spellSlot, spellToUs
         return nil, blockInfo
     end
 
-    print(string.format("[SHIELD BLOCK] %s's %s was blocked by %s's %s shield!",
+    Log.debug(string.format("[SHIELD BLOCK] %s's %s was blocked by %s's %s shield!",
         caster.name, spellToUse.name, target.name, blockInfo.blockType or "unknown"))
 
     blockInfo.blockPoint = 0.75
@@ -103,19 +104,19 @@ function CastExecution.finalizeCast(caster, slot, spellSlot, spellToUse, effect)
     effect = effect or {}
 
     if effect.blocked then
-        print(string.format("[SHIELD] %s's %s was fully blocked by shield!",
+        Log.debug(string.format("[SHIELD] %s's %s was fully blocked by shield!",
             caster.name, spellToUse.name))
     end
 
     if effect.isShield or slot.isShield then
         if effect.isSustained and effect.isShield then
-            print("[SUSTAINED] Note: Spell " .. spellToUse.id .. " has both isShield and isSustained flags - shields are already sustained")
+            Log.debug("[SUSTAINED] Note: Spell " .. spellToUse.id .. " has both isShield and isSustained flags - shields are already sustained")
         end
         return effect
     end
 
     if slot.sustainedId then
-        print(string.format("[SUSTAINED] %s's spell in slot %d is active with ID: %s",
+        Log.debug(string.format("[SUSTAINED] %s's spell in slot %d is active with ID: %s",
             caster.name,
             spellSlot,
             tostring(slot.sustainedId)))
@@ -136,14 +137,14 @@ function CastExecution.finalizeCast(caster, slot, spellSlot, spellToUse, effect)
         end
 
         if effect.blocked then
-            print("Returning tokens for blocked spell")
+            Log.debug("Returning tokens for blocked spell")
             TokenManager.returnTokensToPool(slot.tokens)
             slot.tokens = {}
         elseif not hasShieldingTokens then
             TokenManager.returnTokensToPool(slot.tokens)
             slot.tokens = {}
         else
-            print("Found SHIELDING tokens, preventing token return")
+            Log.debug("Found SHIELDING tokens, preventing token return")
         end
     end
 

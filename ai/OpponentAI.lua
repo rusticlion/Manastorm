@@ -3,6 +3,7 @@
 -- Phase 2: Modular AI Architecture with Personality System
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local ManaHelpers = require("systems.ManaHelpers")
 local PersonalityBase = require("ai.PersonalityBase")
 
@@ -99,7 +100,7 @@ function OpponentAI:update(dt)
         self.lastPerceptionTime = love.timer.getTime()
         
         -- Debug output (throttled separately)
-        if self.debug.printPerception and love.timer.getTime() - self.debug.lastPerceptionPrintTime > self.debug.perceptionPrintInterval then
+        if Log.verbose and self.debug.printPerception and love.timer.getTime() - self.debug.lastPerceptionPrintTime > self.debug.perceptionPrintInterval then
             self:printPerceptionDebug()
             self.debug.lastPerceptionPrintTime = love.timer.getTime()
         end
@@ -116,13 +117,13 @@ function OpponentAI:update(dt)
         
         -- If state changed, log it and record the time
         if self.currentState ~= self.lastState then
-            print(string.format("[AI] State transition: %s -> %s", 
+            Log.debug(string.format("[AI] State transition: %s -> %s", 
                 self.lastState, self.currentState))
             self.stateChangeTime = love.timer.getTime()
             
             -- Print the decision that led to the state change
             if decision and decision.type then
-                print(string.format("[AI] New Action: %s (reason: %s)", 
+                Log.debug(string.format("[AI] New Action: %s (reason: %s)", 
                     decision.type, decision.reason or "unknown"))
             end
         end
@@ -250,10 +251,10 @@ end
 -- Print debug information about current perception
 function OpponentAI:printPerceptionDebug()
     local p = self.perception
-    print("=== AI PERCEPTION ===")
-    print(string.format("PERSONALITY: %s", self.personality.name))
-    print(string.format("HEALTH: Self=%d, Opponent=%d", p.selfHealth, p.opponentHealth))
-    print(string.format("RANGE: %s, ELEVATION: Self=%s, Opp=%s", 
+    Log.debug("=== AI PERCEPTION ===")
+    Log.debug(string.format("PERSONALITY: %s", self.personality.name))
+    Log.debug(string.format("HEALTH: Self=%d, Opponent=%d", p.selfHealth, p.opponentHealth))
+    Log.debug(string.format("RANGE: %s, ELEVATION: Self=%s, Opp=%s", 
         p.rangeState, p.ownElevation, p.opponentElevation))
     
     -- Token counts
@@ -263,13 +264,13 @@ function OpponentAI:printPerceptionDebug()
             tokenInfo = tokenInfo .. tokenType .. "=" .. count .. " "
         end
     end
-    print(tokenInfo)
+    Log.debug(tokenInfo)
     
     -- Spell slot info (self)
-    print("SPELL SLOTS:")
+    Log.debug("SPELL SLOTS:")
     for i, slot in ipairs(p.spellSlots) do
         if slot.active then
-            print(string.format("  [%d] %s - Progress: %.1f/%.1f %s%s", 
+            Log.debug(string.format("  [%d] %s - Progress: %.1f/%.1f %s%s", 
                 i, slot.spellType or "Unknown", 
                 slot.progress, slot.castTime,
                 slot.isShield and "[SHIELD]" or "",
@@ -278,10 +279,10 @@ function OpponentAI:printPerceptionDebug()
     end
     
     -- Opponent spell slots
-    print("OPPONENT SLOTS:")
+    Log.debug("OPPONENT SLOTS:")
     for i, slot in ipairs(p.opponentSpellSlots) do
         if slot.active then
-            print(string.format("  [%d] %s - Progress: %.1f/%.1f %s", 
+            Log.debug(string.format("  [%d] %s - Progress: %.1f/%.1f %s", 
                 i, slot.spellType or "Unknown", 
                 slot.progress, slot.castTime,
                 slot.isShield and "[SHIELD]" or ""))
@@ -289,11 +290,11 @@ function OpponentAI:printPerceptionDebug()
     end
     
     -- Current AI state
-    print("AI STATE: " .. self.currentState)
+    Log.debug("AI STATE: " .. self.currentState)
     if self.currentDecision then
-        print("CURRENT ACTION: " .. (self.currentDecision.type or "None"))
+        Log.debug("CURRENT ACTION: " .. (self.currentDecision.type or "None"))
     end
-    print("===================")
+    Log.debug("===================")
 end
 
 -- Decide what to do based on current perception
@@ -434,12 +435,12 @@ end
 function OpponentAI:act(decision)
     -- Safety check
     if not decision or not decision.type then
-        print("[AI] No valid decision to act on")
+        print("[AI] WARNING: No valid decision to act on")
         return
     end
     
     -- Log the action
-    print("[AI Action] " .. decision.type)
+    Log.debug("[AI Action] " .. decision.type)
     
     -- For conciseness
     local wizard = self.wizard
@@ -447,78 +448,78 @@ function OpponentAI:act(decision)
     -- Execute based on action type
     if decision.type == "WAIT_ACTION" then
         -- Do nothing (idle)
-        print("[AI] Waiting...")
+        Log.debug("[AI] Waiting...")
         
     elseif decision.type == "FREE_ALL" then
         -- Cancel all active spells
-        print("[AI] Freeing all spells")
+        Log.debug("[AI] Freeing all spells")
         wizard:freeAllSpells()
         
     elseif decision.type == "CAST_SPELL" and decision.spell then
         -- Direct spell casting (specified by higher-level logic)
-        print("[AI] Casting specific spell: " .. decision.spell.name)
+        Log.debug("[AI] Casting specific spell: " .. decision.spell.name)
         local success = wizard:queueSpell(decision.spell)
         if not success then
-            print("[AI] Failed to cast " .. decision.spell.name)
+            Log.debug("[AI] Failed to cast " .. decision.spell.name)
         end
     
     -- Generic action types - try to get a spell from personality as fallback
     elseif decision.type == "ATTACK_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ATTACK, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting attack spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting attack spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable attack spell found")
+            Log.debug("[AI] No suitable attack spell found")
         end
         
     elseif decision.type == "DEFEND_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.DEFEND, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting defense spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting defense spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable defense spell found")
+            Log.debug("[AI] No suitable defense spell found")
         end
         
     elseif decision.type == "COUNTER_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.COUNTER, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting counter spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting counter spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable counter spell found")
+            Log.debug("[AI] No suitable counter spell found")
         end
         
     elseif decision.type == "ESCAPE_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.ESCAPE, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting escape spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting escape spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable escape spell found")
+            Log.debug("[AI] No suitable escape spell found")
         end
         
     elseif decision.type == "POSITION_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.POSITION, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting positioning spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting positioning spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable positioning spell found")
+            Log.debug("[AI] No suitable positioning spell found")
         end
         
     elseif decision.type == "CONJURE_ACTION" then
         local spell = self.personality:getBestSpellForIntent(OpponentAI.STATE.IDLE, self, self.perception, self.wizard.spellbook)
         if spell and self:hasAvailableSpellSlot() and self.wizard:canPayManaCost(spell.cost) then
-            print("[AI] Fallback casting conjure spell: " .. spell.name)
+            Log.debug("[AI] Fallback casting conjure spell: " .. spell.name)
             self.wizard:queueSpell(spell)
         else
-            print("[AI] No suitable conjure spell found")
+            Log.debug("[AI] No suitable conjure spell found")
         end
     
     else
-        print("[AI] Unknown action type: " .. decision.type)
+        print("[AI] WARNING: Unknown action type: " .. decision.type)
     end
 end
 

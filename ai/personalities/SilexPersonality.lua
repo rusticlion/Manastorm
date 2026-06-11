@@ -2,6 +2,7 @@
 -- AI personality module for Silex, the salt mage
 
 local Constants = require("core.Constants")
+local Log = require("core.Log")
 local PersonalityBase = require("ai.PersonalityBase")
 
 -- Define the SilexPersonality module
@@ -123,7 +124,7 @@ end
 
 -- Get the best conjuration spell for the current situation
 function SilexPersonality:getConjureSpell(ai, perception, spellbook)
-    print("Silex:getConjureSpell")
+    Log.debug("Silex:getConjureSpell")
     if ai:hasAvailableSpellSlot() then
         local spell = spellbook["1"] -- Conjure Salt
         if spell and ai.wizard:canPayManaCost(spell.cost) then
